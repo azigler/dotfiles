@@ -1,0 +1,24 @@
+{
+	"folders": [
+		{
+			"name": "🗃️ repos",
+			"path": "../"
+		},
+		{
+			"name": "🩺 .github",
+			"path": "../.github"
+		},
+		{
+			"name": "📇 azigler",
+			"path": "../azigler"
+		},
+		{
+			"name": "💠 dotfiles",
+			"path": "./"
+		},
+		{
+			"name": "🪨 zettelkasten",
+			"path": "../zettelkasten"
+		},
+	]
+}

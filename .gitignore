@@ -1,0 +1,23 @@
+# system
+.DS_Store
+
+# backup
+.backup
+
+# alacritty
+catppuccin-macchiato.toml
+
+# blightmud
+blightmud/plugins
+
+# fonts
+fonts/SauceCodePro
+
+# vim
+vim/autoload/plug.vim
+vim/plugged
+.netrwhist
+viminfo
+
+# zsh
+ohmyzsh

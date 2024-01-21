@@ -1,0 +1,56 @@
+{
+  "[dockercompose]": {
+    "editor.defaultFormatter": "ms-azuretools.vscode-docker"
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  },
+  "[markdown]": {
+    "editor.defaultFormatter": "DavidAnson.vscode-markdownlint"
+  },
+  "[mdx]": {
+    "editor.formatOnSave": false
+  },
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.autopep8",
+    "editor.formatOnType": true
+  },
+  "chat.editor.fontSize": 14,
+  "debug.console.fontSize": 14,
+  "editor.accessibilitySupport": "off",
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.fontFamily": "SauceCodePro Nerd Font Mono",
+  "editor.fontSize": 14,
+  "editor.formatOnPaste": true,
+  "editor.formatOnSave": true,
+  "editor.formatOnType": true,
+  "editor.tabSize": 2,
+  "editor.wordWrap": "on",
+  "eslint.format.enable": true,
+  "explorer.confirmDragAndDrop": false,
+  "git.autofetch": true,
+  "git.confirmSync": false,
+  "git.enableCommitSigning": true,
+  "githubIssues.assignWhenWorking": false,
+  "githubPullRequests.pullBranch": "always",
+  "go.toolsManagement.autoUpdate": true,
+  "markdown.extension.toc.levels": "2..6",
+  "markdown.extension.orderedList.marker": "one",
+  "markdown.preview.fontFamily": "SauceCodePro Nerd Font Propo",
+  "nxConsole.showNodeVersionOnStartup": false,
+  "prettier.ignorePath": ".gitignore",
+  "prettier.semi": false,
+  "python.condaPath": "/Users/andrew/anaconda3/bin/conda",
+  "redhat.telemetry.enabled": false,
+  "security.workspace.trust.untrustedFiles": "open",
+  "scm.inputFontFamily": "editor",
+  "scm.inputFontSize": 14,
+  "screencastMode.keyboardOptions": {
+    "showCommandGroups": true,
+    "showKeys": false
+  },
+  "terminal.integrated.fontSize": 14,
+  "todo-tree.filtering.includeHiddenFiles": true,
+  "workbench.colorTheme": "One Dark Pro",
+  "workbench.iconTheme": "material-icon-theme"
+}
