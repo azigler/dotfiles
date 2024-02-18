@@ -54,7 +54,10 @@ for dir in */ .*/; do
             ;;
         "zsh")
             rm -rf $SCRIPT_DIR/zsh/ohmyzsh
+            rm -rf $SCRIPT_DIR/zsh/.antigen
+            mkdir -p $SCRIPT_DIR/zsh/.antigen
             sh -c "RUNZSH=no ZSH=$SCRIPT_DIR/zsh/ohmyzsh $(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh) --keep-zshrc"
+            fetch_file "https://raw.githubusercontent.com/zsh-users/antigen/master/bin/antigen.zsh" "$SCRIPT_DIR/zsh/.antigen"
             ;;
     esac
 done

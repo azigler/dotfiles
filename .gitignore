@@ -20,4 +20,5 @@ vim/plugged
 viminfo
 
 # zsh
-ohmyzsh
+zsh/.antigen
+zsh/ohmyzsh

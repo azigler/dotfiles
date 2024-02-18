@@ -80,6 +80,7 @@ EOF
             ;;
         "gh")
             sync_source "$SCRIPT_DIR/gh" "$HOME/.config/gh"
+            git config --global gpg.program $(which gpg)
             ;;
         "git")
             sync_source "$SCRIPT_DIR/git/.gitconfig" "$HOME/.gitconfig"
@@ -152,6 +153,9 @@ EOF
             sync_source "$SCRIPT_DIR/zsh/.zprofile" "$HOME/.zprofile"
             sync_source "$SCRIPT_DIR/zsh/.zshenv" "$HOME/.zshenv"
             sync_source "$SCRIPT_DIR/zsh/.zshrc" "$HOME/.zshrc"
+            sync_source "$SCRIPT_DIR/zsh/.p10k.zsh" "$HOME/.p10k.zsh"
+            sync_source "$SCRIPT_DIR/zsh/.antigen" "$HOME/.antigen"
+            sync_source "$SCRIPT_DIR/zsh/.$(hostname -s).zsh" "$HOME/.$(hostname -s).zsh"
             ;;
     esac
 done
