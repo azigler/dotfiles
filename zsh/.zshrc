@@ -16,22 +16,26 @@ antigen theme romkatv/powerlevel10k
 
 antigen use oh-my-zsh
 
-antigen bundle git
 antigen bundle aws
 antigen bundle docker
 antigen bundle docker-compose
 antigen bundle dotenv
+antigen bundle gh
+antigen bundle git
+antigen bundle gpg-agent
+antigen bundle jsontools
 antigen bundle multipass
-antigen bundle yarn
 antigen bundle npm
 antigen bundle nvm
-antigen bundle pyenv
-antigen bundle vscode
-antigen bundle jsontools
-antigen bundle gh
-antigen bundle vi-mode
-antigen bundle web-search
 antigen bundle pip
+antigen bundle pyenv
+antigen bundle systemadmin
+antigen bundle systemd
+antigen bundle tmux
+antigen bundle vi-mode
+antigen bundle vscode
+antigen bundle web-search
+antigen bundle yarn
 
 antigen bundle MichaelAquilina/zsh-you-should-use
 antigen bundle zsh-users/zsh-autosuggestions
