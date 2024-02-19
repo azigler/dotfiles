@@ -35,16 +35,22 @@ for dir in */ .*/; do
             cd $SCRIPT_DIR
             ;;
         "gnupg")
-            gpg --armor --export > "$SCRIPT_DIR/gnupg/$(hostname -s).asc"
+            mkdir -p "$HOME/.gnupg"
+            chmod -R u=rw,u+X,go= $HOME/.gnupg
+            if [ -n "$(gpg --list-secret-keys --keyid-format=long)" ]; then
+                gpg --armor --export > "$SCRIPT_DIR/gnupg/$(hostname -s).asc"
+            fi
             ;;
         "ssh")
-            cp "$HOME/.ssh/id_rsa.pub" "$SCRIPT_DIR/ssh/$(hostname -s).pub"
+            if [ -f "$HOME/.ssh/id_rsa" ]; then
+                cp "$HOME/.ssh/id_rsa.pub" "$SCRIPT_DIR/ssh/$(hostname -s).pub"
+            fi
             ;;
         "vim")
             fetch_file "https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim" "$SCRIPT_DIR/vim/autoload"
             ;;
         "vscode")
-            if command -v my_command >/dev/null 2>&1; then
+            if command -v code >/dev/null 2>&1; then
                 echo "#!/bin/bash" > $SCRIPT_DIR/vscode/install_extensions.sh
                 code --list-extensions | while read -r extension; do
                     echo "code --install-extension \"$extension\"" >> $SCRIPT_DIR/vscode/install_extensions.sh
@@ -56,8 +62,10 @@ for dir in */ .*/; do
             rm -rf $SCRIPT_DIR/zsh/ohmyzsh
             rm -rf $SCRIPT_DIR/zsh/.antigen
             mkdir -p $SCRIPT_DIR/zsh/.antigen
-            sh -c "RUNZSH=no ZSH=$SCRIPT_DIR/zsh/ohmyzsh $(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh) --keep-zshrc"
             fetch_file "https://raw.githubusercontent.com/zsh-users/antigen/master/bin/antigen.zsh" "$SCRIPT_DIR/zsh/.antigen"
+            if [[ "$SHELL" == "/bin/zsh" ]]; then
+                sh -c "RUNZSH=no ZSH=$SCRIPT_DIR/zsh/ohmyzsh $(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh) --keep-zshrc"
+            fi
             ;;
     esac
 done

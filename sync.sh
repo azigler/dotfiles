@@ -47,6 +47,7 @@ for dir in */ .*/; do
             sync_source "$SCRIPT_DIR/aws/config" "$HOME/.aws/config"
             ;;
         "bash")
+            [[ ! -f "$SCRIPT_DIR/bash/.bash_$(hostname -s)" ]] || sync_source "$SCRIPT_DIR/bash/.bash_$(hostname -s)" "$HOME/.bash_$(hostname -s)"
             sync_source "$SCRIPT_DIR/bash/.bash_aliases" "$HOME/.bash_aliases"
             sync_source "$SCRIPT_DIR/bash/.bash_login" "$HOME/.bash_login"
             sync_source "$SCRIPT_DIR/bash/.bash_logout" "$HOME/.bash_logout"
@@ -56,7 +57,7 @@ for dir in */ .*/; do
             sync_source "$SCRIPT_DIR/bash/.profile" "$HOME/.profile"
             ;;
         "blightmud")
-        if [[ "$OSTYPE" == "darwin"* ]]; then
+            if [[ "$OSTYPE" == "darwin"* ]]; then
                 STAT_COMMAND="gstat"
             elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
                 STAT_COMMAND="stat"
@@ -70,7 +71,9 @@ EOF
             sync_source "$SCRIPT_DIR/blightmud/plugins" "$HOME/.local/share/blightmud/plugins"
             ;;
         "cloud-config")
-            sed -i "" -e "s|.*andrew@metis\.local.*|      - $(echo -n $(cat $SCRIPT_DIR/ssh/$(hostname -s).pub))|" $SCRIPT_DIR/cloud-config/cloud-config.yml
+            if [[ $(hostname -s) == "metis" ]]; then
+                sed -i "" -e "s|.*andrew@metis\.local.*|      - $(echo -n $(cat $SCRIPT_DIR/ssh/$(hostname -s).pub))|" $SCRIPT_DIR/cloud-config/cloud-config.yml
+            fi 
             ;;
         "conda")
             sync_source "$SCRIPT_DIR/conda/.condarc" "$HOME/.condarc"
@@ -97,17 +100,22 @@ EOF
             sync_source "$SCRIPT_DIR/npm/.npmrc" "$HOME/.npmrc"
             ;;
         "opencommit")
-            oco config set OCO_DESCRIPTION=true
-            oco config set OCO_EMOJI=true
-            oco config set OCO_MODEL="gpt-4"
-            if [[ $(oco config get OCO_OPENAI_API_KEY) =~ "undefined" ]]; then
-                echo "Enter your OpenAI API key:"
-                read -r openai_api_key
-                oco config set OCO_OPENAI_API_KEY="$openai_api_key"
+            if command -v oco >/dev/null 2>&1; then
+                oco config set OCO_DESCRIPTION=true
+                oco config set OCO_EMOJI=true
+                oco config set OCO_MODEL="gpt-4"
+                if [[ $(oco config get OCO_OPENAI_API_KEY) =~ "undefined" ]]; then
+                    echo "Enter your OpenAI API key:"
+                    read -r openai_api_key
+                    oco config set OCO_OPENAI_API_KEY="$openai_api_key"
+                fi
             fi
             ;;
         "ranger")
             sync_source "$SCRIPT_DIR/ranger" "$HOME/.config/ranger"
+            ;;
+        "rustup")
+            sync_source "$SCRIPT_DIR/rustup/settings.toml" "$HOME/.rustup/settings.toml"
             ;;
         "sketchybar")
             sync_source "$SCRIPT_DIR/sketchybar" "$HOME/.config/sketchybar"
@@ -117,21 +125,25 @@ EOF
             sync_source "$SCRIPT_DIR/skhd/skhdrc" "$HOME/.skhdrc"
             ;;
         "ssh")
-            if [ -ne "$HOME/.ssh/local" ]; then
+            if [[ ! -f "$HOME/.ssh/local" && -f "$HOME/.ssh/config" && ! -L "$HOME/.ssh/config" ]]; then
                 mv "$HOME/.ssh/config" "$HOME/.ssh/local"
             fi
             sync_source "$SCRIPT_DIR/ssh/config" "$HOME/.ssh/config"
+            if [[ -L "$HOME/.ssh/config" && ! -f "$HOME/.ssh/local" ]]; then
+                touch "$HOME/.ssh/local"
+            fi
             ;;
         "tmux")
             sync_source "$SCRIPT_DIR/tmux/tmux.conf" "$HOME/.tmux.conf"
+            sync_source "$SCRIPT_DIR/tmux/start.sh" "$HOME/.local/share/tmux/start.sh"
             ;;
         "vim")
             sync_source "$SCRIPT_DIR/vim" "$HOME/.vim"
             sync_source "$SCRIPT_DIR/vim/vimrc" "$HOME/.vimrc"
             ;;
         "vscode")
-            if [[ -f "$SCRIPT_DIR/vscode/install_extensions.sh" ]]; then
-                sh "$SCRIPT_DIR/vscode/install_extensions.sh"
+            if command -v code >/dev/null 2>&1; then
+                [[ ! -f "$SCRIPT_DIR/vscode/install_extensions.sh" ]] || sh "$SCRIPT_DIR/vscode/install_extensions.sh"
             fi
             if [[ "$OSTYPE" == "darwin"* ]]; then
                 sync_source "$SCRIPT_DIR/vscode/settings.json" "$HOME/Library/Application Support/Code/User/settings.json"
@@ -147,7 +159,10 @@ EOF
             sync_source "$SCRIPT_DIR/yarn/.yarnrc" "$HOME/.yarnrc"
             ;;
         "zsh")
-            sync_source "$SCRIPT_DIR/zsh/ohmyzsh" "$HOME/.oh-my-zsh"
+            if [[ "$SHELL" == "/bin/zsh" ]]; then
+                sync_source "$SCRIPT_DIR/zsh/ohmyzsh" "$HOME/.oh-my-zsh"
+                [[ ! -f "$SCRIPT_DIR/zsh/.$(hostname -s).zsh" ]] || sync_source "$SCRIPT_DIR/zsh/.$(hostname -s).zsh" "$HOME/.$(hostname -s).zsh"
+            fi
             sync_source "$SCRIPT_DIR/zsh/.zlogin" "$HOME/.zlogin"
             sync_source "$SCRIPT_DIR/zsh/.zlogout" "$HOME/.zlogout"
             sync_source "$SCRIPT_DIR/zsh/.zprofile" "$HOME/.zprofile"
@@ -155,7 +170,6 @@ EOF
             sync_source "$SCRIPT_DIR/zsh/.zshrc" "$HOME/.zshrc"
             sync_source "$SCRIPT_DIR/zsh/.p10k.zsh" "$HOME/.p10k.zsh"
             sync_source "$SCRIPT_DIR/zsh/.antigen" "$HOME/.antigen"
-            sync_source "$SCRIPT_DIR/zsh/.$(hostname -s).zsh" "$HOME/.$(hostname -s).zsh"
             ;;
     esac
 done

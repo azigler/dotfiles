@@ -30,7 +30,6 @@
   "explorer.confirmDragAndDrop": false,
   "git.autofetch": true,
   "git.confirmSync": false,
-  "git.enableCommitSigning": true,
   "githubIssues.assignWhenWorking": false,
   "githubPullRequests.pullBranch": "always",
   "go.toolsManagement.autoUpdate": true,

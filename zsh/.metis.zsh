@@ -1,4 +1,4 @@
-export PATH="$HOME/.yarn/bin:$HOME/.config/yarn/global/node_modules/.bin:/opt/homebrew/bin:$HOME/.cargo/bin:$PATH"
+export PATH="$HOME/.yarn/bin:$HOME/.config/yarn/global/node_modules/.bin:$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
 
 export EDITOR="vim"
 
@@ -9,5 +9,17 @@ export NVM_DIR="$HOME/.nvm"
 export PYENV_ROOT="$HOME/.pyenv"
 command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"
 eval "$(pyenv init -)"
+eval "$(pyenv virtualenv-init -)"
 
-export OPENSSL_ROOT_DIR=$(brew --prefix openssl)
+__conda_setup="$('/Users/andrew/anaconda3/bin/conda' 'shell.bash' 'hook' 2> /dev/null)"
+if [ $? -eq 0 ]; then
+    eval "$__conda_setup"
+else
+    if [ -f "/Users/andrew/anaconda3/etc/profile.d/conda.sh" ]; then
+        . "/Users/andrew/anaconda3/etc/profile.d/conda.sh"
+    else
+        export PATH="/Users/andrew/anaconda3/bin:$PATH"
+    fi
+fi
+
+source "$HOME/.cargo/env"
