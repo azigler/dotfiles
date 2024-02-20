@@ -57,17 +57,7 @@ for dir in */ .*/; do
             sync_source "$SCRIPT_DIR/bash/.profile" "$HOME/.profile"
             ;;
         "blightmud")
-            if [[ "$OSTYPE" == "darwin"* ]]; then
-                STAT_COMMAND="gstat"
-            elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-                STAT_COMMAND="stat"
-            fi
-            cat << EOF > "$SCRIPT_DIR/blightmud/data.ron"
-{"mcp_settings":"{\"debug_mcp\":false,\"simpleedit_path\":\"$HOME/.local/share/blightmud/plugins/blightmud_mcp/simpleedit/\",\"lambdamoo_connect_string\":\"\\\\*\\\\*\\\\* Connected \\\\*\\\\*\\\\*\",\"stat_command\":\"${STAT_COMMAND}\",\"simpleedit_timeout\":10800,\"edit_command\":\"tmux new-window -n %NAME vim \\\"%FILE\\\"\"}"}
-EOF
-            sync_source "$SCRIPT_DIR/blightmud/servers.ron" "$HOME/.config/blightmud/servers.ron"
             sync_source "$SCRIPT_DIR/blightmud/autoload_plugins.ron" "$HOME/.local/share/blightmud/autoload_plugins.ron"
-            sync_source "$SCRIPT_DIR/blightmud/data.ron" "$HOME/.local/share/blightmud/store/data.ron"
             sync_source "$SCRIPT_DIR/blightmud/plugins" "$HOME/.local/share/blightmud/plugins"
             ;;
         "cloud-config")
