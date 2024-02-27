@@ -126,6 +126,7 @@ for dir in */ .*/; do
         "tmux")
             sync_source "$SCRIPT_DIR/tmux/tmux.conf" "$HOME/.tmux.conf"
             sync_source "$SCRIPT_DIR/tmux/start.sh" "$HOME/.local/share/tmux/start.sh"
+            sync_source "$SCRIPT_DIR/tmux/plugins" "$HOME/.tmux/plugins"
             ;;
         "vim")
             sync_source "$SCRIPT_DIR/vim" "$HOME/.vim"

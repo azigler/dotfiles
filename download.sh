@@ -50,6 +50,11 @@ for dir in */ .*/; do
                 cp "$HOME/.ssh/id_rsa.pub" "$SCRIPT_DIR/ssh/$(hostname -s).pub"
             fi
             ;;
+        "tmux")
+            rm -rf $SCRIPT_DIR/tmux/plugins
+            git clone https://github.com/tmux-plugins/tpm $SCRIPT_DIR/tmux/plugins/tpm
+            source $SCRIPT_DIR/tmux/plugins/tpm/bin/install_plugins
+            ;;
         "vim")
             fetch_file "https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim" "$SCRIPT_DIR/vim/autoload"
             ;;

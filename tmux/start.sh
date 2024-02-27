@@ -1,3 +1,9 @@
+#!/bin/bash
+
+if [[ "$__CFBundleIdentifier" = *"VSCode"* ]]; then
+  return
+fi
+
 if [[ "$OSTYPE" == "darwin"* ]]; then
     tmux_command="/opt/homebrew/opt/tmux/bin/tmux"
 elif [[ "$OSTYPE" == "linux-gnu"* ]]; then

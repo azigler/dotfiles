@@ -13,6 +13,9 @@ blightmud/plugins
 # fonts
 fonts/SauceCodePro
 
+# tmux
+tmux/plugins
+
 # vim
 vim/autoload/plug.vim
 vim/plugged
