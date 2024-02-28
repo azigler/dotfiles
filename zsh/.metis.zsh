@@ -1,5 +1,6 @@
 export PATH="$HOME/.yarn/bin:$HOME/.config/yarn/global/node_modules/.bin:$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
 
+export VISUAL="vim"
 export EDITOR="vim"
 
 export NVM_DIR="$HOME/.nvm"
