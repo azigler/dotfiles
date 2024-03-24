@@ -8,9 +8,6 @@
   "[markdown]": {
     "editor.defaultFormatter": "DavidAnson.vscode-markdownlint"
   },
-  "[mdx]": {
-    "editor.formatOnSave": false
-  },
   "[python]": {
     "editor.defaultFormatter": "ms-python.autopep8",
     "editor.formatOnType": true
