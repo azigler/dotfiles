@@ -60,6 +60,9 @@ for dir in */ .*/; do
             sync_source "$SCRIPT_DIR/blightmud/autoload_plugins.ron" "$HOME/.local/share/blightmud/autoload_plugins.ron"
             sync_source "$SCRIPT_DIR/blightmud/plugins" "$HOME/.local/share/blightmud/plugins"
             ;;
+        "borders")
+            sync_source "$SCRIPT_DIR/borders/bordersrc" "$HOME/.config/borders/bordersrc"
+            ;;
         "cloud-config")
             if [[ $(hostname -s) == "metis" ]]; then
                 sed -i "" -e "s|.*andrew@metis\.local.*|      - $(echo -n $(cat $SCRIPT_DIR/ssh/$(hostname -s).pub))|" $SCRIPT_DIR/cloud-config/cloud-config.yml
