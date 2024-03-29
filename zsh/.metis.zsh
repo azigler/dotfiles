@@ -1,4 +1,4 @@
-export PATH="$HOME/.yarn/bin:$HOME/.config/yarn/global/node_modules/.bin:$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
+export PATH="$HOME/.yarn/bin:$HOME/.config/yarn/global/node_modules/.bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/share/dotnet/x64:$PATH"
 
 export VISUAL="vim"
 export EDITOR="vim"
@@ -24,3 +24,5 @@ else
 fi
 
 source "$HOME/.cargo/env"
+
+eval "$(gh copilot alias -- zsh)"

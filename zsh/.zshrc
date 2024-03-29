@@ -47,5 +47,3 @@ antigen bundle zsh-users/zsh-syntax-highlighting
 antigen apply
 
 [[ ! -f "$HOME/.p10k.zsh" ]] || source "$HOME/.p10k.zsh"
-
-eval "$(gh copilot alias -- zsh)"
