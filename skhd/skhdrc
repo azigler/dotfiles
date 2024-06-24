@@ -1,0 +1,20 @@
+# window navigation
+alt - h: yabai -m window --focus west
+alt - j: yabai -m window --focus south
+alt - k: yabai -m window --focus north
+alt - l: yabai -m window --focus east
+alt - 0x29: yabai -m space --rotate 270
+alt - 0x27: yabai -m space --rotate 90
+
+# window management
+cmd + alt - 0: yabai -m space --balance
+
+# reload skhd and sketchybar
+cmd + alt - space: sketchybar --reload && skhd --reload
+
+# toggle sketchybar visibility
+ctrl + alt - space: sketchybar --bar hidden=toggle
+
+# space management
+ctrl + alt - n: yabai -m space --create
+ctrl + alt - w: yabai -m space --destroy

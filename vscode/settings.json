@@ -27,6 +27,7 @@
   "explorer.confirmDragAndDrop": false,
   "git.autofetch": true,
   "git.confirmSync": false,
+  "github.copilot.editor.enableAutoCompletions": true,
   "githubIssues.assignWhenWorking": false,
   "githubPullRequests.pullBranch": "always",
   "go.toolsManagement.autoUpdate": true,
@@ -46,6 +47,7 @@
     "showKeys": false
   },
   "terminal.integrated.fontSize": 14,
+  "terminal.integrated.middleClickBehavior": "paste",
   "todo-tree.filtering.includeHiddenFiles": true,
   "workbench.colorTheme": "One Dark Pro",
   "workbench.iconTheme": "material-icon-theme"

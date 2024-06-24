@@ -17,6 +17,9 @@ fetch_file() {
     fi
 }
 
+# Upgrades brew formulae
+brew upgrade
+
 for dir in */ .*/; do
     case ${dir%/} in
         "alacritty")
