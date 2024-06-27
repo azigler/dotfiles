@@ -13,7 +13,7 @@ back_up_and_remove() {
         mkdir -p "$back_up_to"
         cp -r "$to_back_up" "$back_up_to"
         if [ $? -ne 0 ]; then
-            echo "Error: Failed to copy $to_back_up to $back_up_to"
+            echo "❌ Error: Failed to copy $to_back_up to $back_up_to"
             exit 1
         fi
         rm -rf "$to_back_up"
@@ -27,12 +27,16 @@ back_up_and_remove() {
 sync_source() {
     local sync_from=$1
     local sync_to=$2
+    if [ ! -e "$sync_from" ]; then
+        echo "❌ Error: $sync_from does not exist"
+        return
+    fi
     echo "🗄️ Synchronizing $sync_from to $sync_to..."
     back_up_and_remove "$sync_to"
     mkdir -p "$(dirname "$sync_to")"
     ln -s "$sync_from" "$sync_to"
     if [ $? -ne 0 ]; then
-        echo "Error: Failed to create symlink to $sync_to directory"
+        echo "❌ Error: Failed to create symlink to $sync_to directory"
         exit 1
     fi
 

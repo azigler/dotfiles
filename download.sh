@@ -12,7 +12,7 @@ fetch_file() {
 
     curl -LO --output-dir "$output_dir" "$url"
     if [ $? -ne 0 ]; then
-        echo "Error: Failed to download $url"
+        echo "❌ Error: Failed to download $url"
         exit 1
     fi
 }
