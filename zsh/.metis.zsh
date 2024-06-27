@@ -23,6 +23,4 @@ else
     fi
 fi
 
-source "$HOME/.cargo/env"
-
 eval "$(gh copilot alias -- zsh)"
