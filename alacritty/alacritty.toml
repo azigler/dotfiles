@@ -243,7 +243,7 @@ command = "None"  # Default: "None"
 [selection]
 
 # Characters that are used as separators for "semantic words" in Alacritty
-semantic_escape_chars = ",│`|:\"' ()[]{}<>\\t"  # Default: ",│`|:\"' ()[]{}<>\\t"
+semantic_escape_chars = ",│`|:\"' ()[]{}<>\t"  # Default: ",│`|:\"' ()[]{}<>\t"
 
 # When set to true, selected text will be copied to the primary clipboard
 save_to_clipboard = false  # Default: false
