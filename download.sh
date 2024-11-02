@@ -30,11 +30,7 @@ for dir in */ .*/; do
             ;;
         "blightmud")
             rm -rf "$SCRIPT_DIR/blightmud/plugins/blightmud_mcp"
-            if [[ "$OSTYPE" == "darwin"* ]]; then
-                git clone -b darwin https://github.com/azigler/blightmud_mcp "$SCRIPT_DIR/blightmud/plugins/blightmud_mcp"
-            elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-                git clone -b linux-gnu https://github.com/azigler/blightmud_mcp "$SCRIPT_DIR/blightmud/plugins/blightmud_mcp"
-            fi
+            git clone https://github.com/lisdude/blightmud_mcp "$SCRIPT_DIR/blightmud/plugins/blightmud_mcp"
             ;;
         "fonts")
             mkdir -p "$SCRIPT_DIR/fonts/SauceCodePro"

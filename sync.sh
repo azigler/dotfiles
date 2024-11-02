@@ -51,7 +51,7 @@ for dir in */ .*/; do
             sync_source "$SCRIPT_DIR/aws/config" "$HOME/.aws/config"
             ;;
         "bash")
-            [[ ! -f "$SCRIPT_DIR/bash/.bash_$(hostname -s)" ]] || sync_source "$SCRIPT_DIR/bash/.bash_$(hostname -s)" "$HOME/.bash_$(hostname -s)"
+            [[ ! -f "$SCRIPT_DIR/bash/.$(hostname -s).bashrc" ]] || sync_source "$SCRIPT_DIR/bash/.$(hostname -s).bashrc" "$HOME/.$(hostname -s).bashrc"
             sync_source "$SCRIPT_DIR/bash/.bash_aliases" "$HOME/.bash_aliases"
             sync_source "$SCRIPT_DIR/bash/.bash_login" "$HOME/.bash_login"
             sync_source "$SCRIPT_DIR/bash/.bash_logout" "$HOME/.bash_logout"
@@ -106,6 +106,13 @@ for dir in */ .*/; do
                     read -r openai_api_key
                     oco config set OCO_OPENAI_API_KEY="$openai_api_key"
                 fi
+            fi
+            ;;
+        "pnpm")
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                sync_source "$SCRIPT_DIR/pnpm" "$HOME/Library/Preferences/pnpm"
+            elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+                sync_source "$SCRIPT_DIR/pnpm" "$HOME/.config/pnpm"
             fi
             ;;
         "ranger")
