@@ -98,13 +98,14 @@ for dir in */ .*/; do
             ;;
         "opencommit")
             if command -v oco >/dev/null 2>&1; then
+                oco config set OCO_AI_PROVIDER="anthropic"
                 oco config set OCO_DESCRIPTION=true
                 oco config set OCO_EMOJI=true
-                oco config set OCO_MODEL="gpt-4"
-                if [[ $(oco config get OCO_OPENAI_API_KEY) =~ "undefined" ]]; then
-                    echo "Enter your OpenAI API key:"
-                    read -r openai_api_key
-                    oco config set OCO_OPENAI_API_KEY="$openai_api_key"
+                oco config set OCO_MODEL="claude-3-5-sonnet-latest"
+                if [[ $(oco config get OCO_API_KEY) =~ "undefined" ]]; then
+                    echo "Enter your API key:"
+                    read -r api_key
+                    oco config set OCO_API_KEY="$api_key"
                 fi
             fi
             ;;
