@@ -4,6 +4,8 @@
 # GENERAL #
 ###########
 
+[general]
+
 # Import additional configuration files
 import = [
   "~/.config/alacritty/catppuccin-macchiato.toml"
@@ -30,6 +32,7 @@ ipc_socket = true  # Default: true
 #######
 
 [env]
+
 # Environment variables
 TERM = "xterm-256color"
 
