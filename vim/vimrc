@@ -1,0 +1,163 @@
+"###########
+"# PLUGINS #
+"###########
+
+autocmd VimEnter * if len(filter(values(g:plugs), '!isdirectory(v:val.dir)'))
+    \| PlugInstall --sync | source $MYVIMRC
+\| endif
+
+call plug#begin('$HOME/.vim/plugged')
+    " Interface
+    Plug 'vim-airline/vim-airline'
+    Plug 'catppuccin/vim', { 'as': 'catppuccin' }
+    Plug 'preservim/nerdtree'
+    Plug 'preservim/tagbar'
+    Plug 'ctrlpvim/ctrlp.vim'
+
+    " Git
+    Plug 'tpope/vim-fugitive'
+    Plug 'airblade/vim-gitgutter'
+
+    " Editor
+    Plug 'tpope/vim-sensible'
+    Plug 'tpope/vim-surround'
+    Plug 'tpope/vim-commentary'
+    Plug 'tpope/vim-repeat'
+    Plug 'tpope/vim-speeddating'
+    
+    " Languages
+    Plug 'fatih/vim-go', { 'do': ':GoUpdateBinaries' }
+    Plug 'mattn/emmet-vim'
+    
+    " AI
+    Plug 'github/copilot.vim'
+call plug#end()
+
+"##########
+"# THEME  #
+"##########
+
+let g:airline_theme = 'catppuccin_mocha'
+let g:airline_powerline_fonts = 1
+set termguicolors
+colorscheme catppuccin_macchiato
+
+"###########
+"# DISPLAY #
+"###########
+
+set number          " Line numbers
+set cursorline      " Highlight current line
+set cursorcolumn    " Highlight current column
+set foldcolumn=1    " Left margin
+set cmdheight=1     " Command height
+set showcmd         " Show commands
+set showmatch       " Show brackets
+set lazyredraw      " Macro performance
+set wrap            " Wrap lines
+
+"##########
+"# FILES  #
+"##########
+
+set hidden          " Allow hidden buffers
+set nobackup        " No backup files
+set nowb            " No write backup
+set noswapfile      " No swap files
+set history=1000    " Command history
+set viminfofile=$HOME/.vim/viminfo
+
+"##########
+"# INDENT #
+"##########
+
+set shiftwidth=4    " Indent size
+set tabstop=4       " Tab size
+set expandtab       " Spaces not tabs
+set smarttab        " Smart tabs
+set autoindent      " Keep indent
+set smartindent     " Smart indent
+
+"##########
+"# EDITOR #
+"##########
+set backspace=eol,start,indent
+set whichwrap+=<,>,h,l
+set magic           " Regex magic
+set scrolloff=10    " Scroll margin
+set mouse=a         " Mouse support
+
+"##########
+"# SEARCH #
+"##########
+set incsearch       " Incremental
+set ignorecase      " Ignore case
+set smartcase       " Smart case
+set hlsearch        " Highlight
+set wildmenu        " Command menu
+set wildmode=list:longest
+
+"##########
+"# FILES  #
+"##########
+
+filetype on
+syntax on
+filetype indent on
+filetype plugin on
+au BufReadPost * if line("'\"") > 1 && line("'\"") <= line("$") | exe "normal! g'\"" | endif
+
+"############
+"# MAPPINGS #
+"############
+
+let mapleader = "\\"
+
+" Quick commands
+nmap <leader>w :w!<cr>
+map <leader>ss :setlocal spell!<cr>
+nnoremap <space> :
+nnoremap Y y$
+nnoremap <leader>\ ``
+
+" Windows
+nnoremap <C-j> <C-w>j
+nnoremap <C-k> <C-w>k
+nnoremap <C-h> <C-w>h
+nnoremap <C-l> <C-w>l
+
+" Buffers
+map <leader>bd :Bclose<cr>:tabclose<cr>gT
+map <leader>ba :bufdo bd<cr>
+map <leader>l :bnext<cr>
+map <leader>h :bprevious<cr>
+
+" Tabs
+map <leader>tn :tabnew<cr>
+map <leader>to :tabonly<cr>
+map <leader>tc :tabclose<cr>
+map <leader>tm :tabmove
+map <leader>t<leader> :tabnext<cr>
+
+" Last tab
+let g:lasttab = 1
+nmap <leader>tl :exe "tabn ".g:lasttab<CR>
+au TabLeave * let g:lasttab = tabpagenr()
+
+" Files
+map <leader>te :tabedit <C-r>=escape(expand("%:p:h"), " ")<cr>/
+map <leader>cd :cd %:p:h<cr>:pwd<cr>
+
+" Lines
+nnoremap o o<esc>
+nnoremap O O<esc>
+
+" Visual search
+vnoremap <silent> * :<C-u>call VisualSelection('', '')<CR>/<C-R>=@/<CR><CR>
+vnoremap <silent> # :<C-u>call VisualSelection('', '')<CR>?<C-R>=@/<CR><CR>
+
+" Plugins
+nnoremap <leader>+ :NERDTreeToggle<cr>
+
+" Commands
+command! W execute 'w !sudo tee % > /dev/null' <bar> edit!

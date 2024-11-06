@@ -33,7 +33,7 @@ ipc_socket = true  # Default: true
 
 [env]
 
-# Environment variables
+# Needed for $HOME/.vimrc
 TERM = "xterm-256color"
 
 ##########
