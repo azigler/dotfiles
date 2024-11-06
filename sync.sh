@@ -90,9 +90,6 @@ for dir in */ .*/; do
             sync_source "$SCRIPT_DIR/gnupg/gpg-agent.conf" "$HOME/.gnupg/gpg-agent.conf"
             sync_source "$SCRIPT_DIR/gnupg/gpg.conf" "$HOME/.gnupg/gpg.conf"
             ;;
-        "neofetch")
-            sync_source "$SCRIPT_DIR/neofetch" "$HOME/.config/neofetch"
-            ;;
         "npm")
             sync_source "$SCRIPT_DIR/npm/.npmrc" "$HOME/.npmrc"
             ;;
