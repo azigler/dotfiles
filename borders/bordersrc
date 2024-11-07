@@ -1,10 +1,10 @@
 #!/bin/bash
 
 options=(
-	style=square
-	active_color=0xFFE271E8
+	style=round
+	active_color=0xFFF6E2B9
 	inactive_color=0xFF442746
-	width=3.0
+	width=4.0
 	hidpi=on
 )
 
