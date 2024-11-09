@@ -15,10 +15,6 @@
 		{
 			"name": "💠 dotfiles",
 			"path": "./"
-		},
-		{
-			"name": "🪨 zettelkasten",
-			"path": "../zettelkasten"
-		},
+		}
 	]
 }

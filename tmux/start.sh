@@ -4,6 +4,8 @@ if [[ "$__CFBundleIdentifier" = *"VSCode"* ]]; then
   return
 fi
 
+TMUX_PLUGIN_MANAGER_PATH="$HOME/.tmux/plugins/"
+
 if [[ "$OSTYPE" == "darwin"* ]]; then
     tmux_command="/opt/homebrew/opt/tmux/bin/tmux"
 elif [[ "$OSTYPE" == "linux-gnu"* ]]; then

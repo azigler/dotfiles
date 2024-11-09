@@ -14,7 +14,8 @@ blightmud/plugins
 fonts/SauceCodePro
 
 # tmux
-tmux/plugins
+tmux/plugins/*
+!tmux/plugins/.gitkeep
 
 # vim
 vim/autoload/plug.vim

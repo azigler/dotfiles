@@ -53,7 +53,7 @@ for dir in */ .*/; do
             fi
             ;;
         "tmux")
-            rm -rf $SCRIPT_DIR/tmux/plugins
+            rm -rf $SCRIPT_DIR/tmux/plugins/tpm
             git clone https://github.com/tmux-plugins/tpm $SCRIPT_DIR/tmux/plugins/tpm
             source $SCRIPT_DIR/tmux/plugins/tpm/bin/install_plugins
             ;;
@@ -77,6 +77,7 @@ for dir in */ .*/; do
             if [[ "$SHELL" == "/bin/zsh" ]]; then
                 sh -c "RUNZSH=no ZSH=$SCRIPT_DIR/zsh/ohmyzsh $(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh) --keep-zshrc"
             fi
+            # Use 'antigen reset' in the zsh shell if p10k does not load.
             ;;
     esac
 done
