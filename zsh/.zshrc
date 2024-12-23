@@ -7,6 +7,7 @@ source "$HOME/.local/share/tmux/start.sh"
 [[ ! -f "$HOME/.bash_aliases" ]] || source "$HOME/.bash_aliases"
 
 [[ ! -f "$HOME/.bun/_bun" ]] || source "$HOME/.bun/_bun"
+fpath+="$HOME/.bun"
 
 zstyle ':omz:update' mode auto
 ENABLE_CORRECTION="true"
