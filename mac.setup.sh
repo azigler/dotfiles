@@ -6,6 +6,7 @@ brew install tmux jq gh ranger font-sauce-code-pro-nerd-font koekeishiya/formula
 
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
 curl -fsSL https://get.pnpm.io/install.sh | sh -
+curl -fsSL https://bun.sh/install | bash
 
 gh auth login
 gh extension install github/gh-copilot
