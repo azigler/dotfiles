@@ -34,6 +34,7 @@
   "markdown.extension.toc.levels": "2..6",
   "markdown.extension.orderedList.marker": "one",
   "markdown.preview.fontFamily": "SauceCodePro Nerd Font Propo",
+  "mcp-companion.enableInlineButtons": false,
   "nxConsole.showNodeVersionOnStartup": false,
   "prettier.ignorePath": ".gitignore",
   "prettier.semi": false,
