@@ -42,8 +42,9 @@ sync_source() {
 
 }
 
-for dir in */ .*/; do
-    case ${dir%/} in
+sync() {
+    local dir=$1
+    case ${dir} in
         "alacritty")
             sync_source "$SCRIPT_DIR/alacritty" "$HOME/.config/alacritty"
             ;;
@@ -96,9 +97,9 @@ for dir in */ .*/; do
         "opencommit")
             if command -v oco >/dev/null 2>&1; then
                 oco config set OCO_AI_PROVIDER="anthropic"
-                oco config set OCO_DESCRIPTION=true
+                oco config set OCO_DESCRIPTION=false
                 oco config set OCO_EMOJI=true
-                oco config set OCO_MODEL="claude-3-5-sonnet-latest"
+                oco config set OCO_MODEL="claude-3-7-sonnet-latest"
                 if [[ $(oco config get OCO_API_KEY) =~ "undefined" ]]; then
                     echo "Enter your API key:"
                     read -r api_key
@@ -175,4 +176,13 @@ for dir in */ .*/; do
             sync_source "$SCRIPT_DIR/zsh/.antigen" "$HOME/.antigen"
             ;;
     esac
-done
+}
+
+if [ -n "$1" ]; then
+    sync "$1"
+    echo "Ran sync.sh for $1"
+else
+    for dir in */ .*/; do
+        sync "${dir%/}"
+    done
+fi

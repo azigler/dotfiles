@@ -1,4 +1,4 @@
-export PATH="$HOME/.yarn/bin:$HOME/.config/yarn/global/node_modules/.bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/share/dotnet/x64:$HOME/.bun/bin:$PATH"
+export PATH="$HOME/.yarn/bin:$HOME/.config/yarn/global/node_modules/.bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/share/dotnet/x64:$HOME/.bun/bin:$HOME/.local/bin:$PATH"
 
 export EDITOR="vim"
 export VISUAL=$EDITOR
@@ -30,3 +30,5 @@ else
 fi
 
 eval "$(gh copilot alias -- zsh)"
+
+[ -s "/Users/andrew/.bun/_bun" ] && source "/Users/andrew/.bun/_bun"

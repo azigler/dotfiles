@@ -23,8 +23,15 @@ brew upgrade
 # Upgrades rust
 rustup update
 
-for dir in */ .*/; do
-    case ${dir%/} in
+# Upgrades bun
+bun upgrade
+
+# Updates goose
+goose update
+
+download() {
+    local dir=$1
+    case ${dir} in
         "alacritty")
             fetch_file "https://github.com/catppuccin/alacritty/raw/main/catppuccin-macchiato.toml" "$SCRIPT_DIR/alacritty"
             ;;
@@ -80,4 +87,13 @@ for dir in */ .*/; do
             # Use 'antigen reset' in the zsh shell if p10k does not load.
             ;;
     esac
-done
+}
+
+if [ -n "$1" ]; then
+    download "$1"
+    echo "Ran download.sh for $1"
+else
+    for dir in */ .*/; do
+        download "${dir%/}"
+    done
+fi
