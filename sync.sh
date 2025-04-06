@@ -76,6 +76,12 @@ sync() {
         "conda")
             sync_source "$SCRIPT_DIR/conda/.condarc" "$HOME/.condarc"
             ;;
+        "cursor")
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                sync_source "$SCRIPT_DIR/cursor/settings.json" "/Users/$USER/Library/Application Support/Cursor/User/settings.json"
+            fi
+            sync_source "$SCRIPT_DIR/cursor/mcp.json" "/Users/$USER/.cursor/mcp.json"
+            ;;
         "editorconfig")
             sync_source "$SCRIPT_DIR/editorconfig/.editorconfig" "$HOME/.editorconfig"
             ;;
@@ -91,6 +97,9 @@ sync() {
             sync_source "$SCRIPT_DIR/gnupg/gpg-agent.conf" "$HOME/.gnupg/gpg-agent.conf"
             sync_source "$SCRIPT_DIR/gnupg/gpg.conf" "$HOME/.gnupg/gpg.conf"
             ;;
+        "goose")
+            sync_source "$SCRIPT_DIR/goose/config.yaml" "$HOME/.config/goose/config.yaml"
+            ;;
         "npm")
             sync_source "$SCRIPT_DIR/npm/.npmrc" "$HOME/.npmrc"
             ;;
@@ -99,7 +108,7 @@ sync() {
                 oco config set OCO_AI_PROVIDER="anthropic"
                 oco config set OCO_DESCRIPTION=false
                 oco config set OCO_EMOJI=true
-                oco config set OCO_MODEL="claude-3-7-sonnet-latest"
+                oco config set OCO_MODEL="claude-3-5-sonnet-latest"
                 if [[ $(oco config get OCO_API_KEY) =~ "undefined" ]]; then
                     echo "Enter your API key:"
                     read -r api_key

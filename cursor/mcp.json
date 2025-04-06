@@ -1,0 +1,33 @@
+{
+  "mcpServers": {
+    "fetch": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-fetch"
+      ],
+      "env": {}
+    },
+    "git": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-git"
+      ],
+      "env": {}
+    },
+    "pdf": {
+      "command": "uvx",
+      "args": [
+        "mcp-read-pdf"
+      ],
+      "env": {}
+    },
+    "telnet": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "github:distantorigin/mcp-telnet"
+      ],
+      "env": {}
+    }
+  }
+}

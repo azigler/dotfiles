@@ -1,0 +1,68 @@
+GOOSE_PROVIDER: anthropic
+GOOSE_MODEL: claude-3-5-sonnet-latest
+extensions:
+  computercontroller:
+    display_name: Computer Controller
+    enabled: true
+    name: computercontroller
+    timeout: 300
+    type: builtin
+  developer:
+    display_name: Developer Tools
+    enabled: true
+    name: developer
+    timeout: 300
+    type: builtin
+  fetch:
+    args:
+      - mcp-server-fetch
+    cmd: uvx
+    description: Web content fetching and processing capabilities
+    enabled: true
+    envs: {}
+    name: fetch
+    timeout: 300
+    type: stdio
+  git:
+    args:
+      - mcp-server-git
+    cmd: uvx
+    description: Git version control system integration
+    enabled: true
+    envs: {}
+    name: git
+    timeout: 300
+    type: stdio
+  memory:
+    display_name: Memory
+    enabled: true
+    name: memory
+    timeout: 300
+    type: builtin
+  pdf:
+    args:
+      - mcp-read-pdf
+    cmd: uvx
+    description: Read large and complex PDF documents
+    enabled: true
+    envs: {}
+    name: pdf
+    timeout: 300
+    type: stdio
+  telnet:
+    args:
+      - -y
+      - github:distantorigin/mcp-telnet
+    cmd: npx
+    description: Enables interaction with telnet-based services
+    enabled: true
+    envs: {}
+    name: telnet
+    timeout: 300
+    type: stdio
+  tutorial:
+    display_name: Tutorial
+    enabled: true
+    name: tutorial
+    timeout: 300
+    type: builtin

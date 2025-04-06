@@ -9,9 +9,12 @@
     "editor.defaultFormatter": "DavidAnson.vscode-markdownlint"
   },
   "[python]": {
-    "editor.defaultFormatter": "ms-python.autopep8"
+    "editor.defaultFormatter": "ms-python.autopep8",
+    "editor.formatOnType": true
   },
   "chat.editor.fontSize": 14,
+  "cursor.composer.shouldAllowCustomModes": true,
+  "cursor.general.enableShadowWorkspace": true,
   "debug.console.fontSize": 14,
   "editor.accessibilitySupport": "off",
   "editor.defaultFormatter": "esbenp.prettier-vscode",
@@ -26,7 +29,6 @@
   "explorer.confirmDragAndDrop": false,
   "git.autofetch": true,
   "git.confirmSync": false,
-  "github.copilot.editor.enableAutoCompletions": true,
   "githubIssues.assignWhenWorking": false,
   "githubPullRequests.pullBranch": "always",
   "go.toolsManagement.autoUpdate": true,
@@ -46,9 +48,13 @@
     "showCommandGroups": true,
     "showKeys": false
   },
+  "terminal.integrated.env.osx": {
+    "__CFBundleIdentifier": "VSCode"
+  },
   "terminal.integrated.fontSize": 14,
   "terminal.integrated.middleClickBehavior": "paste",
   "todo-tree.filtering.includeHiddenFiles": true,
-  "workbench.colorTheme": "One Dark Pro",
-  "workbench.iconTheme": "material-icon-theme"
+  "update.releaseTrack": "prerelease",
+  "workbench.iconTheme": "material-icon-theme",
+  "workbench.colorTheme": "One Dark Pro"
 }
