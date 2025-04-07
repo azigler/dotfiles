@@ -27,6 +27,9 @@
   "editor.wordWrap": "on",
   "eslint.format.enable": true,
   "explorer.confirmDragAndDrop": false,
+  "files.associations": {
+    "*.json": "jsonc"
+  },
   "git.autofetch": true,
   "git.confirmSync": false,
   "githubIssues.assignWhenWorking": false,
@@ -56,5 +59,8 @@
   "todo-tree.filtering.includeHiddenFiles": true,
   "update.releaseTrack": "prerelease",
   "workbench.iconTheme": "material-icon-theme",
-  "workbench.colorTheme": "One Dark Pro"
+  "workbench.colorTheme": "One Dark Pro",
+  "workbench.editorAssociations": {
+    "*.mdc": "default"
+  }
 }

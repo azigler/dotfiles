@@ -1,4 +1,4 @@
-export PATH="$HOME/.yarn/bin:$HOME/.config/yarn/global/node_modules/.bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/share/dotnet/x64:$HOME/.bun/bin:$HOME/.local/bin:$PATH"
+export PATH="$HOME/.yarn/bin:$HOME/.config/yarn/global/node_modules/.bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/share/dotnet/x64:$HOME/.bun/bin:$HOME/.local/bin:$PATH:/Users/andrew/.codeium/windsurf/bin:$PATH"
 
 export EDITOR="vim"
 export VISUAL=$EDITOR
