@@ -26,3 +26,6 @@ viminfo
 # zsh
 zsh/.antigen
 zsh/ohmyzsh
+
+# cursor
+.cursor

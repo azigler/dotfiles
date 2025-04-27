@@ -3,7 +3,7 @@
     "editor.defaultFormatter": "ms-azuretools.vscode-docker"
   },
   "[jsonc]": {
-    "editor.defaultFormatter": "vscode.json-language-features"
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[markdown]": {
     "editor.defaultFormatter": "DavidAnson.vscode-markdownlint"
@@ -13,6 +13,7 @@
     "editor.formatOnType": true
   },
   "chat.editor.fontSize": 14,
+  "color-highlight.useARGB": true,
   "cursor.composer.shouldAllowCustomModes": true,
   "cursor.general.enableShadowWorkspace": true,
   "debug.console.fontSize": 14,
@@ -28,7 +29,8 @@
   "eslint.format.enable": true,
   "explorer.confirmDragAndDrop": false,
   "files.associations": {
-    "*.json": "jsonc"
+    "*.json": "jsonc",
+    "*.mdc": "markdown"
   },
   "git.autofetch": true,
   "git.confirmSync": false,
@@ -38,7 +40,6 @@
   "markdown.extension.toc.levels": "2..6",
   "markdown.extension.orderedList.marker": "one",
   "markdown.preview.fontFamily": "SauceCodePro Nerd Font Propo",
-  "mcp-companion.enableInlineButtons": false,
   "nxConsole.showNodeVersionOnStartup": false,
   "prettier.ignorePath": ".gitignore",
   "prettier.semi": false,

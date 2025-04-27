@@ -12,6 +12,7 @@
     "editor.defaultFormatter": "ms-python.autopep8"
   },
   "chat.editor.fontSize": 14,
+  "color-highlight.useARGB": true,
   "debug.console.fontSize": 14,
   "editor.accessibilitySupport": "off",
   "editor.defaultFormatter": "esbenp.prettier-vscode",
@@ -26,7 +27,6 @@
   "explorer.confirmDragAndDrop": false,
   "git.autofetch": true,
   "git.confirmSync": false,
-  "github.copilot.editor.enableAutoCompletions": true,
   "githubIssues.assignWhenWorking": false,
   "githubPullRequests.pullBranch": "always",
   "go.toolsManagement.autoUpdate": true,
