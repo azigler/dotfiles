@@ -48,9 +48,6 @@ sync() {
         "alacritty")
             sync_source "$SCRIPT_DIR/alacritty" "$HOME/.config/alacritty"
             ;;
-        "aws")
-            sync_source "$SCRIPT_DIR/aws/config" "$HOME/.aws/config"
-            ;;
         "bash")
             [[ ! -f "$SCRIPT_DIR/bash/.$(hostname -s).bashrc" ]] || sync_source "$SCRIPT_DIR/bash/.$(hostname -s).bashrc" "$HOME/.$(hostname -s).bashrc"
             sync_source "$SCRIPT_DIR/bash/.bash_aliases" "$HOME/.bash_aliases"
