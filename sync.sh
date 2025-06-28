@@ -74,6 +74,9 @@ sync() {
             sync_source "$SCRIPT_DIR/conda/.condarc" "$HOME/.condarc"
             ;;
         "cursor")
+            if command -v cursor >/dev/null 2>&1; then
+                [[ ! -f "$SCRIPT_DIR/cursor/install_extensions.sh" ]] || sh "$SCRIPT_DIR/cursor/install_extensions.sh"
+            fi
             if [[ "$OSTYPE" == "darwin"* ]]; then
                 sync_source "$SCRIPT_DIR/cursor/settings.json" "/Users/$USER/Library/Application Support/Cursor/User/settings.json"
             fi

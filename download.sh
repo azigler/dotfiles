@@ -39,6 +39,15 @@ download() {
             rm -rf "$SCRIPT_DIR/blightmud/plugins/blightmud_mcp"
             git clone https://github.com/lisdude/blightmud_mcp "$SCRIPT_DIR/blightmud/plugins/blightmud_mcp"
             ;;
+        "cursor")
+            if command -v cursor >/dev/null 2>&1; then
+                echo "#!/bin/bash" > $SCRIPT_DIR/cursor/install_extensions.sh
+                cursor --list-extensions | while read -r extension; do
+                    echo "cursor --install-extension \"$extension\"" >> $SCRIPT_DIR/cursor/install_extensions.sh
+                done
+                chmod +x $SCRIPT_DIR/cursor/install_extensions.sh
+            fi
+            ;;
         "fonts")
             mkdir -p "$SCRIPT_DIR/fonts/SauceCodePro"
             cd $SCRIPT_DIR/fonts/SauceCodePro
