@@ -1,7 +1,4 @@
 {
-  "[dockercompose]": {
-    "editor.defaultFormatter": "ms-azuretools.vscode-docker"
-  },
   "[jsonc]": {
     "editor.defaultFormatter": "vscode.json-language-features"
   },

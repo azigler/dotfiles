@@ -1,7 +1,4 @@
 {
-  "[dockercompose]": {
-    "editor.defaultFormatter": "ms-azuretools.vscode-docker"
-  },
   "[jsonc]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
@@ -36,6 +33,7 @@
   "githubIssues.assignWhenWorking": false,
   "githubPullRequests.pullBranch": "always",
   "go.toolsManagement.autoUpdate": true,
+  "json.schemaDownload.enable": true,
   "markdown.extension.toc.levels": "2..6",
   "markdown.extension.orderedList.marker": "one",
   "markdown.preview.fontFamily": "SauceCodePro Nerd Font Propo",
@@ -59,7 +57,5 @@
   "todo-tree.filtering.includeHiddenFiles": true,
   "update.releaseTrack": "prerelease",
   "workbench.iconTheme": "material-icon-theme",
-  "workbench.colorTheme": "One Dark Pro",
-  "json.schemaDownload.enable": true,
-  "cursor.cpp.disabledLanguages": ["plaintext"]
+  "workbench.colorTheme": "One Dark Pro"
 }
