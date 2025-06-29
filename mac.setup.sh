@@ -2,7 +2,7 @@ xtools-select --install
 
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-brew install tmux jq gh ranger font-sauce-code-pro-nerd-font koekeishiya/formulae/yabai koekeishiya/formulae/skhd FelixKratz/formulae/borders FelixKratz/formulae/sketchybar pnpm block-goose multipass
+brew install tmux jq gh ranger font-sauce-code-pro-nerd-font koekeishiya/formulae/yabai koekeishiya/formulae/skhd FelixKratz/formulae/borders FelixKratz/formulae/sketchybar pnpm block-goose multipass flyctl
 
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
 curl -fsSL https://get.pnpm.io/install.sh | sh -
@@ -12,6 +12,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 gh auth login
 gh extension install github/gh-copilot
+
+fly auth login
 
 # https://github.com/koekeishiya/yabai/wiki/Disabling-System-Integrity-Protection
 # https://github.com/koekeishiya/yabai/wiki/Installing-yabai-(from-HEAD)#configure-scripting-addition
