@@ -17,18 +17,6 @@ fetch_file() {
     fi
 }
 
-# Upgrades brew formulae
-brew upgrade
-
-# Upgrades rust
-rustup update
-
-# Upgrades bun
-bun upgrade
-
-# Updates goose
-goose update
-
 download() {
     local dir=$1
     case ${dir} in
@@ -102,6 +90,18 @@ if [ -n "$1" ]; then
     download "$1"
     echo "Ran download.sh for $1"
 else
+    # Upgrades brew formulae
+    brew upgrade
+
+    # Upgrades rust
+    rustup update
+
+    # Upgrades bun
+    bun upgrade
+
+    # Updates goose
+    goose update
+
     for dir in */ .*/; do
         download "${dir%/}"
     done

@@ -9,9 +9,9 @@
     "editor.defaultFormatter": "ms-python.autopep8",
     "editor.formatOnType": true
   },
-  "chat.editor.fontSize": 14,
   "color-highlight.useARGB": true,
   "cursor.composer.shouldAllowCustomModes": true,
+  "cursor.cpp.disabledLanguages": [],
   "cursor.general.enableShadowWorkspace": true,
   "debug.console.fontSize": 14,
   "editor.accessibilitySupport": "off",
