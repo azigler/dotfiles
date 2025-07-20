@@ -1,6 +1,7 @@
 GOOSE_PROVIDER: anthropic
 OLLAMA_HOST: localhost
 GOOSE_MODEL: claude-3-5-sonnet-latest
+ALPHA_FEATURES: true
 extensions:
   computercontroller:
     bundled: true
@@ -18,7 +19,7 @@ extensions:
     type: builtin
   fetch:
     args:
-    - mcp-server-fetch
+      - mcp-server-fetch
     bundled: null
     cmd: uvx
     description: Web content fetching and processing capabilities
@@ -30,7 +31,7 @@ extensions:
     type: stdio
   git:
     args:
-    - mcp-server-git
+      - mcp-server-git
     bundled: null
     cmd: uvx
     description: Git version control system integration
@@ -49,8 +50,8 @@ extensions:
     type: builtin
   knowledgegraphmemory:
     args:
-    - -y
-    - '@modelcontextprotocol/server-memory'
+      - -y
+      - "@modelcontextprotocol/server-memory"
     bundled: null
     cmd: npx
     description: Graph-based memory system for persistent knowledge storage
@@ -69,8 +70,8 @@ extensions:
     type: builtin
   telnet:
     args:
-    - -y
-    - github:distantorigin/mcp-telnet
+      - -y
+      - github:distantorigin/mcp-telnet
     bundled: null
     cmd: npx
     description: Connect to telnet services.
@@ -89,7 +90,7 @@ extensions:
     type: builtin
   vscode:
     args:
-    - vscode-mcp-server
+      - vscode-mcp-server
     bundled: null
     cmd: npx
     description: Provides a VSCode IDE integration for development workflows
