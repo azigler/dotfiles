@@ -6,7 +6,7 @@ options=(
 	inactive_color=0xFF442746
 	width=4.0
 	hidpi=on
-	blacklist="Screen Studio"
+	blacklist="Screen Studio,The Sims 4"
 )
 
 borders "${options[@]}"

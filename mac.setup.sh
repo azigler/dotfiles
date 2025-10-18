@@ -23,3 +23,6 @@ brew services start felixkratz/formulae/sketchybar
 brew services start felixkratz/formulae/borders
 yabai --start-service
 skhd --start-service
+
+curl https://cursor.com/install -fsS | bash
+npm install -g @github/copilot

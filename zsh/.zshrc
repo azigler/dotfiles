@@ -50,3 +50,8 @@ antigen bundle zsh-users/zsh-syntax-highlighting
 antigen apply
 
 [[ ! -f "$HOME/.p10k.zsh" ]] || source "$HOME/.p10k.zsh"
+
+# disable zshoptions correct
+unsetopt correct_all
+unsetopt correct
+ENABLE_CORRECTION="false"

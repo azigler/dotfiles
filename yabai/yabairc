@@ -58,6 +58,7 @@ apps_full_opacity=(
     "Space Station 14 Launcher"
     "Space Station 14"
     "Draw Things"
+    "The Sims 4"
 )
 
 for app in "${apps_full_opacity[@]}"; do
