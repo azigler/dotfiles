@@ -9,6 +9,8 @@ curl -fsSL https://get.pnpm.io/install.sh | sh -
 curl -fsSL https://bun.sh/install | bash
 curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
+curl -fsSL https://deno.land/install.sh | sh
+curl -L https://nixos.org/nix/install | sh
 
 gh auth login
 gh extension install github/gh-copilot
