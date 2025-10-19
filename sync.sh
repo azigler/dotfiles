@@ -102,6 +102,9 @@ sync() {
         "goose")
             sync_source "$SCRIPT_DIR/goose/config.yaml" "$HOME/.config/goose/config.yaml"
             ;;
+        "nix")
+            sync_source "$SCRIPT_DIR/nix/nix.conf" "$HOME/.config/nix/nix.conf"
+            ;;
         "npm")
             sync_source "$SCRIPT_DIR/npm/.npmrc" "$HOME/.npmrc"
             ;;

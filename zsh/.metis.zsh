@@ -30,4 +30,4 @@ else
 fi
 
 eval "$(gh copilot alias -- zsh)"
-
+eval "$(direnv hook zsh)"
