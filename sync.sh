@@ -83,7 +83,6 @@ sync() {
             if [[ "$OSTYPE" == "darwin"* ]]; then
                 sync_source "$SCRIPT_DIR/cursor/settings.json" "/Users/$USER/Library/Application Support/Cursor/User/settings.json"
             fi
-            sync_source "$SCRIPT_DIR/cursor/mcp.json" "/Users/$USER/.cursor/mcp.json"
             ;;
         "editorconfig")
             sync_source "$SCRIPT_DIR/editorconfig/.editorconfig" "$HOME/.editorconfig"
