@@ -99,9 +99,6 @@ sync() {
             sync_source "$SCRIPT_DIR/gnupg/gpg-agent.conf" "$HOME/.gnupg/gpg-agent.conf"
             sync_source "$SCRIPT_DIR/gnupg/gpg.conf" "$HOME/.gnupg/gpg.conf"
             ;;
-        "goose")
-            sync_source "$SCRIPT_DIR/goose/config.yaml" "$HOME/.config/goose/config.yaml"
-            ;;
         "nix")
             sync_source "$SCRIPT_DIR/nix/nix.conf" "$HOME/.config/nix/nix.conf"
             ;;
