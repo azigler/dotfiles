@@ -1,4 +1,4 @@
-export PATH="/opt/homebrew/bin:$HOME/.local/bin:$PATH"
+export PATH="/opt/homebrew/bin:$HOME/.local/bin:$HOME/.deno/bin:$PATH"
 
 export EDITOR="vim"
 export VISUAL=$EDITOR

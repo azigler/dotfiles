@@ -1,3 +1,8 @@
+if [[ $TERM_PROGRAM == "WarpTerminal" ]]; then
+    [[ ! -f "$HOME/.warp.zshrc" ]] || source "$HOME/.warp.zshrc"
+    return
+fi
+
 source "$HOME/.local/share/tmux/start.sh"
 
 [[ ! -f "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]] || source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
@@ -51,7 +56,6 @@ antigen apply
 
 [[ ! -f "$HOME/.p10k.zsh" ]] || source "$HOME/.p10k.zsh"
 
-# disable zshoptions correct
 unsetopt correct_all
 unsetopt correct
 ENABLE_CORRECTION="false"
