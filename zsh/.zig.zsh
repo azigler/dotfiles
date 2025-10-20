@@ -19,3 +19,4 @@ case ":$PATH:" in
 esac
 
 eval "$(gh copilot alias -- zsh)"
+eval "$(direnv hook zsh)"
