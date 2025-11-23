@@ -73,6 +73,9 @@ sync() {
                 sync_source "$SCRIPT_DIR/cursor/settings.json" "/Users/$USER/Library/Application Support/Cursor/User/settings.json"
             fi
             ;;
+        "direnv")
+            sync_source "$SCRIPT_DIR/direnv" "$HOME/.config/direnv"
+            ;;
         "editorconfig")
             sync_source "$SCRIPT_DIR/editorconfig/.editorconfig" "$HOME/.editorconfig"
             ;;

@@ -102,9 +102,9 @@ alias vis='vim "+set si"'
 cd ()
 {
 	if [ -n "$1" ]; then
-		builtin cd "$@" && ls
+		builtin cd "$@"
 	else
-		builtin cd ~ && ls
+		builtin cd ~
 	fi
 }
 
