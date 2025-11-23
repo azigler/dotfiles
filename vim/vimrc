@@ -13,6 +13,7 @@ call plug#begin('$HOME/.vim/plugged')
     Plug 'preservim/nerdtree'
     Plug 'preservim/tagbar'
     Plug 'ctrlpvim/ctrlp.vim'
+    Plug 'editorconfig/editorconfig-vim'
 
     " Git
     Plug 'tpope/vim-fugitive'
@@ -24,11 +25,11 @@ call plug#begin('$HOME/.vim/plugged')
     Plug 'tpope/vim-commentary'
     Plug 'tpope/vim-repeat'
     Plug 'tpope/vim-speeddating'
-    
+
     " Languages
     Plug 'fatih/vim-go', { 'do': ':GoUpdateBinaries' }
     Plug 'mattn/emmet-vim'
-    
+
     " AI
     Plug 'github/copilot.vim'
 call plug#end()
