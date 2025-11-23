@@ -85,8 +85,8 @@ sync() {
             ;;
         "gnupg")
             sync_source "$SCRIPT_DIR/gnupg/common.conf" "$HOME/.gnupg/common.conf"
-            sync_source "$SCRIPT_DIR/gnupg/gpg-agent.conf" "$HOME/.gnupg/gpg-agent.conf"
             sync_source "$SCRIPT_DIR/gnupg/gpg.conf" "$HOME/.gnupg/gpg.conf"
+            echo "pinentry-program $(brew --prefix)/bin/pinentry-mac" > "$HOME/.gnupg/gpg-agent.conf"
             ;;
         "nix")
             sync_source "$SCRIPT_DIR/nix/nix.conf" "$HOME/.config/nix/nix.conf"

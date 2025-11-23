@@ -1,0 +1,13 @@
+[filter "lfs"]
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true
+[user]
+	name = Andrew Zigler
+	email = andrewzigler@gmail.com
+	signingkey = 8CA628797E026F48
+[init]
+	defaultBranch = main
+[gpg]
+	program = /opt/homebrew/bin/gpg
