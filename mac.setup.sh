@@ -10,6 +10,7 @@ curl -fsSL https://bun.sh/install | bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 curl -fsSL https://deno.land/install.sh | sh
 curl -L https://nixos.org/nix/install | sh
+curl -fsS https://cursor.com/install  | bash
 
 gh auth login
 gh extension install github/gh-copilot
@@ -25,5 +26,4 @@ brew services start felixkratz/formulae/borders
 yabai --start-service
 skhd --start-service
 
-curl https://cursor.com/install -fsS | bash
 npm install -g @github/copilot wrangler

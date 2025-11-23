@@ -99,6 +99,9 @@ else
     # Upgrades bun
     bun upgrade
 
+    # Upgrades Deno
+    deno upgrade
+
     # Upgrades pnpm
     pnpm self-update
 

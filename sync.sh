@@ -97,9 +97,6 @@ sync() {
         "ranger")
             sync_source "$SCRIPT_DIR/ranger" "$HOME/.config/ranger"
             ;;
-        "rustup")
-            sync_source "$SCRIPT_DIR/rustup/settings.toml" "$HOME/.rustup/settings.toml"
-            ;;
         "sketchybar")
             sync_source "$SCRIPT_DIR/sketchybar" "$HOME/.config/sketchybar"
             ;;
