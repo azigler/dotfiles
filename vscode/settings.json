@@ -35,7 +35,6 @@
   "nxConsole.showNodeVersionOnStartup": false,
   "prettier.ignorePath": ".gitignore",
   "prettier.semi": false,
-  "python.condaPath": "/Users/andrew/anaconda3/bin/conda",
   "redhat.telemetry.enabled": false,
   "security.workspace.trust.untrustedFiles": "open",
   "scm.inputFontFamily": "editor",

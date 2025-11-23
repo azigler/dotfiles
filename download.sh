@@ -99,8 +99,8 @@ else
     # Upgrades bun
     bun upgrade
 
-    # Updates goose
-    goose update
+    # Upgrades pnpm
+    pnpm self-update
 
     for dir in */ .*/; do
         download "${dir%/}"

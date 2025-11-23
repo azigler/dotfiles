@@ -18,16 +18,5 @@ case ":$PATH:" in
   *) export PATH="$PNPM_HOME:$PATH" ;;
 esac
 
-__conda_setup="$('/Users/andrew/anaconda3/bin/conda' 'shell.bash' 'hook' 2> /dev/null)"
-if [ $? -eq 0 ]; then
-    eval "$__conda_setup"
-else
-    if [ -f "/Users/andrew/anaconda3/etc/profile.d/conda.sh" ]; then
-        . "/Users/andrew/anaconda3/etc/profile.d/conda.sh"
-    else
-        export PATH="/Users/andrew/anaconda3/bin:$PATH"
-    fi
-fi
-
 eval "$(gh copilot alias -- zsh)"
 eval "$(direnv hook zsh)"

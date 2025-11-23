@@ -48,9 +48,6 @@ sync() {
         "alacritty")
             sync_source "$SCRIPT_DIR/alacritty" "$HOME/.config/alacritty"
             ;;
-        "amp")
-            sync_source "$SCRIPT_DIR/amp" "$HOME/.config/amp"
-            ;;
         "bash")
             [[ ! -f "$SCRIPT_DIR/bash/.$(hostname -s).bashrc" ]] || sync_source "$SCRIPT_DIR/bash/.$(hostname -s).bashrc" "$HOME/.$(hostname -s).bashrc"
             sync_source "$SCRIPT_DIR/bash/.bash_aliases" "$HOME/.bash_aliases"
@@ -67,14 +64,6 @@ sync() {
             ;;
         "borders")
             sync_source "$SCRIPT_DIR/borders/bordersrc" "$HOME/.config/borders/bordersrc"
-            ;;
-        "cloud-config")
-            if [[ $(hostname -s) == "metis" ]]; then
-                sed -i "" -e "s|.*andrew@metis\.local.*|      - $(echo -n $(cat $SCRIPT_DIR/ssh/$(hostname -s).pub))|" $SCRIPT_DIR/cloud-config/cloud-config.yml
-            fi 
-            ;;
-        "conda")
-            sync_source "$SCRIPT_DIR/conda/.condarc" "$HOME/.condarc"
             ;;
         "cursor")
             if command -v cursor >/dev/null 2>&1; then
@@ -104,26 +93,6 @@ sync() {
             ;;
         "npm")
             sync_source "$SCRIPT_DIR/npm/.npmrc" "$HOME/.npmrc"
-            ;;
-        "opencommit")
-            if command -v oco >/dev/null 2>&1; then
-                oco config set OCO_AI_PROVIDER="anthropic"
-                oco config set OCO_DESCRIPTION=false
-                oco config set OCO_EMOJI=true
-                oco config set OCO_MODEL="claude-3-5-sonnet-latest"
-                if [[ $(oco config get OCO_API_KEY) =~ "undefined" ]]; then
-                    echo "Enter your API key:"
-                    read -r api_key
-                    oco config set OCO_API_KEY="$api_key"
-                fi
-            fi
-            ;;
-        "pnpm")
-            if [[ "$OSTYPE" == "darwin"* ]]; then
-                sync_source "$SCRIPT_DIR/pnpm" "$HOME/Library/Preferences/pnpm"
-            elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-                sync_source "$SCRIPT_DIR/pnpm" "$HOME/.config/pnpm"
-            fi
             ;;
         "ranger")
             sync_source "$SCRIPT_DIR/ranger" "$HOME/.config/ranger"

@@ -40,7 +40,6 @@
   "nxConsole.showNodeVersionOnStartup": false,
   "prettier.ignorePath": ".gitignore",
   "prettier.semi": false,
-  "python.condaPath": "/Users/andrew/anaconda3/bin/conda",
   "redhat.telemetry.enabled": false,
   "security.workspace.trust.untrustedFiles": "open",
   "scm.inputFontFamily": "editor",
@@ -57,5 +56,6 @@
   "todo-tree.filtering.includeHiddenFiles": true,
   "update.releaseTrack": "prerelease",
   "workbench.iconTheme": "material-icon-theme",
-  "workbench.colorTheme": "One Dark Pro"
+  "workbench.colorTheme": "One Dark Pro",
+  "window.commandCenter": true
 }

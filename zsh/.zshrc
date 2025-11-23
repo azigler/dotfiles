@@ -26,10 +26,8 @@ antigen theme romkatv/powerlevel10k
 
 antigen use oh-my-zsh
 
-antigen bundle aws
 antigen bundle docker
 antigen bundle docker-compose
-antigen bundle dotenv
 antigen bundle gh
 antigen bundle git
 antigen bundle gpg-agent
@@ -38,11 +36,8 @@ antigen bundle multipass
 antigen bundle npm
 antigen bundle nvm
 antigen bundle pip
-antigen bundle pyenv
 antigen bundle systemadmin
-antigen bundle systemd
 antigen bundle tmux
-antigen bundle vi-mode
 antigen bundle vscode
 antigen bundle web-search
 antigen bundle yarn
