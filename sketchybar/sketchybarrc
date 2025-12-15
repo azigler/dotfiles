@@ -1,0 +1,40 @@
+#!/bin/sh
+
+##### Set global variables #####
+PLUGIN_DIR="$CONFIG_DIR/plugins"
+HOOK_DIR="$CONFIG_DIR/hooks"
+
+##### Initialize theme (bar appearance and defaults) #####
+"$CONFIG_DIR/theme.sh" init
+
+##### Load plugins dynamically #####
+if [ -d "$PLUGIN_DIR" ]; then
+  for plugin in "$PLUGIN_DIR"/*.sh; do
+    [ -f "$plugin" ] || continue  # Skip if glob didn't match (literal * in filename)
+    source "$plugin"
+  done
+fi
+
+##### Register left items (from left to right) #####
+register_spaces left
+register_separator left
+register_active left
+
+##### Load and register hooks dynamically #####
+if [ -d "$HOOK_DIR" ]; then
+  for hook in "$HOOK_DIR"/*.sh; do
+    [ -f "$hook" ] || continue  # Skip if glob didn't match (literal * in filename)
+    source "$hook"
+    register_$(basename "$hook" .sh)
+  done
+fi
+
+##### Register right items (from right to left) #####
+register_moon right
+register_clock right
+register_separator right separator2 ""
+register_power right
+register_volume right
+
+##### Finalize setup #####
+sketchybar --update
