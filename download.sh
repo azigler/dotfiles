@@ -45,10 +45,12 @@ download() {
             cd $SCRIPT_DIR
             ;;
         "gnupg")
-            mkdir -p "$HOME/.gnupg"
-            chmod -R u=rw,u+X,go= $HOME/.gnupg
-            if [ -n "$(gpg --list-secret-keys --keyid-format=long)" ]; then
+            if command -v gpg >/dev/null 2>&1; then
+              mkdir -p "$HOME/.gnupg"
+              chmod -R u=rw,u+X,go= $HOME/.gnupg
+              if [ -n "$(gpg --list-secret-keys --keyid-format=long)" ]; then
                 gpg --armor --export > "$SCRIPT_DIR/gnupg/$(hostname -s).asc"
+              fi
             fi
             ;;
         "ssh")
@@ -93,17 +95,25 @@ else
     # Upgrades brew formulae
     brew upgrade
 
-    # Upgrades rust
-    rustup update
+    # Upgrades rust if installed
+    if command -v rustup >/dev/null 2>&1; then
+        rustup update
+    fi
 
-    # Upgrades bun
-    bun upgrade
+    # Upgrades bun if installed
+    if command -v bun >/dev/null 2>&1; then
+        bun upgrade
+    fi
 
-    # Upgrades Deno
-    deno upgrade
+    # Upgrades Deno if installed
+    if command -v deno >/dev/null 2>&1; then
+        deno upgrade
+    fi
 
-    # Upgrades pnpm
-    pnpm self-update
+    # Upgrades pnpm if installed
+    if command -v pnpm >/dev/null 2>&1; then
+      pnpm self-update
+    fi
 
     for dir in */ .*/; do
         download "${dir%/}"
