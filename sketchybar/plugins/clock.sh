@@ -30,7 +30,7 @@ register_clock() {
                                 padding_left=0                  \
                                 label.padding_left=0            \
                                 label.padding_right=0           \
-             --subscribe clock_date
+             --subscribe clock_date system_woke
 }
 
 # Update the appropriate item based on $NAME
