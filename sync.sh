@@ -121,6 +121,9 @@ sync() {
             sync_source "$SCRIPT_DIR/tmux/start.sh" "$HOME/.local/share/tmux/start.sh"
             sync_source "$SCRIPT_DIR/tmux/plugins" "$HOME/.tmux/plugins"
             ;;
+        "ts4")
+            source "$SCRIPT_DIR/ts4/sync.sh" "${@:2}"
+            ;;
         "vim")
             sync_source "$SCRIPT_DIR/vim" "$HOME/.vim"
             sync_source "$SCRIPT_DIR/vim/vimrc" "$HOME/.vimrc"
@@ -159,7 +162,7 @@ sync() {
 }
 
 if [ -n "$1" ]; then
-    sync "$1"
+    sync "$@"
     echo "Ran sync.sh for $1"
 else
     for dir in */ .*/; do

@@ -42,7 +42,6 @@ antigen bundle vscode
 antigen bundle web-search
 antigen bundle yarn
 
-antigen bundle MichaelAquilina/zsh-you-should-use
 antigen bundle zsh-users/zsh-autosuggestions
 antigen bundle zsh-users/zsh-completions
 antigen bundle zsh-users/zsh-syntax-highlighting
