@@ -11,6 +11,7 @@
   },
   "color-highlight.useARGB": true,
   "cursor.composer.shouldAllowCustomModes": true,
+  "cursor.composer.shouldChimeAfterChatFinishes": true,
   "cursor.cpp.disabledLanguages": [],
   "cursor.general.enableShadowWorkspace": true,
   "debug.console.fontSize": 14,
