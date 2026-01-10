@@ -78,6 +78,7 @@ sync() {
             ;;
         "direnv")
             sync_source "$SCRIPT_DIR/direnv" "$HOME/.config/direnv"
+            sync_source "$SCRIPT_DIR/direnv/.direnvrc" "$HOME/.direnvrc"
             ;;
         "editorconfig")
             sync_source "$SCRIPT_DIR/editorconfig/.editorconfig" "$HOME/.editorconfig"
