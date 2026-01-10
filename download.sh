@@ -115,6 +115,11 @@ else
       pnpm self-update
     fi
 
+    # Upgrades Claude Code if installed
+    if command -v claude >/dev/null 2>&1; then
+        claude update
+    fi
+
     for dir in */ .*/; do
         download "${dir%/}"
     done

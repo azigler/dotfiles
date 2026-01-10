@@ -11,6 +11,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 curl -fsSL https://deno.land/install.sh | sh
 curl -L https://nixos.org/nix/install | sh
 curl -fsS https://cursor.com/install  | bash
+curl -fsSL https://claude.ai/install.sh | bash
 
 gh auth login
 gh extension install github/gh-copilot
