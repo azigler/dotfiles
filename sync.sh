@@ -65,6 +65,9 @@ sync() {
         "borders")
             sync_source "$SCRIPT_DIR/borders/bordersrc" "$HOME/.config/borders/bordersrc"
             ;;
+        "claude")
+            sync_source "$SCRIPT_DIR/claude/settings.json" "$HOME/.claude/settings.json"
+            ;;
         "cursor")
             if command -v cursor >/dev/null 2>&1; then
                 [[ ! -f "$SCRIPT_DIR/cursor/install_extensions.sh" ]] || sh "$SCRIPT_DIR/cursor/install_extensions.sh"
