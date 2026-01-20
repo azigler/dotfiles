@@ -32,3 +32,5 @@ yabai --start-service
 skhd --start-service
 
 npm install -g @github/copilot wrangler
+
+curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/beads_rust/main/install.sh?$(date +%s)" | bash
