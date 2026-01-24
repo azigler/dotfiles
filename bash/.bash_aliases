@@ -18,7 +18,7 @@ alias logs="sudo find /var/log -type f -exec file {} \; | grep 'text' | cut -d' 
 alias countfiles="for t in files links directories; do echo \`find . -type \${t:0:1} | wc -l\` \$t; done 2> /dev/null"
 
 # Navigation aliases
-alias bd='cd "$OLDPWD"'
+#alias bd='cd "$OLDPWD"'
 alias rmd='/bin/rm  --recursive --force --verbose '
 alias home='cd ~'
 alias cd..='cd ..'
