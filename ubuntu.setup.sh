@@ -1,20 +1,25 @@
 # curl -fsSL "https://raw.githubusercontent.com/azigler/dotfiles/main/ubuntu.setup.sh" | bash
-# Ubuntu 25.04
+# Ubuntu 25.10 LTS (Questing Quokka)
 
-echo "$USER ALL=(ALL) NOPASSWD:ALL" | sudo tee -a /etc/sudo
+if [ "$(lsb_release -rs)" != "25.10" ]; then
+    echo "This script is only for Ubuntu 25.10 LTS (Questing Quokka)"
+    echo " ↗️ UPGRADE: sudo do-release-upgrade"
+    exit 1
+fi
+
+if ! grep -q "$USER ALL=(ALL) NOPASSWD:ALL" /etc/sudoers; then
+    echo "$USER ALL=(ALL) NOPASSWD:ALL" | sudo tee -a /etc/sudoers
+    echo " 🤝 passwordless sudo granted"
+fi
+
 sudo hostnamectl set-hostname zig-computer
 
 git clone https://github.com/azigler/dotfiles /home/ubuntu/dotfiles
 
 sudo apt-get update
-DEBIAN_FRONTEND=noninteractive sudo apt-get upgrade -y
+sudo apt-get upgrade -y
 
-sudo apt install -y gh ranger direnv zsh ripgrep fzf golang-go unzip
-
-LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" | \grep -Po '"tag_name": *"v\K[^"]*')
-curl -Lo lazygit.tar.gz "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz"
-tar xf lazygit.tar.gz lazygit
-sudo install lazygit -D -t /usr/local/bin/
+sudo apt install -y gh ranger direnv zsh ripgrep lazygit fzf golang-go unzip
 
 cd /home/ubuntu/dotfiles
 
@@ -74,3 +79,6 @@ echo " 🔑 AUTH: gemini"
 echo " 🔑 AUTH: cursor"
 echo " 🔑 AUTH: codex"
 echo " 🔑 AUTH: copilot"
+echo " ↗️ UPGRADE: sudo do-release-upgrade"
+echo " ↘️ UPDATE: sudo apt-get update"
+echo " ↘️ UPGRADE: sudo apt-get upgrade -y"
