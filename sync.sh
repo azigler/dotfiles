@@ -162,10 +162,8 @@ sync() {
             sync_source "$SCRIPT_DIR/yarn/.yarnrc" "$HOME/.yarnrc"
             ;;
         "zsh")
-            if [[ "$SHELL" == "/bin/zsh" ]]; then
-                sync_source "$SCRIPT_DIR/zsh/ohmyzsh" "$HOME/.oh-my-zsh"
-                [[ ! -f "$SCRIPT_DIR/zsh/.$(hostname -s).zsh" ]] || sync_source "$SCRIPT_DIR/zsh/.$(hostname -s).zsh" "$HOME/.$(hostname -s).zsh"
-            fi
+            sync_source "$SCRIPT_DIR/zsh/ohmyzsh" "$HOME/.oh-my-zsh"
+            [[ ! -f "$SCRIPT_DIR/zsh/.$(hostname -s).zsh" ]] || sync_source "$SCRIPT_DIR/zsh/.$(hostname -s).zsh" "$HOME/.$(hostname -s).zsh"
             sync_source "$SCRIPT_DIR/zsh/.zlogin" "$HOME/.zlogin"
             sync_source "$SCRIPT_DIR/zsh/.zlogout" "$HOME/.zlogout"
             sync_source "$SCRIPT_DIR/zsh/.zprofile" "$HOME/.zprofile"
