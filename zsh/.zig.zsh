@@ -18,5 +18,4 @@ case ":$PATH:" in
   *) export PATH="$PNPM_HOME:$PATH" ;;
 esac
 
-eval "$(gh copilot alias -- zsh)"
 eval "$(direnv hook zsh)"
