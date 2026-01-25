@@ -22,7 +22,6 @@ cd /home/ubuntu/dotfiles
 
 ./download.sh ssh
 ./download.sh vim
-./download.sh zsh
 
 ./sync.sh bash
 ./sync.sh bun
@@ -46,9 +45,6 @@ cd /home/ubuntu/dotfiles
 
 ./download.sh tmux
 
-sudo echo "$(which zsh)" > /etc/shells
-sudo chsh -s "$(which zsh)"
-
 curl -fsSL https://bun.sh/install | bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -71,6 +67,7 @@ bun install -g @google/gemini-cli
 bun install -g @openai/codex
 bun install -g @github/copilot
 
+echo " 🏃‍♂️‍➡️ RUN: cd /home/ubuntu/dotfiles && ./download.sh zsh (say yes, then 'antigen reset' then 'exit' then 'tmux')"
 echo " 🔑 AUTH: gh auth login -p https -h github.com -w"
 echo " 🔑 AUTH: claude"
 echo " 🔑 AUTH: gemini"
