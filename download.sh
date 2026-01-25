@@ -92,8 +92,10 @@ if [ -n "$1" ]; then
     download "$1"
     echo "Ran download.sh for $1"
 else
-    # Upgrades brew formulae
-    brew upgrade
+    # Upgrades brew formulae if brew is installed
+    if command -v brew >/dev/null 2>&1; then
+        brew upgrade
+    fi
 
     # Upgrades rust if installed
     if command -v rustup >/dev/null 2>&1; then
@@ -118,6 +120,11 @@ else
     # Upgrades Claude Code if installed
     if command -v claude >/dev/null 2>&1; then
         claude update
+    fi
+
+    # Upgrades uv if installed
+    if command -v uv >/dev/null 2>&1; then
+        uv self update
     fi
 
     for dir in */ .*/; do

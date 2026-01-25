@@ -18,7 +18,7 @@ nix profile install 'nixpkgs#nix-direnv'
 uv tool install claude-monitor
 
 gh auth login
-gh extension install github/gh-copilot
+curl -fsSL https://gh.io/copilot-install | bash
 
 fly auth login
 

@@ -65,6 +65,12 @@ sync() {
         "borders")
             sync_source "$SCRIPT_DIR/borders/bordersrc" "$HOME/.config/borders/bordersrc"
             ;;
+        "bun")
+            sync_source "$SCRIPT_DIR/bun/.bunfig.toml" "$HOME/.bunfig.toml"
+            ;;
+        "cargo")
+            sync_source "$SCRIPT_DIR/cargo/config.toml" "$HOME/.cargo/config.toml"
+            ;;
         "claude")
             sync_source "$SCRIPT_DIR/claude/settings.json" "$HOME/.claude/settings.json"
             ;;
@@ -84,7 +90,7 @@ sync() {
             sync_source "$SCRIPT_DIR/editorconfig/.editorconfig" "$HOME/.editorconfig"
             ;;
         "gh")
-            sync_source "$SCRIPT_DIR/gh" "$HOME/.config/gh"
+            sync_source "$SCRIPT_DIR/gh/config.yml" "$HOME/.config/gh/config.yml"
             git config --global gpg.program $(which gpg)
             ;;
         "git")
@@ -103,6 +109,9 @@ sync() {
             ;;
         "ranger")
             sync_source "$SCRIPT_DIR/ranger" "$HOME/.config/ranger"
+            ;;
+        "ripgrep")
+            sync_source "$SCRIPT_DIR/ripgrep/.ripgreprc" "$HOME/.ripgreprc"
             ;;
         "sketchybar")
             sync_source "$SCRIPT_DIR/sketchybar" "$HOME/.config/sketchybar"
@@ -127,6 +136,9 @@ sync() {
             ;;
         "ts4")
             source "$SCRIPT_DIR/ts4/sync.sh" "${@:2}"
+            ;;
+        "uv")
+            sync_source "$SCRIPT_DIR/uv/uv.toml" "$HOME/.config/uv/uv.toml"
             ;;
         "vim")
             sync_source "$SCRIPT_DIR/vim" "$HOME/.vim"

@@ -1,7 +1,7 @@
 git_protocol: https
-editor: cursor
+editor: vim
 prompt: enabled
 pager: less
 http_unix_socket:
-browser:
+browser: chrome
 version: "1"

@@ -1,0 +1,6 @@
+# Load nix-direnv for faster, cached flake evaluation
+# This prevents impurity issues and speeds up direnv loading
+# Using the installed nix-direnv from nix profile
+if [ -f /nix/store/awz8a9r0q9mls3snczka5niig4rwif05-nix-direnv-3.1.0/share/nix-direnv/direnvrc ]; then
+  source /nix/store/awz8a9r0q9mls3snczka5niig4rwif05-nix-direnv-3.1.0/share/nix-direnv/direnvrc
+fi
