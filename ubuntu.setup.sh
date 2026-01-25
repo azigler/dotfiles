@@ -9,7 +9,7 @@ sudo do-release-upgrade
 sudo apt-get update
 sudo apt-get upgrade
 
-sudo apt install -y tmux gh ranger direnv zsh ripgrep fzf lazygit golang-go astral-uv
+sudo apt install -y tmux gh ranger direnv zsh ripgrep fzf lazygit golang-go
 
 zsh ~/dotfiles/sync.sh bash
 zsh ~/dotfiles/sync.sh bun
@@ -36,6 +36,7 @@ sudo chsh -s $(which zsh)
 
 curl -fsSL https://bun.sh/install | sudo zsh
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sudo zsh
+curl -LsSf https://astral.sh/uv/install.sh | sudo zsh
 
 curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh | sudo zsh
 
