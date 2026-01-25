@@ -7,51 +7,49 @@ git clone https://github.com/azigler/dotfiles ~/dotfiles
 
 sudo do-release-upgrade
 sudo apt-get update
-sudo apt-get upgrade
+DEBIAN_FRONTEND=noninteractive sudo apt-get upgrade -y
 
-sudo apt install -y tmux gh ranger direnv zsh ripgrep fzf lazygit golang-go
+sudo apt install -y tmux gh ranger direnv zsh ripgrep fzf lazygit golang-go unzip
 
-zsh ~/dotfiles/sync.sh bash
-zsh ~/dotfiles/sync.sh bun
-zsh ~/dotfiles/sync.sh cargo
-zsh ~/dotfiles/sync.sh claude
-zsh ~/dotfiles/sync.sh direnv
-zsh ~/dotfiles/sync.sh editorconfig
-zsh ~/dotfiles/sync.sh gh
-zsh ~/dotfiles/sync.sh nix
-zsh ~/dotfiles/sync.sh ranger
-zsh ~/dotfiles/sync.sh ripgrep
-zsh ~/dotfiles/sync.sh ssh
-zsh ~/dotfiles/sync.sh tmux
-zsh ~/dotfiles/sync.sh uv
-zsh ~/dotfiles/sync.sh vim
-zsh ~/dotfiles/sync.sh zsh
+/bin/zsh /home/ubuntu/dotfiles/sync.sh bash
+/bin/zsh /home/ubuntu/dotfiles/sync.sh bun
+/bin/zsh /home/ubuntu/dotfiles/sync.sh cargo
+/bin/zsh /home/ubuntu/dotfiles/sync.sh claude
+/bin/zsh /home/ubuntu/dotfiles/sync.sh direnv
+/bin/zsh /home/ubuntu/dotfiles/sync.sh editorconfig
+/bin/zsh /home/ubuntu/dotfiles/sync.sh gh
+/bin/zsh /home/ubuntu/dotfiles/sync.sh nix
+/bin/zsh /home/ubuntu/dotfiles/sync.sh ranger
+/bin/zsh /home/ubuntu/dotfiles/sync.sh ripgrep
+/bin/zsh /home/ubuntu/dotfiles/sync.sh ssh
+/bin/zsh /home/ubuntu/dotfiles/sync.sh tmux
+/bin/zsh /home/ubuntu/dotfiles/sync.sh uv
+/bin/zsh /home/ubuntu/dotfiles/sync.sh vim
+/bin/zsh /home/ubuntu/dotfiles/sync.sh zsh
 
-zsh ~/dotfiles/download.sh ssh
-zsh ~/dotfiles/download.sh tmux
-zsh ~/dotfiles/download.sh vim
-zsh ~/dotfiles/download.sh zsh
+/bin/zsh /home/ubuntu/dotfiles/download.sh ssh
+/bin/zsh /home/ubuntu/dotfiles/download.sh tmux
+/bin/zsh /home/ubuntu/dotfiles/download.sh vim
+/bin/zsh /home/ubuntu/dotfiles/download.sh zsh
 
 sudo chsh -s $(which zsh)
 
-curl -fsSL https://bun.sh/install | sudo zsh
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sudo zsh
-curl -LsSf https://astral.sh/uv/install.sh | sudo zsh
+curl -fsSL https://bun.sh/install | bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh | sudo zsh
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
 
-curl -L https://nixos.org/nix/install | sudo zsh
+curl -L https://nixos.org/nix/install | sh -s -- --daemon --yes
 nix profile install 'nixpkgs#nix-direnv'
 
-curl -fsSL https://claude.ai/install.sh | sudo zsh
-curl -fsSL https://cursor.com/install  | sudo zsh
-curl -fsSL https://gh.io/copilot-install | sudo zsh
+curl -fsSL https://claude.ai/install.sh | bash
+curl https://cursor.com/install -fsS | bash
 bun install -g @google/gemini-cli
 bun install -g @openai/codex
+bun install -g @github/copilot
 
 curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/beads_viewer/main/install.sh?$(date +%s)" | sudo zsh
 curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/beads_rust/main/install.sh?$(date +%s)" | sudo zsh
-
-gh extension install github/gh-copilot
 
 #gh auth login
