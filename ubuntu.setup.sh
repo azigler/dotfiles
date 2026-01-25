@@ -7,10 +7,7 @@ if [ "$(lsb_release -rs)" != "25.10" ]; then
     exit 1
 fi
 
-if ! grep -q "$USER ALL=(ALL) NOPASSWD:ALL" /etc/sudoers; then
-    echo "$USER ALL=(ALL) NOPASSWD:ALL" | sudo tee -a /etc/sudoers
-    echo " 🤝 passwordless sudo granted"
-fi
+echo "$USER ALL=(ALL) NOPASSWD:ALL" | sudo tee -a /etc/sudoers
 
 sudo hostnamectl set-hostname zig-computer
 
@@ -49,7 +46,8 @@ cd /home/ubuntu/dotfiles
 
 ./download.sh tmux
 
-sudo chsh -s $(which zsh)
+sudo echo "$(which zsh)" > /etc/shells
+sudo chsh -s "$(which zsh)"
 
 curl -fsSL https://bun.sh/install | bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -79,6 +77,6 @@ echo " 🔑 AUTH: gemini"
 echo " 🔑 AUTH: cursor"
 echo " 🔑 AUTH: codex"
 echo " 🔑 AUTH: copilot"
-echo " ↗️ UPGRADE: sudo do-release-upgrade"
-echo " ↘️ UPDATE: sudo apt-get update"
-echo " ↘️ UPGRADE: sudo apt-get upgrade -y"
+echo " 🦕 UPGRADE: sudo do-release-upgrade"
+echo " 🦕 UPDATE: sudo apt-get update"
+echo " 🦕 UPGRADE: sudo apt-get upgrade -y"
