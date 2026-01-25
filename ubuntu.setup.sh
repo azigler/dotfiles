@@ -1,20 +1,24 @@
 # curl -fsSL "https://raw.githubusercontent.com/azigler/dotfiles/main/ubuntu.setup.sh" | bash
+# Ubuntu 25.04
 
 echo "$USER ALL=(ALL) NOPASSWD:ALL" | sudo tee -a /etc/sudo
 sudo hostnamectl set-hostname zig-computer
 
 git clone https://github.com/azigler/dotfiles /home/ubuntu/dotfiles
 
-sudo do-release-upgrade
 sudo apt-get update
 DEBIAN_FRONTEND=noninteractive sudo apt-get upgrade -y
 
-sudo apt install -y gh ranger direnv zsh ripgrep fzf lazygit golang-go unzip
+sudo apt install -y gh ranger direnv zsh ripgrep fzf golang-go unzip
+
+LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" | \grep -Po '"tag_name": *"v\K[^"]*')
+curl -Lo lazygit.tar.gz "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz"
+tar xf lazygit.tar.gz lazygit
+sudo install lazygit -D -t /usr/local/bin/
 
 cd /home/ubuntu/dotfiles
 
 ./download.sh ssh
-./download.sh tmux
 ./download.sh vim
 ./download.sh zsh
 
@@ -37,6 +41,8 @@ cd /home/ubuntu/dotfiles
 ./sync.sh uv
 ./sync.sh vim
 ./sync.sh zsh
+
+./download.sh tmux
 
 sudo chsh -s $(which zsh)
 
@@ -62,9 +68,9 @@ bun install -g @google/gemini-cli
 bun install -g @openai/codex
 bun install -g @github/copilot
 
-echo "✳️ AUTH: gh auth login -p https -h github.com -w"
-echo "✳️ AUTH: claude"
-echo "✳️ AUTH: gemini"
-echo "✳️ AUTH: cursor"
-echo "✳️ AUTH: codex"
-echo "✳️ AUTH: copilot"
+echo " 🔑 AUTH: gh auth login -p https -h github.com -w"
+echo " 🔑 AUTH: claude"
+echo " 🔑 AUTH: gemini"
+echo " 🔑 AUTH: cursor"
+echo " 🔑 AUTH: codex"
+echo " 🔑 AUTH: copilot"
