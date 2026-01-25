@@ -13,12 +13,21 @@ sudo apt install -y gh ranger direnv zsh ripgrep fzf lazygit golang-go unzip
 
 cd /home/ubuntu/dotfiles
 
+./download.sh ssh
+./download.sh tmux
+./download.sh vim
+./download.sh zsh
+
 ./sync.sh bash
 ./sync.sh bun
 ./sync.sh cargo
 ./sync.sh claude
+./sync.sh codex
+./sync.sh copilot
+./sync.sh cursor
 ./sync.sh direnv
 ./sync.sh editorconfig
+./sync.sh gemini
 ./sync.sh gh
 ./sync.sh nix
 ./sync.sh ranger
@@ -28,11 +37,6 @@ cd /home/ubuntu/dotfiles
 ./sync.sh uv
 ./sync.sh vim
 ./sync.sh zsh
-
-./download.sh ssh
-./download.sh tmux
-./download.sh vim
-./download.sh zsh
 
 sudo chsh -s $(which zsh)
 
@@ -58,9 +62,9 @@ bun install -g @google/gemini-cli
 bun install -g @openai/codex
 bun install -g @github/copilot
 
-#gh auth login
-#https://github.com/login/device
-#claude
-#gemini cli
-#codex
-#copilot
+echo "✳️ AUTH: gh auth login -p https -h github.com -w"
+echo "✳️ AUTH: claude"
+echo "✳️ AUTH: gemini"
+echo "✳️ AUTH: cursor"
+echo "✳️ AUTH: codex"
+echo "✳️ AUTH: copilot"

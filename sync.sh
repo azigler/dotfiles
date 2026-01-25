@@ -73,6 +73,18 @@ sync() {
             ;;
         "claude")
             sync_source "$SCRIPT_DIR/claude/settings.json" "$HOME/.claude/settings.json"
+            sync_source "$SCRIPT_DIR/claude/agents" "$HOME/.claude/agents"
+            sync_source "$SCRIPT_DIR/agents/hooks" "$HOME/.claude/hooks"
+            sync_source "$SCRIPT_DIR/agents/skills" "$HOME/.claude/skills"
+            sync_source "$SCRIPT_DIR/agents/AGENTS.md" "$HOME/.claude/CLAUDE.md"
+            ;;
+        "codex")
+            sync_source "$SCRIPT_DIR/codex/config.toml" "$HOME/.codex/config.toml"
+            sync_source "$SCRIPT_DIR/agents/skills" "$HOME/.codex/skills"
+            sync_source "$SCRIPT_DIR/agents/AGENTS.md" "$HOME/.codex/AGENTS.md"
+            ;;
+        "copilot")
+            sync_source "$SCRIPT_DIR/copilot/config.json" "$HOME/.copilot/config.json"
             ;;
         "cursor")
             if command -v cursor >/dev/null 2>&1; then
@@ -81,6 +93,10 @@ sync() {
             if [[ "$OSTYPE" == "darwin"* ]]; then
                 sync_source "$SCRIPT_DIR/cursor/settings.json" "/Users/$USER/Library/Application Support/Cursor/User/settings.json"
             fi
+            sync_source "$SCRIPT_DIR/cursor/cli-config.json" "$HOME/.cursor/cli-config.json"
+            sync_source "$SCRIPT_DIR/cursor/hooks.json" "$HOME/.cursor/hooks.json"
+            sync_source "$SCRIPT_DIR/agents/hooks" "$HOME/.cursor/hooks"
+            sync_source "$SCRIPT_DIR/agents/skills" "$HOME/.cursor/skills"
             ;;
         "direnv")
             sync_source "$SCRIPT_DIR/direnv" "$HOME/.config/direnv"
@@ -88,6 +104,12 @@ sync() {
             ;;
         "editorconfig")
             sync_source "$SCRIPT_DIR/editorconfig/.editorconfig" "$HOME/.editorconfig"
+            ;;
+        "gemini")
+            sync_source "$SCRIPT_DIR/gemini/settings.json" "$HOME/.gemini/settings.json"
+            sync_source "$SCRIPT_DIR/agents/hooks" "$HOME/.gemini/hooks"
+            sync_source "$SCRIPT_DIR/agents/skills" "$HOME/.gemini/skills"
+            sync_source "$SCRIPT_DIR/agents/AGENTS.md" "$HOME/.gemini/GEMINI.md"
             ;;
         "gh")
             sync_source "$SCRIPT_DIR/gh/config.yml" "$HOME/.config/gh/config.yml"

@@ -117,3 +117,7 @@ trim()
 }
 
 alias claude='claude --dangerously-skip-permissions'
+alias copilot='bun run copilot'
+alias codex='bun run codex'
+alias gemini='bun run gemini'
+alias cursor='agent'
