@@ -1,7 +1,15 @@
+# curl -fsSL "https://raw.githubusercontent.com/azigler/dotfiles/main/ubuntu.setup.sh" | bash
+
 echo "$USER ALL=(ALL) NOPASSWD:ALL" | sudo tee -a /etc/sudo
 sudo hostnamectl set-hostname zig-computer
 
 git clone https://github.com/azigler/dotfiles ~/dotfiles
+
+sudo do-release-upgrade
+sudo apt-get update
+sudo apt-get upgrade
+
+sudo apt install -y tmux gh ranger direnv zsh ripgrep fzf lazygit golang-go astral-uv
 
 zsh ~/dotfiles/sync.sh bash
 zsh ~/dotfiles/sync.sh bun
@@ -23,12 +31,6 @@ zsh ~/dotfiles/download.sh ssh
 zsh ~/dotfiles/download.sh tmux
 zsh ~/dotfiles/download.sh vim
 zsh ~/dotfiles/download.sh zsh
-
-sudo do-release-upgrade
-sudo apt-get update
-sudo apt-get upgrade
-
-sudo apt install -y tmux gh ranger direnv zsh ripgrep fzf lazygit golang-go astral-uv
 
 sudo chsh -s $(which zsh)
 
