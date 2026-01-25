@@ -53,5 +53,3 @@ antigen apply
 unsetopt correct_all
 unsetopt correct
 ENABLE_CORRECTION="false"
-
-alias claude='claude --dangerously-skip-permissions'

@@ -115,3 +115,5 @@ trim()
 	var="${var%"${var##*[![:space:]]}"}"
 	echo -n "$var"
 }
+
+alias claude='claude --dangerously-skip-permissions'

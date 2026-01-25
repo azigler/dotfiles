@@ -3,34 +3,36 @@
 echo "$USER ALL=(ALL) NOPASSWD:ALL" | sudo tee -a /etc/sudo
 sudo hostnamectl set-hostname zig-computer
 
-git clone https://github.com/azigler/dotfiles ~/dotfiles
+git clone https://github.com/azigler/dotfiles /home/ubuntu/dotfiles
+
+cd /home/ubuntu/dotfiles
+
+/bin/zsh sync.sh bash
+/bin/zsh sync.sh bun
+/bin/zsh sync.sh cargo
+/bin/zsh sync.sh claude
+/bin/zsh sync.sh direnv
+/bin/zsh sync.sh editorconfig
+/bin/zsh sync.sh gh
+/bin/zsh sync.sh nix
+/bin/zsh sync.sh ranger
+/bin/zsh sync.sh ripgrep
+/bin/zsh sync.sh ssh
+/bin/zsh sync.sh tmux
+/bin/zsh sync.sh uv
+/bin/zsh sync.sh vim
+/bin/zsh sync.sh zsh
+
+/bin/zsh download.sh ssh
+/bin/zsh download.sh tmux
+/bin/zsh download.sh vim
+/bin/zsh download.sh zsh
 
 sudo do-release-upgrade
 sudo apt-get update
 DEBIAN_FRONTEND=noninteractive sudo apt-get upgrade -y
 
 sudo apt install -y tmux gh ranger direnv zsh ripgrep fzf lazygit golang-go unzip
-
-/bin/zsh /home/ubuntu/dotfiles/sync.sh bash
-/bin/zsh /home/ubuntu/dotfiles/sync.sh bun
-/bin/zsh /home/ubuntu/dotfiles/sync.sh cargo
-/bin/zsh /home/ubuntu/dotfiles/sync.sh claude
-/bin/zsh /home/ubuntu/dotfiles/sync.sh direnv
-/bin/zsh /home/ubuntu/dotfiles/sync.sh editorconfig
-/bin/zsh /home/ubuntu/dotfiles/sync.sh gh
-/bin/zsh /home/ubuntu/dotfiles/sync.sh nix
-/bin/zsh /home/ubuntu/dotfiles/sync.sh ranger
-/bin/zsh /home/ubuntu/dotfiles/sync.sh ripgrep
-/bin/zsh /home/ubuntu/dotfiles/sync.sh ssh
-/bin/zsh /home/ubuntu/dotfiles/sync.sh tmux
-/bin/zsh /home/ubuntu/dotfiles/sync.sh uv
-/bin/zsh /home/ubuntu/dotfiles/sync.sh vim
-/bin/zsh /home/ubuntu/dotfiles/sync.sh zsh
-
-/bin/zsh /home/ubuntu/dotfiles/download.sh ssh
-/bin/zsh /home/ubuntu/dotfiles/download.sh tmux
-/bin/zsh /home/ubuntu/dotfiles/download.sh vim
-/bin/zsh /home/ubuntu/dotfiles/download.sh zsh
 
 sudo chsh -s $(which zsh)
 
@@ -41,15 +43,24 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
 
 curl -L https://nixos.org/nix/install | sh -s -- --daemon --yes
-nix profile install 'nixpkgs#nix-direnv'
 
 curl -fsSL https://claude.ai/install.sh | bash
 curl https://cursor.com/install -fsS | bash
+
+curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/beads_rust/main/install.sh?$(date +%s)" | bash
+curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/beads_viewer/main/install.sh?$(date +%s)" | bash
+
+exec sudo --login --user $USER
+
+nix --extra-experimental-features nix-command --extra-experimental-features flakes profile add 'nixpkgs#nix-direnv'
+
 bun install -g @google/gemini-cli
 bun install -g @openai/codex
 bun install -g @github/copilot
 
-curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/beads_viewer/main/install.sh?$(date +%s)" | sudo zsh
-curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/beads_rust/main/install.sh?$(date +%s)" | sudo zsh
-
 #gh auth login
+#https://github.com/login/device
+#claude
+#gemini cli
+#codex
+#copilot
