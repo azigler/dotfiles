@@ -80,9 +80,7 @@ download() {
             rm -rf $SCRIPT_DIR/zsh/.antigen
             mkdir -p $SCRIPT_DIR/zsh/.antigen
             fetch_file "https://raw.githubusercontent.com/zsh-users/antigen/master/bin/antigen.zsh" "$SCRIPT_DIR/zsh/.antigen"
-            if [[ "$SHELL" == "/bin/zsh" ]]; then
-                sh -c "RUNZSH=no ZSH=$SCRIPT_DIR/zsh/ohmyzsh $(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh) --keep-zshrc"
-            fi
+            sh -c "RUNZSH=no ZSH=$SCRIPT_DIR/zsh/ohmyzsh $(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh) --keep-zshrc"
             # Use 'antigen reset' in the zsh shell if p10k does not load.
             ;;
     esac
