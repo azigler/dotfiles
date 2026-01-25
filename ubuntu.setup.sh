@@ -5,6 +5,12 @@ sudo hostnamectl set-hostname zig-computer
 
 git clone https://github.com/azigler/dotfiles /home/ubuntu/dotfiles
 
+sudo do-release-upgrade
+sudo apt-get update
+DEBIAN_FRONTEND=noninteractive sudo apt-get upgrade -y
+
+sudo apt install -y tmux gh ranger direnv zsh ripgrep fzf lazygit golang-go unzip
+
 cd /home/ubuntu/dotfiles
 
 /bin/zsh sync.sh bash
@@ -27,12 +33,6 @@ cd /home/ubuntu/dotfiles
 /bin/zsh download.sh tmux
 /bin/zsh download.sh vim
 /bin/zsh download.sh zsh
-
-sudo do-release-upgrade
-sudo apt-get update
-DEBIAN_FRONTEND=noninteractive sudo apt-get upgrade -y
-
-sudo apt install -y tmux gh ranger direnv zsh ripgrep fzf lazygit golang-go unzip
 
 sudo chsh -s $(which zsh)
 
