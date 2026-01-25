@@ -9,30 +9,30 @@ sudo do-release-upgrade
 sudo apt-get update
 DEBIAN_FRONTEND=noninteractive sudo apt-get upgrade -y
 
-sudo apt install -y tmux gh ranger direnv zsh ripgrep fzf lazygit golang-go unzip
+sudo apt install -y gh ranger direnv zsh ripgrep fzf lazygit golang-go unzip
 
 cd /home/ubuntu/dotfiles
 
-/bin/zsh sync.sh bash
-/bin/zsh sync.sh bun
-/bin/zsh sync.sh cargo
-/bin/zsh sync.sh claude
-/bin/zsh sync.sh direnv
-/bin/zsh sync.sh editorconfig
-/bin/zsh sync.sh gh
-/bin/zsh sync.sh nix
-/bin/zsh sync.sh ranger
-/bin/zsh sync.sh ripgrep
-/bin/zsh sync.sh ssh
-/bin/zsh sync.sh tmux
-/bin/zsh sync.sh uv
-/bin/zsh sync.sh vim
-/bin/zsh sync.sh zsh
+./sync.sh bash
+./sync.sh bun
+./sync.sh cargo
+./sync.sh claude
+./sync.sh direnv
+./sync.sh editorconfig
+./sync.sh gh
+./sync.sh nix
+./sync.sh ranger
+./sync.sh ripgrep
+./sync.sh ssh
+./sync.sh tmux
+./sync.sh uv
+./sync.sh vim
+./sync.sh zsh
 
-/bin/zsh download.sh ssh
-/bin/zsh download.sh tmux
-/bin/zsh download.sh vim
-/bin/zsh download.sh zsh
+./download.sh ssh
+./download.sh tmux
+./download.sh vim
+./download.sh zsh
 
 sudo chsh -s $(which zsh)
 
