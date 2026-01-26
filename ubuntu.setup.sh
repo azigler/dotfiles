@@ -45,7 +45,6 @@ if [ "$(hostname -s)" != "zig-computer" ]; then
     ./sync.sh tmux
     ./sync.sh uv
     ./sync.sh vim
-    ./sync.sh zsh
 
     ./download.sh tmux
 
@@ -72,7 +71,7 @@ if [ "$(hostname -s)" != "zig-computer" ]; then
     bun install -g @github/copilot
 fi
 
-echo " 🧢 RUN: cd /home/ubuntu/dotfiles && ./download.sh zsh (say yes, then 'antigen reset' then 'exit' then 'tmux')"
+echo " 🧢 RUN: cd /home/ubuntu/dotfiles && ./sync.sh zsh &&./download.sh zsh (say yes, then 'antigen reset' then 'exit' then 'tmux')"
 echo " 🔑 AUTH: gh auth login -p https -h github.com -w"
 echo " 🔑 AUTH: claude"
 echo " 🔑 AUTH: gemini"
