@@ -3,9 +3,7 @@
 
 if [ "$(lsb_release -rs)" != "25.10" ]; then
     echo "This script is only for Ubuntu 25.10 LTS (Questing Quokka)"
-    echo " 🦕 UPGRADE: sudo apt-get update"
-    echo " 🦕 UPGRADE: sudo apt-get upgrade -y"
-    echo " 🦕 UPGRADE: sudo do-release-upgrade"
+    echo " 🦕 UPGRADE: sudo apt-get update && sudo apt-get upgrade -y && sudo do-release-upgrade"
     exit 1
 fi
 
@@ -81,6 +79,4 @@ echo " 🔑 AUTH: gemini"
 echo " 🔑 AUTH: cursor"
 echo " 🔑 AUTH: codex"
 echo " 🔑 AUTH: copilot"
-echo " 🦕 UPGRADE: sudo apt-get update"
-echo " 🦕 UPGRADE: sudo apt-get upgrade -y"
-echo " 🦕 UPGRADE: sudo do-release-upgrade"
+echo " 🦕 UPGRADE: sudo apt-get update && sudo apt-get upgrade -y && sudo do-release-upgrade"
