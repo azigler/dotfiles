@@ -122,6 +122,6 @@ alias codex='bun run codex'
 alias gemini='bun run gemini'
 alias cursor='agent'
 
-if [ -f "$HOME/servers.bash_aliases" ]; then
-    source "$HOME/servers.bash_aliases"
+if [ -f "$HOME/.servers.bash_aliases" ]; then
+    source "$HOME/.servers.bash_aliases"
 fi
