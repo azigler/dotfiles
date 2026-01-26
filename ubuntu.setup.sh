@@ -38,6 +38,7 @@ if [ "$(hostname -s)" != "zig-computer" ]; then
     ./sync.sh editorconfig
     ./sync.sh gemini
     ./sync.sh gh
+    ./sync.sh git
     ./sync.sh nix
     ./sync.sh ranger
     ./sync.sh ripgrep
