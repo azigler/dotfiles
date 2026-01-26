@@ -12,7 +12,7 @@ if ! sudo grep -q "$USER ALL=(ALL) NOPASSWD:ALL" /etc/sudoers; then
     echo " 🤝 PASSWORDLESS SUDO GRANTED"
 fi
 
-if hostname -s != "zig-computer"; then
+if [ "$(hostname -s)" != "zig-computer" ]; then
     sudo hostnamectl set-hostname zig-computer
 
     git clone https://github.com/azigler/dotfiles /home/ubuntu/dotfiles
