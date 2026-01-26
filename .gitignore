@@ -32,3 +32,6 @@ zsh/ohmyzsh
 
 # ts4
 ts4
+
+# server addresses
+servers.bash_aliases
