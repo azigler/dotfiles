@@ -3,7 +3,7 @@
 
 if [ "$(lsb_release -rs)" != "25.10" ]; then
     echo "This script is only for Ubuntu 25.10 LTS (Questing Quokka)"
-    echo " 🦕 UPGRADE: sudo apt-get update && sudo apt-get upgrade -y && sudo do-release-upgrade"
+    echo " 🦕 UPGRADE: sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get dist-upgrade && sudo do-release-upgrade"
     exit 1
 fi
 
