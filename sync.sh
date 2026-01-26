@@ -51,7 +51,7 @@ sync() {
         "bash")
             [[ ! -f "$SCRIPT_DIR/bash/.$(hostname -s).bashrc" ]] || sync_source "$SCRIPT_DIR/bash/.$(hostname -s).bashrc" "$HOME/.$(hostname -s).bashrc"
             sync_source "$SCRIPT_DIR/bash/.bash_aliases" "$HOME/.bash_aliases"
-            sync_source "$SCRIPT_DIR/bash/servers.bash_aliases" "$HOME/servers.bash_aliases"
+            sync_source "$SCRIPT_DIR/bash/.servers.bash_aliases" "$HOME/.servers.bash_aliases"
             sync_source "$SCRIPT_DIR/bash/.bash_login" "$HOME/.bash_login"
             sync_source "$SCRIPT_DIR/bash/.bash_logout" "$HOME/.bash_logout"
             sync_source "$SCRIPT_DIR/bash/.bash_profile" "$HOME/.bash_profile"
