@@ -70,6 +70,7 @@ if [ "$(hostname -s)" != "zig-computer" ]; then
     bun install -g @google/gemini-cli
     bun install -g @openai/codex
     bun install -g @github/copilot
+    bun install -g vercel
 fi
 
 echo " 🧢 RUN: cd /home/ubuntu/dotfiles && ./sync.sh zsh &&./download.sh zsh (say yes, then 'antigen reset' then 'exit' then 'tmux')"
