@@ -22,6 +22,4 @@ fi
 
 if [[ -z "$TMUX" ]]; then
     $tmux_command attach -t "$session_name"
-else
-    $tmux_command switch-client -t "$session_name"
 fi
