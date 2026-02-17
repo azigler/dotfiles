@@ -78,6 +78,7 @@ sync() {
             sync_source "$SCRIPT_DIR/agents/hooks" "$HOME/.claude/hooks"
             sync_source "$SCRIPT_DIR/agents/skills" "$HOME/.claude/skills"
             sync_source "$SCRIPT_DIR/agents/AGENTS.md" "$HOME/.claude/CLAUDE.md"
+            sync_source "$SCRIPT_DIR/claude/statusline.sh" "$HOME/.claude/statusline.sh"
             ;;
         "codex")
             sync_source "$SCRIPT_DIR/codex/config.toml" "$HOME/.codex/config.toml"
