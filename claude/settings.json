@@ -1,3 +1,28 @@
 {
-  "cleanupPeriodDays": 9999
+  "cleanupPeriodDays": 9999,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash(git commit)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/pre-commit-checks.sh",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/check-status.sh"
+          }
+        ]
+      }
+    ]
+  }
 }
