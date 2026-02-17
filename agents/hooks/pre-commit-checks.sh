@@ -4,8 +4,6 @@
 
 set -euo pipefail
 
-cd "$(dirname "$0")/../.." || exit 0
-
 FAILED=0
 
 # 1. Sync beads (so bead state is included in commit)

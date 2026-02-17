@@ -1,1 +1,6 @@
-{}
+{
+  "banner": "never",
+  "model": "claude-sonnet-4",
+  "render_markdown": true,
+  "theme": "auto"
+}

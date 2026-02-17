@@ -4,8 +4,6 @@
 
 set +e
 
-cd "$(dirname "$0")/../.." 2>/dev/null || exit 0
-
 echo ""
 echo "=== Session End Checklist ==="
 echo ""
