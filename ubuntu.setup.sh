@@ -20,7 +20,7 @@ if [ "$(hostname -s)" != "zig-computer" ]; then
     sudo apt-get update
     sudo apt-get upgrade -y
 
-    sudo apt install -y gh ranger direnv zsh ripgrep lazygit fzf golang-go unzip
+    sudo apt install -y gh ranger direnv zsh ripgrep lazygit fzf golang-go unzip node
 
     cd /home/ubuntu/dotfiles
 
