@@ -104,6 +104,35 @@ curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/beads_rust/main/
 section "Upgrading beads_viewer"
 curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/beads_viewer/main/install.sh?$(date +%s)" | bash
 
+# --- Biome ---
+section "Upgrading Biome"
+if command -v biome &>/dev/null; then
+    bun install -g @biomejs/biome
+else
+    warn "biome not found, reinstalling"
+    bun install -g @biomejs/biome
+fi
+
+# --- Ruff ---
+section "Upgrading Ruff"
+if command -v ruff &>/dev/null; then
+    uv tool upgrade ruff
+else
+    warn "ruff not found, reinstalling"
+    uv tool install ruff
+fi
+
+# --- golangci-lint ---
+section "Upgrading golangci-lint"
+if command -v golangci-lint &>/dev/null; then
+    curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b "$HOME/.local/bin"
+else
+    warn "golangci-lint not found, reinstalling"
+    curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b "$HOME/.local/bin"
+fi
+
+# rustfmt + clippy upgraded automatically by `rustup update` (already in script)
+
 # --- Bun global packages ---
 section "Upgrading Bun global packages"
 if command -v bun &>/dev/null; then

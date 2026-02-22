@@ -6,8 +6,6 @@ argument-hint: "[message]"
 
 # /commit - Git Commit Convention
 
-Create git commits following [gitmoji](https://gitmoji.dev/) conventions with atomic bead integration and co-authoring.
-
 ## When to Commit
 
 - **Every bead closure** triggers a commit + push. One bead = one commit.
@@ -22,8 +20,12 @@ Create git commits following [gitmoji](https://gitmoji.dev/) conventions with at
 
 optional body explaining WHY
 
+Bead: <bead-id>
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 ```
+
+Use a scope prefix that matches the area of the codebase you changed. Get the bead
+ID from your task prompt or `br list`. Close the bead BEFORE committing (see `/beads`).
 
 ## Gitmoji Reference
 
@@ -48,69 +50,41 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 | :heavy_minus_sign: | Remove dependency |
 | :truck: | Move or rename files |
 | :boom: | Breaking changes |
-| :package: | Chore/sync beads |
-
-## Scope Reference
-
-| Scope | Area |
-|-------|------|
-| `dashboard` | UI components, pages, hooks, styling |
-| `integration` | Airtable, Asana, Slack, Google Drive, APIs |
-| `content` | AI content generation, prompts |
-| `config` | Project configuration, env, tooling |
-| `deploy` | Vercel deployment, CI/CD |
 
 ## Workflow
 
-### 0. Pre-Commit: Close Beads
+### 1. Close bead, analyze, stage
 
 ```bash
-br close <bead-id>         # Close completed beads
-br sync --flush-only       # Export to JSONL
+br close <bead-id>
+br sync --flush-only
+git status && git diff
+git add <specific-files> .beads/issues.jsonl   # NEVER git add -A
 ```
 
-Close beads BEFORE committing so they're included in the commit diff.
-
-### 1. Analyze Changes
-
-```bash
-git status
-git diff --staged
-git diff
-```
-
-### 2. Stage Specific Files
-
-```bash
-git add <specific-files>   # NEVER use git add -A or git add .
-```
-
-### 3. Create Commit
-
-Always use HEREDOC for proper formatting:
+### 2. Commit with HEREDOC
 
 ```bash
 git commit -m "$(cat <<'EOF'
-:sparkles: integration: add Airtable read adapter
+:sparkles: auth: add JWT token refresh
 
-Provides read-only access to episodes and guest data
-for the dashboard display layer.
+Prevents session expiry during long-running operations.
 
+Bead: bd-xxx
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 EOF
 )"
 ```
 
-### 4. Push
+### 3. Push
 
 ```bash
 git push
 ```
 
-## Safety Reminders
+## Safety
 
-- Stage specific files — avoid `git add -A` or `git add .`
-- Never commit `.env.local` or credentials
-- Create NEW commits, don't amend unless explicitly asked
-- Always push after committing
-- Always `br sync --flush-only` before committing
+- Stage specific files — never `git add -A` or `git add .`
+- Never commit `.env`, credentials, or secrets
+- Create NEW commits — don't amend unless explicitly asked
+- If a pre-commit hook blocks, fix the errors and retry (see `/lint`)

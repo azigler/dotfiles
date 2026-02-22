@@ -69,6 +69,9 @@ sync() {
         "bun")
             sync_source "$SCRIPT_DIR/bun/.bunfig.toml" "$HOME/.bunfig.toml"
             ;;
+        "biome")
+            sync_source "$SCRIPT_DIR/biome/biome.json" "$HOME/.config/biome/biome.json"
+            ;;
         "cargo")
             sync_source "$SCRIPT_DIR/cargo/config.toml" "$HOME/.cargo/config.toml"
             ;;
@@ -113,6 +116,9 @@ sync() {
             sync_source "$SCRIPT_DIR/agents/skills" "$HOME/.gemini/skills"
             sync_source "$SCRIPT_DIR/agents/AGENTS.md" "$HOME/.gemini/GEMINI.md"
             ;;
+        "golangci-lint")
+            sync_source "$SCRIPT_DIR/golangci-lint/.golangci.yml" "$HOME/.config/golangci-lint/.golangci.yml"
+            ;;
         "gh")
             sync_source "$SCRIPT_DIR/gh/config.yml" "$HOME/.config/gh/config.yml"
             git config --global gpg.program $(which gpg)
@@ -136,6 +142,9 @@ sync() {
             ;;
         "ripgrep")
             sync_source "$SCRIPT_DIR/ripgrep/.ripgreprc" "$HOME/.ripgreprc"
+            ;;
+        "ruff")
+            sync_source "$SCRIPT_DIR/ruff/ruff.toml" "$HOME/.config/ruff/ruff.toml"
             ;;
         "sketchybar")
             sync_source "$SCRIPT_DIR/sketchybar" "$HOME/.config/sketchybar"

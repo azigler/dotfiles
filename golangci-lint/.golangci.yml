@@ -1,0 +1,15 @@
+version: "2"
+
+linters:
+  enable:
+    - gocritic     # opinionated code quality checks
+    - predeclared  # variable shadowing / predeclared identifier masking
+    - nakedret     # naked returns in long functions
+    - goconst      # repeated strings → constants
+    - unconvert    # unnecessary type conversions
+    - unparam      # unused function parameters
+    - prealloc     # slice preallocation hints
+
+issues:
+  max-issues-per-linter: 10
+  max-same-issues: 3

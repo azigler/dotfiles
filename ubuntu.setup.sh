@@ -28,6 +28,7 @@ if [ "$(hostname -s)" != "zig-computer" ]; then
     ./download.sh vim
 
     ./sync.sh bash
+    ./sync.sh biome
     ./sync.sh bun
     ./sync.sh cargo
     ./sync.sh claude
@@ -42,6 +43,7 @@ if [ "$(hostname -s)" != "zig-computer" ]; then
     ./sync.sh nix
     ./sync.sh ranger
     ./sync.sh ripgrep
+    ./sync.sh ruff
     ./sync.sh ssh
     ./sync.sh tmux
     ./sync.sh uv
@@ -62,6 +64,11 @@ if [ "$(hostname -s)" != "zig-computer" ]; then
 
     curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/beads_rust/main/install.sh?$(date +%s)" | bash
     curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/beads_viewer/main/install.sh?$(date +%s)" | bash
+
+    # --- Linters ---
+    bun install -g @biomejs/biome
+    uv tool install ruff
+    curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b "$HOME/.local/bin"
 
     exec sudo --login --user $USER
 
