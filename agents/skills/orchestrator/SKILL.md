@@ -38,7 +38,23 @@ In the subagent prompt, include:
 
 ### After Subagent Completes
 
-Merge, close the bead, commit bead state, and clean up:
+**Re-anchor cwd FIRST. Single standalone `cd` command. Always.** The
+harness shares shell state across orchestrator and subagent sessions —
+when a worktree subagent finishes, the orchestrator's Bash-tool cwd
+may have shifted into the just-finished `.claude/worktrees/agent-XXXX/`.
+If you skip step 0, the merge silently no-ops ("Already up to date")
+because you're checked out on the subagent's branch instead of main,
+and the bead close records against the wrong branch. The failure mode
+is silent and recurring. See bead `skills-library-1vs` for the
+investigation + simplification (removed a failed defensive hook in
+favor of this discipline).
+
+```bash
+# Step 0 (MANDATORY): standalone cd to project root. One command, no compound.
+cd /home/ubuntu/<project>     # absolute path OR: cd "$(git -C <known> rev-parse --show-toplevel)"
+```
+
+Then proceed with the merge sequence:
 
 ```bash
 # 1. Merge
@@ -58,6 +74,14 @@ git branch -D worktree-agent-XXXX
 git push origin --delete worktree-agent-XXXX 2>/dev/null || true
 ```
 
+**Why standalone cd, not `cd && cmd` compound:** the orchestrator's
+shell state lives across Bash calls. A standalone `cd` cleanly
+updates that persistent cwd; the subsequent commands see the
+corrected state. A `cd && cmd` compound runs in a single call where
+the hook layer reads cwd from stdin (pre-cd state) — defensive hooks
+based on stdin.cwd will still trigger on the compound's downstream
+command. Keep them separate.
+
 ### Batching Bead Closures
 
 When closing multiple beads at once (e.g., after parallel agents):
@@ -74,6 +98,59 @@ The `session-start.sh` hook (runs at SubagentStart) automatically symlinks `.bea
 in worktrees back to the main worktree's copy. This gives one source of truth for
 bead state -- the subagent can read bead descriptions and the orchestrator sees
 state changes in real time. No manual setup needed.
+
+## Submodules must be absorbed before subagent dispatch
+
+If you dispatch a worktree subagent from inside a submodule whose `.git` is a
+real directory (not a gitlink file), Claude Code's worktree heuristic walks up to
+the parent and places the worktree in the parent's `.claude/worktrees/` — not
+the submodule's. The `.beads/` symlink then points at the parent's beads (wrong
+project), and `git merge worktree-agent-XXX` from the submodule's main fails
+because the branch lives in the parent's git.
+
+`git submodule add` registers an entry but does NOT move the local `.git/` into
+the parent's `.git/modules/`. The second step is `git submodule absorbgitdirs
+<path>` — easy to forget. The `post-bash-submodule-absorb-check.sh` hook now
+auto-detects this after every `git submodule add` and warns. The session-start
+hook also detects unabsorbed-submodule state when you enter such a directory.
+
+If you see the warning, run it from the parent before dispatching subagents:
+
+```bash
+cd <parent>
+git submodule absorbgitdirs <submodule-path>
+# Verify: <submodule>/.git should now be a file containing "gitdir: ..."
+```
+
+If you discover after subagents already ran, the salvage path is: copy
+deliverables from `<parent>/.claude/worktrees/agent-XXX/...` into the submodule
+directly, commit with the original `Bead: <id>` trailer, then
+`git worktree remove -f -f` + `git branch -D` on the parent, then
+`git submodule absorbgitdirs` so future dispatches land right.
+
+### Both absorption and the WorktreeCreate hook are required
+
+Absorption is necessary — it gets the submodule's gitdir into the proper
+`<parent>/.git/modules/<sub>/` location and replaces `<sub>/.git` with a
+gitlink file. But absorption alone doesn't fix subagent worktree
+placement; Claude Code's default heuristic still walks up to the parent.
+
+The proper fix is the `WorktreeCreate` command-hook at
+`~/.claude/hooks/worktree-create.sh` (wired in settings.json under
+`hooks.WorktreeCreate`). It receives `{name, cwd, hook_event_name}` on
+stdin and runs `git -C "$(git rev-parse --show-toplevel)" worktree add`
+so the worktree lands in whichever git context the orchestrator's cwd
+resolves to. For an absorbed submodule that's the submodule. The hook
+logs to `/tmp/worktree-create-hook.log` for diagnosis.
+
+Verified working 2026-05-18 across multiple dispatches. If you see
+misplaced worktrees again, check that log first.
+
+**One subagent-prompt convention worth keeping**: tell agents to
+`cd "$WT_PATH"` (or whatever the canonical worktree path is) at session
+start. The harness's shell-spawn doesn't auto-cd into the new worktree —
+the agent's initial cwd is the orchestrator's cwd, not the worktree.
+That's a one-line directive in the prompt, not a hook concern.
 
 ## Subagent Prompt Template
 

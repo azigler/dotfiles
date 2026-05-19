@@ -59,11 +59,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/pre-bash-orchestrator-cwd-guard.sh",
-            "timeout": 5
-          },
-          {
-            "type": "command",
             "command": "~/.claude/hooks/pre-commit-checks.sh",
             "timeout": 120
           },
