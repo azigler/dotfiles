@@ -18,7 +18,7 @@ command -v br &>/dev/null || exit 0
 # Extract bead IDs from `br close <id> [<id> ...] [&&|;|other-cmd]`
 # Stop at the first &&, ;, |, or pipe so we only get the actual close args.
 CLOSE_ARGS=$(echo "$COMMAND" | grep -oE 'br close [^&;|]+' | sed 's/^br close //')
-BEAD_IDS=$(echo "$CLOSE_ARGS" | tr ' ' '\n' | grep -E '^[a-z0-9]+-[a-z0-9]+$')
+BEAD_IDS=$(echo "$CLOSE_ARGS" | tr ' ' '\n' | grep -E '^[a-z0-9]+-[a-z0-9.]+$')
 
 [ -z "$BEAD_IDS" ] && exit 0
 
