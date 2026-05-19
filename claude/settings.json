@@ -1,5 +1,9 @@
 {
   "cleanupPeriodDays": 9999,
+  "skillListingBudgetFraction": 0.03,
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
   "hooks": {
     "SessionStart": [
       {
@@ -20,6 +24,31 @@
             "type": "command",
             "command": "~/.claude/hooks/lint-on-write.sh",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/post-write-skill.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/post-orchestrator-action.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/post-distribute.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/post-bash-submodule-absorb-check.sh",
+            "timeout": 10
           }
         ]
       }
@@ -30,8 +59,33 @@
         "hooks": [
           {
             "type": "command",
+            "command": "~/.claude/hooks/pre-bash-orchestrator-cwd-guard.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "~/.claude/hooks/pre-commit-checks.sh",
             "timeout": 120
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/pre-bead-close.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/pre-merge-worktree.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/pre-tool-use-worktree-guard.sh",
+            "timeout": 5
           }
         ]
       }
@@ -101,15 +155,24 @@
           }
         ]
       }
+    ],
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/worktree-create.sh",
+            "timeout": 30
+          }
+        ]
+      }
     ]
   },
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
-  },
-  "teammateMode": "auto",
   "statusLine": {
     "type": "command",
     "command": "~/.claude/statusline.sh"
   },
-  "skipDangerousModePermissionPrompt": true
+  "skipDangerousModePermissionPrompt": true,
+  "teammateMode": "auto",
+  "tui": "fullscreen"
 }
