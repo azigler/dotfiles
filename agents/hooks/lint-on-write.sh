@@ -26,28 +26,16 @@ case "$FILE_PATH" in
     }
     ;;
   *.rs)
+    # rustfmt only — fast, file-local. cargo clippy runs the whole crate
+    # which is too slow for every file write. clippy lives in task-completed.sh.
     command -v rustfmt &>/dev/null || exit 0
     rustfmt "$FILE_PATH" 2>/dev/null
-    if command -v cargo &>/dev/null; then
-      OUTPUT=$(cargo clippy -- -W clippy::pedantic -D warnings 2>&1) || {
-        echo "$OUTPUT" >&2
-        exit 2
-      }
-    fi
     ;;
   *.go)
+    # gofmt only — fast, file-local. golangci-lint runs the whole module
+    # which is too slow for every file write. It lives in task-completed.sh.
     command -v gofmt &>/dev/null || exit 0
     gofmt -w "$FILE_PATH" 2>/dev/null
-    if command -v golangci-lint &>/dev/null; then
-      GOLANGCI_CFG=""
-      for cfg in .golangci.yml .golangci.yaml configs/.golangci.yml "$HOME/.config/golangci-lint/.golangci.yml"; do
-        [ -f "$cfg" ] && GOLANGCI_CFG="--config $cfg" && break
-      done
-      OUTPUT=$(golangci-lint run $GOLANGCI_CFG "$FILE_PATH" 2>&1) || {
-        echo "$OUTPUT" >&2
-        exit 2
-      }
-    fi
     ;;
 esac
 

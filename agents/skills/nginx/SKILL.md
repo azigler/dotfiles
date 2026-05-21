@@ -139,7 +139,7 @@ server {
 
     # Public download — one narrow path, rewrite-proxy to backend
     location = /client.zip {
-        proxy_pass http://127.0.0.1:5000/instances/myproj/binaries/SS14.Client.zip;
+        proxy_pass http://127.0.0.1:5000/internal/path/to/client.zip;
     }
 
     # Admin API — gated by the backend's own auth; HTTPS gives wire protection
@@ -194,9 +194,9 @@ The repo source intentionally stays HTTP-only stub (certbot's edits
 are owned by certbot, not by us). **Doing `sudo install` of the repo
 file over the live config WIPES certbot's edits and takes HTTPS down.**
 
-This is a real failure mode — caught mid-deploy on at least one
-project (vacation-station-14 vs-8o6). The site stayed up only because
-the agent backed up the live config to `/tmp` first and rolled back
+This is a real failure mode — caught mid-deploy on a real project.
+The site stayed up only because the agent backed up the live config
+to `/tmp` first and rolled back
 when `nginx -t` flagged the missing TLS stanzas.
 
 ### The surgical-edit pattern (use this for every certbot vhost change)

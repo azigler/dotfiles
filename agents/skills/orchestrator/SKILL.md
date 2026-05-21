@@ -221,12 +221,22 @@ versioned development:
 - Only the orchestrator merges the version branch into `main`
 - Include `Merge target: v0.N/descriptive-name` in every agent prompt
 
-## Pre-merge Audit: Read the Bodies, Not Just the Test Output
+## Pre-merge Audit: the /scrutinize gate
 
 **Tests passing is necessary but not sufficient.** Mock-heavy contract
 tests can be satisfied by stub bodies that return the right shape but
 do no real work. An impl agent's "All tests pass ✓" is a green flag
 on the test runner, not on the implementation.
+
+Run this audit as a **named gate** — [`/scrutinize`](../scrutinize/SKILL.md).
+After an impl wave merges, before the quality gate / branch-to-main /
+bead-close, dispatch a dedicated read-only adversarial reviewer
+(`general-purpose` or `Explore`, never a worktree subagent). The
+orchestrator does NOT scrutinize its own wave inline — a separate
+agent with no stake in the wave completing is the point; the
+orchestrator is structurally incented to declare the wave done. The
+verdict is SHIP / FIX-FIRST / REJECT; the gate is not cleared until
+SHIP. The checklist below is what that reviewer hunts for.
 
 Before merging an impl-wave worktree, **open the primary modified file
 and read each function body**. Spend 60 seconds. Look for:

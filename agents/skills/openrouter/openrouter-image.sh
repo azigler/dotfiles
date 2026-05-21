@@ -2,7 +2,7 @@
 # openrouter-image.sh — Generate an image via OpenRouter and save to disk.
 #
 # Default model is Google's Gemini 3.1 Flash Image Preview (nano-banana 2).
-# Costs roughly $0.004 per 1K image; cost scales with image_size.
+# Costs roughly $0.05-0.07 per 1K image; cost scales with image_size.
 #
 # Usage:
 #   openrouter-image.sh <prompt> <output-path> [options]
@@ -30,7 +30,7 @@ usage() {
 openrouter-image.sh — Generate an image via OpenRouter and save to disk.
 
 Default model: Google's Gemini 3.1 Flash Image Preview (nano-banana 2).
-Costs roughly $0.004 per 1K image; cost scales with image_size.
+Costs roughly $0.05-0.07 per 1K image; cost scales with image_size.
 
 Usage:
   openrouter-image.sh <prompt> <output-path> [options]
@@ -62,7 +62,7 @@ shift 2
 # Defaults
 ASPECT="1:1"
 SIZE="1K"
-REF=""
+REFS=()
 MODEL="google/gemini-3.1-flash-image-preview"
 
 # Parse flags
@@ -70,7 +70,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --aspect) ASPECT="$2"; shift 2 ;;
         --size)   SIZE="$2";   shift 2 ;;
-        --ref)    REF="$2";    shift 2 ;;
+        --ref)    REFS+=("$2"); shift 2 ;;
         --model)  MODEL="$2";  shift 2 ;;
         -h|--help) usage ;;
         *) echo "Unknown flag: $1" >&2; usage ;;
@@ -88,54 +88,70 @@ if [ -z "${OPENROUTER_API_KEY:-}" ]; then
     fi
 fi
 
-# Build request body via jq (handles JSON escaping correctly)
-if [ -n "$REF" ]; then
-    if [ ! -f "$REF" ]; then
-        echo "ERROR: reference image not found: $REF" >&2
+# Build request body via Python (handles multi-ref cleanly; avoids ARG_MAX
+# on large base64 reference images and complex jq escaping with N images).
+BODY_TMP=$(mktemp /tmp/openrouter-body.XXXXXX.json)
+RESP_TMP=$(mktemp /tmp/openrouter-resp.XXXXXX.json)
+trap 'rm -f "$BODY_TMP" "$RESP_TMP"' EXIT
+
+# Validate ref files
+for ref in "${REFS[@]}"; do
+    if [ ! -f "$ref" ]; then
+        echo "ERROR: reference image not found: $ref" >&2
         exit 1
     fi
-    REF_B64=$(base64 -w0 "$REF")
-    BODY=$(jq -n \
-        --arg model "$MODEL" \
-        --arg prompt "$PROMPT" \
-        --arg ref "data:image/png;base64,$REF_B64" \
-        --arg aspect "$ASPECT" \
-        --arg size "$SIZE" \
-        '{
-            model: $model,
-            messages: [{
-                role: "user",
-                content: [
-                    {type: "text", text: $prompt},
-                    {type: "image_url", image_url: {url: $ref}}
-                ]
-            }],
-            modalities: ["image", "text"],
-            image_config: {aspect_ratio: $aspect, image_size: $size}
-        }')
-else
-    BODY=$(jq -n \
-        --arg model "$MODEL" \
-        --arg prompt "$PROMPT" \
-        --arg aspect "$ASPECT" \
-        --arg size "$SIZE" \
-        '{
-            model: $model,
-            messages: [{role: "user", content: $prompt}],
-            modalities: ["image", "text"],
-            image_config: {aspect_ratio: $aspect, image_size: $size}
-        }')
-fi
+done
+
+REFS_JOINED=$(printf "%s\n" "${REFS[@]}")
+
+PROMPT="$PROMPT" MODEL="$MODEL" ASPECT="$ASPECT" SIZE="$SIZE" \
+  REFS_LIST="$REFS_JOINED" \
+  python3 - <<'PYEOF' > "$BODY_TMP"
+import os, sys, json, base64
+
+prompt = os.environ["PROMPT"]
+model = os.environ["MODEL"]
+aspect = os.environ["ASPECT"]
+size = os.environ["SIZE"]
+refs_raw = os.environ.get("REFS_LIST", "").strip()
+refs = [r for r in refs_raw.split("\n") if r]
+
+content = [{"type": "text", "text": prompt}]
+for ref in refs:
+    with open(ref, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode("ascii")
+    content.append({
+        "type": "image_url",
+        "image_url": {"url": f"data:image/png;base64,{b64}"},
+    })
+
+# When no refs, content can stay as plain string for simpler payloads
+if len(content) == 1:
+    payload_content = prompt
+else:
+    payload_content = content
+
+body = {
+    "model": model,
+    "messages": [{"role": "user", "content": payload_content}],
+    "modalities": ["image", "text"],
+    "image_config": {"aspect_ratio": aspect, "image_size": size},
+}
+json.dump(body, sys.stdout)
+PYEOF
 
 echo ">>> Generating via $MODEL ($ASPECT, $SIZE) -> $OUTPUT" >&2
 
-# Call API
-RESPONSE=$(curl -fsSL "https://openrouter.ai/api/v1/chat/completions" \
+# Call API — read body from file, write response to file (avoids ARG_MAX
+# both directions when reference images are large).
+curl -fsSL "https://openrouter.ai/api/v1/chat/completions" \
     -H "Authorization: Bearer $OPENROUTER_API_KEY" \
     -H "Content-Type: application/json" \
     -H "HTTP-Referer: https://github.com/azigler" \
-    -H "X-OpenRouter-Title: openrouter-skill" \
-    -d "$BODY")
+    -H "X-Title: openrouter-skill" \
+    -d "@$BODY_TMP" \
+    -o "$RESP_TMP"
+RESPONSE=$(cat "$RESP_TMP")
 
 # Extract image
 IMAGE_URL=$(echo "$RESPONSE" | jq -r '.choices[0].message.images[0].image_url.url // empty')

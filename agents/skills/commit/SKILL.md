@@ -1,7 +1,7 @@
 ---
-name: commit
-description: Create git commits following gitmoji conventions with bead integration
+description: Create git commits following gitmoji conventions with bead integration. Claude commits autonomously at natural checkpoints (bead closure, file created, test passing) — this is expected, not an extra confirmation step.
 argument-hint: "[message]"
+allowed-tools: Bash(git add *) Bash(git commit *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git push) Bash(git push *) Bash(br close *) Bash(br sync *)
 ---
 
 # /commit - Git Commit Convention
@@ -11,7 +11,7 @@ argument-hint: "[message]"
 - **Every bead closure** triggers a commit + push. One bead = one commit.
 - **Natural checkpoints** between beads: file created, test passing, config updated.
 - **Never batch** multiple beads into one commit.
-- **Always push** after committing.
+- **Always push** after committing -- unless you're in a worktree (branch starts with `worktree-agent-`).
 
 ## Commit Message Format
 
@@ -82,9 +82,14 @@ EOF
 git push
 ```
 
+**Worktree exception:** If you are working in a git worktree (your branch name
+starts with `worktree-agent-`), do NOT push. The orchestrator handles merging
+and pushing after your work is complete. Pushing from a worktree creates stale
+remote branches.
+
 ## Safety
 
-- Stage specific files — never `git add -A` or `git add .`
+- Stage specific files -- never `git add -A` or `git add .`
 - Never commit `.env`, credentials, or secrets
-- Create NEW commits — don't amend unless explicitly asked
+- Create NEW commits -- don't amend unless explicitly asked
 - If a pre-commit hook blocks, fix the errors and retry (see `/lint`)

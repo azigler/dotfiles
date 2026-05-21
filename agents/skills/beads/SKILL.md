@@ -18,7 +18,7 @@ bead user instantly.
 ```bash
 br ready                                 # what's next to work on (open + unblocked + not deferred)
 br list                                  # everything open
-br list --type spec                      # filter by type (e.g. spec/plan/decision/note)
+br list --type spec                      # filter by type (e.g. spec/decision/study)
 br show <id>                             # full bead detail
 br create -t spec -p 2 "scope: title"    # create with type marker (see Bead Types)
 br update <id> --description "..."       # MANDATORY: every bead has a description
@@ -69,7 +69,7 @@ the `--description` field is sloppy — split them properly:
 | `--description` / `--body` | The "what + why" (context + task framing) | At create + as scope evolves |
 | `--design` | Design notes — interfaces, data structures, algorithm sketches | When design decisions are made |
 | `--acceptance-criteria` / `--acceptance` | Concrete pass/fail bullets the next agent verifies | At create OR after `/check` |
-| `--notes` | Append-only working log — investigation notes, links, partial findings | Any time during work |
+| `--notes` | Append-only-by-convention working log — investigation notes, links, partial findings. **Caveat**: `br update --notes <text>` itself is REPLACE-only on `br 0.2.5` — to "append" you must read the existing notes first and re-submit the full body. See `/check` SKILL Step 3 for the read-then-rewrite pattern (bead bd-otl8). | Any time during work |
 | `--external-ref` | Link to Asana / Linear / Jira / Slack thread | When relevant |
 | `--parent` | Parent bead ID (for epic-style parent/child) | At create or via update |
 | `--deps` | Dependencies (`blocks:bd-X,relates-to:bd-Y`) | At create OR via `br dep add` |
@@ -95,32 +95,43 @@ P0 and P4 exist (`br create -p 0` / `-p 4`) but are rarely used. P0 is
 
 `br` accepts arbitrary type strings on `--type` / `-t`. Use them as
 the marker for what kind of bead this is — the type appears in
-brackets in `br list` output (`[spec]`, `[plan]`, `[decision]`),
+brackets in `br list` output (`[spec]`, `[decision]`, `[study]`),
 making the kind scannable at a glance, and `br list --type spec`
 filters cleanly.
 
 | Type | Use for |
 |---|---|
 | `task` (default) | Generic work item |
-| `bug` | Bug fix |
+| `bug` | Bug fix (`/fix`) |
 | `feature` | New capability |
 | `epic` | Umbrella with child beads (see [reference/epics.md](reference/epics.md)) |
-| `spec` | Formal specification (see `/spec`) |
-| `decision` | Decisions log walking spec OQs (see `/check`) |
+| `spec` | Formal specification (see `/spec`) — has test cases, implementable |
+| `decision` | Decisions log — either spec-OQ walks (see `/check`) OR standalone architectural decisions (see [reference/handoff-templates.md](reference/handoff-templates.md) "Standalone architectural decision bead") |
 | `test` | Test-writing work for a spec (see `/test`) |
 | `impl` | Implementation against tests (see `/impl`) |
-| `eval` | Evaluator for the fix→eval pattern (see below) |
-| `plan` | Roadmap, phase plan, milestone plan |
-| `note` | Working notes, investigation, scratch |
-| `rfc` | Design RFC, request-for-comment |
-| `receipt` | Receipt-of-work ticket (post-shipping) |
+| `study` | Investigation, research, grok output — read-only learning captured as a bead |
+
+**Taxonomy simplification 2026-05-19**: dropped `rfc`, `plan`, and
+`receipt` as types (zero or 1 empirical usage across the fleet; all
+overlap semantically with the remaining types). Renamed `note` →
+`study` to avoid confusion with the `--notes` field. `eval` was **not**
+dropped — it is retained as a **project-specific** type for
+Phoenix-tracing projects (see the `eval` note under "Fix-and-guard
+pattern" below; its bead template lives in
+`reference/handoff-templates.md`). The bead-type migrations were
+applied across the fleet's existing beads. If a dropped pattern ever
+becomes genuinely needed, add the type back deliberately:
+
+- A multi-stakeholder RFC process → `rfc`
+- A roadmap that doesn't fit as a `spec` → `plan`
+- A post-shipping ticket that doesn't fit on the Asana board → `receipt`
 
 ```bash
 br create -t spec -p 2 "spec: auth subsystem"
-br create -t plan -p 2 "plan: v0.3 phases"
+br create -t study -p 3 "study: grok the existing auth flow"
 br create -t decision -p 1 "decision: storage backend choice"
 br list --type spec                  # all specs across the project
-br ready --type plan                 # plans that are unblocked + actionable
+br ready --type study                # studies ready to claim
 br search "auth" --type spec         # type filter + free-text
 ```
 
@@ -131,6 +142,49 @@ This also means **`.claude/plans/`, root `PLAN.md`, separate
 `DECISIONS.md` files are unnecessary** — those concerns live in beads
 typed accordingly. Pre-existing files in those locations stay; new
 work uses beads.
+
+## Choosing a type — derive it, don't pick it
+
+Don't choose a type off the menu. Derive it: ask **what the next agent
+should DO with this bead.** The type is downstream of the action.
+
+Every bead type is a unit of **work** — something executes, then the
+bead closes. That is the boundary of the tracker. If the honest answer
+to "what should I do with it?" is *"nothing — just remember it,"* it is
+not a bead. Reference knowledge, standing context, notes-to-self,
+people — those live in `refs/`, `docs/`, `MEMORY.md`, or a knowledge
+base, never in the issue tracker.
+
+`study` is the one deliberate boundary case: read-only investigation
+captured as a bead **because a future agent needs it to act** (skip
+the re-read, then build on it). Treat it as the edge, not an opening —
+if you want a `note` / `topic` / `person` type, that is the signal you
+need a knowledge base, not a wider bead taxonomy.
+
+This is the positive form of the taxonomy-simplification note above:
+that note says *audit before adding a type*; this says *derive the
+type from the action, not the aspiration.* (Borrowed from Portent's
+PORT/ENTP split — see `~/explore/portent/`.)
+
+## Stages vs. gates — not all pipeline work gets a bead
+
+A skill in the orchestration pipeline is either a **stage** or a
+**gate**, and only stages get beads.
+
+- A **stage** produces a forward artifact and earns a typed bead —
+  the handoff packet the next stage reads. `/spec`→`spec`,
+  `/check`→`decision`, `/test`→`test`, `/impl`→`impl`, `/fix`→`bug`.
+- A **gate** is a pass/fail checkpoint between stages. It produces a
+  *verdict on existing work*, not a new artifact — so it gets **no
+  bead and no type**. It records its result on the bead it gates.
+  `/scrutinize` records its verdict on the `impl` bead's `--notes`,
+  and the `impl` bead does not close until the verdict is SHIP. The
+  `/impl` Step 5 quality gate and `/handoff` are gates too — neither
+  has a bead.
+
+The test is the action: a stage hands the next agent something to
+build ON (→ bead); a gate tells the orchestrator whether to let the
+prior bead through (→ no bead; record on the gated bead).
 
 ## Bead titles
 
@@ -168,6 +222,103 @@ EOF
 
 For pipeline-stage-specific templates (spec / check / test / impl
 beads), see [reference/handoff-templates.md](reference/handoff-templates.md).
+
+### Two real gotchas you WILL hit
+
+1. **`--acceptance-criteria` with values that start with `- `**. Clap (the CLI
+   arg parser) treats `- [ ] Foo` as a flag, not a value, even after `$( ... )`
+   expansion. Use the `=` form to bind the value unambiguously:
+
+   ```bash
+   # Broken (errors with: tip: to pass '- ' as a value, use '-- - '):
+   br update <id> --acceptance-criteria "$(cat <<'EOF'
+   - [ ] one
+   - [ ] two
+   EOF
+   )"
+
+   # Works (= form binds tightly):
+   br update <id> --acceptance-criteria=" - [ ] one
+    - [ ] two"
+   ```
+
+   Same trick applies if `--description`'s value happens to start with `- `,
+   though that's rarer because descriptions usually open with a markdown
+   heading.
+
+2. **Single-quoted heredoc preserves `\"` LITERALLY.** A `<<'EOF'` heredoc
+   does NO escape processing, so `\"` written in the heredoc body is two
+   chars: backslash + quote. If you copy a body that escapes inner double
+   quotes for JSON-style usage, drop the backslashes before passing to
+   `br update`:
+
+   ```bash
+   # Wrong — 64 occurrences of literal \" landed in the bead the hard way:
+   br update <id> --description "$(cat <<'EOF'
+   This is a \"quoted phrase\" inside content.
+   EOF
+   )"
+
+   # Right — use plain quotes; the heredoc protects you from shell expansion:
+   br update <id> --description "$(cat <<'EOF'
+   This is a "quoted phrase" inside content.
+   EOF
+   )"
+   ```
+
+   Sanity-check after update: `br show <id> | grep '\\"'` — if any output,
+   you've got literal backslash-quotes in the bead body. Rewrite.
+
+## Immutability discipline for record-keeping bead types
+
+For bead types where the **historical record matters** — `spec`,
+`decision`, `study` — apply the following discipline once a
+bead is closed:
+
+- **`--description` is read-only after close.** No edits, no typo
+  fixes, no clarifications. The record stays honest about what was
+  thought at the time.
+- **One allowed exception**: appending a supersession pointer to
+  `--notes`. Pattern (matches the existing `/check` skill workflow):
+
+  ```bash
+  EXISTING=$(br show <old-id> | awk '/^Notes:/{flag=1; next} flag')
+  br update <old-id> --notes "$EXISTING
+
+  ---
+  SUPERSEDED 2026-MM-DD by bd-YYYY: <one-line reason>"
+  ```
+
+  This is needed because `br update --notes` is REPLACE-only on
+  `br 0.2.5` — you must read existing, concat, re-submit.
+
+- **The new bead's `--description`** opens with `## Supersedes bd-XXXX`
+  in its Context section, so the graph is traversable both ways.
+
+Bead types where immutability does **NOT** apply: `task`, `bug`,
+`feature`, `impl`, `epic`, `test`. These are work-in-flight artifacts
+that need free editing as scope shifts.
+
+### Two more conventions borrowed from Luca's ADR discipline
+
+When writing **any** decision-type bead (whether `/check` OQ-walk or
+standalone architectural decision):
+
+1. **Bold the decision sentence.** Use literal `**...**` markdown in
+   the bead body even though it renders as plaintext. The asterisks
+   make the actual decision scannable at a glance among the
+   surrounding context.
+
+2. **≥2 alternatives with honest pros/cons.** One-sided alternative
+   sections are a red flag: if the section dismisses options without
+   serious consideration, the decision wasn't really made. The
+   exercise of writing honest pros/cons for the option you DIDN'T
+   pick is where the decision gets its rigor.
+
+These are voluntary disciplines, not mechanical gates. The reason
+they earn their space is that future-you (or any agent reading the
+archive) can reconstruct your reasoning without re-doing the
+thinking.
 
 ## Handoff discipline
 
@@ -325,7 +476,7 @@ output schema details, and `jq` recipes.
 - [reference/handoff-templates.md](reference/handoff-templates.md) — bead description templates per pipeline stage (spec / check / test / impl / eval)
 - [reference/epics.md](reference/epics.md) — when and how to use epics; `br epic status` workflow
 - [reference/dependencies.md](reference/dependencies.md) — `br dep` family for cross-bead blocking
-- [reference/asana-integration.md](reference/asana-integration.md) — LinearB-only: daily bead-log subtasks via the fleet proxy
+- `~/linearb/refs/asana-integration.md` — LinearB-only: daily bead-log subtasks via the fleet proxy (private reference)
 - [reference/bv.md](reference/bv.md) — `bv` (beads_viewer) graph-aware triage analysis: full robot-flag reference + jq recipes
 - [/fix](../fix/SKILL.md) — fix-and-guard for bugs (creates `-t bug` bead + regression test)
 - [/triage](../triage/SKILL.md) — bead-state hygiene (uses `br orphans`, `br stale`, `br epic close-eligible`)

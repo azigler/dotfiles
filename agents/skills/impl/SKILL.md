@@ -107,7 +107,22 @@ Each impl agent gets:
 
 ## Step 5: Quality gate (mandatory before merging branch to main)
 
-After all impl beads merge into the branch, verify on the branch:
+### Step 5.0: The /scrutinize gate (run FIRST)
+
+Before any automated check, run the [`/scrutinize`](../scrutinize/SKILL.md)
+gate: dispatch a dedicated, read-only adversarial reviewer over the
+merged impl wave. Tests verify conformance; they do not catch stub
+bodies, tests that mock the unit under test, acceptance criteria
+ticked without evidence, or composition gaps on a user-facing
+surface. The /scrutinize reviewer hunts exactly those. Its verdict is
+SHIP / FIX-FIRST / REJECT — a non-SHIP verdict routes into a fix wave,
+then re-scrutinize. The gate is not cleared until SHIP. The stub-body
+audit and UI/CLI composition audit below are the checklist that
+reviewer works from.
+
+### Step 5.1: Automated checks
+
+After the /scrutinize gate clears, verify on the branch:
 
 ```bash
 # Run project quality checks (per CLAUDE.md):
@@ -154,6 +169,79 @@ This audit is the orchestrator's responsibility, not the impl agent's
 self-report. Impl agents have a structural incentive to declare done
 when tests pass; only the orchestrator can tell whether the bodies
 do real work.
+
+### UI / CLI composition audit (mandatory for user-facing impls)
+
+**Tests passing on isolated components is necessary but not sufficient
+for any impl that produces a user-facing surface** — a web page, a
+CLI binary, a TUI, an HTTP API surface. Unit tests cover each
+component / function in isolation against mocks. They do not assert
+that the final artifact — the page a visitor opens, the binary a
+customer types, the URL a curl hits — actually composes those parts
+into a working whole.
+
+Verified failure mode (2026-05-18, skills-library-8l6 sandbox impl):
+the agent shipped 5 React components + 84 passing unit tests + a
+clean `validate.sh` run + a clean type-check. But `page.tsx` was a
+static HTML skeleton — none of the 5 components were imported into
+it. The product didn't work, and every artifact-shaped acceptance
+criterion was green.
+
+Apply the same body-reading discipline as the stub-body audit, but
+to the integration surface:
+
+- **For a web page**: open the root page file (e.g. `app/page.tsx`),
+  scroll top-to-bottom. Confirm every component the bead's
+  "Visitor experience" requires is actually imported AND used in
+  the JSX (not just imported and unreferenced).
+- **For a CLI**: open the entry-point file (e.g. `main.py`, `cli.ts`).
+  Confirm the subcommand map references every command's handler.
+- **For an HTTP API**: open the route definitions. Confirm every
+  endpoint the bead's contract names has a real handler, not a 501
+  placeholder.
+
+Beyond static reading, **run the artifact** before merging:
+
+```bash
+# Web: start dev server + curl the rendered HTML
+npm run dev &
+sleep 3
+curl -s http://localhost:3000 > /tmp/rendered.html
+# Grep for signature markers of EACH component the bead requires:
+grep -q 'data-component="skill-picker"' /tmp/rendered.html || echo "FAIL: SkillPicker not in page"
+grep -q 'autocomplete="off"' /tmp/rendered.html || echo "FAIL: TokenInput not in page"
+# ... per-component check
+
+# CLI: run the canonical happy-path invocation
+./bin/foo --help                         # subcommands all listed?
+./bin/foo do-the-thing --dry-run         # exits 0?
+```
+
+If any signature marker is missing from the runtime output, the page
+isn't composed. Don't merge. Dispatch a follow-up wave to wire it.
+
+### Acceptance criteria shape: outcome > artifact
+
+Bead acceptance criteria should describe the **user-facing OUTCOME**,
+not just the artifacts produced. Artifact-shaped criteria ("file X
+exists with Y sections", "N tests pass") are necessary but invite
+"I shipped what was on the list, even though the result doesn't work."
+Outcome-shaped criteria ("a visitor opens the URL, sees the picker,
+pastes a token, clicks Run, watches markdown stream in") force the
+agent to verify the runtime behavior matches the description.
+
+Best practice for UI/CLI impl beads:
+
+- Include a `## Visitor experience` (or `## CLI usage`) section in
+  the bead --description with 3–5 lines walking the expected end-user
+  flow
+- Acceptance criteria reference that narrative explicitly:
+  `- [ ] Visitor experience step 3 (clicking Run streams response) verified live`
+- Pre-commit verification includes a runtime smoke (dev-server + curl
+  / CLI invocation), not only `tests pass + lint clean`
+
+This is the orchestrator's contract with the impl agent: tell them
+what "done" looks like in user terms, then check it that way.
 
 ## Step 6: Merge to main + tag (only if project uses /branch)
 

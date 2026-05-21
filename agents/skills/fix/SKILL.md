@@ -126,8 +126,8 @@ git push origin --delete worktree-agent-XXXX 2>/dev/null || true
 
 If `FLEET_URL`, `FLEET_TOKEN`, `AGENT`, `AGENT_PARENT_GID` are set,
 the bead-start and bead-close events should already be logged on
-the agent's daily bead-log subtask via the integration in
-[/beads reference/asana-integration.md](../beads/reference/asana-integration.md).
+the agent's daily bead-log subtask via the integration documented in
+`~/linearb/refs/asana-integration.md`.
 
 For **material** fixes that warrant a receipt-of-work ticket
 (stakeholder visibility, novel root cause, multi-bead fix arc), also

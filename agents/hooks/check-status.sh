@@ -11,7 +11,7 @@ CHANGES=$(git status --porcelain 2>/dev/null)
 if [ -n "$CHANGES" ]; then
   echo "Uncommitted changes:"
   echo "$CHANGES" | head -10
-  COUNT=$(echo "$CHANGES" | wc -l | tr -d ' ')
+  COUNT=$(echo "$CHANGES" | awk 'END {print NR}')
   [ "$COUNT" -gt 10 ] && echo "... ($COUNT total files)"
   echo ""
 fi

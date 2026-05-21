@@ -1,0 +1,19 @@
+{
+  "inputText": "Quarterly Update — Q2 2026\nGenericCorp · Engineering Org Review\n---\nQ2 — Ship velocity up 40%\n---\nWe shipped 40% more this quarter than Q1.\nOnboarding · Billing · Support — three wins, one quarter.\n---\nOnboarding redesign\nTime-to-value: 11 days faster\n---\nNew billing flow\nConversion lift: +8%\n---\nIn-product hints\nSupport tickets: -22%\n---\nQ3 preview\nThree bets · one platform investment\n---\nThanks. Questions in the next session.\n",
+  "textMode": "preserve",
+  "format": "presentation",
+  "cardSplit": "inputTextBreaks",
+  "additionalInstructions": "Confident exec readout for an internal engineering org review. Visual register: clean editorial — muted blue / warm cream palette, generous negative space, hero-weight typography on title and metric slides, image-led on the closing card. Most slides carry one bold line; preserve text EXACTLY as given. Do not add headings, bullets, sub-text, paragraphs, ledes, or takeaway lists. Layout should treat each slide as a cheat-sheet — photo-able, standalone, makes sense without speaker context. 16:9, generous margins. Avoid generic stock photography; avoid corporate slide patterns; avoid paragraph-heavy slides.",
+  "themeId": "<your-workspace-theme-id>",
+  "exportAs": "pdf",
+  "imageOptions": {
+    "source": "aiGenerated",
+    "style": "Editorial business illustration: muted blue and warm cream palette, abstract data motifs (rising lines, growth shapes, time arrows), generous negative space, soft above-left studio lighting. No people, no logos, no readable text inside images. Clean modern aesthetic — restraint over decoration."
+  },
+  "cardOptions": {
+    "dimensions": "16x9"
+  },
+  "sharingOptions": {
+    "workspaceAccess": "edit"
+  }
+}

@@ -3,7 +3,10 @@
 
 echo "=== State Before Compaction ==="
 
-if command -v git &>/dev/null && git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
+# Tell the post-compaction agent to onboard before any action.
+echo "IMPORTANT: Run /onboard before doing anything. It re-reads CLAUDE.md, MEMORY.md, the prior session's handoff note, and skill files in the main session — preventing blind post-compaction execution."
+
+if command -v git &>/dev/null && git rev-parse --is-inside-work-tree &>/dev/null; then
   echo "Branch: $(git branch --show-current 2>/dev/null)"
   DIRTY=$(git status --short 2>/dev/null | head -10)
   if [ -n "$DIRTY" ]; then

@@ -62,7 +62,7 @@ OpenAI-compatible. Optional headers for OpenRouter-leaderboard
 attribution:
 
 - `HTTP-Referer: <your site url>`
-- `X-OpenRouter-Title: <your project name>`
+- `X-Title: <your project name>`
 
 ## Image generation
 
@@ -72,9 +72,15 @@ Google's **Gemini 3.1 Flash Image Preview** — current state of the
 art image generation + editing.
 
 - **Model ID**: `google/gemini-3.1-flash-image-preview`
-- **Pricing**: $0.50/M input tokens, $3.00/M output tokens
-- **Per-image cost**: roughly $0.004 (about half a cent) for a
-  standard 1K image; varies with output size
+- **Pricing**: per-image-token, NOT per-text-token. Verified May 2026:
+  ~1120 image tokens out per 1K image, billed at the model's image-output
+  rate.
+- **Per-image cost**: roughly **$0.05–0.07 per 1K image** as of May 2026
+  (verified via actual `cost` field in OpenRouter response, e.g.
+  `0.067276` for one 1024×1024 generation). Earlier docs claimed $0.004;
+  that figure was stale. State the real expected cost in your
+  acknowledgment to the user before generating.
+- **Two images = ~$0.10–0.14** total. Always confirm cost before batches.
 
 ### Use the helper script
 
@@ -130,6 +136,20 @@ jq -r '.choices[0].message.images[0].image_url.url' /tmp/openrouter-response.jso
 
 file ./out.png   # confirm valid PNG
 ```
+
+### Multi-reference image-to-image for a cohesive feed
+
+A useful pattern for branded image sets: pass a folder of prior
+generations as image-to-image style references on every new call, so
+each output reinforces the established look. nano-banana 2 handles
+~10+ reference images comfortably — build the `content` array with one
+`image_url` part per reference file, then the text prompt (see
+"Image-to-image" below for the call shape).
+
+For **Andrew Zigler's** posts specifically, that mood-board and the
+post-publish feedback loop live in the `/zig-voice` skill ("Visual
+style references") — load that skill for the reference catalog, the
+naming convention, and the aesthetic-fusion methodology.
 
 ### Image-to-image (with a reference)
 
@@ -218,6 +238,33 @@ research, etc.).
 | Empty `images` array in response | Model returned text only | Add `"modalities": ["image", "text"]` |
 | Decoded file isn't a valid PNG | Wrong content-type prefix on the data URL | The `sed` strip should handle `data:image/png;base64,` and `data:image/jpeg;base64,` — check the actual prefix |
 | Helper script: `OPENROUTER_API_KEY not set` | Env var missing in non-interactive shell | Put the key in `~/.config/openrouter/api-key` (works without shell init) |
+| User can't extract zipped images on macOS — "the zip is corrupted" | Mixed PNG/JPEG content saved under `.png` filenames | nano-banana 2 returns JPEG bytes for some prompts even when the user-specified output path is `.png`. The bytes-into-file path is faithful but the extension lies. macOS Finder / Preview / Archive Utility refuse to extract files when the magic bytes don't match the extension; `unzip` from CLI works fine. Fix: after generating, run `file -b <path>` on each output and rename to match the actual format (`.jpg` for JPEG, `.png` for PNG) BEFORE zipping. See "Extension correctness after generation" below. |
+
+### Extension correctness after generation
+
+The helper script saves whatever bytes the API returns under the user-specified output path. nano-banana 2 occasionally returns JPEG bytes when the prompt suggests photorealistic / detailed content, even when the user said `out.png`. The file is valid; the extension is wrong.
+
+This bites in two places:
+- **Zip transfers**: macOS Finder / Preview reject extracts when magic bytes don't match the extension. `unzip` from CLI succeeds, but GUI tools throw "corrupted archive" errors.
+- **Web embed**: a `<img src="out.png">` with JPEG bytes still renders in browsers, but content-type-strict tools (some CMSes, Slack uploads) reject the file.
+
+After every batch, normalize:
+
+```bash
+for f in path/to/images/*.png; do
+  if file -b "$f" | grep -q "JPEG"; then
+    mv "$f" "${f%.png}.jpg"
+  fi
+done
+```
+
+Then zip with both extension globs:
+
+```bash
+zip -j out.zip path/to/images/*.png path/to/images/*.jpg
+```
+
+If you want to FORCE a single output format, decode the response yourself with `file --mime-type` and convert via `convert` (ImageMagick) or `magick` before saving. The helper script doesn't do this transparently because re-encoding is lossy.
 
 ## Guardrails
 

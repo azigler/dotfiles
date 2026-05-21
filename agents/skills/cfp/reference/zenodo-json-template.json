@@ -1,0 +1,25 @@
+{
+  "title": "{{ARTIFACT_TITLE}} — Research Artifact Bundle",
+  "description": "Research artifact accompanying the {{VENUE}} paper \"{{PAPER_TITLE}}\". The bundle contains {{1-2_SENTENCE_INVENTORY}}. Published in support of the SIGSOFT Open Science Policy. The complete inventory and licensing terms are in artifact/README.md.",
+  "creators": [
+    {
+      "name": "{{LASTNAME}}, {{FIRSTNAME}}",
+      "affiliation": "{{AFFILIATION}}",
+      "orcid": "{{ORCID_WITHOUT_URL_PREFIX}}"
+    }
+  ],
+  "keywords": [
+    "{{KEYWORD_1}}",
+    "{{KEYWORD_2}}",
+    "{{KEYWORD_3}}",
+    "{{VENUE_SLUG}}",
+    "SIGSOFT Open Science"
+  ],
+  "license": "CC-BY-4.0",
+  "upload_type": "dataset",
+  "access_right": "open",
+  "version": "1.0.0",
+  "language": "eng",
+  "communities": [],
+  "related_identifiers": []
+}

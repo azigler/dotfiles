@@ -105,6 +105,87 @@ EOF
 )"
 ```
 
+## Standalone architectural decision bead (ADR-style)
+
+Distinct from the "Check (decisions) bead" above. **Check decisions**
+walk a spec's open questions and are parented to that spec.
+**Architectural decisions** stand alone — they capture a CHOICE
+between alternatives that's bigger than any single spec (e.g.,
+"use SQLite vs Postgres", "no nested agents in the harness",
+"calendar versioning over semver").
+
+Inspired by Luca Ronin's ADR discipline in refactoringhq/tolaria
+(122 ADRs in `docs/adr/`).
+
+```bash
+br create -t decision -p 2 "decision: <scope> — <one-line choice>"
+# NO --parent — these stand alone
+br update <id> \
+  --description "$(cat <<'EOF'
+## Context
+
+What's the situation that requires a decision? What constraints are
+in play? Name the team / project / external pressures.
+
+## Decision
+
+**State the decision in one or two bold sentences so it stands out
+at a glance.** Use literal `**bold**` markdown even though the bead
+view is plaintext — the asterisks make it scannable.
+
+## Options considered
+
+Enumerate **≥2 alternatives** with honest pros/cons each. One-sided
+alternative sections are a red flag — if the section dismisses
+options without serious consideration, the decision wasn't really
+made.
+
+- Option A: pros + cons
+- Option B: pros + cons
+- Option C (chosen): pros + cons
+
+## Consequences
+
+What does this decision make easier? Harder? Under what conditions
+should it be revisited? The re-evaluation trigger is the key
+forward-looking field — it tells future-you when a supersession
+becomes worth writing.
+
+## Advice (optional)
+
+External consultation record — input from other engineers, papers,
+RFCs, talks, etc.
+EOF
+)" \
+  --acceptance-criteria "$(cat <<'EOF'
+- [ ] Context names the situation + constraints
+- [ ] Decision sentence is bold and ≤2 sentences
+- [ ] Options Considered has ≥2 alternatives with honest pros/cons
+- [ ] Consequences names a re-evaluation trigger
+EOF
+)"
+```
+
+**Target length**: ~250-300 words total. Tight but substantive. If it
+balloons past 500, it's becoming a spec — convert to `-t spec`.
+
+**Immutability discipline**: once closed, the `--description` is
+read-only. The one allowed edit is appending a supersession pointer
+to `--notes`:
+
+```bash
+# Append-only supersession pointer (matches /check skill's notes pattern)
+EXISTING=$(br show <old-id> | awk '/^Notes:/{flag=1; next} flag')
+br update <old-id> --notes "$EXISTING
+
+---
+SUPERSEDED 2026-MM-DD by bd-YYYY: <one-line reason>"
+```
+
+The new bead's `--description` starts with `## Supersedes bd-XXXX`
+in its Context section. The graph is then traversable both
+directions.
+
 ## Test bead
 
 ```bash
@@ -190,42 +271,17 @@ EOF
 )"
 ```
 
-## Receipt-of-work bead (post-shipping)
+## Receipt-of-work pattern (post-shipping)
 
-After a fix ships and the user wants a durable record of "what got
-fixed, why, and how we know it stuck" — this becomes an Asana ticket
-via `/asana` (see [asana-integration.md](asana-integration.md)).
-The bead version:
+The receipt-of-work ticket lives on Asana, NOT as a separate bead
+type. The receipt's canonical form is an Asana task on the GTM
+Engineering project — see `/asana` SKILL.md "Receipt-of-work ticket"
+section for the full HTML notes template + the eight required
+sections (Consolidated summary / Stakeholder feedback / Root causes /
+Fixes shipped / Validation / Deployed / Replied in Slack threads /
+Evaluator).
 
-```bash
-br create -t receipt -p 3 "receipt: <scope> — <headline>"
-br update <id> \
-  --description "$(cat <<'EOF'
-## Consolidated summary (1–3 sentences)
-When this work happened, which agent(s), the headline outcome.
-
-## Stakeholder feedback
-Quote from the original Slack / doc thread.
-
-## Root causes (numbered)
-1. ...
-2. ...
-
-## Fixes shipped
-- bd-XXXX — one-line summary
-- ...
-
-## Validation
-Before/after numbers, smoke tests, trace links.
-
-## Deployed
-Where, when, env var changes, restart notes.
-
-## Replied in Slack threads
-Links.
-
-## Evaluator
-Name in factory/eval/evaluators.py.
-EOF
-)"
-```
+Why not a bead type: only one `receipt`-typed bead ever existed
+across the fleet, and the canonical artifact lived on Asana anyway.
+The bead-side equivalent is just a closed `impl` or `task` bead with
+`--external-ref` pointing at the Asana receipt.

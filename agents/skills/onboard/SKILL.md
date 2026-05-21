@@ -1,0 +1,217 @@
+---
+description: Session entrypoint -- discover state, honor any pending offboard, classify work, route to next action. Paired with /offboard.
+---
+
+# /onboard
+
+Run at the start of every session. Discovers current state from live
+sources (no hardcoded refs), honors any pending `/offboard` from a
+prior session, and surfaces what to work on.
+
+Paired with `/offboard` (run at session end or before context compaction).
+Together they bracket every orchestrator session.
+
+## Step 0: Honor any pending offboard
+
+Before doing anything else, check for the offboard-pending marker:
+
+```bash
+if [ -f .offboard-pending ]; then
+  echo "Prior session ended without /offboard — running it retroactively first."
+  # Stop and run /offboard with the prior session's ID, then come back.
+fi
+```
+
+If the marker exists, the previous session ended (or compacted) without
+`/offboard` running. The session JSONL for that prior session is still
+on disk (compaction only affects live context, not the log). Run
+`/offboard` against it before continuing.
+
+## Step 0.5: Detect a first-session-on-a-new-project
+
+Before reading the foundation, check whether this is genuinely a
+fresh project — none of the usual artifacts exist:
+
+```bash
+[ ! -f CLAUDE.md ] && [ ! -d .beads ] && [ ! -f .claude/plans/session-handoff.md ] \
+  && [ "$(git log --oneline 2>/dev/null | wc -l)" -le 1 ] \
+  && echo "FIRST_SESSION"
+```
+
+If FIRST_SESSION:
+
+1. **Don't error on missing files** — they're expected.
+2. **Skip Steps 3 (find current position) and 5 (check blockers)** — there's
+   no plan and nothing to be blocked on.
+3. **Offer the bootstrap menu** before any work happens:
+
+   ```
+   ## New project — first session
+
+   No CLAUDE.md, no beads, no plan files. Before we work, want to set up:
+
+   - **CLAUDE.md** — project conventions doc. Run /init (Claude Code
+     built-in) to bootstrap one from a codebase scan.
+   - **beads** — task tracking. `br init` creates `.beads/` so the
+     orchestrator + subagents have a shared task store.
+     [/beads](../beads/SKILL.md)
+   - **cost-tracking** — per-session token-cost ledger.
+     `cp ~/.claude/skills/cost-tracking/reference/ledger-template.md .claude/plans/cost-tracking.md`
+     then `/offboard` will auto-log each session.
+     [/cost-tracking](../cost-tracking/SKILL.md)
+
+   Then choose a starting move:
+
+   - **Defined project**: run /spec to write the first specification bead
+     (typed `spec`); orchestrator then dispatches /check → /test → /impl
+   - **Exploratory work**: run /grok on the existing tree to understand
+     what's there; persist findings as a `-t note` bead
+   - **Just iterating**: skip the bootstrap and start working — but the
+     next session will have less continuity
+
+   What's the goal for this project?
+   ```
+
+4. **Don't auto-run** any of `br init`, the cost-tracking copy, or
+   `/init` — ASK the user which they want. They may want all three,
+   none, or a subset depending on the project's nature (research,
+   personal site, infra, throwaway prototype, etc.).
+
+Otherwise (the normal case), continue to Step 1.
+
+## Step 1: Read foundation (in the main session — NOT via an Explore agent)
+
+Read these in order, absorbing each before continuing. **Do this in the
+main conversation, not via a subagent or Explore agent** — an
+orchestrator that doesn't know its own toolkit is a worse orchestrator
+than one that paid the read-cost upfront. The descriptions are already
+in your skill listing; the full bodies (with anti-patterns, prereqs,
+guardrails) need to be in your active context.
+
+1. **`CLAUDE.md`** at the repo root — project definition, file layout,
+   conventions, architecture decisions
+2. **`MEMORY.md`** if present — user preferences, operational lessons
+3. **`.claude/plans/session-handoff.md`** (or `refs/session-handoff.md`)
+   if present — the prior session's handoff note. Pick up from where we
+   left off
+4. **All `SKILL.md` files reachable from this dir** — both the global
+   ones (`~/.claude/skills/*/SKILL.md`, symlinked from dotfiles) and
+   any project-local ones (`./.claude/skills/*/SKILL.md` plus parent
+   dirs walked up). Read them in the main session. The skill listing
+   shows descriptions only — you need the bodies to know the
+   anti-patterns, side-effect flags, and ergonomics.
+
+## Step 2: Discover live state
+
+```bash
+git tag --sort=-v:refname | head -5         # current version + recent tags
+git log --oneline -5                        # recent commits
+git branch -a | grep -v worktree            # active branches
+git status --short                          # dirty files
+br list                                     # open beads (if br is installed)
+```
+
+From this, determine:
+- **Version**: latest tag (e.g., `v0.2.3`)
+- **Active branch**: any non-main branch suggests work in flight
+- **Open beads**: in-progress beads mean interrupted work to resume
+- **Dirty files**: uncommitted changes need attention before new work
+
+## Step 3: Find current position
+
+Locate the project's roadmap or plan files. Common locations:
+
+- `docs/ROADMAP.md`, `refs/plans/`, `TODO.md`, `PLAN.md`
+- Design decision docs or ADRs
+- Any plan file referenced by the prior `session-handoff.md`
+
+Walk the plan steps. Find the first incomplete item — that's where the
+work resumes.
+
+## Step 4: Classify the work
+
+Match the next action to a skill. Some common pipelines:
+
+| Domain | Skill | When |
+|---|---|---|
+| **Spec** | `/spec` | Writing or amending a specification |
+| **Check** | `/check` | Deciding open questions, resolving conflicts |
+| **Test** | `/test` | Writing tests before implementation (TDD) |
+| **Impl** | `/impl` | Building code until tests pass |
+| **Housekeeping** | `/housekeeping` | Mechanical cleanup, doc refresh |
+
+Some projects also use:
+
+| Domain | Skill | When | Where |
+|---|---|---|---|
+| Branch | `/branch` | Versioned branch + tag workflow | Project-local (e.g. lb-agent-factory, reef) |
+| Release | `/release` | Cut a tagged release with changelog + GH release | Project-local |
+
+If the project uses a different pipeline, follow its `CLAUDE.md`.
+
+## Step 5: Check blockers
+
+Before routing, verify nothing is blocking:
+
+1. **Open P1 questions** affecting the target work? → `/check` first
+2. **Prior branch unmerged?** → resolve before starting dependent work
+3. **Dirty git state?** → clean it up first (commit or stash)
+4. **In-progress beads from a prior session?** → resume or close them
+5. **`.cost-pending` from a subagent stop?** → run that project's
+   cost-tracking skill (if any) to clear it
+
+If blockers exist, surface them to the user before proceeding.
+
+## Step 6: Present and route
+
+Show a concise orientation report:
+
+```
+## Orientation Report
+
+**Version**: vN.M.R
+**Active branch**: <name or main>
+**Position**: <where in the plan>
+**Active plan**: <plan file path, if any>
+**Open beads**: <count, with priorities>
+**Blockers**: <none / list>
+
+**Recommended next action**: <skill> / <description>
+```
+
+Then invoke the appropriate skill or wait for the user to redirect.
+
+## Post-compaction recovery
+
+If you're resuming after context compaction:
+
+1. **Do NOT immediately create branches or beads.** Onboard first.
+2. **Read the active plan file** if one exists. It has the phase breakdown.
+3. **Compare the plan against git history and live state** to see what's
+   already done. Don't redo completed work.
+4. **Present findings** before taking any action. The user may have
+   context that wasn't captured in the handoff note.
+
+The most common post-compaction mistake is jumping straight to `/impl`
+when the current phase actually needs `/spec` or `/check`. Always
+classify the work first.
+
+## Pair with /offboard
+
+Every orchestrator session should end with `/offboard`. If it doesn't,
+the `PreCompact` and `SessionEnd` hooks leave `.offboard-pending` as
+a marker. The next session's `/onboard` checks for that and runs offboard
+retroactively.
+
+## Project-specific extensions
+
+Some projects extend `/onboard` with their own steps (cost-tracking
+ledgers, custom registries, etc.). Look for:
+
+- `.claude/plans/cost-tracking.md` — if present, the project tracks
+  per-session token cost. `/offboard` updates it.
+- `.claude/plans/models-manifest.md` — model pricing reference for
+  cost-tracking computations.
+
+If those files don't exist, skip those steps. The core onboard /
+offboard cycle works without them.
