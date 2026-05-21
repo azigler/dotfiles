@@ -100,7 +100,11 @@ run_case "allow: card_file_box meta-commit exempt" 0 \
 run_case "allow: broom triage meta-commit exempt" 0 \
   '{"tool_input":{"command":"git commit -m \":broom: triage: 3 closed\""},"cwd":"/tmp"}'
 
-# 10. unrelated command → no-op
+# 10. :outbox_tray: distribute meta-commit (no trailer) → ALLOW (exempt)
+run_case "allow: outbox_tray distribute meta-commit exempt" 0 \
+  '{"tool_input":{"command":"git commit -m \":outbox_tray: distribute: sync from dotfiles\""},"cwd":"/tmp"}'
+
+# 11. unrelated command → no-op
 run_case "allow: unrelated command" 0 \
   '{"tool_input":{"command":"ls -la"},"cwd":"/tmp"}'
 

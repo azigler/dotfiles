@@ -79,16 +79,16 @@ if command -v br &>/dev/null; then
 fi
 
 # 2. Require a `Bead:` trailer — block, not warn. Meta-commits are exempt:
-#    bead-state / triage / offboard / cost commits reference beads in the
-#    subject rather than a trailer and carry a distinctive gitmoji.
+#    bead-state / triage / offboard / cost / distribute commits reference
+#    beads in the subject rather than a trailer and carry a meta gitmoji.
 if ! echo "$COMMAND" | grep -q 'Bead:'; then
-  if echo "$COMMAND" | grep -qE ':card_file_box:|:broom:|:dollar:'; then
-    : # meta-commit (bead-state / triage / offboard / cost) — trailer not required
+  if echo "$COMMAND" | grep -qE ':card_file_box:|:broom:|:dollar:|:outbox_tray:'; then
+    : # meta-commit (bead-state / triage / offboard / cost / distribute) — trailer not required
   else
     echo "Blocked: commit message has no 'Bead: <id>' trailer." >&2
     echo "Every commit maps to a bead — see /commit, /beads ('one bead = one commit')." >&2
     echo "Add a 'Bead: <id>' trailer. Exempt: bead-state / triage / offboard /" >&2
-    echo "cost meta-commits (:card_file_box: / :broom: / :dollar: gitmoji)." >&2
+    echo "cost / distribute meta-commits (:card_file_box: :broom: :dollar: :outbox_tray:)." >&2
     FAILED=1
   fi
 fi
