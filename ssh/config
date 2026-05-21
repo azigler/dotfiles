@@ -1,1 +1,7 @@
 Include local
+
+Host gpu
+    HostName PLACEHOLDER
+    User ubuntu
+    IdentityFile ~/.ssh/id_rsa_ovh
+    ForwardAgent yes

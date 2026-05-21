@@ -117,11 +117,15 @@ trim()
 }
 
 alias claude='claude --dangerously-skip-permissions'
-alias copilot='bun run copilot'
-alias codex='bun run codex'
-alias gemini='bun run gemini'
+#alias copilot='bun run copilot'
+#alias codex='bun run codex'
+#alias gemini='bun run gemini'
 alias cursor='agent'
-alias vercel='bun run vercel'
+#alias vercel='bun run vercel'
+
+if [ -f "$HOME/.secrets" ]; then
+    source "$HOME/.secrets"
+fi
 
 if [ -f "$HOME/.servers.bash_aliases" ]; then
     source "$HOME/.servers.bash_aliases"

@@ -7,3 +7,6 @@ source "$HOME/.local/share/tmux/start.sh"
 [[ ! -f "$HOME/.bash_aliases" ]] || source "$HOME/.bash_aliases"
 
 [[ ! -f "$HOME/.profile" ]] || source "$HOME/.profile"
+. "$HOME/.cargo/env"
+
+. "$HOME/.local/bin/env"

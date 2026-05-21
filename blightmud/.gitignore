@@ -1,0 +1,4 @@
+# Secrets — even if accidentally moved into this dir, never commit
+.env
+.env.local
+.env.*.local

@@ -60,8 +60,20 @@ sync() {
             sync_source "$SCRIPT_DIR/bash/.profile" "$HOME/.profile"
             ;;
         "blightmud")
+            # Plugins live under .local/share/blightmud/ (per Blightmud's plugin dir)
             sync_source "$SCRIPT_DIR/blightmud/autoload_plugins.ron" "$HOME/.local/share/blightmud/autoload_plugins.ron"
-            sync_source "$SCRIPT_DIR/blightmud/plugins" "$HOME/.local/share/blightmud/plugins"
+            [[ ! -d "$SCRIPT_DIR/blightmud/plugins" ]] || sync_source "$SCRIPT_DIR/blightmud/plugins" "$HOME/.local/share/blightmud/plugins"
+            # Per-server configs + dispatcher live under .config/blightmud/
+            sync_source "$SCRIPT_DIR/blightmud/config.lua" "$HOME/.config/blightmud/config.lua"
+            sync_source "$SCRIPT_DIR/blightmud/cod.lua" "$HOME/.config/blightmud/cod.lua"
+            sync_source "$SCRIPT_DIR/blightmud/chatmud.lua" "$HOME/.config/blightmud/chatmud.lua"
+            sync_source "$SCRIPT_DIR/blightmud/cf.lua" "$HOME/.config/blightmud/cf.lua"
+            sync_source "$SCRIPT_DIR/blightmud/ifmud.lua" "$HOME/.config/blightmud/ifmud.lua"
+            sync_source "$SCRIPT_DIR/blightmud/dw.lua" "$HOME/.config/blightmud/dw.lua"
+            sync_source "$SCRIPT_DIR/blightmud/cthulhumud.lua" "$HOME/.config/blightmud/cthulhumud.lua"
+            sync_source "$SCRIPT_DIR/blightmud/servers.ron" "$HOME/.config/blightmud/servers.ron"
+            sync_source "$SCRIPT_DIR/blightmud/settings.ron" "$HOME/.config/blightmud/settings.ron"
+            # .env.local stays local (passwords) — never symlinked, never committed
             ;;
         "borders")
             sync_source "$SCRIPT_DIR/borders/bordersrc" "$HOME/.config/borders/bordersrc"

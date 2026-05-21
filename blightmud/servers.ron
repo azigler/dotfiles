@@ -1,0 +1,38 @@
+{
+    "cod": (
+        host: "cleftofdimensions.net",
+        port: 4354,
+        tls: false,
+        verify_cert: false,
+    ),
+    "chatmud": (
+        host: "chatmud.com",
+        port: 7777,
+        tls: false,
+        verify_cert: false,
+    ),
+    "cf": (
+        host: "carrionfields.net",
+        port: 4449,
+        tls: false,
+        verify_cert: false,
+    ),
+    "ifmud": (
+        host: "ifmud.port4000.com",
+        port: 4000,
+        tls: false,
+        verify_cert: false,
+    ),
+    "dw": (
+        host: "discworld.starturtle.net",
+        port: 4242,
+        tls: false,
+        verify_cert: false,
+    ),
+    "cthulhumud": (
+        host: "cthulhumud.com",
+        port: 8889,
+        tls: false,
+        verify_cert: false,
+    ),
+}

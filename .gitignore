@@ -35,3 +35,6 @@ ts4
 
 # server addresses
 .servers.bash_aliases
+
+# secrets — machine-local, never committed (template: bash/.secrets.example)
+.secrets

@@ -12,7 +12,8 @@ elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
     tmux_command="/usr/bin/tmux"
 fi
 
-session_name="$(hostname -s)"
+#session_name="$(hostname -s)"
+session_name="work"
 
 $tmux_command has-session -t=$session_name 2> /dev/null
 

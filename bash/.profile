@@ -73,3 +73,6 @@ function __setprompt
 
 export PROMPT_COMMAND="__setprompt;$PROMPT_COMMAND"
 export PROMPT_COMMAND="history -n;history -w;history -c;history -r;$PROMPT_COMMAND"
+. "$HOME/.cargo/env"
+
+. "$HOME/.local/bin/env"

@@ -20,7 +20,7 @@ if [ "$(hostname -s)" != "zig-computer" ]; then
     sudo apt-get update
     sudo apt-get upgrade -y
 
-    sudo apt install -y gh ranger direnv zsh ripgrep lazygit fzf golang-go unzip node
+    sudo apt install -y gh ranger direnv zsh ripgrep lazygit fzf golang-go unzip
 
     cd /home/ubuntu/dotfiles
 
@@ -54,6 +54,11 @@ if [ "$(hostname -s)" != "zig-computer" ]; then
     curl -fsSL https://bun.sh/install | bash
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
     curl -LsSf https://astral.sh/uv/install.sh | sh
+
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+    export NVM_DIR="$HOME/.nvm"
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    nvm install --lts
 
     sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
 
