@@ -72,11 +72,14 @@ Exit code `0` = clean. Non-zero = issues remain.
 Is the linter rule wrong for this code?
 ├─ Yes, this is a one-off pattern the rule shouldn't flag
 │  → inline disable WITH a comment explaining why
+│  → whole generated / vendored file: file-level disable
+│    (e.g. `// biome-ignore-all lint/...: generated`)
 ├─ Yes, this rule is broken for THIS PROJECT systematically
 │  → update biome.jsonc / ruff.toml / clippy.toml / .golangci.yml
 │  → commit the config change separately from your code change
 └─ No, the rule is right and the code should change
-   → just fix the code; don't reach for a disable
+   → refactor to a pattern the rule allows (usually possible);
+     don't reach for a disable
 ```
 
 Inline disable comments by language (always include the *why*):
@@ -100,8 +103,9 @@ fn consume(x: Vec<u8>) { ... }
 hash := md5.Sum(data)
 ```
 
-A disable without a justifying comment is a code smell. Reviewers should
-push back.
+An inline disable on a single line is rarely the right answer — it's
+where lazy disables hide. A disable without a justifying comment is a
+code smell; reviewers should push back.
 
 ## Known gaps + remedies
 
@@ -203,19 +207,6 @@ isn't seeing the workspace. Check:
 
 If the project has a workspace setup, configs go in the workspace root,
 not per-package.
-
-### "I have a legitimate but style-violating pattern"
-
-Three options, in order of preference:
-
-1. **Refactor** to a pattern the rule allows (usually possible)
-2. **Per-file disable** if this is one outlier file (e.g., generated
-   code, vendored module): `// biome-ignore-all lint/...: generated`
-3. **Project-wide disable** if this pattern is intentional throughout:
-   update the config
-
-Inline-disable on a single line is rarely the right answer — it's
-where lazy disables hide.
 
 ## Anti-patterns
 

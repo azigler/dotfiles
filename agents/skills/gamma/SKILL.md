@@ -139,27 +139,9 @@ project; it's reusable across any Gamma-based deck workflow.
 | **B — Slide-by-slide theme** | `generate` (or `condense`) | `inputTextBreaks` | Per-slide brief, Gamma writes copy in your voice | Best balance of quality + control |
 | **C — Deterministic** | `preserve` | `inputTextBreaks` | Exact text per slide; Gamma only does layout + image selection | Final pass, when copy is locked |
 
-### Style A — Overarching theme (let Gamma drive)
-
-```jsonc
-{
-  "inputText": "Quarterly Update Q2 2026\nThesis: shipped velocity is up 40%\n- Onboarding redesign cut TTV by 11 days\n- New billing flow lifted conversion 8%\n- Support load down 22% from in-product hints",
-  "textMode": "generate",
-  "format": "presentation",
-  "numCards": 12,
-  "cardSplit": "auto",
-  "additionalInstructions": "Confident exec tone; data-forward; one chart-style slide per number",
-  "themeId": "<your-theme-id>",
-  "exportAs": "pdf",
-  "textOptions": {
-    "amount": "medium",
-    "tone": "confident exec, data-forward",
-    "audience": "leadership team and board observers"
-  },
-  "imageOptions": { "source": "aiGenerated", "style": "muted blue editorial" },
-  "cardOptions": { "dimensions": "16x9" }
-}
-```
+The three styles share one payload shape and differ only by the
+`textMode` / `cardSplit` knobs in the table above. Style B — the best
+balance of control and quality — as the worked example:
 
 ### Style B — Slide-by-slide theme (guided structure)
 
@@ -178,28 +160,13 @@ project; it's reusable across any Gamma-based deck workflow.
 }
 ```
 
-### Style C — Deterministic (full control)
-
-```jsonc
-{
-  "inputText": "Quarterly Update Q2 2026\nQ2 — Ship velocity up 40%\n---\nWe shipped 40% more this quarter than Q1.\n---\nOnboarding redesign\nTTV: 11 days faster\n---\nBilling flow\nConversion: +8%\n---\nIn-product hints\nSupport load: -22%\n---\nQ3 — see appendix",
-  "textMode": "preserve",
-  "format": "presentation",
-  "cardSplit": "inputTextBreaks",
-  "additionalInstructions": "Layout only; image selection only. Don't rewrite the text.",
-  "themeId": "<your-theme-id>",
-  "exportAs": "pdf",
-  "imageOptions": { "source": "aiGenerated", "style": "..." },
-  "cardOptions": { "dimensions": "16x9" }
-}
-```
-
-See [reference/3-styles.md](reference/3-styles.md) for the deeper
-dive — when to pick each, how knobs interact, migration patterns
-("start with A for fast feedback, move to C once content is locked").
-
-A canonical Style C payload lives at
-[reference/example-deterministic.json](reference/example-deterministic.json).
+For **Style A**, set `cardSplit: "auto"` + a `numCards` count and drop
+the `\n---\n` segment breaks. For **Style C**, set `textMode:
+"preserve"` so Gamma keeps your copy verbatim — the canonical Style C
+payload is [reference/example-deterministic.json](reference/example-deterministic.json).
+See [reference/3-styles.md](reference/3-styles.md) for the deeper dive:
+when to pick each, how the knobs interact, and the "start with A for
+fast feedback, move to C once content is locked" migration.
 
 ## Layout limitation + workarounds
 
@@ -401,56 +368,36 @@ fall back to the workspace default.
 
 ## Common workflows
 
-### Smoke test → batch expansion
+**Smoke → batch.** Validate the aesthetic on a 3-slide smoke before
+the full deck — cost rationale in "CRITICAL: cost awareness" above:
 
 ```bash
-# 1. 3-slide smoke (~15 credits) to validate aesthetic
-~/.claude/skills/gamma/gamma-render.sh ./smoke.json
-# Review gammaUrl. Style holds? Aesthetic right?
-
-# 2. Full deck (~150 credits)
-~/.claude/skills/gamma/gamma-render.sh ./full.json
+~/.claude/skills/gamma/gamma-render.sh ./smoke.json   # ~15 credits
+~/.claude/skills/gamma/gamma-render.sh ./full.json    # ~150 credits
 ```
 
-Don't skip the smoke. A bad aesthetic on a 3-slide test costs 15
-credits to discover; a bad aesthetic on a 30-slide deck costs 150.
+**A/B/C comparison** — only on explicit ask. Three 10-slide
+generations ≈ 150 credits; confirm cost with the user first, then
+render `style-a.json` / `style-b.json` / `style-c.json` in turn.
 
-### A/B/C comparison (only on explicit ask)
-
-```bash
-~/.claude/skills/gamma/gamma-render.sh ./style-a.json
-~/.claude/skills/gamma/gamma-render.sh ./style-b.json
-~/.claude/skills/gamma/gamma-render.sh ./style-c.json
-```
-
-Three generations × ~50 credits = ~150 credits for a 10-slide
-comparison. **Confirm with the user first.**
-
-### Re-rendering an existing generation
-
-The Gamma **UI** exports an existing deck to other formats for free,
-and edits made in the UI are preserved. The **API has no re-export
-endpoint** — don't script it. Pattern:
-
-1. Initial render generates the deck (one `exportAs` format).
-2. User edits + exports further formats in the Gamma UI.
-3. Re-generate via the API only when the *content* must change.
+**Re-rendering.** The API has no re-export endpoint (see "Cost
+reality" above): re-generate via the API only when the *content*
+changes. For a new *format* of the same content, export from the
+Gamma UI — free, and UI edits are preserved.
 
 ## Troubleshooting
+
+Cap and ignored-field errors point back to "Hard caps & gotchas" above;
+everything else is here in full.
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | `401 Unauthorized` | Missing or wrong API key | Verify `$GAMMA_API_KEY` or `~/.config/gamma/api-key`; confirm header is `X-API-Key:` not `Authorization: Bearer` |
-| `400 Bad Request` on `additionalInstructions` | Over 5,000 chars | Trim. This is a HARD cap. |
-| `400 Bad Request` on `numCards` | Over plan cap (60 or 75) | [Cap split](#cap-split-logic) |
-| `400 Bad Request` on `folderIds` | Over 10 entries | Reduce list |
+| `400 Bad Request` on a field | Over a hard cap (`additionalInstructions`, `numCards`, `folderIds`, `style`) | See "Hard caps & gotchas" for the limit |
 | `429 Too Many Requests` | Rate limit (burst / hourly / daily) | Back off; check `X-RateLimit-*` response headers |
-| Empty final card | Trailing `\n---\n` in `inputText` | Trim trailing break |
-| `numCards` ignored | `cardSplit: "inputTextBreaks"` | Expected — count derives from segments. Check `warnings` in submit response. |
-| `tone`/`audience` ignored | `textMode: "preserve"` | Expected — those are "generate"-mode only. |
-| `style` ignored | `stylePreset` is set to a named preset | Expected — preset wins. Use `stylePreset: "custom"` to fall back to `style`. |
-| `style` clipped silently | Over 500 chars | Trim to 500. Soft cap. |
-| Layout doesn't honor full-bleed directive | `additionalInstructions` is probabilistic | [Layout workarounds](#layout-limitation--workarounds) — try #2 (inline URLs) or #3 (manual). |
+| A field silently ignored, or an empty final card | Conflicting knobs, or a trailing `\n---\n` | See "Hard caps & gotchas" → Ignored-field warnings / Empty trailing segment |
+| `style` ignored | `stylePreset` is a named preset | Expected — preset wins. Use `stylePreset: "custom"` to fall back to `style`. |
+| Layout doesn't honor full-bleed directive | `additionalInstructions` is probabilistic | See "Layout limitation + workarounds" — try #2 (inline URLs) or #3 (manual). |
 | Polling never completes | Image-heavy deck + 2K size | Bump `--timeout` if your wrapper supports it; otherwise wait. 5 min is the helper default. |
 | Helper script: `GAMMA_API_KEY not set` | Env var missing in non-interactive shell | Put key in `~/.config/gamma/api-key` (works without shell init). |
 

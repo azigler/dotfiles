@@ -299,26 +299,16 @@ Bead types where immutability does **NOT** apply: `task`, `bug`,
 `feature`, `impl`, `epic`, `test`. These are work-in-flight artifacts
 that need free editing as scope shifts.
 
-### Two more conventions borrowed from Luca's ADR discipline
+### Decision-bead conventions
 
-When writing **any** decision-type bead (whether `/check` OQ-walk or
-standalone architectural decision):
-
-1. **Bold the decision sentence.** Use literal `**...**` markdown in
-   the bead body even though it renders as plaintext. The asterisks
-   make the actual decision scannable at a glance among the
-   surrounding context.
-
-2. **≥2 alternatives with honest pros/cons.** One-sided alternative
-   sections are a red flag: if the section dismisses options without
-   serious consideration, the decision wasn't really made. The
-   exercise of writing honest pros/cons for the option you DIDN'T
-   pick is where the decision gets its rigor.
-
-These are voluntary disciplines, not mechanical gates. The reason
-they earn their space is that future-you (or any agent reading the
-archive) can reconstruct your reasoning without re-doing the
-thinking.
+Any decision-type bead — `/check` OQ-walk or standalone architectural
+decision — earns its keep two ways: **bold the decision sentence** (so
+the actual choice is scannable in the plaintext bead view), and give
+**≥2 alternatives with honest pros/cons** (writing the pros/cons for
+the option you DIDN'T pick is where the decision gets its rigor).
+Voluntary disciplines, not mechanical gates. The full standalone-ADR
+bead template — Context / Decision / Options / Consequences — is in
+[reference/handoff-templates.md](reference/handoff-templates.md).
 
 ## Handoff discipline
 
@@ -427,49 +417,19 @@ next?" beyond plain `br ready`.
 blocks the agent session.** Always use the `--robot-*` JSON flags.
 
 The session-start hook already prints a `Top pick:` line via
-`bv --robot-next` when bv is installed; the orchestrator-action hook
-nudges with the next pick after `br close` / worktree merge. Reach for
-the deeper commands when those nudges aren't enough.
+`bv --robot-next`; the orchestrator-action hook nudges after `br close`
+/ worktree merge. Reach for `bv` directly when those nudges aren't
+enough: `--robot-next` (one-line top pick), `--robot-triage` (ranked
+recs + quick wins + blockers + health), `--robot-plan` (multi-agent
+dispatch order), `--robot-insights` (cycles, structural blockers). Use
+`br ready` for "show me everything"; `bv` for "tell me what to do."
 
-| Command | When to reach for it |
-|---|---|
-| `bv --robot-next` | One-line top pick — the question "what next?" |
-| `bv --robot-triage` | Mega-command: ranked recommendations, quick wins, blockers, project health |
-| `bv --robot-plan` | Parallel execution tracks (multi-agent dispatch ordering) |
-| `bv --robot-insights` | Graph metrics (PageRank, betweenness, cycles) — find structural blockers |
-| `bv --robot-alerts` | Stale issues, blocking cascades, priority mismatches |
-| `bv --robot-suggest` | Hygiene: duplicate beads, missing deps, label suggestions |
-| `bv --robot-graph --graph-format=mermaid` | Render the dep graph for spec / planning docs |
-| `bv --robot-history` | Bead-to-commit correlations from git history |
-
-```bash
-# Common patterns
-bv --robot-triage | jq '.recommendations[0]'        # top recommendation w/ reasons
-bv --robot-triage | jq '.quick_wins'                # low-effort high-impact
-bv --robot-triage | jq '.blockers_to_clear'         # unblocks the most downstream work
-bv --robot-plan --label backend                     # scope to a label's subgraph
-bv --recipe high-impact --robot-triage              # pre-filter by top-PageRank
-```
-
-**bv vs `br ready`**: `br ready` is a flat list of unblocked + open beads.
-`bv --robot-next` ranks them by graph impact and surfaces *one*
-recommendation with the claim command attached. Use `br ready` for "show
-me everything"; use `bv --robot-next` / `--robot-triage` for "tell me
-what to do."
-
-**Discovery**: run `bv --robot-help` and `bv --robot-docs commands` for
-the current command surface. The `bv` agent interface is intentionally
-stable, but new flags get added — re-check those two if a command in
-this skill feels off.
-
-**Per-project AGENTS.md prompts**: when bv first runs in a new repo it
-asks whether to inject a guidance blurb into `AGENTS.md`. Decline ("don't
-ask again") — this skill is the global single source of truth and the
-orchestrator already has the context. Records of decline live at
-`~/.config/bv/agent-prompts/`.
-
-See [reference/bv.md](reference/bv.md) for the deeper flag reference,
-output schema details, and `jq` recipes.
+[reference/bv.md](reference/bv.md) has the full command surface, the
+`jq` recipes, the output schema, and the discovery commands
+(`bv --robot-help` / `bv --robot-docs commands`). One gotcha worth
+keeping in mind: when `bv` first runs in a repo it offers to inject
+guidance into `AGENTS.md` — **decline** ("don't ask again"); this skill
+is the single source of truth.
 
 ## See also
 

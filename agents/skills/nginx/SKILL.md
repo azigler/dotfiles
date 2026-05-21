@@ -291,13 +291,10 @@ sudo certbot delete --cert-name myproj.example.com
   + `reload` instead. A bad config + restart takes the whole edge down.
 - Don't commit the default SSL private key or issued certs to any repo.
   They live at `/etc/letsencrypt/` and stay there.
-- Don't `sudo install` a vhost source file from your repo over a
-  certbot-managed live config — certbot's TLS stanzas (`listen 443
-  ssl;`, `ssl_certificate ... # managed by Certbot`, the redirect-to-
-  HTTPS server block) live ONLY in the live file. Naïve install wipes
-  them and takes HTTPS down. Use the surgical-edit pattern (see
-  "Updating a certbot-managed vhost" above) or move app-specific
-  blocks into a separate include file that the repo can ship.
+- Don't `sudo install` a repo vhost file over a certbot-managed live
+  config — it wipes certbot's TLS stanzas and takes HTTPS down. Use
+  the surgical-edit pattern (or the include-file pattern) from
+  "Updating a certbot-managed vhost" above.
 - Don't manually edit `listen 443 ssl` vhost blocks after certbot has
   shaped them — certbot tracks ownership via comments and will rewrite.
   If you need custom 443 config, structure it via `include` or
