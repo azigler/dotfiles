@@ -220,9 +220,9 @@ classify the work first.
 ## Pair with /offboard
 
 Every orchestrator session should end with `/offboard`. If it doesn't,
-the `PreCompact` and `SessionEnd` hooks leave `.offboard-pending` as
-a marker. The next session's `/onboard` checks for that and runs offboard
-retroactively.
+the `SessionEnd` hook (`session-end.sh`) leaves `.offboard-pending` as
+a marker. The next session's `/onboard` Step 0 checks for that and runs
+offboard retroactively.
 
 ## Project-specific extensions
 

@@ -13,8 +13,8 @@ Paired with `/onboard` (run at session start).
 ## When to run
 
 - **Natural end-of-session** — before closing the terminal
-- **Before context auto-compaction** — the `PreCompact` hook leaves
-  `.offboard-pending` as a marker if you forget
+- **Before context auto-compaction** — compaction can lose the thread;
+  capture state in a handoff note before it happens
 - **When handing off to another person** — the handoff note summarizes
   state for the new owner
 
@@ -147,14 +147,20 @@ session close.
 Even short sessions deserve a handoff note. A two-line "I checked X, no
 action" is honest and useful — better than no note at all.
 
-## Hooks that leave `.offboard-pending`
+## The `.offboard-pending` marker
 
-- `.claude/hooks/pre-compact.sh` — when the harness is about to compact
-  context
-- `.claude/hooks/session-end.sh` — when the session terminates
+`session-end.sh` (the `SessionEnd` hook) drops a `.offboard-pending`
+file at the repo root when a session ends **without** `/offboard`
+having run — detected by HEAD not having committed this session's
+handoff note. The next session's `/onboard` Step 0 finds the marker,
+runs `/offboard` retroactively, then clears it.
 
-If neither hook is wired in your project, manual `/offboard` discipline
-is the only safety net.
+`pre-compact.sh` deliberately does NOT drop the marker: compaction
+keeps the same session alive, and that session's own post-compaction
+`/onboard` would misread its own marker as a prior session's.
+
+If `session-end.sh` isn't wired in your project, manual `/offboard`
+discipline is the only safety net.
 
 ## Pair with /onboard
 

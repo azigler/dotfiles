@@ -38,3 +38,6 @@ ts4
 
 # secrets — machine-local, never committed (template: bash/.secrets.example)
 .secrets
+
+# session state — created by harness hooks, never committed
+.offboard-pending
