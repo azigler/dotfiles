@@ -21,12 +21,13 @@ Asana's two rich-text surfaces behave differently:
 
 - **Task create/update**: use **`html_notes`** (not `notes`). HTML
   renders as styled rich text in the task body.
-- **Task comment**: prefer plaintext **`text`**. In testing
-  (2026-05-07), a comment posted with `html_text` showed raw `<body>`
-  / `<h2>` tags instead of styled markup. Asana's current rich-text
-  docs suggest `html_text` *should* render for comments — so if you
-  need rich comments, re-verify against the live API first. Plaintext
-  `text` always works.
+- **Task comment**: `html_text` renders rich text in comments —
+  `<strong>`, `<em>`, `<ul>`, `<a href>`, `<code>` all work. **But
+  `<h1>`, `<h2>`, and `<img>` are task/brief-only**: put one in a
+  comment and Asana shows the raw tag. (An early test here did exactly
+  that on 2026-05-07 and the skill briefly over-generalized it to
+  "comments render plaintext only" — corrected.) Use comment-legal
+  tags in `html_text`, or plain `text` when you don't need formatting.
 
 ### Comments — plaintext
 
