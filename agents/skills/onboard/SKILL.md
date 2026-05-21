@@ -41,7 +41,7 @@ fresh project — none of the usual artifacts exist:
 If FIRST_SESSION:
 
 1. **Don't error on missing files** — they're expected.
-2. **Skip Steps 3 (find current position) and 5 (check blockers)** — there's
+2. **Skip Steps 4 (find current position) and 6 (check blockers)** — there's
    no plan and nothing to be blocked on.
 3. **Offer the bootstrap menu** before any work happens:
 
@@ -79,14 +79,10 @@ If FIRST_SESSION:
 
 Otherwise (the normal case), continue to Step 1.
 
-## Step 1: Read foundation (in the main session — NOT via an Explore agent)
+## Step 1: Read the foundation
 
-Read these in order, absorbing each before continuing. **Do this in the
-main conversation, not via a subagent or Explore agent** — an
-orchestrator that doesn't know its own toolkit is a worse orchestrator
-than one that paid the read-cost upfront. The descriptions are already
-in your skill listing; the full bodies (with anti-patterns, prereqs,
-guardrails) need to be in your active context.
+Read these in order, in the main conversation, absorbing each before
+continuing:
 
 1. **`CLAUDE.md`** at the repo root — project definition, file layout,
    conventions, architecture decisions
@@ -94,14 +90,38 @@ guardrails) need to be in your active context.
 3. **`.claude/plans/session-handoff.md`** (or `refs/session-handoff.md`)
    if present — the prior session's handoff note. Pick up from where we
    left off
-4. **All `SKILL.md` files reachable from this dir** — both the global
-   ones (`~/.claude/skills/*/SKILL.md`, symlinked from dotfiles) and
-   any project-local ones (`./.claude/skills/*/SKILL.md` plus parent
-   dirs walked up). Read them in the main session. The skill listing
-   shows descriptions only — you need the bodies to know the
-   anti-patterns, side-effect flags, and ergonomics.
 
-## Step 2: Discover live state
+## Step 2: Load every skill body — in the main session, no exceptions
+
+This is the most-skipped step and the one onboarding exists for. Do not
+shortcut it. Enumerate the read list:
+
+```bash
+ls ~/.claude/skills/*/SKILL.md ./.claude/skills/*/SKILL.md 2>/dev/null
+```
+
+Read **every** file that lists, with the Read tool, in THIS
+conversation. The skill listing already in your context shows only
+descriptions — the bodies carry the anti-patterns, prereqs, side-effect
+flags, and ergonomics you need to orchestrate well.
+
+Three ways this step gets done wrong — all forbidden:
+
+- ❌ **Dispatching an Explore / general-purpose agent to read them.** A
+  subagent's context is discarded when it returns — the bodies land in
+  *its* context, not yours. You must read them yourself.
+- ❌ **Reading "a representative few."** Read all of them. The skill you
+  skip is the one whose anti-pattern you needed.
+- ❌ **Skipping because it's long.** It is a few-thousand tokens, paid
+  once per session — that is the trade onboarding exists to make. An
+  orchestrator that doesn't know its own toolkit is a worse
+  orchestrator than one that paid the read-cost upfront.
+
+When done you can state **"Loaded N/N skill bodies."** Step 7's
+orientation report requires that count — the step is gated: you cannot
+produce a valid report without having done this.
+
+## Step 3: Discover live state
 
 ```bash
 git tag --sort=-v:refname | head -5         # current version + recent tags
@@ -117,7 +137,7 @@ From this, determine:
 - **Open beads**: in-progress beads mean interrupted work to resume
 - **Dirty files**: uncommitted changes need attention before new work
 
-## Step 3: Find current position
+## Step 4: Find current position
 
 Locate the project's roadmap or plan files. Common locations:
 
@@ -128,7 +148,7 @@ Locate the project's roadmap or plan files. Common locations:
 Walk the plan steps. Find the first incomplete item — that's where the
 work resumes.
 
-## Step 4: Classify the work
+## Step 5: Classify the work
 
 Match the next action to a skill. Some common pipelines:
 
@@ -149,7 +169,7 @@ Some projects also use:
 
 If the project uses a different pipeline, follow its `CLAUDE.md`.
 
-## Step 5: Check blockers
+## Step 6: Check blockers
 
 Before routing, verify nothing is blocking:
 
@@ -162,7 +182,7 @@ Before routing, verify nothing is blocking:
 
 If blockers exist, surface them to the user before proceeding.
 
-## Step 6: Present and route
+## Step 7: Present and route
 
 Show a concise orientation report:
 
@@ -171,6 +191,7 @@ Show a concise orientation report:
 
 **Version**: vN.M.R
 **Active branch**: <name or main>
+**Skills loaded**: N/N skill bodies
 **Position**: <where in the plan>
 **Active plan**: <plan file path, if any>
 **Open beads**: <count, with priorities>
