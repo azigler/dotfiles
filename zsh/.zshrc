@@ -53,3 +53,18 @@ antigen apply
 unsetopt correct_all
 unsetopt correct
 ENABLE_CORRECTION="false"
+
+. "$HOME/.local/bin/env"
+
+# bun completions
+[ -s "/home/ubuntu/.bun/_bun" ] && source "/home/ubuntu/.bun/_bun"
+
+unalias br 2>/dev/null  # br installer - remove conflicting alias
+
+# pnpm
+export PNPM_HOME="/home/ubuntu/.local/share/pnpm"
+case ":$PATH:" in
+  *":$PNPM_HOME:"*) ;;
+  *) export PATH="$PNPM_HOME:$PATH" ;;
+esac
+# pnpm end
