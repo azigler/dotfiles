@@ -114,9 +114,6 @@ between alternatives that's bigger than any single spec (e.g.,
 "use SQLite vs Postgres", "no nested agents in the harness",
 "calendar versioning over semver").
 
-Inspired by Luca Ronin's ADR discipline in refactoringhq/tolaria
-(122 ADRs in `docs/adr/`).
-
 ```bash
 br create -t decision -p 2 "decision: <scope> — <one-line choice>"
 # NO --parent — these stand alone
@@ -260,7 +257,7 @@ br update <id> \
 - Why an evaluator: this regressed once; ensure it can't again silently
 
 ## Evaluator location
-factory/eval/evaluators.py (or project equivalent)
+<project>/eval/evaluators.py
 EOF
 )" \
   --acceptance-criteria "$(cat <<'EOF'
@@ -273,15 +270,12 @@ EOF
 
 ## Receipt-of-work pattern (post-shipping)
 
-The receipt-of-work ticket lives on Asana, NOT as a separate bead
-type. The receipt's canonical form is an Asana task on the GTM
-Engineering project — see `/asana` SKILL.md "Receipt-of-work ticket"
-section for the full HTML notes template + the eight required
-sections (Consolidated summary / Stakeholder feedback / Root causes /
-Fixes shipped / Validation / Deployed / Replied in Slack threads /
-Evaluator).
+A post-shipping "receipt of work" — a stakeholder-facing summary of a
+shipped fix or feature — is **not** a bead type. It belongs in
+whatever external tracker the team uses for shipped-work visibility
+(Asana, Linear, Jira, a project board). The bead-side equivalent is a
+closed `impl` or `task` bead with `--external-ref` pointing at that
+external ticket.
 
-Why not a bead type: only one `receipt`-typed bead ever existed
-across the fleet, and the canonical artifact lived on Asana anyway.
-The bead-side equivalent is just a closed `impl` or `task` bead with
-`--external-ref` pointing at the Asana receipt.
+Why not a bead type: the canonical artifact lives in the external
+tracker; a `receipt` bead type would only ever shadow it.

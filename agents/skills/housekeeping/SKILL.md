@@ -291,8 +291,7 @@ decisions), invoke `/triage` — it's the dedicated skill.
 
 When a project has a `docs/ARCHITECTURE.md` (or `ARCHITECTURE.md` at
 repo root), it should be a **derived view** of active `-t decision`
-beads — never hand-edited. The pattern, inspired by Luca Ronin's
-Tolaria ADR discipline:
+beads — never hand-edited. The pattern:
 
 ```bash
 # Project-specific — adjust path + transform per project's CLAUDE.md
