@@ -97,17 +97,19 @@ _G.bm_ifmud_state = _G.bm_ifmud_state or {}
 local s = _G.bm_ifmud_state
 -- Backfill any new fields (handles /load over an older state table).
 s.saw_start = false -- always reset on (re)load
-if s.suppress_until == nil then s.suppress_until = 0 end
 if s.tick == nil then s.tick = 0 end
+if s.gag_next == nil then s.gag_next = false end
 
 -- Persistent gag trigger (in g_trigger so it's group-managed).
--- Matches the User-On-Idle header → gags subsequent lines until
--- "End of List" or the saw_start flag is reset. Bypassed entirely
--- when suppress_until is in the future (manual idle! window).
+-- ONLY gags the response when the auto-keepalive fired the `idle`
+-- send (s.gag_next is true). User-typed `who` / `idle` / `w` produce
+-- the same "User On Idle" header but should be VISIBLE — they're
+-- intentional socializing actions, not background noise. Reset on
+-- "End of List" footer.
 g_trigger:add(".+", {}, function(_, line)
-    if os.time() < s.suppress_until then
+    if not s.gag_next then
         return
-    end -- manual idle! bypass
+    end -- only gag if the keepalive flagged it
     local text = line:line()
     if not s.saw_start then
         if text:match("^%s*User%s+On%s+Idle") then
@@ -121,6 +123,7 @@ g_trigger:add(".+", {}, function(_, line)
     line:skip_log(true)
     if text:match("^End of List") then
         s.saw_start = false
+        s.gag_next = false  -- response consumed; release the gag flag
     end
 end)
 
@@ -140,19 +143,8 @@ game_timer("ifmud_keepalive", 90, function()
     if _G.bm_current_game ~= "ifmud" then
         return
     end
-    if os.time() < s.suppress_until then
-        return
-    end -- don't keepalive during manual flow
+    s.gag_next = true  -- flag the multi-line response for gagging
     mud.send("idle", { gag = true, skip_log = true })
-end)
-
--- Manual `idle!` — see the real `idle` response. Sets a 5-second
--- suppress window so the gag trigger lets the response through
--- and prevents an auto-keepalive from firing in between.
-g_alias:add("^idle!$", function()
-    s.suppress_until = os.time() + 5
-    s.saw_start = false
-    mud.send("idle")
 end)
 
 blight.output("[ifmud] loaded — type `login`; keep-alive sends `idle`/90s (does NOT reset Zig's idle timer; you accrue idle naturally)")
