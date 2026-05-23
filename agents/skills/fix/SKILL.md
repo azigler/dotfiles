@@ -1,6 +1,6 @@
 ---
 description: Fix-and-guard workflow for any identified problem. Creates a typed `bug` bead, dispatches a subagent to fix it, then either repairs an existing test or adds a new regression test so the bug can't come back silently. Orchestrators invoke this autonomously when a bug surfaces; user-invocable when a user reports one.
-when_to_use: User reports a bug ("X is broken", "this doesn't work"), reviewer flags a defect, an audit / Phoenix annotation / Slack thread surfaces a regression. Orchestrators should fire this proactively when they identify a fixable problem mid-session.
+when_to_use: User reports a bug ("X is broken", "this doesn't work"), reviewer flags a defect, an audit / observability annotation / chat thread surfaces a regression. Orchestrators should fire this proactively when they identify a fixable problem mid-session.
 argument-hint: "<short problem description>"
 ---
 
@@ -16,7 +16,7 @@ This skill enforces the discipline: bead → subagent fix → test.
 
 - User reports a bug
 - Reviewer flags a defect
-- Audit / Phoenix trace / Slack thread surfaces a regression
+- Audit / observability trace / chat thread surfaces a regression
 - You (the orchestrator) notice a problem mid-session — **don't ask
   permission, fire `/fix`** and route the work
 
@@ -41,13 +41,13 @@ br update "$BEAD_ID" --description "$(cat <<'EOF'
 <your initial diagnosis — short, can be wrong; the fix-agent re-diagnoses>
 
 ## Source of report
-<Slack permalink / Phoenix annotation URL / commit hash / "user said in this session">
+<chat thread permalink / observability trace URL / commit hash / "user said in this session">
 
 ## Acceptance criteria
 - [ ] Root cause identified and documented in --notes
 - [ ] Fix lands and passes existing tests
 - [ ] Regression guard exists (existing test updated OR new test added)
-- [ ] If LinearB project: logged on Asana daily bead-log + receipt-of-work if material
+- [ ] If your team tracks shipped fixes externally: receipt filed for material fixes
 EOF
 )"
 br update "$BEAD_ID" --acceptance-criteria "$(cat <<'EOF'
@@ -122,25 +122,23 @@ git branch -D worktree-agent-XXXX
 git push origin --delete worktree-agent-XXXX 2>/dev/null || true
 ```
 
-## Step 4: Asana log (LinearB / fleet agents only)
+## Step 4: External receipt log (team-specific)
 
-If `FLEET_URL`, `FLEET_TOKEN`, `AGENT`, `AGENT_PARENT_GID` are set,
-the bead-start and bead-close events should already be logged on
-the agent's daily bead-log subtask via the integration documented in
+If your team tracks shipped fixes in an external system (Asana, Linear,
+Jira, a stakeholder board), file a receipt for **material** fixes —
+stakeholder visibility, novel root cause, multi-bead fix arc. The
+generic shape: a closed `bug` bead with `--external-ref` pointing at
+the receipt ticket.
+
+For routine fixes (typos, small logic bugs caught in review), the bead
+itself is the record — don't clutter the external tracker with
+one-line fixes.
+
+**LinearB fleet (private):** when `FLEET_URL` / `FLEET_TOKEN` / `AGENT`
+/ `AGENT_PARENT_GID` are set, bead-start and bead-close auto-log on the
+agent's daily bead-log subtask; the receipt-of-work template + the GTM
+Engineering project GIDs live in `~/linearb/refs/asana-fleet.md` and
 `~/linearb/refs/asana-integration.md`.
-
-For **material** fixes that warrant a receipt-of-work ticket
-(stakeholder visibility, novel root cause, multi-bead fix arc), also
-file a receipt via `/asana`:
-
-```bash
-# After all fix beads close, file a receipt summarizing the arc
-# (see /asana SKILL "Receipt-of-work ticket" section)
-```
-
-For routine fixes (typos, small logic bugs caught in review), the
-daily bead-log + close comment is enough — don't pile up the GTM
-Engineering board with one-line fixes.
 
 ## Variants
 
@@ -165,8 +163,8 @@ For genuinely production-blocking bugs:
 - Use `-p 0` (all-hands stop) on the bead
 - Skip worktree isolation if the fix is trivial; just fix on main
 - Add the regression test in the same commit as the fix
-- File a receipt-of-work ticket on Asana the same day
-- Notify in Slack with the ticket permalink
+- File a receipt in your team's external tracker the same day
+- Notify stakeholders in the team's chat with the ticket permalink
 
 ### Dotfile-resident files (orchestrator inline, no worktree)
 
@@ -221,9 +219,9 @@ the orchestrator already has the context loaded.
   The fix log + asana ticket gets clearer per-bug.
 - ❌ **Fix on main when worktree isolation would have been safe** —
   unless it's a true production hotfix, use the worktree.
-- ❌ **Skip the asana log on a material fix** when fleet integration is
-  available — silent fixes don't show up in receipts of work and
-  stakeholders don't know they shipped.
+- ❌ **Skip the external receipt on a material fix** when your team
+  tracks shipped work — silent fixes don't surface in receipts of work
+  and stakeholders don't know they shipped.
 
 ## See also
 
