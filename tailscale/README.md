@@ -33,7 +33,7 @@ Tailscale validates JSONC + ACL semantics before letting you save. If invalid, t
 
 ## Recovery procedures
 
-Full procedures live in the `/zig-zone` skill at `agents/skills/zig-zone/SKILL.md`. The headline cases:
+Full procedures live in the zig-zone skill at `~/explore/.claude/skills/zig-zone/SKILL.md` (read by path — not auto-loaded; kept out of dotfiles because it names sensitive operational details). The headline cases:
 
 | Lockout | Recovery path |
 |---|---|
@@ -45,6 +45,6 @@ Full procedures live in the `/zig-zone` skill at `agents/skills/zig-zone/SKILL.m
 ## Reference
 
 - **Spec**: bead `dotfiles-phe` in the dotfiles repo (closed; read with `br show dotfiles-phe`)
-- **Skill / runbook**: `agents/skills/zig-zone/SKILL.md` (also available as `/zig-zone` once symlinked into `~/.claude/skills/`)
+- **Skill / runbook**: `~/explore/.claude/skills/zig-zone/SKILL.md` (read by path; not auto-loaded outside `~/explore/`)
 - **Tailscale docs**: https://tailscale.com/kb
 - **OVH KVM access**: documented in personal password manager, NOT in this repo
