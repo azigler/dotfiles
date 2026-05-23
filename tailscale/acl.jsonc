@@ -1,0 +1,60 @@
+// zig-zone tailnet ACL policy.
+//
+// Source of truth: this file. Paste into Tailscale admin → Access Controls
+// when changed. The admin policy editor supports JSONC (comments).
+//
+// Identity model (Tailscale's, not invented here):
+//   - `zig-computer` and `pico` are tagged `tag:server` — machine identities,
+//     no human user behind them.
+//   - `metis`, `zig`, and the iPhone are UNTAGGED — they authenticate as
+//     the user's Tailscale account, so they match `autogroup:member`
+//     (devices owned by a human Tailscale account).
+//   - `autogroup:member` is src-only in Tailscale ACLs; `autogroup:self`
+//     is the correct dst for "user's own other devices."
+//
+// Three rules cover the full traffic matrix:
+//   1. server-to-server  (e.g. nginx → vs14-web via tailnet)
+//   2. user-to-server    (SSH, Ollama API from a laptop)
+//   3. user-to-self      (laptop ↔ phone over tailnet, e.g. AirDrop-style)
+//
+// Future contractor / co-owner devices not tied to the user's account
+// match NO rule and are denied by default — allowlist-default-deny.
+//
+// SSH section: `check` action requires Tailscale-identity re-auth every 12h
+// before opening a new SSH session. Existing sessions stay live.
+//
+// See spec bead `dotfiles-phe` § 4.2 for the rationale + § 6 OQs for
+// decisions that shaped this.
+
+{
+  "tagOwners": {
+    "tag:server": ["autogroup:admin"]
+  },
+
+  "acls": [
+    {
+      "action": "accept",
+      "src": ["tag:server"],
+      "dst": ["tag:server:*"]
+    },
+    {
+      "action": "accept",
+      "src": ["autogroup:member"],
+      "dst": ["tag:server:*"]
+    },
+    {
+      "action": "accept",
+      "src": ["autogroup:member"],
+      "dst": ["autogroup:self:*"]
+    }
+  ],
+
+  "ssh": [
+    {
+      "action": "check",
+      "src":    ["autogroup:member"],
+      "dst":    ["tag:server"],
+      "users":  ["ubuntu", "autogroup:nonroot"]
+    }
+  ]
+}

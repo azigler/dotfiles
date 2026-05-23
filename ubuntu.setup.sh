@@ -70,6 +70,13 @@ if [ "$(hostname -s)" != "zig-computer" ]; then
     curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/beads_rust/main/install.sh?$(date +%s)" | bash
     curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/beads_viewer/main/install.sh?$(date +%s)" | bash
 
+    # --- zig-zone (private tailnet) ---
+    # Spec: bead dotfiles-phe. Runbook: /zig-zone skill.
+    # Tags + SSH are NOT advertised here — Phase 1 of the migration runbook
+    # adds them AFTER the ACL has been pasted into Tailscale admin.
+    curl -fsSL https://tailscale.com/install.sh | sh
+    sudo tailscale up   # interactive — browser SSO
+
     # --- Linters ---
     bun install -g @biomejs/biome
     uv tool install ruff

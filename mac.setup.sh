@@ -2,7 +2,7 @@ xcode-select --install
 
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-brew install tmux jq gh ranger font-sauce-code-pro-nerd-font koekeishiya/formulae/yabai koekeishiya/formulae/skhd FelixKratz/formulae/borders FelixKratz/formulae/sketchybar multipass flyctl qemu direnv claude vercel-cli dicklesworthstone/tap/bv
+brew install tmux jq gh ranger font-sauce-code-pro-nerd-font koekeishiya/formulae/yabai koekeishiya/formulae/skhd FelixKratz/formulae/borders FelixKratz/formulae/sketchybar multipass flyctl qemu direnv claude vercel-cli dicklesworthstone/tap/bv ollama tailscale colima docker docker-compose
 
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
 curl -fsSL https://get.pnpm.io/install.sh | sh -
@@ -34,3 +34,25 @@ skhd --start-service
 npm install -g @github/copilot wrangler
 
 curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/beads_rust/main/install.sh?$(date +%s)" | bash
+
+# --- zig-zone (private tailnet + ollama server) bring-up ---
+# Spec: bead dotfiles-phe. Runbook: /zig-zone skill.
+# Idempotent — re-running mac.setup.sh re-applies these without harm.
+
+# Headless-server safety: no sleep, auto-boot after power loss, no surprise reboots.
+sudo pmset -a sleep 0 displaysleep 0 disksleep 0 powernap 0
+sudo pmset -a autorestart 1
+sudo softwareupdate --schedule off
+
+# Tailscale daemon + interactive auth (opens browser for SSO).
+# Tags + SSH are NOT advertised here — they come in Phase 1 AFTER the ACL
+# has been pasted into the Tailscale admin console, otherwise the
+# --advertise-tags call fails with "requested tags not permitted."
+sudo brew services start tailscale
+sudo tailscale up
+
+# Ollama bound to the tailnet IP only (NOT 0.0.0.0, NOT 127.0.0.1).
+# launchctl setenv makes OLLAMA_HOST visible to the LaunchAgent that
+# `brew services start ollama` creates.
+launchctl setenv OLLAMA_HOST "$(tailscale ip -4):11434"
+brew services start ollama
