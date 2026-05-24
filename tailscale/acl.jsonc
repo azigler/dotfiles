@@ -4,18 +4,29 @@
 // when changed. The admin policy editor supports JSONC (comments).
 //
 // Identity model (Tailscale's, not invented here):
-//   - `zig-computer` and `pico` are tagged `tag:server` — machine identities,
-//     no human user behind them.
-//   - `metis`, `zig`, and the iPhone are UNTAGGED — they authenticate as
-//     the user's Tailscale account, so they match `autogroup:member`
-//     (devices owned by a human Tailscale account).
+//   - `zig-computer` is tagged `tag:server` — machine identity, no human
+//     user behind it. Lives on OVH (public-internet edge); the tag-based
+//     isolation matters here because a compromise shouldn't grant
+//     "act as the owner" rights.
+//   - `pico` is UNTAGGED (owned by the tailnet owner). Originally tagged
+//     `tag:server` until 2026-05-24 — flipped to user-owned to enable
+//     native Taildrop with iPhone/metis (Tailscale hard-locks Taildrop
+//     to same-user transfers; see runbook gotcha #23 + bead dotfiles-f7n).
+//     pico is internal home-LAN compute; the tag-based isolation was a
+//     weaker fit there (already behind the home router).
+//   - `metis`, `iphone-15-pro` are UNTAGGED — they authenticate as the
+//     user's Tailscale account, so they match `autogroup:member` (devices
+//     owned by a human Tailscale account).
 //   - `autogroup:member` is src-only in Tailscale ACLs; `autogroup:self`
 //     is the correct dst for "user's own other devices."
+//   - `autogroup:owner` is the tailnet owner specifically — used as dst
+//     when src is a tag (no "self" semantics from a tag identity).
 //
-// Three rules cover the full traffic matrix:
-//   1. server-to-server  (e.g. nginx → vs14-web via tailnet)
-//   2. user-to-server    (SSH, Ollama API from a laptop)
-//   3. user-to-self      (laptop ↔ phone over tailnet, e.g. AirDrop-style)
+// Four rules cover the full traffic matrix:
+//   1. server-to-server  (zig ↔ any future tagged servers)
+//   2. user-to-server    (laptop/phone → zig over tailnet: SSH, ollama API)
+//   3. user-to-self      (laptop ↔ phone ↔ pico over tailnet, incl Taildrop)
+//   4. server-to-owner   (zig → pico-as-user-device: nginx proxy, etc.)
 //
 // Future contractor / co-owner devices not tied to the user's account
 // match NO rule and are denied by default — allowlist-default-deny.
@@ -64,20 +75,34 @@
   },
 
   "acls": [
+    // 1. server-to-server (tag:server ↔ tag:server)
     {
       "action": "accept",
       "src": ["tag:server"],
       "dst": ["tag:server:*"]
     },
+    // 2. user-to-server (user-owned devices reach tagged servers, e.g. SSH, ollama API)
     {
       "action": "accept",
       "src": ["autogroup:member"],
       "dst": ["tag:server:*"]
     },
+    // 3. user-to-self (user's own devices talk to each other — incl. pico now)
     {
       "action": "accept",
       "src": ["autogroup:member"],
       "dst": ["autogroup:self:*"]
+    },
+    // 4. server-to-owner (tagged servers reach owner's user-owned devices)
+    // After untagging pico (2026-05-24), this is how zig-computer reaches
+    // pico — for nginx proxying vs14-web, ollama API queries from agent
+    // pipelines, etc. autogroup:owner is narrower than autogroup:member
+    // (just the tailnet owner — if future household users join, their
+    // devices aren't auto-reachable from servers).
+    {
+      "action": "accept",
+      "src": ["tag:server"],
+      "dst": ["autogroup:owner:*"]
     }
   ],
 
@@ -95,9 +120,29 @@
       "acceptEnv": ["TERM", "LANG", "LC_*"]
     },
     {
+      // user-to-self SSH (e.g. metis → pico now that pico is user-owned).
+      // 'check' re-auth every 12h, same as user-to-server.
+      "action": "check",
+      "src":    ["autogroup:member"],
+      "dst":    ["autogroup:self"],
+      "users":  ["autogroup:nonroot"],
+      "acceptEnv": ["TERM", "LANG", "LC_*"]
+    },
+    {
       "action": "accept",
       "src":    ["tag:server"],
       "dst":    ["tag:server"],
+      "users":  ["autogroup:nonroot"],
+      "acceptEnv": ["TERM", "LANG", "LC_*"]
+    },
+    {
+      // server-to-owner SSH (zig-computer → pico-as-user-device).
+      // 'check' isn't possible here (src is a tag — no human user to
+      // re-authenticate). Same security trade-off acknowledged as the
+      // server-to-server SSH rule above.
+      "action": "accept",
+      "src":    ["tag:server"],
+      "dst":    ["autogroup:owner"],
       "users":  ["autogroup:nonroot"],
       "acceptEnv": ["TERM", "LANG", "LC_*"]
     }
