@@ -99,6 +99,54 @@ in worktrees back to the main worktree's copy. This gives one source of truth fo
 bead state -- the subagent can read bead descriptions and the orchestrator sees
 state changes in real time. No manual setup needed.
 
+## Cross-repo dispatch — cd to target BEFORE Agent call
+
+If the dotfiles orchestrator (or any orchestrator that drives work across
+multiple repos: cfp managing per-conference repos, the linearb fleet
+managing agent clones, etc.) dispatches a worktree subagent for work in a
+DIFFERENT repo than the orchestrator's current cwd, the worktree gets
+created in the orchestrator's repo — not the target. The
+`WorktreeCreate` hook resolves cwd from the orchestrator's persistent
+shell state, which is the orchestrator's project root.
+
+Symptoms when this misfires:
+- Subagent's branch lives in the wrong repo (e.g., a dotfiles branch for
+  vs14 work)
+- `.beads/` symlink points at the wrong project's beads
+- Subagent has to manually create their OWN worktree in the target repo
+  to recover (and the orchestrator-side merge step then fails because
+  the branch doesn't exist in the orchestrator's repo)
+
+The fix is mechanical: **before calling `Agent({isolation: "worktree"})`
+for cross-repo work, `cd` into the target repo as a standalone Bash
+command.** The cd persists; the next Agent dispatch creates the
+worktree in the target.
+
+```bash
+# Standalone cd (matches the merge-side discipline at top of this section)
+cd /home/ubuntu/vacation-station-14
+```
+
+Then dispatch:
+```
+Agent({
+  subagent_type: "subagent",
+  isolation: "worktree",
+  prompt: "Your bead is `vs-NNN` in vacation-station-14. ..."
+})
+```
+
+The worktree lands at `/home/ubuntu/vacation-station-14/.claude/worktrees/agent-XXXX/`,
+the `.beads/` symlink points at vs14's beads, and the orchestrator's
+post-merge step (`cd /home/ubuntu/vacation-station-14 && git merge
+worktree-agent-XXXX`) finds the branch in the right repo.
+
+Worked example: the dotfiles orchestrator dispatching the SS14 C# patches
+(bead `vs-4h1`) for work in `~/vacation-station-14`. First attempt
+forgot the cd; subagent recovered by creating a manual `/tmp/vs14-agent-...`
+worktree, and the orchestrator had to cherry-pick instead of merge.
+After the fix lands here, future cross-repo dispatches just work.
+
 ## Submodules must be absorbed before subagent dispatch
 
 If you dispatch a worktree subagent from inside a submodule whose `.git` is a
