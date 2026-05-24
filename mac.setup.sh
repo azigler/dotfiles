@@ -75,3 +75,15 @@ brew services start ollama
 # device's tailnet IP changes (rare; happens on logout+rejoin). The runbook
 # section "/etc/hosts shim" has the current canonical mapping.
 echo "NOTE: see runbook for /etc/hosts shim entries (tailnet IPs for other devices)"
+
+# --- Persistent tmux server (LaunchAgent, mirrors zig-computer's tmux.service) ---
+# Creates a detached tmux session named after the hostname at user login.
+# Requires the user to be logged in for LaunchAgents to fire — enable auto-login
+# in System Settings → Users → Login Options for headless servers.
+# The source plist has HOSTNAME_PLACEHOLDER as the session name; sed substitutes
+# the actual hostname at install time so each Mac gets a uniquely-named session.
+mkdir -p ~/Library/LaunchAgents
+sed "s/HOSTNAME_PLACEHOLDER/$(hostname -s)/" \
+    ~/dotfiles/tmux/com.zig.tmux.plist \
+    > ~/Library/LaunchAgents/com.zig.tmux.plist
+launchctl load -w ~/Library/LaunchAgents/com.zig.tmux.plist

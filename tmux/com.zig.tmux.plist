@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.zig.tmux</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/tmux</string>
+        <string>new-session</string>
+        <string>-d</string>
+        <string>-s</string>
+        <string>pico</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/tmp/com.zig.tmux.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/com.zig.tmux.log</string>
+</dict>
+</plist>
