@@ -3,72 +3,74 @@
 ## State at offboard
 
 - **Current branch**: main
-- **Last commit**: `f9f8873 :bug: tmux/com.zig.tmux.plist: use HOSTNAME_PLACEHOLDER token (fixup of 7ec840c)`
-- **Open beads**:
-  - `dotfiles-406` (note): zig laptop deferred from tailnet at user's discretion — stays open as a tracker
-  - All other in-session beads (dotfiles-phe, dotfiles-x0v, dotfiles-qix, dotfiles-tyj, dotfiles-3ec, dotfiles-tc1, dotfiles-s4t, dotfiles-jdi + many more) → CLOSED
+- **Last commit**: `f6ab580 :card_file_box: beads: open dotfiles-52c — future SS14-on-pico via home-router DNAT`
+- **Open beads** (3, all P3 trackers — no in-progress, no actionable backlog):
+  - `dotfiles-52c` (task) — future SS14 → pico via home-router DNAT + DDNS (ARM64 build artifacts preserved on pico)
+  - `dotfiles-st2` (bug) — iPhone Termius nerdfont via Tailscale SSH, workaround in place
+  - `dotfiles-406` (note) — zig laptop deferred from tailnet at user's discretion
 - **In-flight subagents**: none
-- **Dirty files**: none
+- **Dirty files**: none (this offboard's pending handoff is the only thing left to commit)
 - **Markers**: `.offboard-pending` not present (clean)
-- **Working tree**: clean both repos (dotfiles + explore)
+- **Working tree**: clean on dotfiles, explore, AND vacation-station-14 (after the cross-repo handoff updates)
 
-## What happened this session (major arcs)
+## What happened this session
 
-This was a marathon session that took zig-zone from "spec idea" to "Phase 1 complete + mesh live + Tailscale SSH working bidirectionally." The arc:
+This was a marathon. zig-zone went from "Phase 1 complete" (where the prior session left it) all the way through Phase 5 end-state verification, with the entire infra migration shipped. The arc:
 
-1. **Spec authoring (`/spec` → `/check` → 3× `/scrutinize`)**. Wrote `dotfiles-phe` with 18 test cases + 7 OQs across Prerequisites + Phases 0–5. Three /scrutinize rounds caught a CRITICAL mac.setup.sh typo (`xtools-select`), a CRITICAL ACL semantics bug (`autogroup:member` is src-only), 7 HIGH bugs (silently-dropped services, postgres bridge networking on macOS, vs14/ss14 timers, --advertise-tags chicken-and-egg, IPv6 hand-wave, etc.), plus MEDIUM/LOW polish. All addressed across rev 1 → rev 2 → rev 3. SHIPped.
+### Phase 2 — Ollama + Phoenix → pico (`dotfiles-ozk`)
+- Custom `~/Library/LaunchAgents/com.zig.{ollama,phoenix}.plist` templates (in `~/dotfiles/ollama/`, `~/dotfiles/phoenix/`) so brew's `services restart` regeneration doesn't clobber `EnvironmentVariables.OLLAMA_HOST` / `PHOENIX_HOST` pinning (runbook gotcha #15).
+- Phoenix needed Python 3.13 via `uv python install` — system 3.9 silently pinned arize-phoenix to v12.x, which couldn't open the 13.x-migrated 767MB SQLite (gotcha #16).
+- 6 factory `.env.local` files (accounts, fastlane, fleet, gtm, listener, product) repointed `PHOENIX_COLLECTOR_URL` from localhost to `http://pico:6006`.
+- mac.setup.sh updated to do the dotnet + Phoenix install + plist install at fresh-Mac time.
 
-2. **Dotfiles impl wave (bead dotfiles-x0v)**. Delivered: `tailscale/acl.jsonc`, `tailscale/README.md`, `agents/skills/zig-zone/SKILL.md`, mac.setup.sh + ubuntu.setup.sh edits. Then user flagged the zig-zone SKILL as too sensitive for dotfiles' /distribute path; we relocated it to `~/explore/.claude/skills/zig-zone/SKILL.md` (dotfiles-aoa + explore-et9).
+### Phase 3 — postgres + vs14-web + 6 obs containers + reef-router (`dotfiles-991`, sub-beads `mh9` + `q0c` + `76s`)
+- Postgres@17 on pico via brew. Both vacation-station DBs restored via `pg_dump -Fc` + `pg_restore --no-owner` (231KB compressed total). Reassigned ownership to vs14. Locale = C (macOS Homebrew postgres lacks C.UTF-8).
+- 6 obs containers on pico via Colima. The two .NET ones (mapserver + ss14-admin) needed `docker build --platform linux/arm64 --no-cache` to produce native arm64 images — `docker-compose build` + `DOCKER_DEFAULT_PLATFORM=linux/arm64` env silently picked amd64 (runbook gotcha #18). ss14-admin's `appsettings.yml` `urls:` config also overrode the env var `ASPNETCORE_URLS` we set in the override (gotcha #21) — patched on pico's clone.
+- Colima can't bind macOS-host tailnet IP for container port mappings (gotcha #20) — used `0.0.0.0:PORT:PORT` + container-internal 0.0.0.0 bind.
+- Static dirs (`vs14-recipes/guidebook/writer/maps` + nurseshark dist) tarred + streamed to pico via Tailscale SSH (regular `scp` fails on host-key mismatch — gotcha #17).
+- vs14-web built on pico + `~/Library/LaunchAgents/com.zig.vs14-web.plist` (template in `~/dotfiles/vs14/`).
+- nginx on pico (port 8080) added with `user pico staff;` directive (gotcha #19 — nginx-as-`nobody` can't traverse `/Users/<user>/` mode-700). Serves all pico-routed paths.
+- zig-computer's `ss14.zig.computer.conf` cut over atomically — `location /` proxies everything to pico:8080.
+- reef-router moved to pico (`mh9` — gigabyte transfer via Tailscale SSH cat-pipe). zig-computer nginx adds `listen 7575` server block that proxies to pico:7575.
+- 7 of 8 timer LaunchAgents installed on pico via `vs14/install-timers.sh` (cookbook, guidebook, writer, nurseshark, map-render, postgres-retention, ss14-backup). PDT times derived from original UTC schedules.
+- All migrated services stopped + disabled on zig-computer.
 
-3. **Operational migration: Prerequisites + Phase 0 + Phase 1**.
-   - Pico bootstrapped from fresh macOS install (xcode-select, Homebrew, dotfiles clone, mac.setup.sh — with the typo fix).
-   - All 4 user-active devices joined the tailnet: zig-computer, pico, metis, iPhone (zig laptop deferred per dotfiles-406).
-   - Tailnet named "zig-zone" (display name) — actual DNS suffix is `tailfb4637.ts.net` (free tier can't customize DNS suffix).
-   - ACL pasted; tag:server applied to zig-computer + pico.
-   - Tailscale SSH enabled on both servers; verified bidirectional (zig-computer → pico AND pico → zig-computer).
+### Phase 4 — SS14 → pico — ATTEMPTED + ROLLED BACK (`dotfiles-hdo` + `dotfiles-ier`)
+- Built SS14 game server + watchdog natively for darwin-arm64. Critical flag: `-p:FullRelease=True` (without it, Robust.Server's Resources/ path resolution falls back to dev-mode tree-walk — runbook gotcha #22 covers ARM64 build pattern, gotcha specifically for the FullRelease flag is documented in dotfiles-76s notes).
+- Watchdog `appsettings.yml` set to `UpdateType: Dummy` so it runs the local binary instead of refetching Linux x64 from cdn.
+- Installed nginx stream module (`libnginx-mod-stream`); UDP+TCP `:1212` proxied to pico via `/etc/nginx/streams-enabled/ss14-game.conf`. Critical: do NOT set `proxy_responses 0` on UDP (fire-and-forget; breaks Lidgren handshake).
+- Real-player feasibility test: user connected, played; tcpdump confirmed client IP hiding worked; BUT Late MsgEntity Diff: -4250 disconnects + player counter pinned 0/30.
+- Research subagent round 1 identified IP-collapse hypothesis; round 2 corrected it: counter was actually SS14's hub-anti-inflation default (`admin.admins_count_in_playercount = false` → `1 player - 1 admin = 0`). Counter "bug" fixed with a one-line cvar in config.toml. The disconnect mechanism wasn't fully isolated — initial "interleaved sessions" claim doesn't hold with one player.
+- **The definitive architectural reason for rollback** (independent of any test-time symptom): SS14's moderation subsystem (`ban_address`, `ipintel_cache`, GeoIP region tagging, admin logs) all key off RemoteEndPoint.Address. nginx UDP-proxy collapses every player's IP to nginx's IP → banning one player locks out all; GeoIP/logs/region all lie. Canonical SS14 pattern (Space Wizards docs + impstation production config): TCP /info proxied for TLS, UDP direct via `status.connectaddress`. Honest revision of the Phase 4 runbook section landed in commit `0ae87c4` after user pushback.
+- Rolled SS14 back to zig-computer. ARM64 build artifacts preserved on pico for future use.
 
-4. **Live discovery: 5 more Tailscale gotchas added to the runbook**:
-   - #10: `tailscale up --hostname=X` resets all other flags (use `tailscale set` or full-flag `tailscale up`)
-   - #11: Tag-apply race produces misleading "access controls don't allow anyone" warning
-   - #12: **THE BIG ONE** — macOS Tailscale variants are mutually exclusive: brew formula = SSH server YES, MagicDNS NO; GUI variants (App Store / Standalone / cask) = MagicDNS YES, SSH server NO. Pico cycled through formula → cask → Standalone → back-to-formula before we figured this out.
-   - #13: Standalone .pkg leaves stale shims at `/usr/local/bin/tailscale` after .app removal (clean up before re-installing formula)
-   - Plus: `check` SSH action requires user identity (gotcha #9); server-to-server SSH needs `accept`
+### Phase 5 — End-state verification
+- **TC14** ✓ — zig-computer footprint: only edge services + intentional SS14 exception. Forbidden services (vs14-web, postgres@17-main, ollama, lb-phoenix, reef-router, 7 vs14/ss14 timers) all inactive.
+- **TC15** — original spec asked for ACL policy-preview against a hypothetical non-member; Tailscale's preview is limited to defined identities. Alt-verification: structural read of the ACL — no `["*"]` wildcards, only specific `autogroup:member` + `tag:server` grants; Tailscale default-deny handles the rest.
+- **TC16** ✓ — tailscaled local state files on both nodes (`/var/lib/tailscale/tailscaled.state` on zig-computer, `/Library/Tailscale/tailscaled.state` on pico). Headscale-migration safety net.
 
-5. **Spec --notes appends** to dotfiles-phe documenting the post-spec refinements (server-to-server SSH rule + macOS variant architectural finding). Spec --description stays read-only per /beads immutability discipline.
+### Future-spec bead opened: `dotfiles-52c`
+- The post-Phase-4 architectural conversation about "can we preserve source IP through UDP proxy" led to a properly-scoped future plan: move SS14 to pico via home-router DNAT (the canonical SS14 pattern). Bead has the 8-step procedure + alternatives matrix (PROXY protocol — not viable, Lidgren has zero parsing; TPROXY — viable but complex; DNAT — chosen).
 
-6. **Tooling cleanups**:
-   - `.servers.bash_aliases` mechanism removed (was dead — file untracked in git, sync.sh tried to copy nothing). Replaced with `ssh-zig` / `ssh-pico` aliases using `tailscale ip -4 <host>` lookups (bypass DNS, works regardless of variant).
-   - `tmux/com.zig.tmux.plist` LaunchAgent committed to dotfiles + wired into `mac.setup.sh` with HOSTNAME_PLACEHOLDER + sed substitution at install time.
-   - mac.setup.sh comment block explaining Tailscale variant trade-off for future Mac bootstraps.
+### Cross-repo handoff: `vacation-station-14`
+- Appended a "zig-zone infra migration impact" section to `/home/ubuntu/vacation-station-14/.claude/plans/session-handoff.md` (commit `db90b39480`). Includes: pointers to the dotfiles beads + the explore runbook, the where-services-run table, the "two clones can drift" warning, the 5 vs14-touching gotchas. Next vs14 maintainer session will see it.
 
-7. **Nerdfont diagnostic — investigated deeply, workaround in place** (`dotfiles-st2`):
-   - User confirmed empirically: iPhone Termius via tailnet hostname → Tailscale SSH server → glyphs broken. Same Termius client via public IP (`51.81.33.136`) → OpenBSD sshd → glyphs render correctly.
-   - **Hypotheses ruled out**: client font (public IP works with same Termius), env vars (Tailscale ≥1.76 needs `acceptEnv` in ACL — added it, verified `LC_*` forwarded), IUTF8 termios flag (verified already set on the broken path), Termius "Report terminal as" setting (already xterm-256color, no help).
-   - **Real cause** is at the SSH channel framing / PTY proxy layer in Tailscale SSH — Go reimplementation handles something differently from OpenBSD sshd that Termius iOS specifically responds to. Other Tailscale clients (macOS app, CLI `tailscale ssh`) work fine via the tailnet path.
-   - **Workaround in use**: parallel Termius host entry on public IP (`51.81.33.136`) for iPhone use; tailnet for everything else. No security regression — port 22 is LIMITed + fail2ban'd as the documented break-glass.
-   - **Documented**: runbook gotcha #14 (explore commit 6287969), bead `dotfiles-st2` stays OPEN with full investigation trail. Next-session action (low priority): file Tailscale upstream issue, or deeper packet-capture investigation.
+## What's next
 
-## What's next (Phase 2 first thing)
+zig-zone is closed. Nothing is in-progress. If a next session wants work, top picks:
 
-**Phase 2 — Ollama + Phoenix → pico**. See `~/explore/.claude/skills/zig-zone/SKILL.md` Phase 2 section. Concrete steps:
+1. **`dotfiles-52c`** (P3) — when ready, execute the home-router DNAT plan. Brings SS14 onto pico with full moderation working. Build artifacts already on pico awaiting this.
+2. **`dotfiles-st2`** (P3) — file Tailscale upstream issue for the iPhone Termius PTY/glyph problem. Low priority; workaround is fine. Investigation trail in the bead.
+3. **`dotfiles-406`** (P3) — bring zig laptop onto the tailnet whenever the user decides.
 
-1. **On pico (user)**: verify Ollama is bound to pico's tailnet IP (`lsof -iTCP:11434 -sTCP:LISTEN`); if not, `launchctl setenv OLLAMA_HOST "$(tailscale ip -4):11434"` + `sudo brew services restart ollama`. Pull models: `ollama pull llama3.2:3b qwen2.5:7b`.
-2. **On pico (user)**: install Phoenix (`pip install arize-phoenix` or `uv pip install arize-phoenix`); start it bound to tailnet IP on `:4317` (gRPC) + `:6006` (UI).
-3. **On zig-computer (orchestrator)**: verify `curl http://pico:11434/api/tags` and `:6006` succeed via tailnet. Stop + disable `ollama.service` + `lb-phoenix.service`. Verify localhost endpoints refuse. Update any OTEL env vars or agentic loop configs to point at pico.
+If none of the above is interesting, the project's at a natural pause. Plenty of "future considerations" from the original spec are also options for new specs: Headscale self-hosted coordination, LoRA fine-tuning on pico, subnet routing, etc.
 
-Verifies TC07–TC09.
+## Warnings / watch-outs
 
-After Phase 2: Phase 3 (vs14 + postgres + obs + reef-router + timers — the chunky one), then Phase 4 (SS14 conditional with the feasibility test), then Phase 5 (end-state verification).
-
-## Open follow-ups (non-blocking)
-
-- **Nerdfont glyph rendering on iPhone Termius via tailnet** — `dotfiles-st2` open as tracker; workaround in place (iPhone uses public IP). Next-session action: file Tailscale upstream issue linking back to the bead, OR deeper packet-level investigation. Low priority — workaround is fine.
-- **zig laptop join** — tracked in `dotfiles-406`, on hold per user.
-
-## Warnings / watch-outs for next session
-
-- **Don't run `tailscale up` on pico without the FULL flag set** — gotcha #10. Always include `--ssh --advertise-tags=tag:server --hostname=pico --accept-routes --accept-dns` (or use `tailscale set` for surgical changes).
-- **Tag-apply race** — after `tailscale up --advertise-tags=...`, wait 5s and verify with `tailscale status --json` before acting on the "access controls don't allow" warning (gotcha #11).
-- **macOS DNS for outbound from pico** — broken by architectural constraint. Use `ssh-zig` alias OR the `/etc/hosts` shim (the runbook section documents both). Don't waste time chasing this as a bug.
-- **Heredoc / br update gotcha** — `br update --description "$(cat /tmp/file)"` in a chained command (`&& br close`) silently truncates the description. Always run `br update --description` as a STANDALONE command, verify with `br show | grep -c "Section"`, then chain the close.
-- **Pre-bead-close hook is strict on `bug` type beads** — requires `## Steps to Reproduce` section in --description. On `task`/`spec` beads, requires `## Acceptance Criteria`. Plan your bead descriptions accordingly.
+- **TWO clones of `vacation-station-14`** now exist: `/home/ubuntu/vacation-station-14` (zig-computer, the original) and `/Users/pico/vacation-station-14` (pico, where most builds + vs14-web actually run). When you `git pull` on one, also pull on the other or services will drift. The vs14 handoff note flags this.
+- **vs14 has a `.offboard-pending` marker** at the repo root from a prior maintainer session that didn't /offboard cleanly. I deliberately did NOT clear it — that's the maintainer's marker for their next session's onboard. The handoff content is up to date; the marker just signals "next session, also do offboard for the prior one."
+- **gotcha #22 was applied live, not to source**: the `[admin] admins_count_in_playercount = true` cvar is in `/opt/ss14-watchdog/instances/vacation-station/config.toml` on zig-computer (live). The vs14 source repo may want this baked into a config template so a fresh deploy doesn't lose it — noted in the vs14 handoff for the maintainer.
+- **SS14 server-side connect_address is currently empty**: if you ever revisit `dotfiles-52c` and set `status.connectaddress = "udp://...:1212"`, the launcher will dial that. Empty = launcher uses the same address it hit /info on (current behavior; fine for now).
+- **Pico's nginx config is NOT in dotfiles** — it lives at `/opt/homebrew/etc/nginx/nginx.conf` on pico, edited live during Phase 3. If you ever rebuild pico from scratch, refer to the runbook + the existing config; consider templating into `~/dotfiles/nginx/pico.conf` with the same TAILSCALE_IP_PLACEHOLDER pattern as the LaunchAgent templates.
+- **The 8th timer (ss14-replay-rotate) is on zig-computer**, not pico — because ss14-watchdog (which generates the replay files) stays on zig per Phase 4 rollback. `vs14/install-timers.sh` has a comment noting this; if SS14 ever moves via `dotfiles-52c`, re-add the 8th entry.
+- **`pico.tailfb4637.ts.net` is the tailnet hostname** (free-tier Tailscale auto-assigned). If the user upgrades + customizes the tailnet name, ALL hardcoded references need updating: nginx configs (zig + pico), config.toml `pg_host`, Phoenix collector URLs in factory `.env.local`s, the LaunchAgent plists (those use IPs not hostnames, so they're safer). Hostname-vs-IP usage is intentionally mixed — IPs where stability matters, hostnames where readability does.
