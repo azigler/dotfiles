@@ -79,23 +79,13 @@
     "tag:server": ["autogroup:admin"]
   },
 
-  // Groups: collections of identities. Tailscale ACLs reject bare user
-  // identities as SSH dst from a tag src ("users in dst are only allowed
-  // from the same user"). Wrapping the identity in a group is an
-  // attempted escape hatch — if Tailscale's grammar treats group dst
-  // differently from direct-user dst, this gives zig-computer
-  // (tag:server) a way to SSH to pico-as-user-device via Tailscale SSH.
-  // If the same restriction propagates through group expansion, the
-  // save fails and we fall back to macOS sshd on an alternate port
-  // (Port 2222 in /etc/ssh/sshd_config on pico, bypasses tailscaled's
-  // intercept).
-  "groups": {
-    "group:owner-devices": ["azigler@github"]
-  },
-
   // Aliases: hostname → tailnet IP. Used as dst when we can't reference
   // by tag (because the device is user-owned) and can't reference by
-  // user identity (Tailscale rejects user dst from tag src).
+  // user identity (Tailscale rejects user dst from tag src — and group
+  // dst, per 2026-05-24 grammar test: "Error: groups are not allowed
+  // dst"). The combination effectively means Tailscale SSH has NO
+  // syntax for tag-src → user-owned-dst — see alt-port macOS sshd
+  // pattern on pico (Port 2222 bypasses tailscaled's intercept).
   "hosts": {
     "pico": "100.72.47.4"
   },
@@ -161,20 +151,19 @@
       "users":  ["autogroup:nonroot"],
       "acceptEnv": ["TERM", "LANG", "LC_*"]
     },
-    {
-      // server-to-owner-devices SSH via group reference. Attempting to
-      // dodge the "users in dst are only allowed from the same user"
-      // restriction by wrapping the user identity in a group. May or
-      // may not work depending on whether Tailscale's grammar treats
-      // group dst the same as direct-user dst. If save fails, drop
-      // this rule and use the alt-port macOS sshd workaround instead.
-      // 'check' isn't possible here (src is a tag — no human user to
-      // re-authenticate); same trade-off as the existing tag→tag SSH rule.
-      "action": "accept",
-      "src":    ["tag:server"],
-      "dst":    ["group:owner-devices"],
-      "users":  ["autogroup:nonroot"],
-      "acceptEnv": ["TERM", "LANG", "LC_*"]
-    }
+    // INTENTIONALLY NO zig→pico Tailscale SSH rule. Tailscale's SSH
+    // grammar has NO valid dst expression for "tag-src → user-owned-dst":
+    //   - user identity dst: rejected ("users in dst are only allowed
+    //     from the same user")
+    //   - group dst containing user identity: rejected ("groups are not
+    //     allowed dst")
+    //   - host alias dst: rejected (SSH dst is identity-class only)
+    //   - autogroup:self: only valid when src is a user, not a tag
+    // Workaround: macOS sshd on pico listens on Port 2222 in addition
+    // to Port 22. Port 22 stays owned by tailscaled (Tailscale SSH for
+    // iPhone/metis). Port 2222 falls through directly to macOS sshd,
+    // bypassed by tailscaled's port-22 intercept. zig-computer's
+    // ~/.ssh/local has `Host pico Port 2222` so `ssh pico` works
+    // transparently via key auth.
   ]
 }
