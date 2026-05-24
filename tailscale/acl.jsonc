@@ -19,7 +19,7 @@
 //     owned by a human Tailscale account).
 //   - `autogroup:member` is src-only in Tailscale ACLs; `autogroup:self`
 //     is the correct dst for "user's own other devices."
-//   - `autogroup:owner` is the tailnet owner specifically — used as dst
+//   - `azigler@github` is the tailnet owner specifically — used as dst
 //     when src is a tag (no "self" semantics from a tag identity).
 //
 // Four rules cover the full traffic matrix:
@@ -96,13 +96,13 @@
     // 4. server-to-owner (tagged servers reach owner's user-owned devices)
     // After untagging pico (2026-05-24), this is how zig-computer reaches
     // pico — for nginx proxying vs14-web, ollama API queries from agent
-    // pipelines, etc. autogroup:owner is narrower than autogroup:member
+    // pipelines, etc. azigler@github is narrower than autogroup:member
     // (just the tailnet owner — if future household users join, their
     // devices aren't auto-reachable from servers).
     {
       "action": "accept",
       "src": ["tag:server"],
-      "dst": ["autogroup:owner:*"]
+      "dst": ["azigler@github:*"]
     }
   ],
 
@@ -142,7 +142,7 @@
       // server-to-server SSH rule above.
       "action": "accept",
       "src":    ["tag:server"],
-      "dst":    ["autogroup:owner"],
+      "dst":    ["azigler@github"],
       "users":  ["autogroup:nonroot"],
       "acceptEnv": ["TERM", "LANG", "LC_*"]
     }
