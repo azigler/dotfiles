@@ -99,53 +99,61 @@ in worktrees back to the main worktree's copy. This gives one source of truth fo
 bead state -- the subagent can read bead descriptions and the orchestrator sees
 state changes in real time. No manual setup needed.
 
-## Cross-repo dispatch — cd to target BEFORE Agent call
+## Cross-repo dispatch — subagent self-recovers worktree placement
 
 If the dotfiles orchestrator (or any orchestrator that drives work across
 multiple repos: cfp managing per-conference repos, the linearb fleet
-managing agent clones, etc.) dispatches a worktree subagent for work in a
-DIFFERENT repo than the orchestrator's current cwd, the worktree gets
-created in the orchestrator's repo — not the target. The
+managing agent clones, etc.) dispatches a worktree subagent for work in
+a DIFFERENT repo than the orchestrator's project root, the worktree gets
+created in the orchestrator's project — not the target. The
 `WorktreeCreate` hook resolves cwd from the orchestrator's persistent
-shell state, which is the orchestrator's project root.
+project context, NOT from `cd` commands in the most recent Bash call
+(the harness resets Bash cwd to project root between calls; verified
+2026-05-24 — the "Shell cwd was reset to ..." reminder after every
+Bash run is literal, not cosmetic).
 
 Symptoms when this misfires:
 - Subagent's branch lives in the wrong repo (e.g., a dotfiles branch for
   vs14 work)
 - `.beads/` symlink points at the wrong project's beads
-- Subagent has to manually create their OWN worktree in the target repo
-  to recover (and the orchestrator-side merge step then fails because
-  the branch doesn't exist in the orchestrator's repo)
+- Orchestrator's post-merge step fails because the branch doesn't exist
+  in the orchestrator's repo
 
-The fix is mechanical: **before calling `Agent({isolation: "worktree"})`
-for cross-repo work, `cd` into the target repo as a standalone Bash
-command.** The cd persists; the next Agent dispatch creates the
-worktree in the target.
+Since the harness does NOT honor a cd-before-Agent pattern (the cd
+doesn't persist past the Bash call), the actual fix lives in the
+**dispatch prompt**: tell the subagent to detect-and-recover by
+creating their OWN worktree in the target repo at session start.
 
 ```bash
-# Standalone cd (matches the merge-side discipline at top of this section)
-cd /home/ubuntu/vacation-station-14
+# In the prompt CRITICAL block:
+if [[ "$(git rev-parse --show-toplevel 2>/dev/null)" == "/home/ubuntu/dotfiles"* ]]; then
+  cd /home/ubuntu/<target-repo>
+  WT="/tmp/<target>-agent-$(basename "$OLDPWD")"
+  git worktree add "$WT" -b worktree-agent-$(basename "$OLDPWD")
+  cd "$WT"
+fi
+# All subsequent work happens from $WT (the target-repo worktree).
 ```
 
-Then dispatch:
-```
-Agent({
-  subagent_type: "subagent",
-  isolation: "worktree",
-  prompt: "Your bead is `vs-NNN` in vacation-station-14. ..."
-})
-```
+The orchestrator's post-merge step then runs from the target repo
+(NOT dotfiles), and the branch is in the target's git. Use `git
+cherry-pick` instead of `git merge` if the pre-merge-worktree.sh hook
+trips on cross-repo-branch-not-in-orchestrator (the hook reads from
+the orchestrator's cwd-pinned project root and can't see the target's
+branches).
 
-The worktree lands at `/home/ubuntu/vacation-station-14/.claude/worktrees/agent-XXXX/`,
-the `.beads/` symlink points at vs14's beads, and the orchestrator's
-post-merge step (`cd /home/ubuntu/vacation-station-14 && git merge
-worktree-agent-XXXX`) finds the branch in the right repo.
+Worked example (vs-4h1 → vs-q7m, 2026-05-24): the dotfiles orchestrator
+dispatched the SS14 C# patches for `~/vacation-station-14`. First
+attempt the subagent improvised a `/tmp/vs14-agent-...` recovery
+worktree without the prompt asking; second attempt (vs-q7m) baked the
+recovery into the prompt's CRITICAL block so it's deterministic.
+Orchestrator merged via cherry-pick (the pre-merge-worktree.sh hook
+blocked direct merge because it checked main..branch FROM the dotfiles
+cwd where the branch doesn't exist as a real branch).
 
-Worked example: the dotfiles orchestrator dispatching the SS14 C# patches
-(bead `vs-4h1`) for work in `~/vacation-station-14`. First attempt
-forgot the cd; subagent recovered by creating a manual `/tmp/vs14-agent-...`
-worktree, and the orchestrator had to cherry-pick instead of merge.
-After the fix lands here, future cross-repo dispatches just work.
+Longer-term fix (out of scope here): the `WorktreeCreate` hook could
+accept a target-repo arg via env var or prompt convention. Filing as
+a separate improvement bead when worth the lift.
 
 ## Submodules must be absorbed before subagent dispatch
 
