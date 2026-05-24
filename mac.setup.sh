@@ -122,6 +122,25 @@ sed "s|USER_HOME_PLACEHOLDER|$HOME|g" \
     > ~/Library/LaunchAgents/com.zig.a1111.plist
 launchctl load -w ~/Library/LaunchAgents/com.zig.a1111.plist
 
+# --- sshd alt-port :2222 LaunchDaemon (system scope) ---
+# macOS sshd runs via launchd socket-activation; the `Port` directive in
+# /etc/ssh/sshd_config is ignored. To get a second listening port we
+# install a second launchd job at /Library/LaunchDaemons/ that runs sshd
+# on :2222 alongside Apple's :22. Needed for tag:server src → user-owned
+# dst SSH (Tailscale SSH grammar has no syntax for that direction;
+# tailscaled only intercepts :22 on the tailnet IP, so :2222 falls through
+# to this sshd directly). See ssh/com.zig.sshd-alt-port.plist + bead
+# dotfiles-wzh + zig-zone runbook gotcha #24 for the why.
+sudo install -m 644 -o root -g wheel \
+    ~/dotfiles/ssh/com.zig.sshd-alt-port.plist \
+    /Library/LaunchDaemons/com.zig.sshd-alt-port.plist
+sudo launchctl bootstrap system \
+    /Library/LaunchDaemons/com.zig.sshd-alt-port.plist 2>/dev/null || true
+# bootstrap is idempotent-ish but errors if already loaded; the `|| true`
+# handles re-runs. If you need to apply a plist change later:
+# sudo launchctl bootout system /Library/LaunchDaemons/com.zig.sshd-alt-port.plist
+# sudo launchctl bootstrap system /Library/LaunchDaemons/com.zig.sshd-alt-port.plist
+
 # --- /etc/hosts MagicDNS shim (headless tailscaled doesn't install a resolver) ---
 # On macOS, brew-formula tailscaled runs in userspace networking and can't
 # install a DNS resolver. To let this host resolve other tailnet hostnames,
