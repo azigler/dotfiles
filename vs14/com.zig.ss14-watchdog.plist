@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.zig.ss14-watchdog</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>USER_HOME_PLACEHOLDER/ss14-watchdog/SS14.Watchdog</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>USER_HOME_PLACEHOLDER/ss14-watchdog</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>DOTNET_CLI_HOME</key>
+		<string>/tmp</string>
+	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>StandardErrorPath</key>
+	<string>/tmp/ss14-watchdog.log</string>
+	<key>StandardOutPath</key>
+	<string>/tmp/ss14-watchdog.log</string>
+</dict>
+</plist>
