@@ -43,6 +43,17 @@
 // See spec bead `dotfiles-phe` § 4.2 for the rationale + § 6 OQs for
 // decisions that shaped this. Server-to-server rule added post-spec as a
 // real-world gap discovered during Phase 1 testing (bead dotfiles-qix).
+//
+// Taildrop file-sharing grant: Tailscale's default-deny ACL refuses
+// Taildrop between devices owned by different users. tagged-server →
+// user-device returns "peer is owned by a different user" — caught
+// while trying to drop stable-diffusion-handoff.md to the iPhone. The
+// `grants` block below opens bi-directional file-sharing across the
+// full server↔user matrix (server↔server, server↔user, user↔server,
+// user↔user). Capability-only grant (no L3 traffic implication;
+// `ip: ["*"]` is required syntax). Use `tailscale file cp <file>
+// <peer>:` once applied; received files surface in the iOS Files app
+// under the Tailscale share location.
 
 {
   "tagOwners": {
@@ -64,6 +75,22 @@
       "action": "accept",
       "src": ["autogroup:member"],
       "dst": ["autogroup:self:*"]
+    }
+  ],
+
+  "grants": [
+    {
+      // Bi-directional Taildrop across the server↔user matrix.
+      // Combined src+dst arrays mean OR — any listed src may send to
+      // any listed dst. Covers tag:server↔tag:server, tag:server↔user,
+      // user↔tag:server, and user↔user (the last is the default Taildrop
+      // behavior; harmless to make explicit).
+      "src": ["tag:server", "autogroup:member"],
+      "dst": ["tag:server", "autogroup:member"],
+      "ip":  ["*"],
+      "app": {
+        "tailscale.com/cap/file-sharing": [{}]
+      }
     }
   ],
 
