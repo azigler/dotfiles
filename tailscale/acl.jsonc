@@ -19,8 +19,13 @@
 //     owned by a human Tailscale account).
 //   - `autogroup:member` is src-only in Tailscale ACLs; `autogroup:self`
 //     is the correct dst for "user's own other devices."
-//   - `azigler@github` is the tailnet owner specifically — used as dst
-//     when src is a tag (no "self" semantics from a tag identity).
+//   - User identities (e.g. `azigler@github`) cannot be the dst when
+//     src is a tag — Tailscale rejects with "users in dst are only
+//     allowed from the same user." For tagged-server → user-owned
+//     traffic, use a `hosts` block to alias the device by IP, then
+//     reference the host name as dst. The `hosts` block below maps
+//     `pico` → its tailnet IP; if pico ever re-registers and gets a
+//     new IP, update that one line.
 //
 // Four rules cover the full traffic matrix:
 //   1. server-to-server  (zig ↔ any future tagged servers)
@@ -74,6 +79,13 @@
     "tag:server": ["autogroup:admin"]
   },
 
+  // Aliases: hostname → tailnet IP. Used as dst when we can't reference
+  // by tag (because the device is user-owned) and can't reference by
+  // user identity (Tailscale rejects user dst from tag src).
+  "hosts": {
+    "pico": "100.72.47.4"
+  },
+
   "acls": [
     // 1. server-to-server (tag:server ↔ tag:server)
     {
@@ -93,16 +105,16 @@
       "src": ["autogroup:member"],
       "dst": ["autogroup:self:*"]
     },
-    // 4. server-to-owner (tagged servers reach owner's user-owned devices)
-    // After untagging pico (2026-05-24), this is how zig-computer reaches
-    // pico — for nginx proxying vs14-web, ollama API queries from agent
-    // pipelines, etc. azigler@github is narrower than autogroup:member
-    // (just the tailnet owner — if future household users join, their
-    // devices aren't auto-reachable from servers).
+    // 4. server-to-pico (zig-computer reaches pico for nginx proxying
+    // vs14-web, ollama API queries, etc.). After pico was untagged
+    // (2026-05-24), it can't be referenced by tag, and Tailscale doesn't
+    // allow user identities as dst from tag src ("users in dst are only
+    // allowed from the same user"). The host alias above keeps the
+    // reference stable.
     {
       "action": "accept",
       "src": ["tag:server"],
-      "dst": ["azigler@github:*"]
+      "dst": ["pico:*"]
     }
   ],
 
@@ -136,13 +148,14 @@
       "acceptEnv": ["TERM", "LANG", "LC_*"]
     },
     {
-      // server-to-owner SSH (zig-computer → pico-as-user-device).
+      // server-to-pico SSH (zig-computer → pico-as-user-device).
       // 'check' isn't possible here (src is a tag — no human user to
       // re-authenticate). Same security trade-off acknowledged as the
-      // server-to-server SSH rule above.
+      // server-to-server SSH rule above. Uses the `pico` host alias
+      // because user-identity dst is rejected from tag src.
       "action": "accept",
       "src":    ["tag:server"],
-      "dst":    ["azigler@github"],
+      "dst":    ["pico"],
       "users":  ["autogroup:nonroot"],
       "acceptEnv": ["TERM", "LANG", "LC_*"]
     }
