@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.zig.phoenix</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>USER_HOME_PLACEHOLDER/.local/bin/phoenix</string>
+		<string>serve</string>
+	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PHOENIX_HOST</key>
+		<string>TAILSCALE_IP_PLACEHOLDER</string>
+		<key>PHOENIX_PORT</key>
+		<string>6006</string>
+		<key>PHOENIX_WORKING_DIR</key>
+		<string>USER_HOME_PLACEHOLDER/phoenix-data</string>
+	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>/tmp/phoenix.log</string>
+	<key>StandardOutPath</key>
+	<string>/tmp/phoenix.log</string>
+	<key>WorkingDirectory</key>
+	<string>USER_HOME_PLACEHOLDER</string>
+</dict>
+</plist>

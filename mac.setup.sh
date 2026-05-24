@@ -63,10 +63,28 @@ sudo brew services start tailscale
 sudo tailscale up
 
 # Ollama bound to the tailnet IP only (NOT 0.0.0.0, NOT 127.0.0.1).
-# launchctl setenv makes OLLAMA_HOST visible to the LaunchAgent that
-# `brew services start ollama` creates.
-launchctl setenv OLLAMA_HOST "$(tailscale ip -4):11434"
-brew services start ollama
+# We install a CUSTOM LaunchAgent (com.zig.ollama) instead of using
+# `brew services start ollama`. Reason: brew regenerates its plist on
+# every `services restart`, wiping any manual `OLLAMA_HOST` edit. Our
+# plist owns the env vars (host, flash-attention, KV cache, keep-alive)
+# and brew just provides the binary. See ollama/README.md for the why.
+sed "s/TAILSCALE_IP_PLACEHOLDER/$(tailscale ip -4)/" \
+    ~/dotfiles/ollama/com.zig.ollama.plist \
+    > ~/Library/LaunchAgents/com.zig.ollama.plist
+launchctl load -w ~/Library/LaunchAgents/com.zig.ollama.plist
+
+# --- Phoenix (Arize LLM observability) on tailnet ---
+# Phoenix 13+ needs Python ≥ 3.10; pico's system Python is 3.9, so we install
+# 3.13 via uv first. Same custom-LaunchAgent pattern as Ollama — own the env
+# vars so PHOENIX_HOST is pinned to the tailnet IP.
+uv python install 3.13
+uv tool install --python 3.13 arize-phoenix
+mkdir -p ~/phoenix-data
+sed -e "s|TAILSCALE_IP_PLACEHOLDER|$(tailscale ip -4)|g" \
+    -e "s|USER_HOME_PLACEHOLDER|$HOME|g" \
+    ~/dotfiles/phoenix/com.zig.phoenix.plist \
+    > ~/Library/LaunchAgents/com.zig.phoenix.plist
+launchctl load -w ~/Library/LaunchAgents/com.zig.phoenix.plist
 
 # --- /etc/hosts MagicDNS shim (headless tailscaled doesn't install a resolver) ---
 # On macOS, brew-formula tailscaled runs in userspace networking and can't
