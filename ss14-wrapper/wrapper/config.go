@@ -3,6 +3,7 @@ package wrapper
 import (
 	"errors"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -23,7 +24,7 @@ type Config struct {
 	SocketPath string
 
 	// SessionTTL is how long an idle session lives before eviction.
-	// Matches nginx's proxy_timeout per spec §4.1 (120s).
+	// Matches nginx's proxy_timeout per spec §4.1 (120s default).
 	SessionTTL time.Duration
 
 	// LogPath is the wrapper's structured-log destination (best-effort).
@@ -39,20 +40,40 @@ var ErrMissingUpstreamAddr = errors.New("SS14_WRAPPER_UPSTREAM must be set")
 // ErrMissingSocketPath is returned when SS14_WRAPPER_SOCK is unset.
 var ErrMissingSocketPath = errors.New("SS14_WRAPPER_SOCK must be set")
 
-// LoadConfigFromEnv reads the SS14_WRAPPER_* environment variables and
-// returns a populated Config. STUB — /impl wave replaces with the real
-// loader. Currently returns an empty Config + nil to keep main.go
-// compiling; tests assert the real validation contract.
+// defaultSessionTTL matches the nginx proxy_timeout 120s decision
+// from spec §4.1 (OQ-01 decided 2026-05-24 via /check dotfiles-9cj).
+const defaultSessionTTL = 120 * time.Second
+
+// LoadConfigFromEnv reads the SS14_WRAPPER_* environment variables
+// and returns a populated Config. Validates that the three required
+// vars are non-empty. SessionTTL defaults to 120s (spec §4.1) but can
+// be overridden via SS14_WRAPPER_TTL_SECONDS for testing.
 func LoadConfigFromEnv() (*Config, error) {
 	listen := os.Getenv("SS14_WRAPPER_LISTEN")
+	if listen == "" {
+		return nil, ErrMissingListenAddr
+	}
 	upstream := os.Getenv("SS14_WRAPPER_UPSTREAM")
+	if upstream == "" {
+		return nil, ErrMissingUpstreamAddr
+	}
 	sock := os.Getenv("SS14_WRAPPER_SOCK")
-	logp := os.Getenv("SS14_WRAPPER_LOG")
-	_ = listen
-	_ = upstream
-	_ = sock
-	_ = logp
-	// STUB: tests expect real validation; this body is intentionally
-	// minimal so the package compiles. /impl wave fills in.
-	return &Config{}, nil
+	if sock == "" {
+		return nil, ErrMissingSocketPath
+	}
+
+	ttl := defaultSessionTTL
+	if v := os.Getenv("SS14_WRAPPER_TTL_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			ttl = time.Duration(n) * time.Second
+		}
+	}
+
+	return &Config{
+		ListenAddr:   listen,
+		UpstreamAddr: upstream,
+		SocketPath:   sock,
+		SessionTTL:   ttl,
+		LogPath:      os.Getenv("SS14_WRAPPER_LOG"),
+	}, nil
 }

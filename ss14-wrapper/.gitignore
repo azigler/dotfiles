@@ -1,0 +1,7 @@
+# Built binary (per `go build .` or `go build -o ss14-wrapper .`)
+/ss14-wrapper
+
+# Test/coverage artifacts
+*.test
+*.out
+coverage.html
