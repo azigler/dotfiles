@@ -41,7 +41,12 @@ This was a marathon session that took zig-zone from "spec idea" to "Phase 1 comp
    - `tmux/com.zig.tmux.plist` LaunchAgent committed to dotfiles + wired into `mac.setup.sh` with HOSTNAME_PLACEHOLDER + sed substitution at install time.
    - mac.setup.sh comment block explaining Tailscale variant trade-off for future Mac bootstraps.
 
-7. **Nerdfont diagnostic — UNRESOLVED**: user reported broken glyphs in zsh airline prompt from iPhone Termius on BOTH zig-computer and pico. Glyphs were rendering correctly via Termius → zig-computer's public IP for months prior; broke this session. NOT a client-side font issue (Termius font is correctly configured + verified via another iOS app). The correlated change: **the Termius host destination was updated to point at the tailnet address (instead of the public IP)**, which means the connection path is now Termius → Tailscale SSH server (Go reimplementation) instead of Termius → OpenBSD sshd. Tailscale SSH likely handles PTY/TERM forwarding differently. Real diagnostic test for next session: have user add a parallel Termius host entry pointing at `51.81.33.136` (the public IP), connect, see if glyphs render. If YES → confirms Tailscale SSH PTY-handling regression; mitigations exist (set "Report terminal as" per-host in Termius, or disable `--ssh` on zig-computer for this path). If NO → keep digging.
+7. **Nerdfont diagnostic — investigated deeply, workaround in place** (`dotfiles-st2`):
+   - User confirmed empirically: iPhone Termius via tailnet hostname → Tailscale SSH server → glyphs broken. Same Termius client via public IP (`51.81.33.136`) → OpenBSD sshd → glyphs render correctly.
+   - **Hypotheses ruled out**: client font (public IP works with same Termius), env vars (Tailscale ≥1.76 needs `acceptEnv` in ACL — added it, verified `LC_*` forwarded), IUTF8 termios flag (verified already set on the broken path), Termius "Report terminal as" setting (already xterm-256color, no help).
+   - **Real cause** is at the SSH channel framing / PTY proxy layer in Tailscale SSH — Go reimplementation handles something differently from OpenBSD sshd that Termius iOS specifically responds to. Other Tailscale clients (macOS app, CLI `tailscale ssh`) work fine via the tailnet path.
+   - **Workaround in use**: parallel Termius host entry on public IP (`51.81.33.136`) for iPhone use; tailnet for everything else. No security regression — port 22 is LIMITed + fail2ban'd as the documented break-glass.
+   - **Documented**: runbook gotcha #14 (explore commit 6287969), bead `dotfiles-st2` stays OPEN with full investigation trail. Next-session action (low priority): file Tailscale upstream issue, or deeper packet-capture investigation.
 
 ## What's next (Phase 2 first thing)
 
@@ -57,7 +62,7 @@ After Phase 2: Phase 3 (vs14 + postgres + obs + reef-router + timers — the chu
 
 ## Open follow-ups (non-blocking)
 
-- **Nerdfont glyph rendering on iPhone Termius via tailnet** — Tailscale SSH PTY handling likely differs from OpenBSD sshd. Diagnostic test in handoff item #7 above. Real follow-up if confirmed: file or work around the Tailscale SSH terminal-handling regression.
+- **Nerdfont glyph rendering on iPhone Termius via tailnet** — `dotfiles-st2` open as tracker; workaround in place (iPhone uses public IP). Next-session action: file Tailscale upstream issue linking back to the bead, OR deeper packet-level investigation. Low priority — workaround is fine.
 - **zig laptop join** — tracked in `dotfiles-406`, on hold per user.
 
 ## Warnings / watch-outs for next session
