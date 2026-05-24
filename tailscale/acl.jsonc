@@ -79,6 +79,20 @@
     "tag:server": ["autogroup:admin"]
   },
 
+  // Groups: collections of identities. Tailscale ACLs reject bare user
+  // identities as SSH dst from a tag src ("users in dst are only allowed
+  // from the same user"). Wrapping the identity in a group is an
+  // attempted escape hatch — if Tailscale's grammar treats group dst
+  // differently from direct-user dst, this gives zig-computer
+  // (tag:server) a way to SSH to pico-as-user-device via Tailscale SSH.
+  // If the same restriction propagates through group expansion, the
+  // save fails and we fall back to macOS sshd on an alternate port
+  // (Port 2222 in /etc/ssh/sshd_config on pico, bypasses tailscaled's
+  // intercept).
+  "groups": {
+    "group:owner-devices": ["azigler@github"]
+  },
+
   // Aliases: hostname → tailnet IP. Used as dst when we can't reference
   // by tag (because the device is user-owned) and can't reference by
   // user identity (Tailscale rejects user dst from tag src).
@@ -147,22 +161,20 @@
       "users":  ["autogroup:nonroot"],
       "acceptEnv": ["TERM", "LANG", "LC_*"]
     },
-    // INTENTIONALLY NO server-to-pico SSH rule. After untagging pico,
-    // we can't express it cleanly:
-    //   - `dst: ["pico"]` (host alias) — Tailscale SSH grammar rejects
-    //     host aliases; SSH dst is identity-class only.
-    //   - `dst: ["azigler@github"]` — rejected with "users in dst are
-    //     only allowed from the same user" (same restriction as L3).
-    //   - `dst: ["autogroup:self"]` — only valid when src is a user
-    //     identity, not a tag.
-    // Workarounds for the rare zig-computer → pico SSH need:
-    //   - SSH via metis as a hop (`ssh pico` from metis works via SSH
-    //     rule 2: autogroup:member → autogroup:self).
-    //   - Use macOS sshd directly via pico's tailnet IP, bypassing
-    //     Tailscale SSH (requires SSH key auth set up between
-    //     zig-computer and pico).
-    // If this becomes a hot path, revisit — possibly re-tag pico with a
-    // separate identity tag while keeping user-owned semantics (unclear
-    // if Tailscale supports the dual identity).
+    {
+      // server-to-owner-devices SSH via group reference. Attempting to
+      // dodge the "users in dst are only allowed from the same user"
+      // restriction by wrapping the user identity in a group. May or
+      // may not work depending on whether Tailscale's grammar treats
+      // group dst the same as direct-user dst. If save fails, drop
+      // this rule and use the alt-port macOS sshd workaround instead.
+      // 'check' isn't possible here (src is a tag — no human user to
+      // re-authenticate); same trade-off as the existing tag→tag SSH rule.
+      "action": "accept",
+      "src":    ["tag:server"],
+      "dst":    ["group:owner-devices"],
+      "users":  ["autogroup:nonroot"],
+      "acceptEnv": ["TERM", "LANG", "LC_*"]
+    }
   ]
 }
