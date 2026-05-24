@@ -131,6 +131,14 @@ if [[ "$(git rev-parse --show-toplevel 2>/dev/null)" == "/home/ubuntu/dotfiles"*
   WT="/tmp/<target>-agent-$(basename "$OLDPWD")"
   git worktree add "$WT" -b worktree-agent-$(basename "$OLDPWD")
   cd "$WT"
+  # CRITICAL: replace the worktree's stale .beads/ checkout with a symlink
+  # to the target's live .beads/. The session-start.sh hook auto-does
+  # this for harness-created worktrees, but NOT for the manual
+  # recovery flow above. Without the symlink, `br show / update / close`
+  # would operate on the worktree's checkout-snapshot, diverging from
+  # the orchestrator's view of bead state.
+  rm -rf .beads
+  ln -s /home/ubuntu/<target-repo>/.beads .beads
 fi
 # All subsequent work happens from $WT (the target-repo worktree).
 ```
