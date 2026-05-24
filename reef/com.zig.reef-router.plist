@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.zig.reef-router</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>USER_HOME_PLACEHOLDER/.bun/bin/bun</string>
+		<string>run</string>
+		<string>polyps/router/src/index.ts</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>USER_HOME_PLACEHOLDER/linearb/reef</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>REEF_DIR</key>
+		<string>USER_HOME_PLACEHOLDER/linearb/reef</string>
+		<key>REEF_HOST</key>
+		<string>TAILSCALE_IP_PLACEHOLDER</string>
+		<key>PATH</key>
+		<string>USER_HOME_PLACEHOLDER/.local/bin:USER_HOME_PLACEHOLDER/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>StandardErrorPath</key>
+	<string>/tmp/reef-router.log</string>
+	<key>StandardOutPath</key>
+	<string>/tmp/reef-router.log</string>
+</dict>
+</plist>
