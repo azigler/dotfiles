@@ -24,6 +24,13 @@ python_cmd="/opt/homebrew/bin/python3.10"
 #                             without this, --listen disables the Extensions
 #                             tab; we want extensions usable on a trusted
 #                             network.
+#
+# Note: the "Upcast cross attention layer to float32" toggle (needed for
+# SDXL inpainting on MPS — without it, Unet produces NaN tensors and the
+# generation crashes) is a Settings-only option in A1111 1.10. There is no
+# CLI flag. Pre-seeded in `a1111/config.json` (installed by mac.setup.sh
+# as the initial config). Less heavy than --no-half (which doubles memory
+# for the whole model rather than just the cross-attention layer).
 export COMMANDLINE_ARGS="--listen --port 7860 --skip-torch-cuda-test --upcast-sampling --no-half-vae --use-cpu interrogate --enable-insecure-extension-access"
 
 # Stability-AI deleted the canonical stablediffusion repo (2026-Q1; A1111 PR

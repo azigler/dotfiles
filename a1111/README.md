@@ -20,6 +20,7 @@ LAN** — explicitly NOT public internet.
 |---|---|
 | `com.zig.a1111.plist` | LaunchAgent template (USER_HOME_PLACEHOLDER substituted at install) |
 | `webui-user.sh` | A1111 config: pins python3.10, sets COMMANDLINE_ARGS |
+| `config.json` | Seeded A1111 settings — currently just `upcast_attn: true` (required for SDXL inpainting on MPS; Settings-only toggle, no CLI flag in 1.10) |
 | `README.md` | This file |
 
 ## Install (handled by `~/dotfiles/mac.setup.sh`)

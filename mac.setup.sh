@@ -104,6 +104,11 @@ launchctl load -w ~/Library/LaunchAgents/com.zig.phoenix.plist
 brew install cmake protobuf rust python@3.10 git wget
 [ -d ~/stable-diffusion-webui ] || git clone https://github.com/AUTOMATIC1111/stable-diffusion-webui.git ~/stable-diffusion-webui
 cp ~/dotfiles/a1111/webui-user.sh ~/stable-diffusion-webui/webui-user.sh
+# Seed config.json with upcast_attn=true (Settings-only toggle, no CLI flag in
+# A1111 1.10). Required for SDXL inpainting on MPS — without it, Unet produces
+# NaN tensors mid-generation and the call crashes. See a1111/config.json.
+# Only seed if missing — preserves any UI-saved settings on re-runs.
+[ -f ~/stable-diffusion-webui/config.json ] || cp ~/dotfiles/a1111/config.json ~/stable-diffusion-webui/config.json
 # First-boot fix: create venv, downgrade setuptools, pre-install CLIP w/ no-build-isolation
 # (the upstream A1111 first-launch flow hits ModuleNotFoundError: pkg_resources without this)
 if [ ! -d ~/stable-diffusion-webui/venv ]; then
