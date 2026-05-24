@@ -37,8 +37,10 @@ TIMERS=(
   "com.zig.vs14-nurseshark-build|/opt/vacation-station/ops/nurseshark/build.sh|22|30||REPO_ROOT=/opt/vacation-station"
   "com.zig.vs14-writer-build|/opt/vacation-station/ops/document-simu/build.sh|21|45|6|REPO_ROOT=/opt/vacation-station;WEB_ROOT=/var/www/vs14-writer"
   "com.zig.vs14-map-render|/opt/vacation-station/ops/map-render/build.sh|21|30|6|REPO_ROOT=/opt/vacation-station;MAPSERVER_URL=http://localhost:5218"
-  # Phase 4 addition: ss14-replay-rotate moved to pico with the watchdog.
-  "com.zig.ss14-replay-rotate|/opt/vacation-station/ops/replays/rotate.sh|21|30||REPLAY_ROOT=${USER_HOME}/ss14-watchdog/instances/vacation-station/data/replays"
+  # NOTE: ss14-replay-rotate stays on zig-computer (with ss14-watchdog) —
+  # Phase 4 SS14-on-pico migration rolled back per canonical SS14 reverse-
+  # proxy architecture (UDP must be direct, not stream-proxied). See bead
+  # dotfiles-hdo / dotfiles-ier for the full investigation.
 )
 
 emit_plist() {
