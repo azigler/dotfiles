@@ -147,17 +147,22 @@
       "users":  ["autogroup:nonroot"],
       "acceptEnv": ["TERM", "LANG", "LC_*"]
     },
-    {
-      // server-to-pico SSH (zig-computer → pico-as-user-device).
-      // 'check' isn't possible here (src is a tag — no human user to
-      // re-authenticate). Same security trade-off acknowledged as the
-      // server-to-server SSH rule above. Uses the `pico` host alias
-      // because user-identity dst is rejected from tag src.
-      "action": "accept",
-      "src":    ["tag:server"],
-      "dst":    ["pico"],
-      "users":  ["autogroup:nonroot"],
-      "acceptEnv": ["TERM", "LANG", "LC_*"]
-    }
+    // INTENTIONALLY NO server-to-pico SSH rule. After untagging pico,
+    // we can't express it cleanly:
+    //   - `dst: ["pico"]` (host alias) — Tailscale SSH grammar rejects
+    //     host aliases; SSH dst is identity-class only.
+    //   - `dst: ["azigler@github"]` — rejected with "users in dst are
+    //     only allowed from the same user" (same restriction as L3).
+    //   - `dst: ["autogroup:self"]` — only valid when src is a user
+    //     identity, not a tag.
+    // Workarounds for the rare zig-computer → pico SSH need:
+    //   - SSH via metis as a hop (`ssh pico` from metis works via SSH
+    //     rule 2: autogroup:member → autogroup:self).
+    //   - Use macOS sshd directly via pico's tailnet IP, bypassing
+    //     Tailscale SSH (requires SSH key auth set up between
+    //     zig-computer and pico).
+    // If this becomes a hot path, revisit — possibly re-tag pico with a
+    // separate identity tag while keeping user-owned semantics (unclear
+    // if Tailscale supports the dual identity).
   ]
 }
