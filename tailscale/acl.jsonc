@@ -27,10 +27,18 @@
 //   1. autogroup:member → tag:server — clients (metis, iPhone) SSH into
 //      servers. Users: `ubuntu` (the Linux user on zig-computer) or
 //      autogroup:nonroot (any non-root user, e.g. `pico` on the Mac).
+//      Action: `check` — re-auth every 12h (user identity exists to check).
 //   2. tag:server → tag:server — server-to-server SSH (zig-computer ↔ pico).
 //      Closes a workflow gap: the user lives on zig-computer (the workshop)
 //      and needs to reach pico for ops/debug without bouncing through a
-//      laptop. Same `check` re-auth + non-root user restriction.
+//      laptop. Action: `accept` — `check` ISN'T POSSIBLE here because the
+//      source is a tagged device (machine identity, no human user to
+//      re-authenticate). Tailscale rejects `check` with tag:server in src
+//      ("'check' action does not support tags in src"). Security trade-off
+//      acknowledged: if a tagged server is compromised, the attacker can
+//      SSH into other tagged servers without re-auth. Bounded — server
+//      compromise is already a large problem; this doesn't worsen the
+//      blast radius materially.
 //
 // See spec bead `dotfiles-phe` § 4.2 for the rationale + § 6 OQs for
 // decisions that shaped this. Server-to-server rule added post-spec as a
@@ -67,7 +75,7 @@
       "users":  ["ubuntu", "autogroup:nonroot"]
     },
     {
-      "action": "check",
+      "action": "accept",
       "src":    ["tag:server"],
       "dst":    ["tag:server"],
       "users":  ["autogroup:nonroot"]
