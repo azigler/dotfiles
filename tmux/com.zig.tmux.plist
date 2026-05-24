@@ -10,7 +10,7 @@
         <string>new-session</string>
         <string>-d</string>
         <string>-s</string>
-        <string>pico</string>
+        <string>HOSTNAME_PLACEHOLDER</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
