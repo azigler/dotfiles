@@ -7,18 +7,24 @@
   /System/Library/LaunchDaemons/ssh.plist owns :22). In that mode, the
   `Port` directive in /etc/ssh/sshd_config is IGNORED — launchd passes
   pre-bound sockets to sshd. Adding additional listen ports requires
-  another launchd job that owns the additional socket.
+  either another socket-activated launchd job OR a daemon-mode sshd
+  that owns its own socket. We use the latter (daemon mode) because
+  socket-activation in a user-supplied plist hits hidden Apple
+  entitlement requirements — runs=0 even with sockets bound (verified
+  2026-05-24 on macOS Sonoma 14.4).
 
-  This plist is installed at /Library/LaunchDaemons/ (user-supplied
-  launch daemons; no SIP / Full Disk Access required to manage). It
-  runs sshd in inetd-compatibility mode the same way Apple's does,
-  just on :2222 instead of :22.
+  This plist runs sshd in daemon mode (`-D`), letting sshd itself
+  open its `-p 2222` listener. launchd just supervises (KeepAlive,
+  RunAtLoad). No inetdCompatibility, no special entitlements.
 
   RATIONALE: needed for zig-computer (tag:server) → pico (user-owned)
   SSH. Tailscale SSH grammar has no syntax for tag-src → user-owned-dst
   (see zig-zone runbook + bead dotfiles-wzh); tailscaled only intercepts
   :22 on the tailnet IP. Sending SSH to pico:2222 bypasses tailscaled,
   falls through to this sshd directly, authenticates via SSH key.
+
+  Host keys come from /etc/ssh/ssh_host_*_key (Apple's sshd-keygen-
+  wrapper generates them on first SSH-enable; should already exist).
 -->
 <plist version="1.0">
 <dict>
@@ -28,27 +34,21 @@
     <key>ProgramArguments</key>
     <array>
         <string>/usr/sbin/sshd</string>
-        <string>-i</string>
+        <string>-D</string>
+        <string>-p</string>
+        <string>2222</string>
+        <string>-e</string>
     </array>
 
-    <key>Sockets</key>
-    <dict>
-        <key>Listeners</key>
-        <dict>
-            <key>SockServiceName</key>
-            <string>2222</string>
-            <key>SockType</key>
-            <string>stream</string>
-        </dict>
-    </dict>
+    <key>RunAtLoad</key>
+    <true/>
 
-    <key>inetdCompatibility</key>
-    <dict>
-        <key>Wait</key>
-        <false/>
-    </dict>
+    <key>KeepAlive</key>
+    <true/>
 
     <key>StandardErrorPath</key>
+    <string>/var/log/sshd-alt-port.log</string>
+    <key>StandardOutPath</key>
     <string>/var/log/sshd-alt-port.log</string>
 </dict>
 </plist>
