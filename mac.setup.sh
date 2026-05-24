@@ -122,6 +122,35 @@ sed "s|USER_HOME_PLACEHOLDER|$HOME|g" \
     > ~/Library/LaunchAgents/com.zig.a1111.plist
 launchctl load -w ~/Library/LaunchAgents/com.zig.a1111.plist
 
+# --- ss14-wrapper PROXY-protocol-aware UDP+TCP daemon (tailnet, pico-side) ---
+# Per spec dotfiles-9g1 (Approach C2: nginx + wrapper-pair + minimal
+# Robust.Server patches). The wrapper accepts UDP+TCP from zig-computer's
+# nginx stream block (which prepends PROXY-protocol headers carrying the
+# real client IP), strips the header, and forwards the raw payload to
+# Robust.Server on loopback. The wrapper also exposes a Unix-Domain-Socket
+# LOOKUP API at /tmp/ss14-wrapper.sock so the patched Robust.Server can
+# resolve "what's the real IP behind this loopback peer?" for moderation
+# reads (bans, IPIntel, AdminAlertIfSharedConnection).
+#
+# Initial-dev port assignment: LISTEN=:11214, UPSTREAM=127.0.0.1:11215 — both
+# in the test-port range (per /check dotfiles-9cj convention) to avoid
+# colliding with live SS14 on :1212 until the full Robust.Server cutover is
+# staged. At cutover, the plist's SS14_WRAPPER_LISTEN flips to
+# TAILSCALE_IP:1212 and UPSTREAM flips to 127.0.0.1:1213 once Robust.Server
+# moves its bind here.
+#
+# The binary is built natively on the Mac (Apple Silicon → darwin-arm64) —
+# no cross-compile dance required. From Linux/CI, use ss14-wrapper/build.sh.
+[ -d ~/ss14-wrapper ] || mkdir -p ~/ss14-wrapper
+(cd ~/dotfiles/ss14-wrapper && go build -o ~/ss14-wrapper/ss14-wrapper .)
+# Install + load LaunchAgent (idempotent: unload if already loaded, then load).
+sed -e "s|TAILSCALE_IP_PLACEHOLDER|$(tailscale ip -4)|g" \
+    -e "s|USER_HOME_PLACEHOLDER|$HOME|g" \
+    ~/dotfiles/ss14-wrapper/com.zig.ss14-wrapper.plist \
+    > ~/Library/LaunchAgents/com.zig.ss14-wrapper.plist
+launchctl unload ~/Library/LaunchAgents/com.zig.ss14-wrapper.plist 2>/dev/null || true
+launchctl load -w ~/Library/LaunchAgents/com.zig.ss14-wrapper.plist
+
 # --- sshd alt-port :2222 LaunchDaemon (system scope) ---
 # macOS sshd runs via launchd socket-activation; the `Port` directive in
 # /etc/ssh/sshd_config is ignored. To get a second listening port we
