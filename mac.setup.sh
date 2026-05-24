@@ -86,6 +86,37 @@ sed -e "s|TAILSCALE_IP_PLACEHOLDER|$(tailscale ip -4)|g" \
     > ~/Library/LaunchAgents/com.zig.phoenix.plist
 launchctl load -w ~/Library/LaunchAgents/com.zig.phoenix.plist
 
+# --- A1111 stable-diffusion-webui on tailnet + LAN (NOT public internet) ---
+# Apple-Silicon SD inference, bound 0.0.0.0:7860 so tailnet AND home LAN devices
+# reach it. Public-internet exposure is deliberately OMITTED — A1111 has no real
+# auth; trust boundary is the network. Zig-computer's nginx does NOT proxy here.
+# See a1111/README.md for posture details + access URLs + model directory layout.
+#
+# Apple-Silicon-specific quirks baked into webui-user.sh:
+#  - Python 3.10 pinned (system 3.9 too old)
+#  - MPS-friendly COMMANDLINE_ARGS (--upcast-sampling --no-half-vae etc.)
+#  - STABLE_DIFFUSION_REPO override to w-e-w/stablediffusion mirror (Stability-AI
+#    deleted the canonical repo; PR #17271 in upstream A1111 documents)
+#
+# First-run also requires setuptools<80 in the venv (newer setuptools dropped
+# pkg_resources, which CLIP's setup.py imports) + CLIP pre-install with
+# --no-build-isolation. See "first-boot fix" block below.
+brew install cmake protobuf rust python@3.10 git wget
+[ -d ~/stable-diffusion-webui ] || git clone https://github.com/AUTOMATIC1111/stable-diffusion-webui.git ~/stable-diffusion-webui
+cp ~/dotfiles/a1111/webui-user.sh ~/stable-diffusion-webui/webui-user.sh
+# First-boot fix: create venv, downgrade setuptools, pre-install CLIP w/ no-build-isolation
+# (the upstream A1111 first-launch flow hits ModuleNotFoundError: pkg_resources without this)
+if [ ! -d ~/stable-diffusion-webui/venv ]; then
+  /opt/homebrew/bin/python3.10 -m venv ~/stable-diffusion-webui/venv
+  ~/stable-diffusion-webui/venv/bin/pip install --upgrade pip "setuptools<80" wheel
+  ~/stable-diffusion-webui/venv/bin/pip install --no-build-isolation \
+    "git+https://github.com/openai/CLIP.git@d50d76daa670286dd6cacf3bcd80b5e4823fc8e1"
+fi
+sed "s|USER_HOME_PLACEHOLDER|$HOME|g" \
+    ~/dotfiles/a1111/com.zig.a1111.plist \
+    > ~/Library/LaunchAgents/com.zig.a1111.plist
+launchctl load -w ~/Library/LaunchAgents/com.zig.a1111.plist
+
 # --- /etc/hosts MagicDNS shim (headless tailscaled doesn't install a resolver) ---
 # On macOS, brew-formula tailscaled runs in userspace networking and can't
 # install a DNS resolver. To let this host resolve other tailnet hostnames,
