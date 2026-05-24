@@ -44,16 +44,19 @@
 // decisions that shaped this. Server-to-server rule added post-spec as a
 // real-world gap discovered during Phase 1 testing (bead dotfiles-qix).
 //
-// Taildrop file-sharing grant: Tailscale's default-deny ACL refuses
-// Taildrop between devices owned by different users. tagged-server →
-// user-device returns "peer is owned by a different user" — caught
-// while trying to drop stable-diffusion-handoff.md to the iPhone. The
-// `grants` block below opens bi-directional file-sharing across the
-// full server↔user matrix (server↔server, server↔user, user↔server,
-// user↔user). Capability-only grant (no L3 traffic implication;
-// `ip: ["*"]` is required syntax). Use `tailscale file cp <file>
-// <peer>:` once applied; received files surface in the iOS Files app
-// under the Tailscale share location.
+// NOTE on Taildrop: it is HARD-LOCKED to same-user device-to-device
+// transfers. There is NO ACL grant, nodeAttr, or admin toggle to enable
+// it between tagged devices and user-owned devices (or between users).
+// `tailscale file cp /tmp/foo iphone-15-pro:` from zig-computer (tagged)
+// returns "cannot send files: peer is owned by a different user" by
+// design — confirmed via Tailscale docs kb/1106/taildrop. An attempted
+// `grants` block targeting `tailscale.com/cap/file-sharing` was rejected
+// by the policy editor with "Error: capability name must not be in the
+// tailscale.com domain" — the namespace is reserved for built-in,
+// non-user-configurable features. See bead dotfiles-f7n (closed
+// won't-fix) + zig-zone runbook gotcha #23 for the workarounds (HTTP
+// over tailnet IP, SSH relay through a user-owned tailnet device, or
+// untagging the source — none ideal).
 
 {
   "tagOwners": {
@@ -75,22 +78,6 @@
       "action": "accept",
       "src": ["autogroup:member"],
       "dst": ["autogroup:self:*"]
-    }
-  ],
-
-  "grants": [
-    {
-      // Bi-directional Taildrop across the server↔user matrix.
-      // Combined src+dst arrays mean OR — any listed src may send to
-      // any listed dst. Covers tag:server↔tag:server, tag:server↔user,
-      // user↔tag:server, and user↔user (the last is the default Taildrop
-      // behavior; harmless to make explicit).
-      "src": ["tag:server", "autogroup:member"],
-      "dst": ["tag:server", "autogroup:member"],
-      "ip":  ["*"],
-      "app": {
-        "tailscale.com/cap/file-sharing": [{}]
-      }
     }
   ],
 
