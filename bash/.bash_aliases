@@ -127,6 +127,10 @@ if [ -f "$HOME/.secrets" ]; then
     source "$HOME/.secrets"
 fi
 
-if [ -f "$HOME/.servers.bash_aliases" ]; then
-    source "$HOME/.servers.bash_aliases"
-fi
+# --- Tailscale tailnet SSH aliases (zig-zone) ---
+# `tailscale ip -4 <host>` is a tailnet-internal lookup that bypasses DNS —
+# works on macOS regardless of which Tailscale variant is installed (the
+# headless brew formula can't do MagicDNS; this still works).
+# Fallback to bare hostname if tailscale isn't installed or the lookup fails.
+alias ssh-zig='ssh ubuntu@$(tailscale ip -4 zig-computer 2>/dev/null || echo zig-computer)'
+alias ssh-pico='ssh pico@$(tailscale ip -4 pico 2>/dev/null || echo pico)'
