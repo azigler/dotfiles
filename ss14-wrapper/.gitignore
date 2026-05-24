@@ -1,5 +1,8 @@
-# Built binary (per `go build .` or `go build -o ss14-wrapper .`)
+# Built binaries — never committed (run build.sh or `go build` to produce)
 /ss14-wrapper
+/ss14-wrapper-darwin-arm64
+/ss14-wrapper-darwin-amd64
+/ss14-wrapper-linux-amd64
 
 # Test/coverage artifacts
 *.test
