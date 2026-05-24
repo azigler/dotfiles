@@ -23,8 +23,18 @@
 // SSH section: `check` action requires Tailscale-identity re-auth every 12h
 // before opening a new SSH session. Existing sessions stay live.
 //
+// Two SSH rules:
+//   1. autogroup:member → tag:server — clients (metis, iPhone) SSH into
+//      servers. Users: `ubuntu` (the Linux user on zig-computer) or
+//      autogroup:nonroot (any non-root user, e.g. `pico` on the Mac).
+//   2. tag:server → tag:server — server-to-server SSH (zig-computer ↔ pico).
+//      Closes a workflow gap: the user lives on zig-computer (the workshop)
+//      and needs to reach pico for ops/debug without bouncing through a
+//      laptop. Same `check` re-auth + non-root user restriction.
+//
 // See spec bead `dotfiles-phe` § 4.2 for the rationale + § 6 OQs for
-// decisions that shaped this.
+// decisions that shaped this. Server-to-server rule added post-spec as a
+// real-world gap discovered during Phase 1 testing (bead dotfiles-qix).
 
 {
   "tagOwners": {
@@ -55,6 +65,12 @@
       "src":    ["autogroup:member"],
       "dst":    ["tag:server"],
       "users":  ["ubuntu", "autogroup:nonroot"]
+    },
+    {
+      "action": "check",
+      "src":    ["tag:server"],
+      "dst":    ["tag:server"],
+      "users":  ["autogroup:nonroot"]
     }
   ]
 }
