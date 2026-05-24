@@ -1,7 +1,5 @@
-Include local
+# Per-host config lives in `~/.ssh/local` (gitignored, sourced via the Include
+# below) — tailnet FQDNs, public IPs, identity files, anything we don't want
+# leaking through the public dotfiles repo. Keep this committed file generic.
 
-Host gpu
-    HostName PLACEHOLDER
-    User ubuntu
-    IdentityFile ~/.ssh/id_rsa_ovh
-    ForwardAgent yes
+Include local
