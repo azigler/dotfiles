@@ -41,7 +41,7 @@ This was a marathon session that took zig-zone from "spec idea" to "Phase 1 comp
    - `tmux/com.zig.tmux.plist` LaunchAgent committed to dotfiles + wired into `mac.setup.sh` with HOSTNAME_PLACEHOLDER + sed substitution at install time.
    - mac.setup.sh comment block explaining Tailscale variant trade-off for future Mac bootstraps.
 
-7. **Nerdfont diagnostic (not migration)**: user reported broken glyphs in zsh airline prompt from iPhone Termius. Walked through TERM/tmux/p10k/version diagnostics; ultimately confirmed the issue is **client-side**: Termius iOS's bundled font lacks the nerdfont glyphs the prompts emit. Solution is client-side font import in Termius iOS — NOT a server-side fix. Documented but not implemented (user task).
+7. **Nerdfont diagnostic — UNRESOLVED**: user reported broken glyphs in zsh airline prompt from iPhone Termius on BOTH zig-computer and pico. Glyphs were rendering correctly via Termius → zig-computer's public IP for months prior; broke this session. NOT a client-side font issue (Termius font is correctly configured + verified via another iOS app). The correlated change: **the Termius host destination was updated to point at the tailnet address (instead of the public IP)**, which means the connection path is now Termius → Tailscale SSH server (Go reimplementation) instead of Termius → OpenBSD sshd. Tailscale SSH likely handles PTY/TERM forwarding differently. Real diagnostic test for next session: have user add a parallel Termius host entry pointing at `51.81.33.136` (the public IP), connect, see if glyphs render. If YES → confirms Tailscale SSH PTY-handling regression; mitigations exist (set "Report terminal as" per-host in Termius, or disable `--ssh` on zig-computer for this path). If NO → keep digging.
 
 ## What's next (Phase 2 first thing)
 
@@ -57,9 +57,8 @@ After Phase 2: Phase 3 (vs14 + postgres + obs + reef-router + timers — the chu
 
 ## Open follow-ups (non-blocking)
 
-- **Nerdfont rendering on iPhone Termius** — user-side font import; documented above.
+- **Nerdfont glyph rendering on iPhone Termius via tailnet** — Tailscale SSH PTY handling likely differs from OpenBSD sshd. Diagnostic test in handoff item #7 above. Real follow-up if confirmed: file or work around the Tailscale SSH terminal-handling regression.
 - **zig laptop join** — tracked in `dotfiles-406`, on hold per user.
-- **`download.sh fonts` failure** — user reported earlier in session; asked for the exact error, never got back to it. Not blocking; nerdfont rendering works via brew cask install on Mac anyway.
 
 ## Warnings / watch-outs for next session
 
