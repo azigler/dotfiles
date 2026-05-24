@@ -19,10 +19,16 @@
 # - Verifies SS14's :1212 listeners are present before AND after the
 #   test. If they vanish at any point, fail loudly.
 #
-# Expected behavior on a clean (pre-/impl) tree:
-#   This script SHOULD reach the "verify wrapper received the
-#   PROXY-headered packet" stage and FAIL there, because no wrapper
-#   binary exists yet. Rollback section MUST still complete cleanly.
+# Two phases:
+#   1. Baseline (pre-/impl carry-over): nginx → sniffer on UPSTREAM_PORT,
+#      assert PROXY v1 header emitted with the real client IP preserved.
+#   2. Impl-wave (dotfiles-xx9): rebuild wrapper, reload nginx pointing
+#      at the wrapper, run a synthetic echo upstream, send a UDP
+#      datagram from a pinned source port, then query the wrapper's UDS
+#      LOOKUP API and assert it returns the real client IP+port.
+# Rollback runs on ALL exit paths and verifies SS14 :1212 listeners are
+# present BEFORE / DURING / AFTER, and nginx config matches the
+# pre-test snapshot.
 
 set -euo pipefail
 
@@ -31,13 +37,22 @@ set -euo pipefail
 # ---------------------------------------------------------------------
 
 readonly TEST_PORT=11212                      # nginx UDP listener (test, NEVER :1212)
-readonly UPSTREAM_PORT=11213                  # stub UDP echo + sniffer port
+readonly UPSTREAM_PORT=11213                  # stub UDP echo + sniffer port (pre-impl baseline)
+readonly WRAPPER_PORT=11214                   # wrapper-impl wave: wrapper public UDP listener
+readonly ECHO_PORT=11215                      # wrapper-impl wave: synthetic Robust.Server echo
 readonly LIVE_PORT=1212                       # live SS14 — verify, NEVER touch
 readonly TEST_NGINX_CONF="/etc/nginx/streams-enabled/ss14-wrapper-integration-test.conf"
 readonly NGINX_PRE_SNAPSHOT="/tmp/ss14-wrapper-nginx-pre.$$.tar.gz"
 readonly SNIFFER_LOG="/tmp/ss14-wrapper-sniffer.$$.log"
 readonly SNIFFER_PID_FILE="/tmp/ss14-wrapper-sniffer.$$.pid"
+readonly SNIFFER_PY="/tmp/ss14-wrapper-sniffer.$$.py"
 readonly EVIDENCE_FILE="/tmp/ss14-wrapper-evidence.$$.txt"
+readonly WRAPPER_LOG="/tmp/ss14-wrapper-wrapper.$$.log"
+readonly WRAPPER_PID_FILE="/tmp/ss14-wrapper-wrapper.$$.pid"
+readonly WRAPPER_UDS="/tmp/ss14-wrapper-integration.$$.sock"
+readonly ECHO_LOG="/tmp/ss14-wrapper-echo.$$.log"
+readonly ECHO_PID_FILE="/tmp/ss14-wrapper-echo.$$.pid"
+readonly ECHO_PY="/tmp/ss14-wrapper-echo.$$.py"
 
 # Failure markers — bumped from anywhere in the script.
 FAIL_COUNT=0
@@ -72,6 +87,34 @@ rollback() {
     fi
     stage "rollback"
 
+    # Kill wrapper (impl-wave)
+    if [[ -f "$WRAPPER_PID_FILE" ]]; then
+        local wrapper_pid
+        wrapper_pid=$(cat "$WRAPPER_PID_FILE" 2>/dev/null || true)
+        if [[ -n "$wrapper_pid" ]] && kill -0 "$wrapper_pid" 2>/dev/null; then
+            kill "$wrapper_pid" 2>/dev/null || true
+            # Give it a moment to release the UDS + ports cleanly.
+            for _ in 1 2 3 4 5; do
+                kill -0 "$wrapper_pid" 2>/dev/null || break
+                sleep 0.1
+            done
+            kill -9 "$wrapper_pid" 2>/dev/null || true
+            log "killed wrapper pid=$wrapper_pid"
+        fi
+        rm -f "$WRAPPER_PID_FILE"
+    fi
+
+    # Kill echo server (impl-wave)
+    if [[ -f "$ECHO_PID_FILE" ]]; then
+        local echo_pid
+        echo_pid=$(cat "$ECHO_PID_FILE" 2>/dev/null || true)
+        if [[ -n "$echo_pid" ]] && kill -0 "$echo_pid" 2>/dev/null; then
+            kill "$echo_pid" 2>/dev/null || true
+            log "killed echo pid=$echo_pid"
+        fi
+        rm -f "$ECHO_PID_FILE"
+    fi
+
     # Kill sniffer
     if [[ -f "$SNIFFER_PID_FILE" ]]; then
         local sniffer_pid
@@ -82,6 +125,9 @@ rollback() {
         fi
         rm -f "$SNIFFER_PID_FILE"
     fi
+
+    # Remove temp scripts + UDS socket
+    rm -f "$SNIFFER_PY" "$ECHO_PY" "$WRAPPER_UDS"
 
     # Remove synthetic nginx config + reload nginx
     if sudo -n test -f "$TEST_NGINX_CONF" 2>/dev/null; then
@@ -133,9 +179,12 @@ rollback() {
 
     # Clean up evidence + log if not under explicit keep
     if [[ "${KEEP_EVIDENCE:-0}" != "1" ]]; then
-        rm -f "$SNIFFER_LOG" "$EVIDENCE_FILE"
+        rm -f "$SNIFFER_LOG" "$EVIDENCE_FILE" "$WRAPPER_LOG" "$ECHO_LOG"
     else
-        log "evidence preserved: $EVIDENCE_FILE, sniffer log: $SNIFFER_LOG"
+        log "evidence preserved: $EVIDENCE_FILE"
+        log "  sniffer log: $SNIFFER_LOG"
+        log "  wrapper log: $WRAPPER_LOG"
+        log "  echo log:    $ECHO_LOG"
     fi
 
     if (( FAIL_COUNT > 0 )); then
@@ -166,13 +215,13 @@ fi
 log "OK: SS14 :${LIVE_PORT} has $PRE_LIVE_LISTENERS listener entries pre-flight"
 
 # 2. Test ports must be FREE.
-for p in "$TEST_PORT" "$UPSTREAM_PORT"; do
+for p in "$TEST_PORT" "$UPSTREAM_PORT" "$WRAPPER_PORT" "$ECHO_PORT"; do
     if ss -tunap 2>/dev/null | grep -q ":${p} "; then
         fail "test port :${p} is already in use — refusing to clobber"
         exit 1
     fi
 done
-log "OK: test ports :${TEST_PORT} and :${UPSTREAM_PORT} are free"
+log "OK: test ports :${TEST_PORT}, :${UPSTREAM_PORT}, :${WRAPPER_PORT}, :${ECHO_PORT} are free"
 
 # 3. sudo -n must work for nginx ops.
 if ! sudo -n true 2>/dev/null; then
@@ -208,7 +257,7 @@ log "OK: python3 available"
 
 stage "start sniffer"
 
-cat >/tmp/ss14-wrapper-sniffer.$$.py <<'PYEOF'
+cat >"$SNIFFER_PY" <<'PYEOF'
 import binascii, socket, sys
 host, port = sys.argv[1], int(sys.argv[2])
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -230,7 +279,7 @@ while True:
             print("V1_NO_TERMINATOR", flush=True)
 PYEOF
 
-python3 /tmp/ss14-wrapper-sniffer.$$.py 127.0.0.1 "$UPSTREAM_PORT" >"$SNIFFER_LOG" 2>&1 &
+python3 "$SNIFFER_PY" 127.0.0.1 "$UPSTREAM_PORT" >"$SNIFFER_LOG" 2>&1 &
 SNIFFER_PID=$!
 echo "$SNIFFER_PID" >"$SNIFFER_PID_FILE"
 log "started sniffer pid=$SNIFFER_PID"
@@ -376,53 +425,275 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# Wrapper-receives stage — EXPECTED to fail in pre-/impl state.
-# This is the TDD oracle: when the wrapper exists, it should print
-# a LOOKUP-able session via its UDS API. We probe for the binary at
-# the spec-defined path and connect to the UDS.
+# Wrapper-receives stage — end-to-end through nginx → wrapper → UDS.
+# Per dotfiles-xx9 (impl-wave extension on top of dotfiles-qts test bead).
+# Build the wrapper if it isn't already on disk, then reconfigure nginx
+# to point at the wrapper, launch wrapper + echo server, send a UDP
+# datagram from a pinned source port, and probe the wrapper's UDS
+# LOOKUP API to assert the real client IP is captured.
 # ---------------------------------------------------------------------
 
-stage "verify wrapper received PROXY-headered packet (expected-fail in TDD)"
+stage "build wrapper"
 
-WRAPPER_BIN_CANDIDATES=(
-    "/Users/pico/bin/ss14-wrapper"
-    "$HOME/bin/ss14-wrapper"
-    "./ss14-wrapper"
-    "./bin/ss14-wrapper"
-)
-WRAPPER_BIN=""
-for c in "${WRAPPER_BIN_CANDIDATES[@]}"; do
-    if [[ -x "$c" ]]; then
-        WRAPPER_BIN="$c"
+# Build the wrapper from the same directory as this script.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ ! -x "${SCRIPT_DIR}/ss14-wrapper" ]]; then
+    log "building wrapper at ${SCRIPT_DIR}/ss14-wrapper"
+    if ! ( cd "$SCRIPT_DIR" && go build -o ss14-wrapper . ); then
+        fail "go build of ss14-wrapper failed"
+        exit 1
+    fi
+fi
+
+WRAPPER_BIN="${SCRIPT_DIR}/ss14-wrapper"
+if [[ ! -x "$WRAPPER_BIN" ]]; then
+    fail "wrapper binary not present at $WRAPPER_BIN after build attempt"
+    exit 1
+fi
+log "OK: wrapper binary present: $WRAPPER_BIN"
+
+# ---------------------------------------------------------------------
+# Reconfigure nginx: point the test stream at the wrapper (:11214)
+# instead of the synthetic sniffer (:11213). Sniffer continues to run
+# (its bound port is still verified clean below) but is now off-path
+# so we can spot any accidental fallback.
+# ---------------------------------------------------------------------
+
+stage "reconfigure nginx → wrapper"
+
+sudo -n tee "$TEST_NGINX_CONF" >/dev/null <<EOF
+# INTEGRATION TEST — ss14-wrapper impl-wave (dotfiles-xx9).
+# test port :${TEST_PORT} → wrapper :${WRAPPER_PORT} → echo :${ECHO_PORT}.
+# LIVE SS14 on :${LIVE_PORT} is UNTOUCHED. Auto-removed by rollback trap.
+
+server {
+    listen ${TEST_PORT} udp;
+    proxy_pass 127.0.0.1:${WRAPPER_PORT};
+    proxy_protocol on;
+    proxy_timeout 10s;
+    proxy_responses 0;
+}
+EOF
+log "rewrote $TEST_NGINX_CONF (upstream → :${WRAPPER_PORT})"
+
+if ! sudo -n nginx -t >/dev/null 2>&1; then
+    fail "nginx -t failed after reconfigure"
+    sudo -n nginx -t 2>&1 | head -20 >&2
+    exit 1
+fi
+sudo -n systemctl reload nginx
+log "OK: nginx reloaded (now forwarding :${TEST_PORT} → :${WRAPPER_PORT})"
+
+# Verify SS14 :1212 still up after second reload — paranoia worth the
+# four lines.
+DURING_LIVE_LISTENERS=$(ss -tunap 2>/dev/null | grep -c ":${LIVE_PORT} " || true)
+if [[ "$DURING_LIVE_LISTENERS" -lt 1 ]]; then
+    fail "SS14 :${LIVE_PORT} listeners VANISHED after nginx reconfigure-reload"
+    exit 1
+fi
+log "OK: SS14 :${LIVE_PORT} still has $DURING_LIVE_LISTENERS listener entries"
+
+# ---------------------------------------------------------------------
+# Synthetic echo server (impl-wave): plain UDP recv on ECHO_PORT, logs
+# the source 5-tuple of each incoming datagram. The source PORT of the
+# datagram landing here is the wrapper's per-session fan-out port —
+# which is ALSO the key for the UDS LOOKUP API (session.go: byUDPPort
+# keys on FanOut.LocalAddr().Port).
+# ---------------------------------------------------------------------
+
+stage "start synthetic echo upstream"
+
+cat >"$ECHO_PY" <<'PYEOF'
+import socket, sys
+host, port = sys.argv[1], int(sys.argv[2])
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.bind((host, port))
+print(f"echo listening on {host}:{port}", flush=True)
+while True:
+    data, src = sock.recvfrom(65535)
+    # Source PORT here is the wrapper's fan-out port — the LOOKUP key.
+    print(f"FANOUT_SRC={src[0]}:{src[1]} LEN={len(data)} PAYLOAD={data!r}", flush=True)
+PYEOF
+
+python3 "$ECHO_PY" 127.0.0.1 "$ECHO_PORT" >"$ECHO_LOG" 2>&1 &
+ECHO_PID=$!
+echo "$ECHO_PID" >"$ECHO_PID_FILE"
+log "started echo pid=$ECHO_PID"
+
+for _ in 1 2 3 4 5; do
+    if ss -unap 2>/dev/null | grep -q ":${ECHO_PORT} "; then
         break
     fi
+    sleep 0.2
 done
+if ! ss -unap 2>/dev/null | grep -q ":${ECHO_PORT} "; then
+    fail "echo never bound :${ECHO_PORT}"
+    exit 1
+fi
+log "OK: echo bound :${ECHO_PORT}"
 
-if [[ -z "$WRAPPER_BIN" ]]; then
-    fail "no ss14-wrapper binary found in any candidate path — /impl wave not landed yet (EXPECTED in TDD pre-impl state)"
-    log "candidates tried: ${WRAPPER_BIN_CANDIDATES[*]}"
+# ---------------------------------------------------------------------
+# Launch the wrapper with env-var config per wrapper/config.go:
+#   SS14_WRAPPER_LISTEN, SS14_WRAPPER_UPSTREAM, SS14_WRAPPER_SOCK,
+#   SS14_WRAPPER_TTL_SECONDS (optional, default 120s).
+# ---------------------------------------------------------------------
+
+stage "launch wrapper"
+
+# Make sure stale UDS path is gone — the wrapper itself removeSocketIfStale's,
+# but belt-and-suspenders.
+rm -f "$WRAPPER_UDS"
+
+SS14_WRAPPER_LISTEN="127.0.0.1:${WRAPPER_PORT}" \
+SS14_WRAPPER_UPSTREAM="127.0.0.1:${ECHO_PORT}" \
+SS14_WRAPPER_SOCK="$WRAPPER_UDS" \
+SS14_WRAPPER_TTL_SECONDS="30" \
+    "$WRAPPER_BIN" >"$WRAPPER_LOG" 2>&1 &
+WRAPPER_PID=$!
+echo "$WRAPPER_PID" >"$WRAPPER_PID_FILE"
+log "started wrapper pid=$WRAPPER_PID (listen :${WRAPPER_PORT}, upstream :${ECHO_PORT}, sock $WRAPPER_UDS)"
+
+# Wait for wrapper to bind UDP listener AND UDS socket.
+WRAPPER_READY=0
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if ss -unap 2>/dev/null | grep -q ":${WRAPPER_PORT} " && [[ -S "$WRAPPER_UDS" ]]; then
+        WRAPPER_READY=1
+        break
+    fi
+    # Catch early death: if wrapper exited, log the reason now.
+    if ! kill -0 "$WRAPPER_PID" 2>/dev/null; then
+        fail "wrapper exited before binding (see $WRAPPER_LOG)"
+        head -20 "$WRAPPER_LOG" | sed 's/^/    /' >&2
+        exit 1
+    fi
+    sleep 0.2
+done
+if [[ "$WRAPPER_READY" -ne 1 ]]; then
+    fail "wrapper did not bind :${WRAPPER_PORT} + UDS within 2s"
+    head -20 "$WRAPPER_LOG" | sed 's/^/    /' >&2
+    exit 1
+fi
+log "OK: wrapper bound :${WRAPPER_PORT} (UDP) + $WRAPPER_UDS (UDS)"
+
+# ---------------------------------------------------------------------
+# Send a synthetic datagram from a PINNED source port. The PROXY header
+# nginx prepends will carry "127.0.0.1:<pinned>" as the real-client
+# tuple — that's what we'll assert came back through the UDS LOOKUP.
+# ---------------------------------------------------------------------
+
+stage "send synthetic datagram through nginx → wrapper → echo"
+
+readonly PINNED_SRC_PORT=44441
+readonly PINNED_PAYLOAD="WRAPPER-IMPL-WAVE-PROBE"
+
+echo -n "$PINNED_PAYLOAD" | nc -u -w1 -p "$PINNED_SRC_PORT" 127.0.0.1 "$TEST_PORT" || true
+
+# Give the wrapper its hot-path round trip + a hair extra.
+sleep 0.5
+
+# ---------------------------------------------------------------------
+# Verify echo received the STRIPPED payload (no PROXY header bytes).
+# This confirms wrapper parsed + forwarded successfully.
+# ---------------------------------------------------------------------
+
+stage "verify echo received stripped payload"
+
+if ! grep -q "PAYLOAD=b'${PINNED_PAYLOAD}'" "$ECHO_LOG"; then
+    fail "echo did not receive expected stripped payload"
+    log "  echo log tail:"
+    tail -10 "$ECHO_LOG" | sed 's/^/    /' >&2
+    log "  wrapper log tail:"
+    tail -20 "$WRAPPER_LOG" | sed 's/^/    /' >&2
+    exit 1
+fi
+log "OK: echo received stripped payload (wrapper consumed PROXY header)"
+
+# Extract the wrapper's fan-out source port from the echo log — this
+# is the key Robust.Server would query for via LOOKUP.
+FANOUT_PORT=$(grep 'FANOUT_SRC=127.0.0.1:' "$ECHO_LOG" | head -1 | \
+    sed -n 's/^FANOUT_SRC=127\.0\.0\.1:\([0-9]\+\) .*/\1/p')
+
+if [[ -z "$FANOUT_PORT" ]]; then
+    fail "could not extract wrapper fan-out port from echo log"
+    cat "$ECHO_LOG" >&2
+    exit 1
+fi
+log "OK: extracted wrapper fan-out port = $FANOUT_PORT"
+
+# ---------------------------------------------------------------------
+# Probe the wrapper's UDS LOOKUP API.
+#   Request:  "LOOKUP udp <fanout-port>\n"
+#   Expected: "OK 127.0.0.1:<PINNED_SRC_PORT>\n"
+# ---------------------------------------------------------------------
+
+stage "probe wrapper UDS LOOKUP API"
+
+LOOKUP_RESPONSE=$(printf 'LOOKUP udp %s\n' "$FANOUT_PORT" | nc -U -w2 "$WRAPPER_UDS" 2>&1 || true)
+log "LOOKUP udp $FANOUT_PORT → $(printf %q "$LOOKUP_RESPONSE")"
+
+EXPECTED_LOOKUP="OK 127.0.0.1:${PINNED_SRC_PORT}"
+if [[ "$LOOKUP_RESPONSE" != "${EXPECTED_LOOKUP}"* ]]; then
+    fail "UDS LOOKUP response did not match expected (got: '$LOOKUP_RESPONSE', want prefix: '$EXPECTED_LOOKUP')"
+    log "  wrapper log tail:"
+    tail -20 "$WRAPPER_LOG" | sed 's/^/    /' >&2
+    exit 1
+fi
+log "OK: wrapper UDS LOOKUP returned real client IP+port (${EXPECTED_LOOKUP})"
+
+# Also exercise the HEALTH endpoint — sanity check the daemon is happy.
+HEALTH_RESPONSE=$(printf 'HEALTH\n' | nc -U -w2 "$WRAPPER_UDS" 2>&1 || true)
+log "HEALTH → $(printf %q "$HEALTH_RESPONSE")"
+if [[ "$HEALTH_RESPONSE" != OK\ active_sessions=* ]]; then
+    fail "UDS HEALTH did not return expected 'OK active_sessions=...' prefix"
+    exit 1
+fi
+log "OK: wrapper UDS HEALTH responded sanely"
+
+# And ENUMERATE — should list our one session.
+ENUMERATE_RESPONSE=$(printf 'ENUMERATE\n' | nc -U -w2 "$WRAPPER_UDS" 2>&1 || true)
+log "ENUMERATE → $(printf %q "$ENUMERATE_RESPONSE")"
+if [[ "$ENUMERATE_RESPONSE" != *"udp ${FANOUT_PORT} 127.0.0.1:${PINNED_SRC_PORT}"* ]]; then
+    fail "UDS ENUMERATE missing expected session line"
+    exit 1
+fi
+log "OK: wrapper UDS ENUMERATE listed the session"
+
+# ---------------------------------------------------------------------
+# Wrapper crash safety: kill the wrapper, verify nginx is undisturbed
+# and SS14 is undisturbed. (Mirrors spec §3.9 — wrapper crash must not
+# cascade.)
+# ---------------------------------------------------------------------
+
+stage "kill wrapper — verify nginx + SS14 unaffected"
+
+if kill "$WRAPPER_PID" 2>/dev/null; then
+    for _ in 1 2 3 4 5; do
+        kill -0 "$WRAPPER_PID" 2>/dev/null || break
+        sleep 0.1
+    done
+    log "OK: wrapper killed cleanly (pid=$WRAPPER_PID)"
+fi
+# Prevent rollback's redundant kill from logging "killed" again.
+rm -f "$WRAPPER_PID_FILE"
+
+if ! sudo -n nginx -t >/dev/null 2>&1; then
+    fail "nginx -t broken after wrapper kill (impossible — wrapper kill is not an nginx event)"
     exit 1
 fi
 
-log "found wrapper binary: $WRAPPER_BIN"
-log "(impl-wave test continues here — see /impl follow-up)"
-
-# When the wrapper exists, /impl will extend this test to:
-#   - launch the wrapper pointed at a NEW upstream port
-#   - reload nginx to forward to the wrapper instead of the sniffer
-#   - re-send datagrams
-#   - probe the wrapper's UDS LOOKUP API and assert the real client IP
-#     is returned (TC04)
-#   - kill the wrapper and verify graceful degradation (TC07)
-#   - wait beyond TTL and verify eviction (TC08)
-
-# For now the integration test stops here in TDD pre-impl mode.
-log "OK: pre-impl integration test reached expected stopping point"
+POST_KILL_LIVE_LISTENERS=$(ss -tunap 2>/dev/null | grep -c ":${LIVE_PORT} " || true)
+if [[ "$POST_KILL_LIVE_LISTENERS" -lt 1 ]]; then
+    fail "SS14 :${LIVE_PORT} listeners VANISHED after wrapper kill"
+    exit 1
+fi
+log "OK: SS14 :${LIVE_PORT} still has $POST_KILL_LIVE_LISTENERS listener entries after wrapper kill"
 
 # ---------------------------------------------------------------------
-# End — rollback trap will fire on exit.
+# End — rollback trap fires on exit (removes test nginx conf, kills
+# remaining processes, snapshot-diffs /etc/nginx, re-verifies SS14).
 # ---------------------------------------------------------------------
 
-stage "complete (pre-/impl TDD baseline)"
-log "integration test SUCCESS: nginx PROXY-protocol emit verified, "\
-"wrapper-receive stage correctly failed with no binary present"
+stage "complete (impl-wave end-to-end)"
+log "integration test SUCCESS: nginx PROXY emit verified, wrapper consumed \
+PROXY headers, UDS LOOKUP/HEALTH/ENUMERATE all responded, wrapper kill did \
+not disturb nginx or SS14 :${LIVE_PORT}"
