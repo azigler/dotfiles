@@ -36,7 +36,17 @@ python_cmd="/opt/homebrew/bin/python3.10"
 #                             without this, --listen disables the Extensions
 #                             tab; we want extensions usable on a trusted
 #                             network.
-export COMMANDLINE_ARGS="--listen --port 7860 --skip-torch-cuda-test --no-half --no-half-vae --use-cpu interrogate --enable-insecure-extension-access"
+#   --api                     expose the /sdapi/v1/* REST endpoints so
+#                             household Claudes can drive A1111 from CLI
+#                             (txt2img, img2img, inpaint, model swap,
+#                             progress, interrupt). Same trust boundary as
+#                             the web UI — network restriction only, no
+#                             public-internet exposure. Without this flag,
+#                             /sdapi/v1/* returns 404. Pairs with the
+#                             stable-diffusion-handoff.md briefing doc
+#                             that household members give to their own
+#                             Claudes.
+export COMMANDLINE_ARGS="--listen --port 7860 --skip-torch-cuda-test --no-half --no-half-vae --use-cpu interrogate --enable-insecure-extension-access --api"
 
 # Stability-AI deleted the canonical stablediffusion repo (2026-Q1; A1111 PR
 # #17271 documents the migration). The default URL in launch_utils.py:349
