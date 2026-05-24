@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.zig.vs14-web</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>USER_HOME_PLACEHOLDER/.bun/bin/bun</string>
+		<string>USER_HOME_PLACEHOLDER/vacation-station-14/web/node_modules/.bin/next</string>
+		<string>start</string>
+		<string>-H</string>
+		<string>TAILSCALE_IP_PLACEHOLDER</string>
+		<string>-p</string>
+		<string>3300</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>USER_HOME_PLACEHOLDER/vacation-station-14/web</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>NODE_ENV</key>
+		<string>production</string>
+		<key>PORT</key>
+		<string>3300</string>
+		<key>HOSTNAME</key>
+		<string>TAILSCALE_IP_PLACEHOLDER</string>
+	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>StandardErrorPath</key>
+	<string>/tmp/vs14-web.log</string>
+	<key>StandardOutPath</key>
+	<string>/tmp/vs14-web.log</string>
+</dict>
+</plist>
