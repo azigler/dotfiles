@@ -72,13 +72,20 @@
       "action": "check",
       "src":    ["autogroup:member"],
       "dst":    ["tag:server"],
-      "users":  ["ubuntu", "autogroup:nonroot"]
+      "users":  ["ubuntu", "autogroup:nonroot"],
+      // acceptEnv: Tailscale SSH doesn't passthrough env vars by default
+      // (unlike OpenBSD sshd). Without this, TERM + LANG + LC_* from the
+      // client are stripped, the remote shell falls back to POSIX locale,
+      // and Unicode/nerdfont glyph rendering breaks. Especially visible
+      // on iPhone Termius (bead dotfiles-st2). Requires Tailscale ≥ 1.76.
+      "acceptEnv": ["TERM", "LANG", "LC_*"]
     },
     {
       "action": "accept",
       "src":    ["tag:server"],
       "dst":    ["tag:server"],
-      "users":  ["autogroup:nonroot"]
+      "users":  ["autogroup:nonroot"],
+      "acceptEnv": ["TERM", "LANG", "LC_*"]
     }
   ]
 }
