@@ -36,8 +36,19 @@ npm install -g @github/copilot wrangler
 curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/beads_rust/main/install.sh?$(date +%s)" | bash
 
 # --- zig-zone (private tailnet + ollama server) bring-up ---
-# Spec: bead dotfiles-phe. Runbook: /zig-zone skill.
+# Spec: bead dotfiles-phe. Runbook: ~/explore/.claude/skills/zig-zone/SKILL.md.
 # Idempotent — re-running mac.setup.sh re-applies these without harm.
+#
+# IMPORTANT macOS Tailscale variant note (runbook gotcha #12):
+# This script installs the brew FORMULA (CLI/headless tailscaled). That gives
+# Tailscale SSH server BUT no MagicDNS for outbound queries from this host.
+# Right for HEADLESS SERVERS (e.g., pico). On a WORKSTATION Mac (e.g., metis),
+# AFTER this script finishes, swap to the cask GUI variant for MagicDNS:
+#   brew uninstall tailscale && brew install --cask tailscale
+#   sudo rm -f /usr/local/bin/tailscale /usr/local/bin/tailscaled  # remove stale formula symlinks
+#   open -a Tailscale     # GUI auth flow
+# Trade-off: GUI variants are sandboxed and CAN'T run Tailscale SSH server.
+# Clients don't need to be SSH servers anyway, so this is fine for laptops.
 
 # Headless-server safety: no sleep, auto-boot after power loss, no surprise reboots.
 sudo pmset -a sleep 0 displaysleep 0 disksleep 0 powernap 0
@@ -56,3 +67,11 @@ sudo tailscale up
 # `brew services start ollama` creates.
 launchctl setenv OLLAMA_HOST "$(tailscale ip -4):11434"
 brew services start ollama
+
+# --- /etc/hosts MagicDNS shim (headless tailscaled doesn't install a resolver) ---
+# On macOS, brew-formula tailscaled runs in userspace networking and can't
+# install a DNS resolver. To let this host resolve other tailnet hostnames,
+# mirror the tailnet IPs into /etc/hosts. Hand-maintained — re-sync if any
+# device's tailnet IP changes (rare; happens on logout+rejoin). The runbook
+# section "/etc/hosts shim" has the current canonical mapping.
+echo "NOTE: see runbook for /etc/hosts shim entries (tailnet IPs for other devices)"
