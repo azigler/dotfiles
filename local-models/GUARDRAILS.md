@@ -6,6 +6,36 @@ Last updated: 2026-05-25 evening (post-research-agent sweep — many earlier fin
 
 ---
 
+## H1 — Run healthcheck at iter start (DO THIS FIRST)
+
+`~/dotfiles/local-models/healthcheck.sh` — pre-flight probe across the whole stack. Detects:
+- Pico tailnet reachability
+- MLX server :8081 hung process (process alive but not serving — past failure mode that wasted 4+ hours of one iter)
+- MLX RSS bloat (>30 GB = model accumulation; consider `launchctl kickstart -k gui/501/com.zig.mlx`)
+- Ollama :11434 unresponsive
+- llama-swap :8090 status (optional)
+- CCR :3456 status (optional)
+- **Functional completion roundtrip** — proves stack actually serves, not just handshakes
+- Pico disk pressure
+
+Exit codes: 0=healthy, 1=warnings, 2=critical (hung or unreachable; **do not start model work until fixed**).
+
+**Run pattern:**
+- At the start of every iteration when local-model work is on the agenda
+- After any failed completion before retrying
+- Before dispatching benchmarks or long-running experiments
+
+**Recovery cheatsheet** (for the common failures):
+| Symptom | Fix |
+|---|---|
+| MLX server unresponsive | `ssh pico 'launchctl kickstart -k gui/501/com.zig.mlx'` (KeepAlive=true, auto-restarts) |
+| MLX RSS >30 GB | Same kickstart; bonus: switch clients to llama-swap :8090 (G14) |
+| Ollama unresponsive | `ssh pico '/opt/homebrew/opt/ollama/bin/ollama serve &'` |
+| Pico disk pressure | See pico-cleanup-2026-05-25.md recommendations |
+| Network/tailnet | Check tailscale status on both ends |
+
+---
+
 ## SUMMARY: which model for which task (2026-05-25, empirically verified + research-validated)
 
 **Key research-agent reversal (evening 2026-05-25):** Several Wave 0/1 findings were caused by missing client-side configuration, NOT server/model limitations. The 6 research agents found upstream fixes / known-good configurations for most issues. See G1, G7, G12, G13, G14 below for revised positions.
