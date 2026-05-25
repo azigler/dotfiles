@@ -6,27 +6,58 @@ Last updated: 2026-05-25.
 
 ---
 
-## G1 — Never route tool-use calls to Trinity (either backend)
+## G1 — Trinity needs special-case response parsing (NOT a blanket ban)
 
-**Symptom:** JSON tool-call parsing fails silently; agent gets back malformed `tool_use` blocks or empty `tool_calls[]`.
+**Original claim (morning 2026-05-25):** "Trinity is banned for structured output on both backends."
 
-**Root cause (revised 2026-05-25 with empirical evidence):** Trinity-Mini emits tool calls as **text inside `content`** with `<tool_call>...</tool_call>` markers, NOT as structured `tool_calls[]`. This applies to **both MLX and Ollama backends.**
+**REVISED again (evening 2026-05-25) with finer empirical evidence:** Trinity-Mini behavior depends on *which response field you read*:
 
-**Empirical receipt (2026-05-25, Trinity MLX via mlx_lm.server):**
+**Trinity MLX:** `message.reasoning` (separate field) + `message.content`. Reasoning tokens go into `reasoning`; final answer goes into `content`. Verified empirically.
 ```json
-{"content": "\n<tool_call>\n{\"name\": \"read_file\", \"arguments\": {\"path\": \"/etc/hostname\"}}\n</tool_call>",
- "tool_calls": []}
+{"role": "assistant",
+ "content": "The dying embers of the campfire glowed like dying stars...",
+ "reasoning": "Okay, let's tackle this continuation. The user wants me to..."}
 ```
-Same shape Trinity Ollama produces. The earlier hypothesis that "Trinity MLX writes to separate `reasoning_content` field" turned out to be wrong — `reasoning_content` is `<absent>`. The bench scored it higher only because the coding-suite prompts don't depend on structured tool calls.
+The earlier "empty content" finding was misread — the prose generation request that returned empty content was a separate issue (prompt-length + token-budget interaction).
 
-**Rule:** if an action requires structured output (tool calls, JSON, format-strict response):
-- **Qwen3-Coder MLX: preferred** ✅ (verified parallel tool calls work)
-- **Devstral MLX**: likely OK (similar architecture; verify if used)
-- Laguna Ollama: OK (14/15 reasoning, format-clean)
-- **Trinity (MLX or Ollama): BANNED** ❌
-- Laguna MLX: see G7 (not actually served)
+**Trinity Ollama:** does NOT separate. `<think>...</think>` jams into `content` along with the answer. Parsers that don't strip the think-block break.
 
-**Trinity is still useful** for unstructured tasks: pure prose, brainstorming, narrative planning, summarization where you parse free text yourself. Just don't route tool-calling agents through it.
+**Tool-use specifically:** Trinity (both backends) still emits tool calls as text inside `content` with `<tool_call>` markers, NOT as structured `tool_calls[]` arrays. So for tool-use Trinity is still suboptimal — Qwen3-Coder MLX is preferred for tool calls.
+
+**Updated rule** based on intended workload:
+
+| Workload | Trinity MLX | Trinity Ollama |
+|---|---|---|
+| Structured tool calls (`tool_calls[]`) | ❌ jams in `content` | ❌ jams in `content` |
+| Format-strict JSON in `content` | ⚠️ Reasoning consumes budget; parse `content` separately | ❌ `<think>` contamination |
+| Prose / narrative / brainstorming | ✅ Read `content`; ignore `reasoning` (or surface as audit trail) | ⚠️ Strip `<think>` block first |
+| Planning where reasoning trace is wanted | ✅ Surface `reasoning` to user | ⚠️ Extract via regex |
+
+**Preferred routing**:
+- Tool calls / structured output → **Qwen3-Coder MLX** (verified parallel tool calls)
+- Prose / narrative → **Qwen3-Coder Ollama** or **Laguna Ollama** (NOT Qwen3 MLX — see G13 below)
+- Reasoning-heavy planning → Trinity MLX with both fields surfaced
+
+## G13 — Qwen3-Coder MLX cannot do long-prose generation (MLX-server issue, not model)
+
+**Empirical receipt (2026-05-25, Epic D E1 probes):** Qwen3-Coder run through `mlx_lm.server` at long-prompt (>3500 tokens setup) literary-prose continuation:
+- At temperature 0.85: mode collapses into Chinese character repetition after ~150 OK English tokens
+- At temperature 0.5: mode collapses into English-sentence repetition (same 2 sentences loop)
+
+**Same model via Ollama (`qwen3-coder:30b`) at the same temperatures:** generates coherent in-voice prose. 22s for 2000 chars.
+
+**Diagnosis:** the issue is `mlx_lm.server`'s long-prose serving, not the underlying Qwen3 weights. Possible causes (untested):
+- KV-cache eviction under long context
+- Sampler configuration mismatch
+- Chat-template formatting
+- Some attention/positional issue at sequence length
+
+**Rule:**
+- Tool calls / short structured prompts: Qwen3 MLX is FINE (G9 stands)
+- Long literary-prose generation: route to **Qwen3 Ollama** instead of MLX
+- If you must use Qwen3 MLX for prose, keep the prompt short (<1500 tokens) and monitor for repetition collapse
+
+This is a load-bearing finding for Epic D (autonovel) and Epic C (LSRA REWRITE_REPORT step).
 
 ---
 
