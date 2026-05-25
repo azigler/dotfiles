@@ -17,10 +17,16 @@
 		<key>HOME</key>
 		<string>USER_HOME_PLACEHOLDER</string>
 	</dict>
+	<!-- ON-DEMAND ONLY. Do NOT auto-start. SD-WebUI loads its diffusion
+	     checkpoint into RAM at launch (~17 GB resident BEFORE any image
+	     request), starving LLM inference (mlx_lm.server, ollama) of
+	     unified memory. Start manually via `sd-up` / `launchctl kickstart
+	     gui/$UID/com.zig.a1111` only when you need image generation;
+	     stop via `sd-down` / `launchctl stop com.zig.a1111` when done. -->
 	<key>RunAtLoad</key>
-	<true/>
-	<key>KeepAlive</key>
-	<true/>
+	<false/>
+	<!-- KeepAlive intentionally omitted — was forcing respawn after manual
+	     kill, defeating on-demand control. -->
 	<key>StandardErrorPath</key>
 	<string>/tmp/a1111.log</string>
 	<key>StandardOutPath</key>

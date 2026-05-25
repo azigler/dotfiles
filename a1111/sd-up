@@ -1,0 +1,13 @@
+#!/bin/bash
+# sd-up — start Stable Diffusion WebUI on demand.
+# SD is on-demand only (not auto-start) because it holds ~17 GB resident
+# from launch, starving LLM inference of unified memory.
+
+set -e
+launchctl kickstart -p gui/$UID/com.zig.a1111
+echo "SD-WebUI starting. Tail /tmp/a1111.log for boot progress."
+echo "Access:"
+echo "  http://127.0.0.1:7860               (this Mac)"
+echo "  http://\$(ifconfig en0 inet | awk '/inet /{print \$2}'):7860  (LAN)"
+echo "  http://pico.<tailnet>.ts.net:7860   (tailnet)"
+echo "Stop when done: sd-down"

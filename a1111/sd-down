@@ -1,0 +1,19 @@
+#!/bin/bash
+# sd-down — stop Stable Diffusion WebUI (frees ~17 GB unified memory).
+# Use after image-gen sessions to keep RAM available for LLM inference.
+
+set -e
+launchctl stop com.zig.a1111 2>/dev/null || true
+# launchctl stop leaves KeepAlive=true plists respawning. Our plist now
+# omits KeepAlive, so stop alone suffices. As a safety belt, also kill
+# the wrapper script (webui.sh has its own restart loop driven by
+# tmp/restart flag):
+rm -f ~/stable-diffusion-webui/tmp/restart 2>/dev/null
+pkill -f "stable-diffusion-webui/webui.sh" 2>/dev/null || true
+pkill -f "stable-diffusion-webui/launch.py" 2>/dev/null || true
+sleep 1
+if pgrep -f "stable-diffusion-webui" >/dev/null; then
+  echo "Some SD processes still alive after SIGTERM. Trying SIGKILL..."
+  pkill -9 -f "stable-diffusion-webui" 2>/dev/null || true
+fi
+echo "SD-WebUI stopped."

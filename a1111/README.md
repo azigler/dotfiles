@@ -6,6 +6,12 @@ LAN** — explicitly NOT public internet.
 
 ## Posture
 
+- **Lifecycle**: **on-demand only**, NOT auto-start. SD loads its
+  diffusion checkpoint into RAM at launch (~17 GB resident BEFORE the
+  first image request), which starves LLM inference (`mlx_lm.server`,
+  Ollama) of unified memory on Apple Silicon. The LaunchAgent is
+  installed but `RunAtLoad=false`; start it manually with `sd-up` and
+  stop with `sd-down` when finished. See "Lifecycle" below.
 - **Bind**: `--listen --port 7860` → answers on 0.0.0.0:7860 (tailnet
   IP + LAN IP + localhost)
 - **Auth**: none (network restriction only — trusted tailnet ACL + home
@@ -18,7 +24,9 @@ LAN** — explicitly NOT public internet.
 
 | File | Purpose |
 |---|---|
-| `com.zig.a1111.plist` | LaunchAgent template (USER_HOME_PLACEHOLDER substituted at install) |
+| `com.zig.a1111.plist` | LaunchAgent template (USER_HOME_PLACEHOLDER substituted at install). `RunAtLoad=false` — on-demand only. |
+| `sd-up` | Start SD on demand (`launchctl kickstart`). Add to PATH or alias. |
+| `sd-down` | Stop SD + clear restart flag + kill webui.sh wrapper. |
 | `webui-user.sh` | A1111 config: pins python3.10, sets COMMANDLINE_ARGS |
 | `config.json` | Seeded A1111 settings — currently just `upcast_attn: true` (required for SDXL inpainting on MPS; Settings-only toggle, no CLI flag in 1.10) |
 | `README.md` | This file |
@@ -87,21 +95,44 @@ sudo /usr/libexec/ApplicationFirewall/socketfilterfw \
   --unblockapp /opt/homebrew/bin/python3.10
 ```
 
-## Lifecycle
+## Lifecycle (on-demand)
+
+SD-WebUI is on-demand. The LaunchAgent is registered but does NOT
+auto-start at boot (`RunAtLoad=false`, no `KeepAlive`). Use the
+helpers:
 
 ```bash
-# Reload (e.g. after editing webui-user.sh)
-launchctl kickstart -k gui/$UID/com.zig.a1111
+# Start on demand (loads the diffusion checkpoint, ~30-60 sec)
+sd-up
 
-# Stop (without unloading)
-launchctl stop com.zig.a1111
-
-# Unload entirely
-launchctl unload ~/Library/LaunchAgents/com.zig.a1111.plist
+# Stop when done (frees ~17 GB of unified memory for LLM inference)
+sd-down
 
 # Tail logs
 tail -f /tmp/a1111.log
 ```
+
+Equivalent raw `launchctl` calls if the helpers aren't on PATH:
+
+```bash
+launchctl kickstart -p gui/$UID/com.zig.a1111           # start
+launchctl stop com.zig.a1111                            # stop
+launchctl unload ~/Library/LaunchAgents/com.zig.a1111.plist  # deregister
+```
+
+### Why on-demand
+
+SD-WebUI loads its diffusion model into RAM at process launch — not
+lazily on first request. On Apple Silicon's unified memory architecture
+that ~17 GB resident competes directly with mlx_lm.server's model
+residency (Qwen3-Coder 4-bit = ~17 GB, GLM-4.5-Air 4-bit = ~30 GB).
+With both running, even small LLMs page from compressed memory + swap
+on every forward pass, dropping decode rate from ~50 tps to ~0.6 tps
+(empirically measured 2026-05-25).
+
+The lifecycle rule: **run SD only while actually generating images**;
+stop it before any LLM inference work. Both `sd-up` and `sd-down`
+are zero-friction so this is just-do-it discipline, not a process.
 
 ## Related
 

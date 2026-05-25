@@ -136,7 +136,15 @@ fi
 sed "s|USER_HOME_PLACEHOLDER|$HOME|g" \
     ~/dotfiles/a1111/com.zig.a1111.plist \
     > ~/Library/LaunchAgents/com.zig.a1111.plist
-launchctl load -w ~/Library/LaunchAgents/com.zig.a1111.plist
+# Register the LaunchAgent but DON'T auto-start. The plist has
+# RunAtLoad=false because SD-WebUI loads its diffusion checkpoint
+# (~17 GB) into RAM at launch, competing with LLM inference for
+# unified memory. Use `sd-up` to start on demand, `sd-down` to stop.
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.zig.a1111.plist 2>/dev/null || true
+
+# Install the on-demand helpers
+sudo install -m 755 ~/dotfiles/a1111/sd-up /usr/local/bin/sd-up
+sudo install -m 755 ~/dotfiles/a1111/sd-down /usr/local/bin/sd-down
 
 # --- sshd alt-port :2222 LaunchDaemon (system scope) ---
 # macOS sshd runs via launchd socket-activation; the `Port` directive in
