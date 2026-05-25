@@ -159,6 +159,29 @@ This materially de-risks Epic A — no pico-side rewrite needed. (Spec edit: §3
 
 ---
 
+## G12 — `CLAUDE_CODE_SUBAGENT_MODEL` does NOT propagate into worktree subagents
+
+**Empirically verified (2026-05-25 X1 probe):** Dispatched a worktree subagent that ran `echo "$CLAUDE_CODE_SUBAGENT_MODEL"` → `<UNSET>`. Same result for `ANTHROPIC_BASE_URL` — does not propagate. The variable lives in the orchestrator's shell environment but doesn't cross the worktree-subagent boundary, even with `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` enabled.
+
+**What DOES propagate** to worktree subagents (probed empirically):
+- `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` ✅
+- `CLAUDECODE=1` ✅
+- `CLAUDE_CODE_ENTRYPOINT=cli` ✅
+- `CLAUDE_CODE_EXECPATH=...` ✅
+- `CLAUDE_CODE_SESSION_ID=...` ✅
+- `CLAUDE_EFFORT=...` ✅
+- Other `CLAUDE_*` vars from the orchestrator's process env
+
+**What does NOT propagate:**
+- `CLAUDE_CODE_SUBAGENT_MODEL` ❌
+- Any `ANTHROPIC_*` vars (no `ANTHROPIC_API_KEY`, no `ANTHROPIC_BASE_URL`) ❌
+
+**Implication for routing subagents to local:** The env var mechanism is dead. Use **per-agent YAML `model:` frontmatter** in `~/dotfiles/claude/agents/<name>.md` — Claude Code reads that at dispatch time, the subagent inherits the model selection through the dispatch payload (not through env propagation). Per-agent overrides are the only viable mechanism.
+
+This is a material change from Epic A spec §3.3 which assumed env var was canonical. (Spec edit applied 2026-05-25.)
+
+---
+
 ## G11 — Tailnet HTTP latency to pico ≈ 160-220ms RTT
 
 Measured 2026-05-25 from zig→pico over Tailscale, 100 sequential GETs:
