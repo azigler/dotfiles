@@ -1,78 +1,82 @@
-# Session handoff — 2026-05-25 beb8609d (post mobile-transcripts turn)
+# Session handoff — 2026-05-25 beb8609d (LCM re-bench arc + SD on-demand)
 
 ## State at offboard
+- **Current branch**: main (dotfiles); main (explore)
+- **Last commit (dotfiles)**: `895723b :wrench: a1111: on-demand only — no auto-start (frees 17GB for LLM inference)`
+- **Last commit (explore)**: `0d08ac4 :card_file_box: beads: explore-4te.13 stub for DeepSeek-Coder-V2-Lite (next session)`
+- **Open beads (explore)**: 5 — epic, .1 (spec, intentional), .9 (finetuning parent), .13 (DeepSeek next-session), .yw9 (MUD deferred)
+- **Open beads (dotfiles)**: 0 in scope this session (st2/406 still deferred)
+- **In-flight subagents**: none (final benches all completed)
+- **Dirty files**: none committed; submodule HEAD changes (blightmud, simon-willison) untouched (orthogonal)
 
-- **Branch**: main, clean working tree
-- **Last commit** (dotfiles): `4ec98b7 :broom: gitignore: don't track .claude/scheduled_tasks.lock`
-  - prior dotfiles refresh: `5c508b3` (offboard handoff refresh) ← `9eb2f0c` (NUM_PARALLEL=1 + push-notif + remote-control startup) ← `01923ee` (autonomous queue offboard) ← `d2a7954` ← `92dab31`
-- **Last commit** (explore): `64b15d5 :card_file_box: step-12: finetuning toolchain research + .9.1 sub-bead stub` (unchanged this turn)
-- **Last commit** (explore-simon-willison): `95e3896 :card_file_box: beads: stub simon-v07 — archival viewer fork (deferred)` (NEW this turn)
-- **Open beads**:
-  - dotfiles: 2 — both ❄ P3 deferred (`dotfiles-st2` iPhone Termius nerdfonts, `dotfiles-406` zig laptop tailnet)
-  - simon-willison: 1 — ❄ P3 deferred (`simon-v07` archival viewer fork — NEW this turn)
-  - ~/explore: 8 open + 1 deferred + 10 closed (19 total per `br stats`). Open: epic `explore-4te`, spec `.1`, A/B beads `.4 .6 .7 .8`, GLM `.5`, step-12 `.9`. Deferred: `yw9` MUD-agent. Plus child stub `.9.1` exists per JSONL but doesn't appear in default `br list` output. **The .4/.6/.7/.8 work LANDED in commits (`09f0b8e/00d9adb/0ee8785/35cd1f1`) but the beads weren't formally closed — reconcile next session.**
-- **In-flight subagents**: none
-- **Markers**: `.offboard-pending` not present (was never written today — see continuity note below)
-- **Cost tracking**: not enabled for dotfiles project; skipping ledger update
-- **Session continuity**: still `beb8609d` per `~/.claude/projects/-home-ubuntu-dotfiles/beb8609d-...jsonl` mtime + lock file's sessionId. PID 11212 alive. **This same `claude` process has been running ALL DAY** through C2 SS14 close → autonomous local-coding-models queue → mobile-transcripts turn. `/offboard` has run multiple times mid-session writing handoff notes; `SessionEnd` hook has not fired today.
+## What happened this session
 
-## What happened this turn (mobile-transcripts viewing)
+### Arc 1: SD-WebUI permanent on-demand (dotfiles shipped + deployed)
+- Caught: SD-WebUI's 17 GB resident checkpoint was throttling MLX long-context inference (Qwen 50K/100K) AND blocking GLM-4.5-Air from loading at all
+- `a1111/com.zig.a1111.plist`: `RunAtLoad=false`, removed `KeepAlive` (which was respawning SD on every kill)
+- `a1111/sd-up` + `sd-down`: helpers installed to /usr/local/bin
+- `mac.setup.sh`: install via `launchctl bootstrap` (registers without starting) + sudo install helpers
+- `a1111/README.md`: posture + lifecycle rewritten
+- **Deployed to pico**, LaunchAgent registered + not running. User confirmed: do NOT re-enable on offboard — stays permanently on-demand.
 
-User Termius-SSHes into zig from iPhone; CLI scrollback is tedious on mobile. Wanted a browser surface to glance at active transcripts between prompts. Initial pitch was forking Simon Willison's `claude-code-transcripts` (static HTML generator) and hosting on nginx + tailnet.
+### Arc 2: Local-coding-models methodical re-bench (explore/local-coding-models)
+- Re-benched ALL 5 candidates under clean memory (post-SD-disable)
+- Cross-suite reasoning: ran Trinity's reasoning prompts on every candidate (apples-to-apples)
+- Ollama-via-GGUF path for Trinity (custom Modelfile from arcee-ai/Trinity-Mini-GGUF)
+- GLM-4.5-Air: 4-bit abandoned (hardware-marginal, 0.6 tps), 3-bit shipped as alternative (17.5 tps, USABLE)
+- Synthesis: `refs/AB-verdict-v2.md` covers everything
 
-### Refined into the right surface
+**Key empirical findings:**
+1. **Memory hygiene matters MOST for long-context.** SD-throttling killed Qwen 50K/100K (now pass), didn't affect short-prompt decode (architecture-bound). For GLM 4-bit it was the difference between can't-load and 0.6 tps.
+2. **Qwen3-Coder MLX is the daily-driver winner** (17/20 + 14/15 reasoning @ 35 tps)
+3. **Laguna Ollama is the long-context champion** (only model passing 100K) + ties Qwen at 14/15 reasoning
+4. **Trinity's reasoning-model marketing doesn't beat Qwen + Laguna's instruction-following** on the reasoning suite. Format-strict tests (markdown fence required) penalize Trinity.
+5. **GLM 3-bit IS the right quant for 64 GB** — 30× faster than 4-bit; ~1-3% quality cost is worth it
+6. **Trinity MLX > Trinity Ollama for tool-use**: Ollama embeds `<think>` inline (breaks JSON parsers); MLX uses separate `reasoning` field (clean)
+7. **mlx-lm has no LagunaForCausalLM adapter** — Poolside's claim of mlx-lm support is aspirational. Laguna is Ollama-only locally.
 
-- Clarified Simon's tool is a static generator, not a server — would need a daemon for live use.
-- User mentioned a possible first-party feature called "Claude Code dispatch." Dispatched `claude-code-guide` subagent to research.
-- Findings:
-  - **Dispatch** is real but is async task-delegation in the Desktop Cowork tab — NOT session viewing.
-  - **Remote Control** (https://code.claude.com/docs/en/remote-control.md) is the actual fit: live mobile-optimized transcript view via claude.ai/code or the Claude iOS/Android app. Messages relay through Anthropic cloud (code/context stay local). Three invocation modes (server `claude remote-control`, interactive `claude --remote-control`, in-session `/remote-control`) plus a global enable via `/config` → "Enable Remote Control for all sessions".
+**Files written this session (in `~/explore/local-coding-models/refs/`):**
+- `qwen3-coder-mlx-clean.md` (17/20 @ 35 tps)
+- `qwen3-coder-mlx-custom.md` (14/15 @ 45.6 tps — beats Trinity)
+- `devstral-mlx-clean.md` (17/20 @ 12.5 tps)
+- `devstral-mlx-custom.md` (13/15 @ 13.6 tps)
+- `trinity-mini-mlx-v2.md` (17/20 @ 50.6 tps — was SD-throttled)
+- `trinity-mini-mlx-custom.md` (13/15 @ 52.6 tps — was SD-throttled)
+- `trinity-mini-mlx-clean.md` (17/20 @ 52 tps — replaces v2)
+- `trinity-mini-mlx-custom-clean.md` (12/15 @ 52.9 tps — non-determinism on P21)
+- `trinity-mini-ollama.md` (14/20 @ 53 tps — <think> inline issues)
+- `trinity-mini-ollama-custom.md` (11/15 @ 53.2 tps)
+- `laguna-xs.2-ollama-clean.md` (16/20 @ 32.9 tps — long-context champion confirmed)
+- `laguna-xs.2-ollama-custom.md` (14/15 @ 36 tps — ties Qwen)
+- `glm-4.5-air-mlx.md` (4-bit hardware-marginal verdict)
+- `glm-4.5-air-mlx-3bit.md` (3-bit subset 4/9 @ 17.5 tps — USABLE)
+- `models-training-data.md` (per-model training data + license)
+- `AB-verdict-v2.md` (synthesis covering all of the above)
+- `trinity-eval-prompts.md` (15-prompt reasoning suite with DSL check directives)
+- `run-eval.py` (extended with `--prompts <path>`, `--max-tokens-mult`, data-driven `**check**:` DSL)
 
-### Enabled globally
+## What's next
 
-User typed `/config` → toggle set to true. Prerequisites verified (Claude Code v2.1.150 ≥ 2.1.51 floor, no blocking env vars, no policy override, claude.ai OAuth auth). **NOTE**: the autonomous-queue commit `9eb2f0c` had already added "remote-control startup" config to claude/settings.json earlier today — likely related but the user's manual `/config` toggle this turn was the explicit on-switch.
+### Highest priority for next session
+1. **Bead .13: DeepSeek-Coder-V2-Lite as candidate #6** — Laguna's own comparison peer. License is DeepSeek License (NOT Apache/MIT, usage-restricted) — flag for any commercial use consideration. Recommended targets: `mlx-community/DeepSeek-Coder-V2-Lite-Instruct-4bit` + GGUF mirror. Bench standard + reasoning on both stacks.
+2. **Task #36: pico disk cleanup discussion** with user. Items to discuss before deleting:
+   - `~/glm-flat/` (56 GB) — 4-bit GLM, now superseded by 3-bit at `~/glm-3bit/` (44 GB). Likely safe to delete.
+   - `~/trinity-gguf/` (15 GB) — Trinity GGUF source, redundant after Ollama imported it. Safe to delete.
+   - `~/.cache/huggingface/hub/models--mlx-community--GLM-4.5-Air-4bit/` (2.1 GB residual) — leftover config files. Safe to delete.
+   - `~/.cache/huggingface/hub/models--mlx-community--Laguna-XS.2-mxfp4/` (17 GB) — MLX-unavailable Laguna; could delete if confident mlx-lm won't add Laguna support.
+   - Total reclaim potential: ~90 GB. Pico is at 286/926 GB; not urgent but tidy.
 
-### Stubbed simon-v07 in explore-simon-willison
-
-Live use case solved by Remote Control. Archival/review angle (grep past convo from mobile, share past-session URL, multi-session compare) is NOT — Remote Control is live-only. Stubbed parking-spot bead:
-- ID: `simon-v07` (P3 task, ❄ deferred indefinitely), in `~/explore/simon-willison/.beads/`
-- Full handoff packet: default path (fork Simon as submodule under `~/explore/simon-willison/`) vs alternative (/grok 2026 ecosystem first), why-deferred + revisit triggers, constraints (mobile, tailnet, 2.8 GB / 1062 sessions / 453K turns input), 7-item acceptance criteria
-- External-ref → github.com/simonw/claude-code-transcripts
-
-### Resolved session-start dirty state
-
-- `ollama/com.zig.ollama.plist` 2→1 was a transient mid-queue state — committed cleanly in `9eb2f0c` before this turn acted. No-op this turn.
-- `.claude/scheduled_tasks.lock` — investigated, found ACTIVE (PID 11212 alive, sessionId matches THIS conversation). Not stale. Added to dotfiles `.gitignore` in the "session state" block alongside `.offboard-pending`. Commit: `4ec98b7`.
-
-## What's still in flight from the autonomous-queue arc
-
-(Captured from the prior handoff revision `5c508b3`. The autonomous queue's wake-up cycle may continue these unattended.)
-
-- **GLM-4.5-Air download on pico** — was at 14 GB / 57 GB target at last check. PID 5721 originally; may have new PID after restarts. **Be VERY conservative about kills** — multiple stalls + kill-restart cycles cost ~18 GB of progress this morning due to hf-cli GCing `.incomplete` files on restart.
-- **`explore-4te.5`** (GLM bench) blocked on download.
-- **`explore-4te.9` + child `.9.1`** — step-12 finetuning validation. `.9.1` is stub-only; actual fine-tune is a user-driven QLoRA experiment (~2hr on M1 Max for 100 examples on Qwen3-Coder). Toolchain doc in `~/explore/local-coding-models/refs/finetuning-toolchain.md`.
-- **Hourly wake-up scheduled at 12:59** — wakes with prompt to continue queue; will check GLM state, run bench if downloaded, else re-schedule. Loop continues until queue closed. This is the schedule that holds the `.claude/scheduled_tasks.lock`.
-- **Empirical finding from the queue (still load-bearing)**: spec `.1` originally said Phase 1 = Ollama. **MLX wins for the primary daily-driver** (Qwen3-Coder-30B-A3B on MLX). Final recommended stack:
-  - Daily-driver: Qwen3-Coder-30B-A3B on MLX (+ claude-code-router proxy)
-  - Reliability fallback: Devstral on Ollama (95% pass rate)
-  - Long-context: Laguna XS.2 on Ollama (only model passing 100K context)
-- Detail in `~/explore/local-coding-models/refs/AB-verdict.md`. Spec `.1` was amended in --notes; no FINDINGS.md update yet — consider whether to also amend that doc.
-
-## What's next (priority order)
-
-1. **Reconcile the .4/.6/.7/.8 open-bead state in ~/explore.** Bench work landed in commits (`09f0b8e`, `00d9adb`, `0ee8785`, `35cd1f1`) but beads weren't formally closed. Either close them now if work is genuinely done, or document why they're still open. `br orphans` may also catch this.
-2. **Next /onboard from `~/explore/local-coding-models/`** (active arc home), not from dotfiles.
-3. **Test Remote Control from phone**: `/mobile` shows iOS app download QR. Sign in with claude.ai account. Open a session from the app's Code tab. Validates global toggle worked.
-4. **GLM check** — read `refs/AB-verdict.md` methodology section first, then check download (`ssh pico 'du -sh ~/.cache/huggingface/hub/models--mlx-community--GLM-4.5-Air-4bit'`). Run bench if done; only kill if truly dead.
-5. **Revisit `simon-v07`** when forcing function appears (grep past convo from mobile, share session URL, compare closed sessions). `br undefer simon-v07` from `~/explore/simon-willison/`.
+### Lower priority
+3. **Trinity reasoning-suite re-run with `--max-tokens-mult 8` on GLM 3-bit** — would show GLM's true pass rate without budget pressure. Would likely match Trinity 17/20 quality.
+4. **More permissive pass-checks** — extend DSL to check JSON validity / code parses, not markdown fence presence. Would re-rank Trinity favorably.
+5. **Phase 2 fine-tuning (.9.x)** — Qwen3-Coder MLX is the LoRA validation primary candidate. See `refs/finetuning-toolchain.md`.
 
 ## Warnings / watch-outs
 
-- **Session beb8609d alive ALL DAY** — multiple `/offboard` cycles wrote handoff notes mid-session; `SessionEnd` hook has not fired. The handoff note revisions track checkpoint state, not lifecycle. Don't conclude a "next session" exists just because a handoff was written — the same `claude` process may still be running.
-- **Remote Control is GLOBALLY ON** — every new `claude` invocation auto-registers as remote-controllable. Sessions appear on claude.ai/code session list under your account. Lifecycle gotchas: dies when `claude` process exits; 10-min network outage → process exits; ultraplan disconnects Remote Control (only one can occupy claude.ai/code at a time); `/mcp`, `/plugin`, `/resume` are CLI-only.
-- **GLM download is the highest-risk pending op** — be conservative on kills. Notify-only watchers from now on; only kill if truly dead (no sockets + log silent 10+ min). See `refs/AB-verdict.md` for the methodology lesson.
-- **Bead-state divergence (ENHANCEMENT NEEDED)**: prior handoff claimed 9/11 closed; `br stats` says 10 total closed; visible benchmark work in commits not reflected in bead closures for `.4 .6 .7 .8`. Either the autonomous queue under-recorded closures or those beads have remaining work. Reconcile with the bead authors (probably just close them).
-- **MUD-agent (`explore-yw9`)** still deferred. DO NOT start until user explicitly re-opens — the coding-models foundation is the prereq per user direction.
-- **Ollama + MLX both running on pico** (ollama:11434, mlx:8081). Don't kill either; bench runner needs both reachable.
-- **`.claude/scheduled_tasks.lock` is now gitignored** (commit `4ec98b7`). If you ever wonder why it exists but doesn't show in `git status`, that's why. It's protecting the hourly wake schedule.
-- **Context budget**: synthesis writeup work was heavy on tokens this morning; the mobile-transcripts turn was light. Should be fine into next wake/session.
+- **SD-WebUI stays permanently on-demand.** Per user explicit instruction. Don't re-enable LaunchAgent. User can `sd-up` when they want image gen, `sd-down` when done.
+- **GLM 4-bit weights at `~/glm-flat/` are now superseded** by 3-bit at `~/glm-3bit/`. Don't reach for the 4-bit; it's hardware-marginal on 64 GB. Cleanup task #36 will discuss removal.
+- **`hf download` truncates `.incomplete` files on resume** — never trust hf-cli for big multi-file downloads. Use the curl-resume scripts: `~/local-coding-models/glm-resume-download.sh` and `~/local-coding-models/glm-3bit-resume-download.sh` on pico. Both are robust (curl --continue-at per file, bash 5 from /opt/homebrew/bin).
+- **Trinity Ollama vs Trinity MLX have different `<think>` behavior**: MLX uses separate `reasoning` field (clean for JSON parsers); Ollama embeds inline in `content` (breaks parsers). Always prefer Trinity MLX for tool-use agents.
+- **Laguna MLX is BLOCKED** — `LagunaForCausalLM` not in mlx-lm 0.31.3, no PR open. Laguna is Ollama-only locally until upstream adds support.
+- **Memory hygiene discipline**: restart `mlx_lm.server` between models so only one is resident. Restart Ollama if its `OLLAMA_KEEP_ALIVE=24h` keeps too many models warm. Empirical: GLM 4-bit fails to load even after SD-disable when other big MLX models are resident.
+- **Pico disk: 286/926 GB used** — lots of headroom but task #36 disk cleanup discussion is pending before next big downloads.
