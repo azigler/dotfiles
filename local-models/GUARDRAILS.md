@@ -362,6 +362,26 @@ if(e.body?.system?.length>1 && e.body?.system[1]?.text?.startsWith("<CCR-SUBAGEN
 
 ---
 
+## G15 — DeepSeek-Coder-V2-Lite MLX BLOCKED (MoE arch not supported, same pattern as Laguna)
+
+**Empirical receipt (2026-05-25 evening, explore-4te.13):** Attempted to load `mlx-community/DeepSeek-Coder-V2-Lite-Instruct-4bit` via stock mlx_lm.server. Result: HF auto-download started (4.1 GB downloaded into proper snapshots/ cache), then **HUNG indefinitely** — server process at 0% CPU, no log activity, no model load completed after 70+ min. Smoke test curl timed out at 5min then 30min budgets, returning no bytes.
+
+**Root cause (suspected):** DeepSeek-V2-Lite is a 16B MoE (Mixture-of-Experts) model with custom modeling code (`modeling_deepseek.py`, `tokenization_deepseek_fast.py`). mlx-lm 0.31.3 likely doesn't support this MoE variant. Same pattern as **G7 Laguna** — `LagunaForCausalLM not supported`, but for DeepSeek the failure mode is silent hang instead of explicit error.
+
+**Workaround: use Ollama path.** Ollama supports the model via `deepseek-coder-v2:16b-lite-instruct-q4_K_M` (~10 GB). Pull command:
+```bash
+OLLAMA_HOST=http://100.72.47.4:11434 /opt/homebrew/opt/ollama/bin/ollama pull deepseek-coder-v2:16b-lite-instruct-q4_K_M
+```
+
+**Action items:**
+- Bench DeepSeek via Ollama against AB-verdict-v2 suite once pull completes.
+- File mlx-lm issue / check upstream PR tracker for DeepSeek-V2 MoE support (mirror Laguna PR#1223 pattern).
+- Do NOT include DeepSeek in any MLX-only routing config (CCR's `pico-mlx`, llama-swap's `deepseek-coder-v2-lite-mlx` entry should be marked `disabled: true` until upstream supports it).
+
+**Bead:** `explore-4te.13`.
+
+---
+
 ## G14 — `mlx_lm.server` has no model unload (use llama-swap or PR #1274)
 
 **Research finding (2026-05-25 evening):**
