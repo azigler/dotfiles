@@ -1,109 +1,109 @@
-# Session handoff — 2026-05-25 beb8609d (LCM re-bench arc + SD on-demand + next-arc planning)
+# Session handoff — 2026-05-25 beb8609d (LCM re-bench → 4-epic next-arc plan with /check passes complete)
 
-## State at offboard (refreshed after planning round)
-- **Current branch**: main (dotfiles); main (explore)
-- **Last commit (dotfiles)**: `8aae5fe :card_file_box: offboard: 2026-05-25 LCM re-bench arc + SD permanently on-demand`
-- **Last commit (explore)**: `6d4ec62 :card_file_box: beads: open 3 epics + sub-beads for next-arc planning`
-- **Open beads (explore)**: 17 — three active epics + sub-beads. Detail below.
-- **Open beads (dotfiles)**: 0 in scope (st2/406 still deferred)
+## State at offboard
+- **Current branch**: main (dotfiles, explore, blightmud); master (autonovel)
+- **Last commits**:
+  - dotfiles: `892b083 :card_file_box: beads: /check pass on dotfiles-ukx.6`
+  - explore: `afe830d :card_file_box: explore: bump submodule pointers`
+  - blightmud: `7413201 :card_file_box: beads: /check pass on blightmud-hgi.5`
+  - autonovel: `75d7cbc :card_file_box: beads: /check pass on bd-b5p.1`
+- **Open beads (dotfiles)**: dotfiles-ukx epic + 6 sub-beads (.1-.6). 2 deferred (st2/406).
+- **Open beads (explore)**: explore-nfc epic + sub-beads .1-.5. explore-4te.9 (fine-tuning) + .13 (DeepSeek bench) pending.
+- **Open beads (blightmud)**: blightmud-hgi epic + .2-.5. .1 closed (CoD bot approved).
+- **Open beads (autonovel)**: bd-b5p epic + .1 (spec).
 - **In-flight subagents**: none
-- **Dirty files**: none
+- **Dirty files**: `beads_report_dotfiles_2026-05-25.md` (untracked)
+- **Markers**: `.offboard-pending` not present
 
 ## What happened this session
 
-### Two arcs LANDED, one arc PLANNED.
+### Three arcs delivered:
 
 #### Arc 1 (LANDED): SD-WebUI permanent on-demand
-Dotfiles change: `a1111/com.zig.a1111.plist` is now `RunAtLoad=false`, `KeepAlive` removed. `sd-up` / `sd-down` helpers installed to /usr/local/bin. User confirmed do NOT re-enable on offboard. Deployed to pico.
+`a1111/com.zig.a1111.plist` is `RunAtLoad=false`. `sd-up` / `sd-down` are production controls. Do NOT re-enable LaunchAgent.
 
 #### Arc 2 (LANDED): Local-coding-models methodical re-bench (`explore-4te`)
-All 5 candidates re-benched under clean memory, cross-suite reasoning matrix run, GLM 3-bit shipped as alternative to hardware-marginal 4-bit. Synthesis in `~/explore/local-coding-models/refs/AB-verdict-v2.md`. 12 bench result files + per-model training-data doc + reasoning suite (`trinity-eval-prompts.md`) + extended runner (`run-eval.py` with DSL).
-
-**Headline verdicts:**
+5 candidates re-benched + reasoning matrix. Synthesis at `~/explore/local-coding-models/refs/AB-verdict-v2.md`. **Verdicts:**
 - Daily-driver: **Qwen3-Coder MLX** (17/20 + 14/15 reasoning @ 35 tps)
-- Long-context: **Laguna Ollama** (only model passing 100K) + ties Qwen at 14/15 reasoning
-- GLM: **use 3-bit, not 4-bit** (17.5 tps usable vs 0.6 tps unusable)
-- Trinity: **MLX over Ollama** for tool-use (`<think>` field handling differs)
+- Long-context: **Laguna Ollama** (only model passing 100K) + 14/15 reasoning
+- GLM: **3-bit (17.5 tps usable)**, not 4-bit (0.6 tps unusable)
+- Trinity: **MLX over Ollama** (Ollama's `<think>` inline breaks JSON parsers)
 
-#### Arc 3 (PLANNED): Three new epics covering user's three goals
+#### Arc 3 (PLANNED + CHECKED): 4 epics + 4 specs + 4 adversarial /check passes
+Bead-store discipline applied — each epic lives in the repo it belongs to:
 
-Research from 4 parallel agents (Claude Code + local models, pi.dev, Cleft of Dimensions, background-agent patterns). Synthesized into:
+##### Epic A: `dotfiles-ukx` (dotfiles repo) — Claude Code wired to local models
+**Spec**: `dotfiles-ukx.6` + /check notes. **Decision**: claude-code-router proxy (Anthropic Messages ↔ OpenAI-compat). **Key /check findings:**
+- Drop `Router.subagent` config key (not in CCR's documented surface); rely on `CLAUDE_CODE_SUBAGENT_MODEL` env var + `CUSTOM_ROUTER_PATH` as belt-and-suspenders
+- Bump pico `OLLAMA_CONTEXT_LENGTH=65536` (Laguna passes 100K; 32K too conservative)
+- Hard gate: `tooluse` transformer fidelity test must split into T4a/b/c (single Read, multi-line Edit, parallel Read+Bash)
+- 15 tests → 20; 9 spec edits queued
 
-##### Epic A: `explore-sak` — Claude Code wired to local models
-**Goal**: use local models for background tasks + long-running work in Claude Code (where token cost matters).
+##### Epic B: `blightmud-hgi` (blightmud submodule) — CoD MUD agent
+**Spec**: `blightmud-hgi.5` + /check notes. **CoD bot activity is APPROVED** (user supervising closely). **Key /check findings:**
+- **OQ-11 mis-rated LOW → should be HIGH**: daemon belongs on **ubuntu** (where blightmud + named pipe are), model calls go HTTP-LAN to pico. ssh-streaming the event pipe risks 100% data loss on tcp drop.
+- Drop monolithic 3-run graduation streak → per-mode (combat / explore / social-NEVER / quest-last)
+- Quest acceptance: verb whitelist not blacklist (matches §3 action-whitelist philosophy)
+- Death push-notification must fire ≤10s; otherwise "halt-always" silently degrades to "stuck"
 
-**Decision**: `github.com/musistudio/claude-code-router` is the proxy (NPM-installable, translates Anthropic Messages API ↔ OpenAI-compat, supports per-scenario routing rules). Native `ANTHROPIC_BASE_URL` needs Anthropic-format endpoint which mlx_lm.server/Ollama don't provide.
+##### Epic C: `explore-nfc` (explore repo) — 24/7 scientific research agent (LSRA)
+**Spec**: `explore-nfc.5` + /check notes. **Heartbeat pattern over pi.dev/LangGraph.** **Key /check findings:**
+- **Selector starvation bug**: §4.2 row 4 CRITIQUE trigger as written never fires (no note flips below confidence 0.6 because synthesis writes null). Fix: `confidence is null OR < 0.6`
+- **Saturation via Trinity self-judgment is wrong**: asking weakest reasoner (12/15) to arbitrate "novel" is backwards. Use Jaccard-shingle dedup
+- **NEW OQ-13 (P1)**: model-residency policy across action types. Pico cliff at 30 GB weight-footprint; routing 4 models (Laguna 17 / Qwen 15 / Trinity 13 / GLM 44 GB) requires explicit eviction policy
+- Broken-seed policy: log+skip, don't halt (fail-fast contradicts test #8)
 
-Sub-beads:
-- `.1` (P2) install + smoke-test on zig (route 1 test to local Qwen)
-- `.2` (P2) define + ship "use local for background" routing config (per-scenario rules)
-- `.3` (P2) define test suite for "does local model in Claude Code actually work for background tasks"
-- `.4` (P3) headless mode integration — `claude -p` from launchd, scheduled nightly summarization
-- `.5` (P3) dotfiles snapshot — document the production posture
+##### Epic D: `bd-b5p` (autonovel submodule) — autonovel custom pi.dev harness
+**Spec**: `bd-b5p.1` + /check notes. **Replaces Claude Code in-harness orchestrator with pi.dev.** **Key /check findings:**
+- **HARD BLOCKER 1**: OQ-02 slop-eval was calibrated against Claude output. Promote test 6 to Phase-0 gate; if Qwen3 prose breaks correlation, build Qwen3-tells supplement bank before any 24h run. **#1 silent-failure risk** (drafts pass eval, readers smell AI)
+- **HARD BLOCKER 2**: OQ-03 voice transfer. Mandate prompt-augmentation via `identity/few_shot_bank/` — style-transfer literature: smaller models need *demonstrations*, not *descriptions*
+- **Drop Trinity-as-router**: routing-table is deterministic Python (per heartbeat/SKILL.md Step 3); LLM router wastes a call + adds non-determinism for zero benefit
+- Phase 1 = local-only (no Claude Code hybrid); decouple from dotfiles-ukx launch risk
 
-##### Epic B: `explore-yw9` — MUD agent for Cleft of Dimensions (rescoped from deferred)
-**Goal**: 24/7 LLM-powered agent that plays CoD via blightmud (or pi.dev). User-stated first target.
+### Bead location discipline (now correct)
+Earlier in session beads were sloppy — Claude Code + MUD epics placed in umbrella explore beads. User caught it. Migrated 9 beads to correct stores (folder children → umbrella, submodules → own beads, dotfiles only for true dotfiles work). Supersession trail preserved.
 
-**Hard gate**: email cleftofdimensions@gmail.com (or Discord https://discord.gg/cSqkpbu) for bot policy clarity. Wiki/FAQ don't address it.
+## What's next (recommended path — updated)
 
-**Architecture (per research)**:
-- Inference: Trinity Mini (52 tps, fast impulse layer) + Qwen3-Coder (instruction-following for command output). Both already on pico.
-- Harness: **try pi.dev first** (built-in state mgmt + tool-calling). Fallback: Blightmud + external Rust daemon (read MUD output → call LLM → write commands via named pipe).
-- Latency budget: 1-2 sec per agent decision. Combat tight; planning happens in safe rooms.
+The 4 specs are spec'd + checked. Each has a **Spec updates needed** list (9 / 6 / 9 / 7 edits) ready for re-dispatch to `/spec` before `/test` waves.
 
-Sub-beads:
-- `.1` (P1) email CoD staff re: bot policy — **GATE**
-- `.2` (P2) manual character creation + 2h play log
-- `.3` (P2) pi.dev evaluation as MUD-agent harness
-- `.4` (P2) prototype mapper for CoD
+**Recommended order:**
 
-More sub-beads (.5-.9) sketched in the bead body for: combat loop, persistence, fine-tuning, 24-hour autonomous run, design lessons writeup.
+1. **Epic A first** (`dotfiles-ukx.6`) — Wave 1: verify before building. `ssh pico` to confirm OLLAMA_CONTEXT_LENGTH, dispatch one-off worktree subagent to probe `$CLAUDE_CODE_SUBAGENT_MODEL` propagation, read CCR source for `Router.subagent` support. These are 30-min checks that gate spec edits.
 
-##### Epic C: `explore-nfc` — 24/7 scientific research agent on local models
-**Goal**: long-running (8+ hour) research arcs on user-chosen topics, leveraging "tokens are free when owning the model."
+2. **Epic C in parallel** (`explore-nfc.5`) — resolve OQ-01 (selector trigger), OQ-13 (residency policy), then /test wave. Research agent has no external dependencies. User's stated primary use case.
 
-**Harness options**:
-- Heartbeat router (autonovel pattern, JSON disk state)
-- pi.dev (Earendil, MIT-licensed, built for this shape)
-- LangGraph (heavier, used in linearb agent-dev-interrupted)
+3. **Epic B after Epic A's W3** (`blightmud-hgi.5`) — depends on tooluse transformer verdict (subagent dispatch model needs to handle JSON cleanly). Daemon-on-ubuntu means setup is independent of pico router stability.
 
-Sub-beads:
-- `.1` (P2) choose first research topic (user-driven) + acceptance criteria
-- `.2` (P2) harness decision — heartbeat-pattern vs pi.dev vs LangGraph
-- `.3` (P2) prototype 8-hour research run (single topic, persistence-tested)
-- `.4` (P3) domain-specific fine-tuning evaluation (depends on `explore-4te.9`)
-
-### Cross-cutting: Phase 2 fine-tuning (`explore-4te.9`)
-Pre-existing bead, now load-bearing for both Epic B (MUD-agent fine-tune) and Epic C (research-agent fine-tune). Should unblock once Epic A's foundations land.
-
-## What's next (user-recommended path)
-
-**Start with Epic A** — `explore-sak.1` install + smoke claude-code-router. That's the foundation all three epics ultimately rest on. Without local-model integration into Claude Code, the harness story for Epics B + C is more fragmented.
-
-**Then Epic C** — `explore-nfc.1` pick a research topic. User has explicit interest in scientific research as a primary use case; once Claude Code can route to local models cheaply, this is the natural extension.
-
-**Then Epic B** — `explore-yw9.1` email CoD staff (gated). User has stated this is the fun project, lower urgency than Epic A/C. The bot-policy gate may take days for a response.
+4. **Epic D last** (`bd-b5p.1`) — depends on Phase-0 calibration pass (OQ-02). User has running autonovel today via Claude Code; pi.dev swap is enhancement not blocker.
 
 Pre-existing carryover:
-- **DeepSeek bench** (`explore-4te.13`) — candidate #6, license note (DeepSeek License, not Apache/MIT). Run after current arcs settle.
-- **Task #36** (pico disk cleanup, ~90 GB potential reclaim) — discuss with user before deleting.
+- **DeepSeek bench** (`explore-4te.13`) — candidate #6, run after current arcs settle
+- **Task #36** (pico disk cleanup, ~90 GB potential reclaim: ~/glm-flat 56GB, ~/trinity-gguf 15GB, residual cache 2GB, Laguna mxfp4 unused 17GB) — discuss with user before deleting
 
 ## Warnings / watch-outs
 
-- **SD-WebUI stays permanently on-demand.** Per user explicit instruction. Don't re-enable LaunchAgent. `sd-up` / `sd-down` are the production controls.
-- **GLM 4-bit weights superseded** by 3-bit at `~/glm-3bit/` on pico. `~/glm-flat/` 4-bit is dead weight; discuss cleanup with user.
-- **`hf download` truncates `.incomplete` files on resume.** Use the curl-resume scripts (`~/local-coding-models/glm-resume-download.sh` and `~/local-coding-models/glm-3bit-resume-download.sh` on pico). Both robust.
-- **Trinity Ollama vs Trinity MLX have different `<think>` behavior**: MLX uses separate `reasoning` field (clean for JSON parsers); Ollama embeds inline in `content` (breaks parsers). Always prefer Trinity MLX for tool-use agents.
-- **Laguna MLX is BLOCKED** — `LagunaForCausalLM` not in mlx-lm 0.31.3. Laguna is Ollama-only locally until upstream adds support.
-- **Memory hygiene discipline**: restart `mlx_lm.server` between models so only one is resident. GLM 4-bit needs ~50 GB headroom; GLM 3-bit needs ~30 GB.
-- **CoD bot policy unknown** — don't build the MUD agent's automation pieces past prototype before getting an answer from staff. Email is the hard gate.
-- **Pico disk: 286/926 GB used** — lots of headroom but Task #36 cleanup discussion pending before next big downloads.
+- **SD-WebUI stays permanently on-demand.** Per user explicit instruction. Don't re-enable LaunchAgent.
+- **CoD bot activity APPROVED** (user supervising closely). No gate.
+- **Hosted APIs RULED OUT** for local-model work. User explicit: "do NOT use a hosted API."
+- **GLM 4-bit weights superseded** by 3-bit at `~/glm-3bit/` on pico. Cleanup pending Task #36.
+- **Memory hygiene**: restart `mlx_lm.server` between models. Don't bench concurrently.
+- **`hf download` truncates `.incomplete`** on resume. Use curl-resume scripts on pico.
+- **Trinity MLX > Trinity Ollama** for tool-use (Ollama's inline `<think>` breaks JSON parsers).
+- **Laguna MLX BLOCKED** — `LagunaForCausalLM` not in mlx-lm 0.31.3. Ollama-only locally.
+- **Long jobs go to log files** on target host (memory pattern saved): >5min jobs use nohup-to-log; tail on demand; never harness-tracked timeouts.
+- **Bead location discipline**: folder children → umbrella, submodules → own beads, dotfiles only for true dotfiles work. Worktree subagents dispatched from target repo.
 
-## Files written during planning round
-- `~/explore/.beads/issues.jsonl` — three new epics + sub-beads (committed in `6d4ec62`)
-- This handoff note (updated)
+## Cross-cutting: Phase 2 fine-tuning (`explore-4te.9`)
+Now load-bearing for Epic B (MUD-agent fine-tune) and Epic C (research-agent fine-tune). Should unblock once Epic A's foundation lands. Probably wave 7+.
 
-## Files referenced
+## Files written / referenced
+- `~/dotfiles/.beads/issues.jsonl` (dotfiles-ukx + sub-beads + .6 spec + /check notes)
+- `~/explore/.beads/issues.jsonl` (explore-nfc + sub-beads + .5 spec + /check notes; explore-4te.9, .13)
+- `~/explore/blightmud/.beads/issues.jsonl` (blightmud-hgi + sub-beads + .5 spec + /check notes)
+- `~/explore/autonovel/.beads/issues.jsonl` (bd-b5p + .1 spec + /check notes)
 - `~/explore/local-coding-models/refs/AB-verdict-v2.md` — synthesis of bench arc
 - `~/explore/local-coding-models/refs/models-training-data.md` — per-model training data + licenses
 - `~/dotfiles/a1111/{README.md, com.zig.a1111.plist, sd-up, sd-down}` — SD on-demand
+- `/tmp/spec-bodies/{dotfiles-ukx-6, explore-nfc-spec, blightmud-hgi-spec, autonovel-spec}.md` — spec bodies (also in bead --notes)
+- `/tmp/check-notes/{dotfiles-ukx-6, explore-nfc-5, blightmud-hgi-5, bd-b5p-1}-check.md` — /check pass results (also in bead --notes)
