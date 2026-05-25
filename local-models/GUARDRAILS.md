@@ -72,10 +72,11 @@ The earlier "empty content" finding was misread — the prose generation request
 | Prose / narrative / brainstorming | ✅ Read `content`; ignore `reasoning` (or surface as audit trail) | ⚠️ Strip `<think>` block first |
 | Planning where reasoning trace is wanted | ✅ Surface `reasoning` to user | ⚠️ Extract via regex |
 
-**Preferred routing**:
-- Tool calls / structured output → **Qwen3-Coder MLX** (verified parallel tool calls)
-- Prose / narrative → **Qwen3-Coder Ollama** or **Laguna Ollama** (NOT Qwen3 MLX — see G13 below)
-- Reasoning-heavy planning → Trinity MLX with both fields surfaced
+**Preferred routing** (updated 2026-05-25 evening with Devstral receipt):
+- Tool calls / structured output → **Qwen3-Coder MLX or Ollama** (verified parallel tool calls). Trinity MLX OK with trinity_shim.py wrapper. **Devstral OUT** (no function-calling training; hallucinates shell commands instead per explore-4te.21 probe).
+- Prose / narrative → **Qwen3-Coder Ollama** (preferred), **Laguna Ollama**, **Qwen3 MLX with G13 sampler fix**, **Trinity MLX**, **Devstral MLX** (all viable; pick by latency/voice fit)
+- Code generation → Qwen3 or Devstral (both score 17/20 on bench)
+- Reasoning-heavy planning → Trinity MLX with both `content` + `reasoning` fields surfaced
 
 ## G13 — `mlx_lm.server` repetition collapse — FIXED (use `repetition_penalty` in request body)
 
