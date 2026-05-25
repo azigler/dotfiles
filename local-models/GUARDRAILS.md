@@ -320,13 +320,33 @@ The env-var route `CLAUDE_CODE_SUBAGENT_MODEL` IS a real documented var but **up
 
 **No `subagentModel` settings.json key exists.** Closest is `teammateDefaultModel` (Agent Teams only, in `~/.claude.json`, alias-only).
 
-**THE WORKING MECHANISM** (verified in CCR source at `/home/ubuntu/.nvm/versions/node/v24.15.0/lib/node_modules/@musistudio/claude-code-router/dist/cli.js`):
+**THE WORKING MECHANISM** (verified in CCR source AND empirically tested 2026-05-25):
 
-```
-<CCR-SUBAGENT-MODEL>provider,model</CCR-SUBAGENT-MODEL>
+The tag must appear in `body.system[1].text` (the **second** system message in an Anthropic Messages request — NOT in user content, NOT in the first system message). CCR's request handler checks for this specific shape:
+
+```javascript
+if(e.body?.system?.length>1 && e.body?.system[1]?.text?.startsWith("<CCR-SUBAGENT-MODEL>")){
+  let h = e.body?.system[1].text.match(/<CCR-SUBAGENT-MODEL>(.*?)<\/CCR-SUBAGENT-MODEL>/s);
+  if(h) { /* strip tag, route to h[1] */ }
+}
 ```
 
-CCR pattern-matches and strips this tag from the prompt, then routes that specific request to the specified provider/model. Because it travels in the prompt payload (not env), it sidesteps Claude Code's broken env propagation entirely.
+**Correct wire shape:**
+
+```jsonc
+{
+  "model": "claude-opus-4-7",  // ignored — overridden by tag
+  "system": [
+    {"type": "text", "text": "<your normal system prompt>"},
+    {"type": "text", "text": "<CCR-SUBAGENT-MODEL>pico-ollama,qwen3-coder:30b</CCR-SUBAGENT-MODEL>"}
+  ],
+  "messages": [...]
+}
+```
+
+**Empirical receipt (2026-05-25):** sent request with `model: claude-opus-4-7` + tag in system[1] → response had `model: qwen3-coder:30b`. **Tag works as documented.**
+
+**For Claude Code subagent dispatches:** Claude Code naturally builds multi-element `system[]` arrays (system prompt + CLAUDE.md + skill bodies). The orchestrator must inject the tag as a NEW second system message (or insert it at index 1 if it doesn't exist there). This is where the `/dispatch` skill would plumb the override.
 
 **Proven config:**
 1. Run `eval "$(ccr activate)"` to set `ANTHROPIC_BASE_URL=http://127.0.0.1:3456` + `ANTHROPIC_AUTH_TOKEN=ccr` in current shell + all children
