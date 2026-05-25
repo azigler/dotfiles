@@ -1,0 +1,43 @@
+{
+  "LOG": true,
+  "LOG_LEVEL": "info",
+  "API_TIMEOUT_MS": 180000,
+  "Providers": [
+    {
+      "name": "anthropic",
+      "api_base_url": "https://api.anthropic.com/v1/messages",
+      "api_key": "$ANTHROPIC_API_KEY",
+      "models": [
+        "claude-opus-4-7",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5-20251001"
+      ]
+    },
+    {
+      "name": "pico-mlx",
+      "api_base_url": "http://100.72.47.4:8081/v1/chat/completions",
+      "api_key": "ollama",
+      "models": [
+        "mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit",
+        "mlx-community/Trinity-Mini-4bit",
+        "mlx-community/Devstral-Small-2507-5bit"
+      ]
+    },
+    {
+      "name": "pico-ollama",
+      "api_base_url": "http://100.72.47.4:11434/v1/chat/completions",
+      "api_key": "ollama",
+      "models": [
+        "qwen3-coder:30b",
+        "laguna-xs.2:latest",
+        "devstral:24b"
+      ]
+    }
+  ],
+  "Router": {
+    "default": "anthropic,claude-opus-4-7",
+    "background": "pico-mlx,mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit",
+    "longContext": "pico-ollama,laguna-xs.2:latest",
+    "longContextThreshold": 50000
+  }
+}

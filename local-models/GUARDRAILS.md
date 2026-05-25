@@ -6,19 +6,27 @@ Last updated: 2026-05-25.
 
 ---
 
-## G1 — Never route tool-use calls to Trinity Ollama
+## G1 — Never route tool-use calls to Trinity (either backend)
 
-**Symptom:** JSON tool-call parsing fails silently; agent gets back malformed `tool_use` blocks or empty content.
+**Symptom:** JSON tool-call parsing fails silently; agent gets back malformed `tool_use` blocks or empty `tool_calls[]`.
 
-**Root cause:** Trinity-Mini Ollama emits `<think>...</think>` reasoning tokens *inline inside `content`* during tool-use responses. Trinity-Mini MLX writes the same content to a separate `reasoning` field, leaving `content`/`tool_calls` clean. Bench validated in `~/explore/local-coding-models/refs/AB-verdict-v2.md` (Trinity Ollama scored 14/20 vs Trinity MLX 17/20, with reasoning-format failures the dominant cost).
+**Root cause (revised 2026-05-25 with empirical evidence):** Trinity-Mini emits tool calls as **text inside `content`** with `<tool_call>...</tool_call>` markers, NOT as structured `tool_calls[]`. This applies to **both MLX and Ollama backends.**
+
+**Empirical receipt (2026-05-25, Trinity MLX via mlx_lm.server):**
+```json
+{"content": "\n<tool_call>\n{\"name\": \"read_file\", \"arguments\": {\"path\": \"/etc/hostname\"}}\n</tool_call>",
+ "tool_calls": []}
+```
+Same shape Trinity Ollama produces. The earlier hypothesis that "Trinity MLX writes to separate `reasoning_content` field" turned out to be wrong — `reasoning_content` is `<absent>`. The bench scored it higher only because the coding-suite prompts don't depend on structured tool calls.
 
 **Rule:** if an action requires structured output (tool calls, JSON, format-strict response):
-- Trinity MLX: OK
-- Trinity Ollama: BANNED
-- Qwen3-Coder MLX: preferred (14/15 reasoning, 35 tps)
+- **Qwen3-Coder MLX: preferred** ✅ (verified parallel tool calls work)
+- **Devstral MLX**: likely OK (similar architecture; verify if used)
 - Laguna Ollama: OK (14/15 reasoning, format-clean)
+- **Trinity (MLX or Ollama): BANNED** ❌
+- Laguna MLX: see G7 (not actually served)
 
-If you have a deployment where only Ollama is available, use **Laguna** for tool-use, not Trinity.
+**Trinity is still useful** for unstructured tasks: pure prose, brainstorming, narrative planning, summarization where you parse free text yourself. Just don't route tool-calling agents through it.
 
 ---
 
@@ -128,15 +136,26 @@ Generic shorthand like `"qwen3-coder"` or `"laguna"` in config files is a bug ma
 
 ---
 
-## G9 — `mlx_lm.server` upstream has no tool-use parser
+## G9 — `mlx_lm.server` tool-use support is model-dependent (RETRACTED original claim)
 
-Stock `mlx_lm.server` returns tool calls as **free-text inside `content`** (e.g. `<tool_call>read_file{...}</tool_call>`), not as structured `tool_calls[]`.
+**Original claim (2026-05-25 morning):** "Stock mlx_lm.server has no tool-use parser; needs cubist38 fork."
 
-The `cubist38/mlx-openai-server` fork adds proper tool-use parsing. If your agent needs structured tool calls from MLX, pin to the fork.
+**REVISED with empirical evidence (2026-05-25 evening):** Stock `mlx_lm.server` DOES return structured `tool_calls[]` for models that were trained on tool-use (Qwen3-Coder). It does NOT for models that weren't (Trinity).
 
-**Verify** before assuming: `curl <mlx-server>/v1/chat/completions` with a `tools` array and check whether the response has `choices[0].message.tool_calls` or just `content` with tool-call-shaped text.
+**Empirical evidence:**
 
-(Scrutinize finding from Epic A; applies to all epics routing through MLX with tool-use.)
+| Model | tool_calls[] populated? | parallel tool calls? |
+|---|---|---|
+| `mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit` | ✅ yes | ✅ yes (verified: 2 read_file calls in one turn) |
+| `mlx-community/Trinity-Mini-4bit` | ❌ no — jams in `content` as `<tool_call>...</tool_call>` text | n/a |
+| `mlx-community/Devstral-Small-2507-5bit` | not yet tested | not yet tested |
+| `mlx-community/Laguna-XS.2-mxfp4` | n/a (G7 — doesn't serve) | n/a |
+
+**Rule:** Stock mlx_lm.server is fine for Qwen3-Coder tool-use including parallel calls. **The cubist38/mlx-openai-server fork is NOT required** for the workloads in scope. If you switch to a different model and tool calls start showing up in `content`, you've hit a model-side limitation (G1 applies — that model is on the banned list for tool use).
+
+**Verify** before assuming for a new model: `curl <mlx-server>/v1/chat/completions` with a `tools` array and check whether the response has `choices[0].message.tool_calls` or just `content` with tool-call-shaped text.
+
+This materially de-risks Epic A — no pico-side rewrite needed. (Spec edit: §3.1 doesn't need to pin server fork.)
 
 ---
 
