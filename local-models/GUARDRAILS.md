@@ -95,17 +95,36 @@ Applies to: model downloads, benchmarks, fine-tuning, 24h agent runs, eviction p
 
 `LagunaForCausalLM` is not in mlx-lm 0.31.3. Laguna is **Ollama-only** locally until upstream adds support.
 
-If a spec asks "route long-context to Laguna MLX," it's wrong. Route to **Laguna Ollama** (`laguna-xs.2:Q4_K_M` or equivalent — verify with `ollama list` on pico).
+**Empirical verification (2026-05-25):** `mlx_lm.server` *lists* `mlx-community/Laguna-XS.2-mxfp4` in `/v1/models` (because the path exists on disk), but a real `POST /v1/chat/completions` returns:
+```
+error: Model type laguna not supported.
+```
+So even though discovery shows it, completion rejects it. Don't be fooled by the model-list response.
+
+If a spec asks "route long-context to Laguna MLX," it's wrong. Route to **Laguna Ollama** (`laguna-xs.2:latest` — verify with `ollama list` on pico).
 
 ---
 
 ## G8 — Model IDs must match the on-disk tag exactly
 
-Generic shorthand like `"qwen3-coder"` or `"laguna"` in config files is a bug magnet. The actual identifiers are full paths:
-- MLX: `mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit` (or whatever the resident path is)
-- Ollama: `hf.co/Poolside/laguna-xs.2-gguf:Q4_K_M` (or what `ollama list` shows)
+Generic shorthand like `"qwen3-coder"` or `"laguna"` in config files is a bug magnet. The actual identifiers are full paths.
 
-**Rule:** any config touching local models must reference the *exact* tag. CCR's provider config, pi.dev's model field, scripts that curl `/v1/chat/completions` all need to match what `mlx_lm.server` loaded or `ollama list` shows. Use `ssh pico 'ollama list && ls ~/Library/Application\ Support/io.poolside.mlx/models'` to verify before committing config.
+**Empirically verified on pico (2026-05-25):**
+
+| Backend | Exact tag | Notes |
+|---|---|---|
+| MLX | `mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit` | ✅ serves |
+| MLX | `mlx-community/Trinity-Mini-4bit` | ✅ serves |
+| MLX | `mlx-community/Devstral-Small-2507-5bit` | ✅ serves |
+| MLX | `mlx-community/Laguna-XS.2-mxfp4` | ❌ listed but errors per G7 |
+| Ollama | `qwen3-coder:30b` | ✅ |
+| Ollama | `trinity-mini:latest` | ✅ but G1 applies |
+| Ollama | `laguna-xs.2:latest` | ✅ — use for long-context |
+| Ollama | `devstral:24b` | ✅ |
+| Ollama | `qwen2.5:7b` | small fallback |
+| Ollama | `llama3.2:3b` | smallest fallback |
+
+**Rule:** any config touching local models must reference the *exact* tag. Use `curl http://100.72.47.4:8081/v1/models` (MLX) and `curl http://100.72.47.4:11434/api/tags` (Ollama) over tailnet to verify before committing config.
 
 ---
 
@@ -118,6 +137,24 @@ The `cubist38/mlx-openai-server` fork adds proper tool-use parsing. If your agen
 **Verify** before assuming: `curl <mlx-server>/v1/chat/completions` with a `tools` array and check whether the response has `choices[0].message.tool_calls` or just `content` with tool-call-shaped text.
 
 (Scrutinize finding from Epic A; applies to all epics routing through MLX with tool-use.)
+
+---
+
+## G11 — Tailnet HTTP latency to pico ≈ 160-220ms RTT
+
+Measured 2026-05-25 from zig→pico over Tailscale, 100 sequential GETs:
+
+| Endpoint | P50 | P95 | P99 | min | max |
+|---|---|---|---|---|---|
+| MLX `/v1/models` | 183ms | 195ms | 223ms | 168 | 223 |
+| Ollama `/api/tags` | 160ms | 171ms | 187ms | 156 | 187 |
+
+**~3× higher than ping latency** (HTTP request overhead + JSON serialization + tailnet WireGuard). This is the *floor* — actual completion calls add prompt-prefill + decode time on top.
+
+**Implications:**
+- B's combat tier targeted ≤300ms decisions; network alone eats ~200ms, leaving ~100ms for decode. Trinity MLX at 52 tps × 80 tokens = 1.54s decode — **B's combat target is unmeetable as written** (scrutinize A4 confirmed empirically).
+- A's scheduled headless jobs that do N tool calls: each Read/Bash roundtrip costs ~200ms over and above local execution. A 20-tool-call task takes 4s of pure network overhead before any LLM work.
+- C/D running on-pico daemons avoid this entirely (localhost calls are sub-ms).
 
 ---
 
