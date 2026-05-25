@@ -1,77 +1,128 @@
-# Session handoff — 2026-05-24 0da5df73
+# Session handoff — 2026-05-25 beb8609d
 
 ## State at offboard
 
-- **Branch**: main, clean working tree (after the cutover rollback)
-- **Last commit**: `9598003 :bug: orchestrator: recovery worktree must symlink .beads/ (gap caught)`
-- **SS14 production**: BACK ON ZIG-COMPUTER (rolled back from mid-cutover). Round 19, 0 players, /status responsive. Pre-cutover state restored.
-- **In-flight subagents**: none (all returned + merged + cleaned up)
-- **Open beads** (in_progress): 4
-  - `dotfiles-52c` (study) — parent C2 exploration umbrella
-  - `dotfiles-9g1` (spec) — C2 spec, stays open until cutover ships
-  - `dotfiles-oxe` (task) — live cutover playbook, PAUSED mid-step-8 (see --notes for full pause state)
-  - `dotfiles-jc5` (bug, P1) — NEW: wrapper-impl bug surfaced live during cutover
-- **Markers**: `.offboard-pending` cleared by this commit
-- **Deferred**: dotfiles-st2 (iPhone Termius nerdfonts), dotfiles-406 (zig laptop tailnet)
+- **Branch**: main, clean working tree
+- **Last commit**: `3a785a7 :card_file_box: beads: close 52c, jjd, r8k — C2 exploration arc fully closed`
+- **SS14 production**: ON ZIG-COMPUTER, round 25, 1 player (the user), map "Reach", run_level 1, stable. Robust.Server pid 1321781, fork binary, all-listeners green.
+- **Open beads**: 2 — both deferred (st2 iPhone Termius nerdfonts; 406 zig laptop tailnet)
+- **In-flight subagents**: none
+- **Markers**: `.offboard-pending` not present
+- **Cost tracking**: not enabled for this project (no `.claude/plans/cost-tracking.md`); skipping the ledger update
 
-## What happened this session (massive arc — the whole C2 cycle)
+## What happened this session (the C2 arc — landed + rolled back)
 
-### Pre-C2 prep
-- A1111 stable-diffusion-webui set up on pico (rp0/43l/lus/npc) — tailnet+LAN bind, --no-half for SDXL inpaint MPS, --api for household Claudes, handoff doc delivered to iPhone via Taildrop
-- ssh-pico-via-tailnet host alias landed (~/.ssh/local pattern, gitignored)
+This session resumed after compaction with the C2 cutover paused mid-Step-8 due to wrapper-impl bug `dotfiles-jc5`. The arc completed end-to-end: fix → spec correction → cutover → latency-driven rollback → fork-binary redeploy → wrapper relocation. All beads closed.
 
-### TPROXY/GRE exploration (research agent)
-- Both ruled out: TPROXY-to-macOS = no clean asymmetric routing; GRE/IPIP = tailscale#14006 blocks non-TCP/UDP/ICMP over WireGuard
-- 52c reframed → led to C2 (Approach C: wrapper-pair with minimal Robust.Server patches)
+### 1. Fix `dotfiles-jc5` (wrapper PROXY-per-session bug)
 
-### C2 — full pipeline
-- `dotfiles-9g1` spec written (subagent, ~21KB, 18 test cases, 13 OQs) + revised post-/check (55.8KB)
-- `dotfiles-9cj` /check walked all 3 P1 OQs (OQ-03 NEEDS-WORK = PROXY v1 not v2; OQ-01 ACCEPT proxy_timeout 120s; OQ-02 ACCEPT stateless wrapper)
-- `dotfiles-qts` test wave: 35 Go test functions + Bash integration test + SS14 C# test design sketch
-- `dotfiles-1bi` impl: ss14-wrapper Go daemon, 35/35 PASS, /scrutinize SHIP
-- `dotfiles-xx9` integration test extended past wrapper-present gate, end-to-end verified
-- `dotfiles-b9o` deploy artifacts (build.sh, plist, README, deploy.sh, mac.setup.sh extension)
-- `vs-4h1` SS14 C# patches: IRemoteAddressOverride + Ss14WrapperRemoteAddressOverride + 2 patch sites + cvars + 30 tests (vacation-station-14 + RobustToolbox submodule)
-- /scrutinize on vs-4h1 = FIX-FIRST: caught CRITICAL F1 auth-bypass (3rd patch site at NetManager.ServerAuth.cs:49 missed by spec) + F2/F3 test weaknesses
-- `vs-q7m` fix wave: F1+F2+F3 all addressed with real oracles, /scrutinize SHIP
-- Cross-repo dispatch lessons → orchestrator skill updated TWICE (first attempt wrong about cwd persistence; second corrected with worktree-recovery + .beads symlink pattern)
-- RobustToolbox forked to azigler/RobustToolbox, .gitmodules flipped, branch ss14-fork/wrapper-remote-address-vs-4h1 pushed
+- Dispatched worktree subagent against `ss14-wrapper/wrapper/proxy.go` + `session.go`
+- Added `LookupBySrcTuple` to `SessionStore` (thread-safe write-lock + bumps `LastSeen`)
+- Introduced `ErrNoProxyHeader` vs `ErrMalformedProxyHeader` classification — parse-failure becomes a *routing signal* (look up established session) rather than a drop signal
+- Added 4 new tests: 2 error-classification + 2 live-`ServeUDP` (regression guard + orphan-drop guard)
+- Extended integration test with multi-datagram-same-src-port stage (pinned src port, 1 headered + 2 headerless → all 3 must reach upstream)
+- `/scrutinize` verdict: **SHIP**. Reviewer independently reproduced pre-fix failure by reverting only the parse-failure branch body — confirmed real regression guard, not just additive coverage.
+- Merged `eb4ff2a` + closure `43deecf`
 
-### Cutover (dotfiles-oxe) — PARTIALLY EXECUTED + ROLLED BACK
-- Pre-flight: SS14 was empty (0 players); pico vs14 updated; Content.Server published with FullRelease + osx-arm64; rsync to watchdog instance bin/
-- Steps 1-7 worked (cvar config, watchdog load, synthetic UDP test, nginx stream block + reload, zig watchdog stop)
-- Step 8 (real client) FAILED — handshake timeout
-- Root cause: **wrapper-impl bug** — nginx emits PROXY-protocol on UDP ONCE per src-tuple session, but wrapper expects it per-datagram. First handshake packet succeeded, subsequent dropped → Lidgren timeout.
-- The /check OQ-03 finding ("PROXY on every datagram") was wrong — generalized from a synthetic test that used different src ports.
-- Filed `dotfiles-jc5` (P1 bug) with full diagnosis + fix sketch (need `LookupBySrcTuple` on session store).
-- Rolled back to zig cleanly: nginx stream block removed, zig watchdog re-enabled, Robust.Server back on :1212.
+### 2. Spec correction (`dotfiles-9g1` §3.8)
 
-### Tailnet infrastructure side-quests
-- Pico untagged from tag:server → user-owned (azigler@github) to enable native Taildrop with iPhone/metis (gotcha #23)
-- Tailscale SSH grammar has NO syntax for tag-src → user-owned-dst (exhausted all variants); workaround = macOS sshd alt-port :2222 via /Library/LaunchDaemons/com.zig.sshd-alt-port.plist (gotcha runbook section)
-- Tailscale `--force-reauth` doesn't re-publish SSH host keys to control plane → `tailscale set --ssh=false/true` toggle is the actual fix (gotcha #24 in runbook)
-- File-transfer "nexus" route documented in runbook: zig → pico via :2222+key auth, pico → user-devices via native same-user Taildrop
+- Appended **POST-jc5 CORRECTION** block to spec's `--description` documenting that nginx UDP `proxy_protocol on` emits headers ONCE per nginx-UDP-session (keyed on client `<src-ip, src-port>`), NOT per datagram as the spec originally claimed
+- Listed every affected section (§1.3, §3.6, §3.8, §4.1, §4.2, §5 TC03, §6 OQ-03 resolution)
+- Appended SUPERSEDED pointer to closed bead `dotfiles-9cj` `--notes` (the /check decision whose OQ-03 conclusion drove the bug)
+- Test-fixture lesson: the OQ-03 synthetic test used `nc` invocations that allocated a fresh ephemeral src port per datagram → each got its own nginx UDP session → each got its own header (masking the per-session-only behavior). Real Lidgren uses ONE src port for the entire handshake. **General rule**: any UDP test sending multiple datagrams MUST pin the src port to honestly exercise session-reuse.
+- Commit `24e48d2`
 
-### Misc
-- Orchestrator skill cross-repo dispatch rule: documented the subagent-self-recovery pattern (with .beads/ symlink fix caught mid-session by user)
+### 3. Cutover (`dotfiles-oxe`) — executed cleanly
+
+- Built fresh wrapper binary with jc5 fix (`53b9083...`), deployed to pico via `scp` + `launchctl kickstart -k`
+- Loaded pico's ss14-watchdog (Robust.Server pid 38327 bound `127.0.0.1:1213` UDP, `*:1213` TCP)
+- Synthetic UDP smoke test (3 datagrams from src `:56000` → pico:11214) created ONE session with real IP `192.0.2.99` — jc5 fix verified live on production hardware
+- Wrote `/etc/nginx/streams-enabled/ss14-game.conf` (upstream `100.72.47.4:11214`, `proxy_protocol on`, `proxy_timeout 120s`)
+- Stopped zig watchdog → `:1212` freed → reloaded nginx → bound `:1212` cleanly
+- **User connected via launcher** — 3 wrapper sessions attributed to real IP `172.116.51.187:54724` (Lidgren multiplexed 3 channels through 3 fanout ports). Zero drops in wrapper log since startup.
+- /status via public endpoint returned valid JSON through nginx → wrapper → Robust.Server
+- Test ban (`/ban yourself 1 jc5-test`) confirmed: `ban_player` + `ban_hwid` recorded; `ban_address` empty (SS14's `/ban` doesn't populate IP scope — that's a separate `/banip` codepath, not a wrapper failure)
+- `player.last_seen_address` recorded user's real IP `172.116.51.187` — proves `IRemoteAddressOverride` flowed through the moderation read path end-to-end
+
+### 4. The latency disqualifier
+
+- Captured cutover-active baseline: `zig→pico tailnet RTT ~76ms avg` (direct WireGuard, NOT DERP), `public /status RTT ~193ms avg`
+- **Per-packet add of ~76ms** to every game packet (cross-country round trip: Ashburn ↔ user's home in Pacific)
+- User feedback: "pretty laggy actually" — for the operator specifically, who lives at pico's location, their packets traverse the continent twice (~150ms total vs ~75ms pre-cutover)
+- Decision: **roll back**. C2 architecture is technically proven; deployment topology was geographically wrong.
+
+### 5. Rollback executed
+
+- Unload pico watchdog + replay-rotate (frees `pico:1213`)
+- Remove `/etc/nginx/streams-enabled/ss14-game.conf`
+- `nginx -t` + reload (frees `zig:1212`)
+- Re-enable + start zig's ss14-watchdog → Robust.Server back on `*:1212`
+- Post-rollback baseline: `/status RTT ~108ms` (saved ~85ms by removing the pico hop)
+- Round 21 started fresh on zig
+
+### 6. Spec/study capture (`dotfiles-v1i`)
+
+- Created and populated comprehensive study bead: topology diagram, A/B/C/D measurements (tailnet ping, /status, postgres SELECT), what-we-learned (5 lessons), what-not-to-undo, recommendations
+- Closed with full receipt
+
+### 7. Rules issue diagnosis (the surfaced latent bug)
+
+- Post-rollback, user got empty rules screen on reconnect. Diagnosed two compounding causes:
+  - `admin.server_ban_reset_last_read_rules = true` (default) — the test ban reset `last_read_rules` to NULL, forcing re-acceptance
+  - Zig's deployed `bin/Resources/ServerInfo/` directory was **entirely missing** — latent stale-deployment bug. Rules path resolved to a missing file → empty content shown
+- **Fix A**: rsync `Resources/ServerInfo/` from vs14 source → zig bin. Rules now load (content is upstream stub "This server has not written any rules yet" — user's editorial choice to write real ones later)
+- User confirmed the rules were *always* empty (their guidebook web app at ss14.zig.computer/guidebook/DefaultRuleset.html also shows the stub) — this was never cutover-caused data loss
+
+### 8. Zig binary rebuild from fork source
+
+- User wanted zig's binary to match source (include the fork code, sitting inert)
+- Previous zig binary was from 2026-04-12, six weeks pre-fork
+- Ran `dotnet run --project Content.Packaging -- server --platform linux-x64` (the canonical SS14 packaging path; raw `dotnet publish Content.Server` is incomplete — missing libe_sqlite3.so, libsodium.so, deps.json, etc.)
+- Extracted `release/SS14.Server_linux-x64.zip` → zig bin/
+- First restart attempt: Robust.Server crash-looped on launcher-connect attempts — missing `Content.Client.zip` for the ACZ provider
+- Built client zip with `Content.Packaging -- client --hybrid-acz`, placed at `bin/Content.Client.zip`
+- Killed persisted Robust.Server child (PersistServers=true kept the broken one alive across systemctl restart)
+- Fresh spawn picked up Content.Client.zip → stable, no ACZ crashes
+- Binary now contains IRemoteAddressOverride patches but they sit inert (`net.use_wrapper_remote_address` cvar not set in zig's config)
+
+### 9. Wrapper relocation
+
+- Unloaded `com.zig.ss14-wrapper` LaunchAgent on pico (binary kept in place for forensics)
+- Moved `dotfiles/ss14-wrapper/` → `vacation-station-14/ops/ss14-wrapper/`
+- Updated Go module path: `github.com/azigler/dotfiles/ss14-wrapper` → `github.com/azigler/vacation-station-14/ops/ss14-wrapper`
+- Sed-updated all imports across 5 source files
+- Build + tests verified at new location
+- Removed wrapper section from `dotfiles/mac.setup.sh` (lines 125-152)
+- Two commits: vs14 `8946f652b0` (import), dotfiles `7eb20c4` (delete + setup.sh)
+
+### 10. C2 arc closure
+
+- jjd (GRE/IP-in-IP test) closed not-viable per tailscale#14006
+- r8k (TPROXY test) closed not-viable (no clean asymmetric routing)
+- 52c (parent study) closed once children done
+- Final commit `3a785a7`
 
 ## What's next
 
-1. **Fix `dotfiles-jc5`** (P1 bug — wrapper PROXY-per-session handling):
-   - /fix dispatch in dotfiles worktree: add `LookupBySrcTuple` to session.go; UDP loop fallback path when parse fails
-   - Extend integration test to cover the multi-datagram-per-src-port case (currently only tested one-datagram-per-src-port like the /check synthetic)
-   - /scrutinize before close
-   - Then RESUME `dotfiles-oxe` cutover from Step 1 (pico's config is still wrapper-aware, just need fresh binary + retry)
-2. **Spec dotfiles-9g1 §3.8 correction** — append note that PROXY headers arrive once per session (not per datagram) post-jc5
-3. **Cutover re-attempt** — once jc5 SHIPs, re-execute oxe Steps 1-11. Should land cleanly given the rest of the pipeline worked.
-4. **Bonus**: nginx-stream `:1212` HTTP /status routing weirdness — currently using *:1213 wildcard binding (overly permissive on tailnet). Worth tightening post-cutover.
+No active arc. Two deferred beads remain (st2, 406) — both P3, both ❄ frozen until the user decides to revisit. Routine `/onboard` next session will surface them as deferred.
+
+If pico-as-game-server ever comes up again (e.g., the Mac Studio gets colocated near zig), the path is:
+1. Re-enable wrapper LaunchAgent on pico (binary is still at `~/ss14-wrapper/ss14-wrapper`; or redeploy from vs14/ops/ss14-wrapper/deploy.sh)
+2. Set `net.use_wrapper_remote_address=true` + `wrapper_socket=/tmp/ss14-wrapper.sock` in pico's config.toml
+3. Re-add nginx stream block on zig → forward `:1212` to pico:11214
+4. Stop zig ss14-watchdog
+5. Connect; verify real-IP in wrapper ENUMERATE
+6. The C# patches in zig's binary will activate; on pico-side, the binary that's already there has them too
+
+The wrapper code (vs14/ops/ss14-wrapper) and patches (azigler/RobustToolbox fork) are the durable artifacts of this arc.
 
 ## Warnings / watch-outs
 
-- **pico has cutover-time config STILL in place**: config.toml has [net] bindto=127.0.0.1 + port=1213 + use_wrapper_remote_address=true; [status] bind=*:1213; watchdog appsettings ApiPort=1213. These DON'T affect anything as long as the pico watchdog stays unloaded (it's the wrapper standalone now). When re-cutting over, the config is ready — just reload watchdog. If you ever want pico's SS14 to run STANDALONE (no wrapper) again, revert config.toml [status] bind back to *:1212 + watchdog ApiPort back to 1212 + remove [net] bindto + port + cvars.
-- **pico's wrapper LaunchAgent is still loaded + listening on 100.72.47.4:11214** — harmless (no traffic routes to it now) but using ~25MB RAM. Could `launchctl unload` if you want to clean up.
-- **pico's vs14 is at the NEW commit** (45c708940 + submodule at 85982545e). The patched binaries are deployed at /Users/pico/ss14-watchdog/instances/vacation-station/bin/. So once jc5 fixes the wrapper, re-cutover is just: kickstart wrapper (new binary) → load pico watchdog → add nginx stream block on zig → stop zig watchdog. Everything else is in place.
-- **RobustToolbox submodule** is now pointed at azigler/RobustToolbox (a fork). Fresh clones of vs14 will pull the fork. To pull future RobustToolbox upstream changes: `cd RobustToolbox && git fetch upstream && git rebase upstream/master` (or similar).
-- **Orchestrator skill cross-repo rule** went through two revisions (f6a7397 wrong, a589e9f correct, 9598003 added .beads symlink fix). The recovery snippet in the prompt is now load-bearing for any future dotfiles → vs14 / explore / etc. dispatches. Trust the worked example from vs-q7m.
-- **`.offboard-pending` from prior session** in vacation-station-14 is STILL present (not mine to clear; it's the vs14 maintainer's marker from their last orphan session — next vs14 /onboard handles it).
-- **Cost tracking** not enabled for dotfiles — `.claude/plans/cost-tracking.md` absent. Skip Step 4 of /offboard.
+- **Zig's Robust.Server now runs fork binary** (built today). Patches are inert because cvar not set, but the binary is no longer upstream-vanilla. If you ever want to revert to upstream, rebuild with the submodule pointed at `space-wizards/RobustToolbox` instead of `azigler/RobustToolbox`.
+- **Source/binary skew possible**: future SS14 updates from upstream might pull in incompatible changes. The fork's branch `ss14-fork/wrapper-remote-address-vs-4h1` will need rebasing on upstream periodically. Not urgent (we're not actively pulling SS14 upstream).
+- **The pico wrapper LaunchAgent is unloaded but the binary still exists at `~/ss14-wrapper/ss14-wrapper` on pico**. If you want to fully clean up pico's filesystem of the wrapper artifacts, `rm -rf ~/ss14-wrapper /tmp/ss14-wrapper.* ~/Library/LaunchAgents/com.zig.ss14-wrapper.plist*` — but that throws away the working configuration if you ever want to redeploy.
+- **Pico's `config.toml` still has `[net] use_wrapper_remote_address=true bindto=127.0.0.1 port=1213 wrapper_socket=/tmp/ss14-wrapper.sock`** — harmless because the pico watchdog stays unloaded. If you ever want pico's SS14 to run standalone again (no wrapper), revert config.toml + watchdog appsettings to the pre-cutover state.
+- **The `/etc/systemd/system/ss14-watchdog.service` on zig has `KillMode=process`** — combined with the watchdog's PersistServers=true behavior, this means `systemctl restart ss14-watchdog` does NOT kill Robust.Server child processes. If you need a clean child restart, manually `kill $(pgrep -f "Robust.Server.*config-file")` first.
+- **Rules content is the upstream stub** — "This server has not written any rules yet. Please listen to the staff." If you want real rules, edit `vacation-station-14/Resources/ServerInfo/Guidebook/ServerRules/DefaultRules.xml` in source, rebuild + redeploy (or rsync just that file to zig's `bin/Resources/...`).
+- **dotfiles `.beads/issues.jsonl` has many closed beads from this arc** — visible via `br list --all` if you ever need to grep history. Don't delete the JSONL.
+- **Latency follow-up**: if the user ever wants to re-attempt the C2 architecture, the geographic mismatch must be solved first. Don't repeat the latency mistake — file a `study` bead exploring colo vs US-East wrapper relay before any redeployment.
