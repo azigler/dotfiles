@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.zig.mlx</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>USER_HOME_PLACEHOLDER/.local/bin/mlx_lm.server</string>
+		<string>--host</string>
+		<string>TAILSCALE_IP_PLACEHOLDER</string>
+		<string>--port</string>
+		<string>8081</string>
+		<string>--log-level</string>
+		<string>INFO</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>/tmp/mlx.log</string>
+	<key>StandardOutPath</key>
+	<string>/tmp/mlx.log</string>
+	<key>WorkingDirectory</key>
+	<string>USER_HOME_PLACEHOLDER</string>
+</dict>
+</plist>

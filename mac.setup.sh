@@ -86,6 +86,22 @@ sed -e "s|TAILSCALE_IP_PLACEHOLDER|$(tailscale ip -4)|g" \
     > ~/Library/LaunchAgents/com.zig.phoenix.plist
 launchctl load -w ~/Library/LaunchAgents/com.zig.phoenix.plist
 
+# --- MLX-LM server on tailnet (A/B'd against Ollama for coding-agent work) ---
+# Apple MLX inference server, OpenAI-compatible API. Lives alongside Ollama
+# (port 8081 vs Ollama's 11434) for empirical A/B benchmarks on the
+# recommended coding models (Qwen3-Coder-30B, Devstral, GLM-4.5-Air) per the
+# local-coding-models exploration in ~/explore/. See mlx/README.md for the
+# full operations + model-pull workflow.
+# Same custom-LaunchAgent pattern as Ollama/Phoenix — we own the bind + flags
+# so they survive across reinstalls. Idempotent re-runs reuse existing model
+# cache in ~/.cache/huggingface/.
+uv tool install --python 3.13 mlx-lm
+sed -e "s|TAILSCALE_IP_PLACEHOLDER|$(tailscale ip -4)|g" \
+    -e "s|USER_HOME_PLACEHOLDER|$HOME|g" \
+    ~/dotfiles/mlx/com.zig.mlx.plist \
+    > ~/Library/LaunchAgents/com.zig.mlx.plist
+launchctl load -w ~/Library/LaunchAgents/com.zig.mlx.plist
+
 # --- A1111 stable-diffusion-webui on tailnet + LAN (NOT public internet) ---
 # Apple-Silicon SD inference, bound 0.0.0.0:7860 so tailnet AND home LAN devices
 # reach it. Public-internet exposure is deliberately OMITTED — A1111 has no real
