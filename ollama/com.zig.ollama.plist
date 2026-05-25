@@ -19,6 +19,12 @@
 		<string>q8_0</string>
 		<key>OLLAMA_KEEP_ALIVE</key>
 		<string>24h</string>
+		<key>OLLAMA_CONTEXT_LENGTH</key>
+		<string>131072</string>
+		<key>OLLAMA_NUM_PARALLEL</key>
+		<string>2</string>
+		<key>OLLAMA_MAX_LOADED_MODELS</key>
+		<string>2</string>
 	</dict>
 	<key>RunAtLoad</key>
 	<true/>
