@@ -41,6 +41,7 @@ ts4
 
 # session state — created by harness hooks, never committed
 .offboard-pending
+.claude/scheduled_tasks.lock
 
 # bv (beads viewer) local config and caches
 .bv/
