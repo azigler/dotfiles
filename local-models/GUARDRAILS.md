@@ -78,7 +78,22 @@ The earlier "empty content" finding was misread — the prose generation request
 
 **Load-bearing for:** Epic D autonovel (prose), Epic C LSRA REWRITE_REPORT, Epic B social-mode quest dialogue.
 
-**Action item (pi-harness explore-7hh):** investigate root cause and report back via PR to mlx-lm upstream. Could be a 1-line fix in sampler config.
+**Action item (pi-harness explore-7hh.9):** investigate root cause; possibly PR to expose `--repetition-penalty` flag in mlx-lm upstream. `mlx_lm.server --help` confirms the flag is NOT exposed in CLI (only `--temp`, `--top-p`, `--top-k`, `--min-p`).
+
+### Sampler-only mitigations (2026-05-25 empirical probe)
+
+| Config | Length | Tail unique-word % | Verdict |
+|---|---|---|---|
+| Qwen3 MLX baseline (temp=0.7) | 3339 chars | 66% | mild repetition |
+| Qwen3 MLX + min_p=0.05 | 3157 chars | 53% | WORSE — more repetition |
+| Qwen3 MLX + **temp=0.7 + min_p=0.1 + top_p=0.9** | 2918 chars | **76%** | best of the three; usable |
+
+So Qwen3 MLX with conservative sampling (top_p=0.9, min_p=0.1, temp=0.7) is workable for medium-length prose. Still inferior to Qwen3 Ollama which has `repeat_penalty=1.1` by default. **Earlier "catastrophic collapse" finding (Chinese chars) was specifically at temp=0.85 + long prompts — sampling at temp=0.85 with high-entropy outputs blows up.**
+
+**Updated rule for MLX prose:**
+- Long-form prose (>3000 chars): prefer Ollama backend
+- Short-to-medium prose (≤3000 chars): MLX is OK at `temp ≤ 0.7, min_p=0.1, top_p=0.9`
+- High creativity (temp ≥ 0.8): DO NOT use MLX — sampler can't dampen high-entropy mode collapse
 
 ---
 
