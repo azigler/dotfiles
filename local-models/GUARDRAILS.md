@@ -143,6 +143,8 @@ This matches the Qwen3-Coder-30B HF model card recommendation. Ollama works out 
 
 **Action item (pi-harness explore-7hh.9):** investigate root cause; possibly PR to expose `--repetition-penalty` flag in mlx-lm upstream. `mlx_lm.server --help` confirms the flag is NOT exposed in CLI (only `--temp`, `--top-p`, `--top-k`, `--min-p`).
 
+**Convenience wrapper available**: `~/dotfiles/local-models/qwen_sampler.py` bakes the Qwen sampler defaults into every request. Use `call_qwen_mlx(prompt=...)` or `inject_qwen_defaults(body)` for direct request augmentation. Self-tested 2026-05-25.
+
 ### Sampler-only mitigations (2026-05-25 empirical probe)
 
 | Config | Length | Tail unique-word % | Verdict |
