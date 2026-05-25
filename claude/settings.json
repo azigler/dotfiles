@@ -172,7 +172,9 @@
     "type": "command",
     "command": "~/.claude/statusline.sh"
   },
+  "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
   "teammateMode": "auto",
-  "tui": "fullscreen"
+  "agentPushNotifEnabled": true,
+  "remoteControlAtStartup": true
 }
