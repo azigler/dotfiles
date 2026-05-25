@@ -2,26 +2,50 @@
 
 Cross-arc invariants observed empirically. Violations cause silent failures or production regressions across all four current epics (A: CCR router, B: CoD MUD agent, C: LSRA research agent, D: autonovel pi.dev harness) plus future arcs.
 
-Last updated: 2026-05-25 (multiple revisions during Wave 0/1 probes).
+Last updated: 2026-05-25 evening (post-research-agent sweep — many earlier findings REVISED).
 
 ---
 
-## SUMMARY: which model for which task (2026-05-25, empirically verified)
+## SUMMARY: which model for which task (2026-05-25, empirically verified + research-validated)
+
+**Key research-agent reversal (evening 2026-05-25):** Several Wave 0/1 findings were caused by missing client-side configuration, NOT server/model limitations. The 6 research agents found upstream fixes / known-good configurations for most issues. See G1, G7, G12, G13, G14 below for revised positions.
 
 | Workload | Recommended | Why | Avoid |
 |---|---|---|---|
-| **Tool-use / structured JSON** | `qwen3-coder:30b` (Ollama) | ✅ parallel `tool_calls[]`, fast, no MLX serving quirks | Trinity (both), Devstral untested |
-| **Long literary prose / chapter drafts** | `qwen3-coder:30b` (Ollama) | ✅ ~22s for 2K chars, in-voice. Qwen3 *MLX* mode-collapses (G13). | Qwen3 MLX, Trinity MLX (empty content G1) |
-| **Long-context (>32K tokens)** | `laguna-xs.2:latest` (Ollama) | Only model passing 100K bench; format-clean | Laguna MLX (G7), Qwen3 MLX (G13) |
-| **Reasoning-heavy + visible-trace** | `mlx-community/Trinity-Mini-4bit` | Separate `reasoning` field useful for audit | Default to Qwen3 Ollama unless trace needed |
-| **Background subagent dispatch (Claude Code)** | Qwen3 Ollama via CCR | Both tool-use + prose, covered | Same as above |
+| **Tool-use / structured JSON** | `qwen3-coder:30b` (Ollama OR MLX) | ✅ both backends return parallel `tool_calls[]`. Trinity needs hermes-parser shim (G1). | Trinity without parser shim |
+| **Long literary prose / chapter drafts** | Qwen3-Coder MLX **with `repetition_penalty=1.10`** in body | ✅ verified clean (82% tail-unique) — G13 has the fix. Ollama also fine. | Qwen3 MLX *without* repetition_penalty (mode collapse) |
+| **Long-context (>32K tokens)** | `laguna-xs.2:latest` (Ollama) | Only model passing 100K bench. Laguna MLX has PR #1223 path (G7) | Laguna MLX from stock mlx-lm 0.31.3 (unsupported until PR merges) |
+| **Reasoning-heavy + visible-trace** | `mlx-community/Trinity-Mini-4bit` | Separate `reasoning` field; trained by Arcee AI for function-calling (BFCL 59.67) | n/a |
+| **Background subagent dispatch (Claude Code)** | Qwen3 Ollama via CCR (with `<CCR-SUBAGENT-MODEL>` tag — G12) | Both tool-use + prose, covered; env-var route is upstream-broken (#43869) | env-var `CLAUDE_CODE_SUBAGENT_MODEL` (broken) |
 | **Code generation** | Qwen3 Ollama or Devstral MLX | Both score 17/20 on bench | n/a |
 
-**Net empirical finding (Wave 1):** Qwen3-Coder via Ollama is the workhorse. MLX backend's role narrows to: (a) Trinity reasoning trace use case, (b) higher per-token speed for some workloads (35 tps MLX vs 33 tps Ollama for Qwen3 — but only matters for streaming UX, not for batch agent dispatch).
+**Net empirical finding (Wave 1 + research sweep):** Qwen3-Coder via either backend works for most workloads. The MLX serving layer is feature-complete enough when you know the request-body parameters and have the right serving shim (llama-swap for residency, parser shim for Trinity tool-use).
 
 ---
 
-## G1 — Trinity needs special-case response parsing (NOT a blanket ban)
+## G1 — Trinity tool-use needs server-side parser (model IS capable, server lacks it)
+
+**REVISED 2026-05-25 evening with research-agent finding (Trinity is from Arcee AI, NOT AGI-0):**
+
+- Trinity-Mini was explicitly trained by **Arcee AI** for function-calling (BFCL V3 score 59.67, "robust function calling and multi-step agent workflows")
+- The `<tool_call>...</tool_call>` XML output **is the intended Hermes-style format**, not a defect
+- Qwen3-Coder works in `mlx_lm.server` because the server has Qwen-shaped parser; **mlx_lm 0.31.3 lacks a Hermes-parser registration for Trinity** — that's the entire gap
+- vLLM has the canonical serving recipe: `--enable-auto-tool-choice --reasoning-parser deepseek_r1 --tool-call-parser hermes`
+
+**Fix paths (in order of robustness):**
+1. **Best:** switch to vLLM or vllm-mlx with the hermes parser registered
+2. **Practical:** keep mlx_lm.server + add a ~30-line client-side regex shim to extract `<tool_call>{...}</tool_call>` into OpenAI `tool_calls[]` shape
+3. **Trivial fallback:** system-prompt coerce Trinity into raw `{"tool_calls":[...]}` JSON without using the `tools` parameter (works but loses trained Hermes path)
+
+**Trinity is NOT banned for tool-use. The fix is in the serving layer, not the model. Trinity-Mini is a real tool-calling model.**
+
+For prose / brainstorming / planning: Trinity MLX content field is clean (reasoning goes to separate `reasoning` field). Trinity Ollama still jams `<think>` into content — for Ollama, strip the `<think>` block client-side.
+
+**Research source:** `~/explore/local-coding-models/refs/research/research-trinity-toolcalls.md`. Bead: `explore-4te.17`.
+
+---
+
+## G1-LEGACY — original blanket-ban content (kept for trace)
 
 **Original claim (morning 2026-05-25):** "Trinity is banned for structured output on both backends."
 
@@ -53,7 +77,46 @@ The earlier "empty content" finding was misread — the prose generation request
 - Prose / narrative → **Qwen3-Coder Ollama** or **Laguna Ollama** (NOT Qwen3 MLX — see G13 below)
 - Reasoning-heavy planning → Trinity MLX with both fields surfaced
 
-## G13 — `mlx_lm.server` has a long-form repetition-collapse issue (Qwen3 + Trinity confirmed)
+## G13 — `mlx_lm.server` repetition collapse — FIXED (use `repetition_penalty` in request body)
+
+**REVISED 2026-05-25 evening (research-agent finding, then verified empirically):**
+
+`mlx_lm.server` **already accepts** `repetition_penalty`, `repetition_context_size`, `presence_penalty`, `frequency_penalty` as request-body parameters — documented in [mlx_lm/SERVER.md](https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/SERVER.md) but **NOT exposed in `--help`** (doc-discoverability bug, not feature gap).
+
+**Verified live on pico (2026-05-25):**
+
+| Config | Length | Tail unique % | Verdict |
+|---|---|---|---|
+| baseline (no repetition_penalty) | 3339 chars | 66% | mild repetition |
+| `repetition_penalty=1.05, repetition_context_size=64` | 3167 chars | 81% | clean |
+| **`repetition_penalty=1.10, repetition_context_size=64`** | 3227 chars | **82%** ✅ | **sweet spot — recommend** |
+| `repetition_penalty=1.15, repetition_context_size=64` | 3301 chars | 75% | over-penalized; slightly worse |
+
+**The fix is a one-line client change.** Always send Qwen's recommended sampler shape:
+```jsonc
+{
+  "temperature": 0.7,
+  "top_p": 0.8,
+  "top_k": 20,
+  "repetition_penalty": 1.10,    // ← THE FIX
+  "repetition_context_size": 64  // (default 20 is too short for sentence loops)
+}
+```
+
+This matches the Qwen3-Coder-30B HF model card recommendation. Ollama works out of the box because its `repeat_penalty=1.1` default does what Qwen's recipe asks; MLX requires manual specification.
+
+**Earlier "Qwen3 MLX broken for long prose" finding was wrong — it was a missing client param, not a server defect.**
+
+**Action items:**
+- All callers of mlx_lm.server for prose generation MUST include `repetition_penalty` in body
+- Upstream PR: surface in `--help` (cosmetic but high-leverage; bead `explore-4te.14`)
+- Alternative: nginx shim that injects defaults; or `cubist38/mlx-openai-server` fork has the CLI flag
+
+**Research source:** `~/explore/local-coding-models/refs/research/research-mlx-repetition.md`. Bead: `explore-4te.14`.
+
+---
+
+## G13-LEGACY — original "collapse is unfixable" content (kept for trace)
 
 **Empirical receipts (2026-05-25, Epic D E1 probes — multiple model variations):**
 
@@ -166,7 +229,28 @@ Applies to: model downloads, benchmarks, fine-tuning, 24h agent runs, eviction p
 
 ---
 
-## G7 — Laguna MLX is BLOCKED in current mlx-lm
+## G7 — Laguna MLX BLOCKED in mlx-lm 0.31.3, BUT upstream PR exists
+
+**REVISED 2026-05-25 evening (research-agent finding):**
+
+- Upstream PR exists: [ml-explore/mlx-lm#1223](https://github.com/ml-explore/mlx-lm/pull/1223) by Prince Canuma (Blaizzy), opened 2026-04-28
+- **Status: still open, mergeable_state: blocked**, no maintainer review yet
+- 826 LOC across 7 files — Laguna is a genuinely novel arch (per-layer-type RoPE, variable head count, per-head sigmoid output gating, hybrid dense+MoE MLP). NOT a Llama clone. Not a 1-line alias fix.
+- **Workaround (test before relying on):** `pip install git+https://github.com/Blaizzy/mlx-lm.git@pc/add-lg`
+- Rebase status: well-maintained (last upstream merge 4 days before laguna commits)
+- vLLM, SGLang, TensorRT-LLM, Transformers, Ollama all have day-zero Laguna support — mlx-lm is the odd one out
+
+**Recommendation:**
+1. Today: keep using Laguna Ollama (G7 stands operationally)
+2. This week: test Blaizzy's branch on pico — low-risk; if it works, can relax to "G7-ish until PR #1223 merges"
+3. Add a benchmark-comment to PR #1223 to nudge review (social proof — johntdavies's M5 Max bench is already there)
+4. Escalate past 2026-06-15 if no review
+
+**Research source:** `~/explore/local-coding-models/refs/research/research-laguna-mlx.md`. Bead: `explore-4te.18`.
+
+---
+
+## G7-LEGACY — original "Laguna is BLOCKED" content (kept for trace)
 
 `LagunaForCausalLM` is not in mlx-lm 0.31.3. Laguna is **Ollama-only** locally until upstream adds support.
 
@@ -226,7 +310,61 @@ This materially de-risks Epic A — no pico-side rewrite needed. (Spec edit: §3
 
 ---
 
-## G12 — `CLAUDE_CODE_SUBAGENT_MODEL` does NOT propagate into worktree subagents
+## G12 — Subagent routing: use CCR's in-prompt tag (env-var path is upstream-broken)
+
+**REVISED 2026-05-25 evening (research-agent finding):**
+
+The env-var route `CLAUDE_CODE_SUBAGENT_MODEL` IS a real documented var but **upstream-broken end-to-end** per [anthropics/claude-code#43869](https://github.com/anthropics/claude-code/issues/43869). Empirically validated across all 5 documented routing surfaces in the issue — none work; Sonnet quota stays flat while Opus burns.
+
+**YAML `model:` frontmatter** only accepts Anthropic aliases (`sonnet`/`opus`/`haiku`/`inherit` or full IDs). Putting `pico-ollama,qwen3-coder:30b` there is silently invalid.
+
+**No `subagentModel` settings.json key exists.** Closest is `teammateDefaultModel` (Agent Teams only, in `~/.claude.json`, alias-only).
+
+**THE WORKING MECHANISM** (verified in CCR source at `/home/ubuntu/.nvm/versions/node/v24.15.0/lib/node_modules/@musistudio/claude-code-router/dist/cli.js`):
+
+```
+<CCR-SUBAGENT-MODEL>provider,model</CCR-SUBAGENT-MODEL>
+```
+
+CCR pattern-matches and strips this tag from the prompt, then routes that specific request to the specified provider/model. Because it travels in the prompt payload (not env), it sidesteps Claude Code's broken env propagation entirely.
+
+**Proven config:**
+1. Run `eval "$(ccr activate)"` to set `ANTHROPIC_BASE_URL=http://127.0.0.1:3456` + `ANTHROPIC_AUTH_TOKEN=ccr` in current shell + all children
+2. DROP `CLAUDE_CODE_SUBAGENT_MODEL` from settings.json (misleading; doesn't work)
+3. DROP custom `model:` frontmatter pointing at non-Anthropic models
+4. Inject `<CCR-SUBAGENT-MODEL>pico-ollama,qwen3-coder:30b</CCR-SUBAGENT-MODEL>` into subagent prompts (e.g., wire into `/dispatch` skill as opt-in)
+5. CCR's existing config (already at `~/dotfiles/claude-code-router/config.json`) is sufficient — providers + Router block wired
+
+**Research source:** `~/explore/local-coding-models/refs/research/research-ccr-subagent-routing.md`. Bead: `dotfiles-ukx.7`.
+
+---
+
+## G14 — `mlx_lm.server` has no model unload (use llama-swap or PR #1274)
+
+**Research finding (2026-05-25 evening):**
+
+Verified in mlx-lm 0.31.3 source: NO unload endpoint, NO `--idle-timeout`, NO `--keep-alive`, NO `MLX_LM_*` env vars, NO memory-pressure listeners.
+
+**Root cause of monotonic RSS growth observed empirically (X4 probe — RSS 22→36→45 GB across 3 model swaps):** `ModelProvider._load()` in `server.py` drops Python refs (`self.model = None`) but **never calls `mx.metal.clear_cache()` or `gc.collect()`**. MLX's Metal allocator retains buffers. Maintainer `awni` confirms on issue #467: manual fix is `del model; mx.clear_cache()`.
+
+**Upstream:**
+- Issue [#1235](https://github.com/ml-explore/mlx-lm/issues/1235) — exact feature request, open
+- PR [#1274](https://github.com/ml-explore/mlx-lm/pull/1274) — `--idle-timeout` implementation, open/unmerged
+- Issue [#467](https://github.com/ml-explore/mlx-lm/issues/467) — confirms `del self.model` alone is insufficient
+
+**Best workaround: [llama-swap](https://github.com/mostlygeek/llama-swap)** — Go proxy that fronts N mlx_lm.server processes (one per model on disjoint ports), exposes `POST /api/models/unload`, default "one model at a time" policy enforces the "at most one big model resident" constraint. Native ARM64 Homebrew install. Doesn't drop sessions when switching.
+
+Alternative: `cubist38/mlx-openai-server` fork has FastAPI rewrite with `on_demand_idle_timeout` YAML config.
+
+Fallback: build PR #1274's branch directly via `uv tool install git+https://github.com/ml-explore/mlx-lm.git@refs/pull/1274/head` to get `--idle-timeout 300` pre-merge.
+
+**Recommendation:** install llama-swap on pico, front 8081 with it, run mlx_lm.server backends on 8091/8092/8093 (one per model). Keep current single-server setup for now; switch to llama-swap if memory pressure becomes operational pain.
+
+**Research source:** `~/explore/local-coding-models/refs/research/research-mlx-unload.md`. Bead: `explore-4te.19`.
+
+---
+
+## G12-LEGACY — original "env var doesn't propagate" content (kept for trace)
 
 **Empirically verified (2026-05-25 X1 probe):** Dispatched a worktree subagent that ran `echo "$CLAUDE_CODE_SUBAGENT_MODEL"` → `<UNSET>`. Same result for `ANTHROPIC_BASE_URL` — does not propagate. The variable lives in the orchestrator's shell environment but doesn't cross the worktree-subagent boundary, even with `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` enabled.
 
