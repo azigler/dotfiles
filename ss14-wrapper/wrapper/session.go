@@ -84,9 +84,15 @@ func NewSessionStoreForTest(ttl time.Duration, now func() time.Time, alloc func(
 // PublicSrcAddr; if none exists, it allocates a new fan-out socket
 // and records (real, fanOut). Returns (session, isNew, err).
 //
-// On second sight of the same 5-tuple (TC03 — nginx emits PROXY
-// header on every datagram), the existing session is reused and
-// LastSeen bumped; isNew=false.
+// On second sight of the same 5-tuple from a PROXY-header-bearing
+// datagram, the existing session is reused, LastSeen bumped, and the
+// real-client refreshed (it could in theory drift on NAT rebind);
+// isNew=false. NOTE: in practice nginx emits the PROXY header ONCE
+// per nginx-UDP-session (dotfiles-jc5) so the reuse-from-header path
+// is rare; the common subsequent-datagram path goes through
+// LookupBySrcTuple instead. This LookupOrCreate reuse branch is kept
+// because (a) it's the right behavior if a header IS re-presented,
+// and (b) some nginx configs / proxy chains MAY re-emit per datagram.
 //
 // If the allocator fails, no session is recorded and the store is
 // left in its prior state (TestSessionStore_LookupOrCreate_AllocFailure).
@@ -143,6 +149,36 @@ func (s *SessionStore) LookupOrCreate(publicSrc net.Addr, realClient net.Addr) (
 	s.byUDPPort[port] = sess
 	s.mu.Unlock()
 	return sess, true, nil
+}
+
+// LookupBySrcTuple finds an existing session by the public-side src
+// address (the addr the wrapper received the datagram FROM — i.e. the
+// nginx outbound socket's 5-tuple). Returns (session, ok).
+//
+// This is the path taken when a subsequent UDP datagram arrives WITHOUT
+// a PROXY-protocol header: nginx's stream-module `proxy_protocol on`
+// emits the v1 header ONCE per nginx-UDP-session (keyed by client
+// <src-ip, src-port>), not once per datagram. The wrapper's UDP loop
+// uses this lookup to route the headerless datagram via the session
+// established by the FIRST (header-bearing) datagram of the same flow.
+//
+// On hit, LastSeen is bumped so the session doesn't TTL-evict under a
+// sustained header-once-then-quiet flow. RealClientAddr is left intact
+// (we trust the original header; subsequent datagrams have no header
+// to refresh it from).
+//
+// Thread-safe — takes the write lock so the LastSeen bump is visible to
+// the janitor goroutine.
+func (s *SessionStore) LookupBySrcTuple(publicSrc net.Addr) (*Session, bool) {
+	key := publicSrc.String()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.bySrc[key]
+	if !ok {
+		return nil, false
+	}
+	sess.LastSeen = s.now()
+	return sess, true
 }
 
 // LookupByPort answers UDS API LOOKUP queries. proto is "udp" or

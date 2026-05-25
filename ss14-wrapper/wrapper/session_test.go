@@ -108,6 +108,75 @@ func TestSessionStore_DistinctTuples_DistinctFanOut(t *testing.T) {
 	require.Equal(t, 2, store.Count())
 }
 
+// TEST: dotfiles-jc5 regression — LookupBySrcTuple returns the
+// existing session created by LookupOrCreate, keyed on the
+// public-side src tuple. This is the path the UDP loop takes for
+// SUBSEQUENT datagrams in an nginx-UDP-session (which arrive
+// headerless because nginx emits PROXY once per session, not per
+// datagram).
+func TestSessionStore_LookupBySrcTuple_Hit(t *testing.T) {
+	store := wrapper.NewSessionStoreForTest(120*time.Second, time.Now, portAllocator())
+	publicSrc := &net.UDPAddr{IP: net.IPv4(100, 95, 4, 73), Port: 41000}
+	realClient := &net.TCPAddr{IP: net.IPv4(203, 0, 113, 5), Port: 54321}
+
+	created, isNew, err := store.LookupOrCreate(publicSrc, realClient)
+	require.NoError(t, err)
+	require.True(t, isNew)
+
+	got, ok := store.LookupBySrcTuple(publicSrc)
+
+	require.True(t, ok, "LookupBySrcTuple must hit on the existing session's src")
+	require.Same(t, created, got,
+		"same Session pointer must be returned — fan-out port reuse")
+	require.Equal(t, 1, store.Count(),
+		"LookupBySrcTuple must NOT side-effect create or duplicate sessions")
+}
+
+// TEST: dotfiles-jc5 regression — LookupBySrcTuple misses for an
+// unknown src tuple. The UDP loop uses this branch to distinguish
+// "orphan headerless datagram" (drop) from "subsequent datagram of
+// established session" (forward).
+func TestSessionStore_LookupBySrcTuple_Miss(t *testing.T) {
+	store := wrapper.NewSessionStoreForTest(120*time.Second, time.Now, portAllocator())
+	unknownSrc := &net.UDPAddr{IP: net.IPv4(198, 51, 100, 99), Port: 9999}
+
+	got, ok := store.LookupBySrcTuple(unknownSrc)
+
+	require.False(t, ok, "LookupBySrcTuple must miss for unknown src")
+	require.Nil(t, got)
+	require.Equal(t, 0, store.Count(),
+		"LookupBySrcTuple miss must NOT side-effect")
+}
+
+// TEST: dotfiles-jc5 regression — LookupBySrcTuple bumps LastSeen so
+// a sustained header-once-then-quiet flow doesn't TTL-evict between
+// header refreshes.
+func TestSessionStore_LookupBySrcTuple_BumpsLastSeen(t *testing.T) {
+	clock := &fakeClock{t: time.Unix(1_700_000_000, 0)}
+	store := wrapper.NewSessionStoreForTest(120*time.Second, clock.Now, portAllocator())
+	publicSrc := &net.UDPAddr{IP: net.IPv4(100, 95, 4, 73), Port: 41000}
+	realClient := &net.TCPAddr{IP: net.IPv4(203, 0, 113, 5), Port: 54321}
+
+	_, _, err := store.LookupOrCreate(publicSrc, realClient)
+	require.NoError(t, err)
+
+	// Advance just shy of TTL — without the LastSeen bump, the next
+	// advance-of-1s would push us past the 120s window.
+	clock.Advance(119 * time.Second)
+	sess, ok := store.LookupBySrcTuple(publicSrc)
+	require.True(t, ok)
+	require.Equal(t, clock.Now(), sess.LastSeen,
+		"LookupBySrcTuple hit must bump LastSeen to now")
+
+	// Now advance ANOTHER 119s — the bump should have refreshed the
+	// TTL window, so the session must still survive eviction.
+	clock.Advance(119 * time.Second)
+	evicted := store.EvictExpired()
+	require.Equal(t, 0, evicted,
+		"session must survive eviction thanks to LookupBySrcTuple LastSeen bump")
+	require.Equal(t, 1, store.Count())
+}
+
 // TEST: TC04 — LOOKUP by fan-out port returns the real client addr
 // (spec dotfiles-9g1 §5 TC04).
 func TestSessionStore_LookupByPort_OK(t *testing.T) {

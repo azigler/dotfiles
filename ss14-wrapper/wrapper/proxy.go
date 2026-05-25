@@ -27,6 +27,16 @@ var ErrNotImplemented = errors.New("ss14-wrapper: not implemented (awaiting /imp
 // branching on the specific parse-error type. See spec TC18.
 var ErrMalformedProxyHeader = errors.New("ss14-wrapper: malformed PROXY-protocol header")
 
+// ErrNoProxyHeader signals "the datagram does NOT begin with a
+// PROXY-protocol signature." This is distinct from
+// ErrMalformedProxyHeader (signature present but bytes corrupt /
+// truncated) because the UDP loop treats it differently: per
+// dotfiles-jc5, nginx emits the PROXY header ONCE per nginx-UDP-session
+// (keyed by client <src-ip, src-port>) — so subsequent datagrams in
+// the same flow arrive headerless and must be routed via
+// SessionStore.LookupBySrcTuple rather than dropped.
+var ErrNoProxyHeader = errors.New("ss14-wrapper: no PROXY-protocol header present")
+
 // udpReadBufSize is the per-read scratch buffer size. SS14/Lidgren
 // packets are typically <1.5KB but nginx PROXY-headered packets can
 // reach ~64KB at the IP layer; 64KiB covers max UDP payload safely.
@@ -68,6 +78,14 @@ func ParseProxyHeader(buf []byte) (realSrc net.Addr, payload []byte, err error) 
 
 	hdr, parseErr := proxyproto.Read(br)
 	if parseErr != nil {
+		// Distinguish "no PROXY signature at all" (subsequent-datagram
+		// case under nginx per-session header emission, dotfiles-jc5)
+		// from "signature present but corrupt" (TC18 drop-with-metric).
+		// %v on the inner error preserves the message; the wrapper
+		// sentinel makes errors.Is-based branching in ServeUDP honest.
+		if errors.Is(parseErr, proxyproto.ErrNoProxyProtocol) {
+			return nil, nil, fmt.Errorf("%w: %v", ErrNoProxyHeader, parseErr)
+		}
 		return nil, nil, fmt.Errorf("%w: %v", ErrMalformedProxyHeader, parseErr)
 	}
 	if hdr == nil || hdr.SourceAddr == nil {
@@ -90,10 +108,22 @@ func ParseProxyHeader(buf []byte) (realSrc net.Addr, payload []byte, err error) 
 }
 
 // ServeUDP runs the public-facing UDP listener. It reads each
-// datagram, parses the PROXY header (per /check dotfiles-9cj: nginx
-// 1.28 emits PROXY v1 on EVERY UDP datagram, not just the first),
-// looks up or creates a session, and writes the stripped payload to
-// the upstream Robust.Server over the session's fan-out socket.
+// datagram and routes via one of three paths (per dotfiles-jc5 — the
+// /check dotfiles-9cj OQ-03 conclusion that "nginx emits PROXY v1 on
+// EVERY UDP datagram" was wrong; nginx's stream `proxy_protocol on`
+// emits the header ONCE per nginx-UDP-session, keyed by client
+// <src-ip, src-port>, NOT once per datagram):
+//
+//  1. PROXY header parses OK → LookupOrCreate the session, write the
+//     stripped payload to upstream.
+//  2. ErrNoProxyHeader (no signature present) → LookupBySrcTuple on
+//     the wrapper-side src tuple. On HIT, the datagram is the
+//     subsequent-payload case from the same nginx session; forward the
+//     ENTIRE raw datagram (no header to strip) via the existing
+//     session's fan-out. On MISS, drop with metric — a headerless
+//     datagram from an unknown src is genuinely orphan traffic.
+//  3. ErrMalformedProxyHeader (signature present but bytes corrupt) →
+//     drop with metric. This is the TC18 hardening path.
 //
 // Returns when ctx is cancelled or listener errors fatally.
 func ServeUDP(ctx context.Context, listenAddr, upstreamAddr string, store *SessionStore) error {
@@ -147,6 +177,26 @@ func ServeUDP(ctx context.Context, listenAddr, upstreamAddr string, store *Sessi
 
 		realSrc, payload, parseErr := ParseProxyHeader(buf[:n])
 		if parseErr != nil {
+			if errors.Is(parseErr, ErrNoProxyHeader) {
+				// Subsequent-datagram path: nginx already emitted the
+				// PROXY header on the FIRST datagram of this
+				// nginx-UDP-session; this one has no header. Look up
+				// the session by src-tuple and forward the raw bytes.
+				if sess, ok := store.LookupBySrcTuple(srcAddr); ok {
+					if _, err := sess.FanOut.WriteTo(buf[:n], upstreamUDP); err != nil {
+						log.Printf("ss14-wrapper: upstream write failed (no-header path) for %s: %v",
+							srcAddr, err)
+					}
+					bufPool.Put(bufPtr)
+					continue
+				}
+				// No session AND no header — genuinely orphan datagram.
+				log.Printf("ss14-wrapper: headerless datagram from unknown src %s (drop)",
+					srcAddr)
+				bufPool.Put(bufPtr)
+				continue
+			}
+			// Malformed (signature present but corrupt) — TC18 drop.
 			log.Printf("ss14-wrapper: malformed PROXY header from %s (drop): %v",
 				srcAddr, parseErr)
 			bufPool.Put(bufPtr)

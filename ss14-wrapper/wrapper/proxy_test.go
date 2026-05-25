@@ -1,9 +1,12 @@
 package wrapper_test
 
 import (
+	"context"
 	"net"
 	"strconv"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/azigler/dotfiles/ss14-wrapper/wrapper"
 	"github.com/stretchr/testify/require"
@@ -208,4 +211,242 @@ func TestParseProxyHeader_V1_TrailingData(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "198.51.100.99:12345", src.String())
 	require.Equal(t, trailer, pay)
+}
+
+// TEST: dotfiles-jc5 regression — ParseProxyHeader must surface
+// "signature not present" as ErrNoProxyHeader (NOT
+// ErrMalformedProxyHeader). ServeUDP's branching on errors.Is for
+// ErrNoProxyHeader is load-bearing for the nginx-per-session header
+// behavior; if this distinction collapses, headerless follow-up
+// datagrams get treated as malformed and silently dropped.
+func TestParseProxyHeader_NoHeader_IsErrNoProxyHeader(t *testing.T) {
+	// Raw Lidgren-shaped bytes — definitely no PROXY signature.
+	rawPayload := []byte("just-a-game-datagram-no-proxy-header")
+
+	_, _, err := wrapper.ParseProxyHeader(rawPayload)
+
+	require.Error(t, err, "no-header input must error")
+	require.ErrorIs(t, err, wrapper.ErrNoProxyHeader,
+		"no-signature input must wrap ErrNoProxyHeader (drives ServeUDP's "+
+			"session-lookup-before-drop branch — dotfiles-jc5)")
+	require.NotErrorIs(t, err, wrapper.ErrMalformedProxyHeader,
+		"no-signature input must NOT collapse into ErrMalformedProxyHeader — "+
+			"the distinction drives the lookup-vs-drop branch in ServeUDP")
+}
+
+// TEST: dotfiles-jc5 regression — corrupt-but-signature-present
+// input must surface as ErrMalformedProxyHeader, NOT ErrNoProxyHeader.
+// The TC18 drop-with-metric path depends on this distinction.
+func TestParseProxyHeader_TruncatedHeader_IsErrMalformed(t *testing.T) {
+	// PROXY v1 signature present ("PROXY ") but the header is
+	// truncated mid-line — proxyproto returns an error OTHER than
+	// ErrNoProxyProtocol.
+	truncated := []byte("PROXY TCP4 203.0.113.5 100.95.4.73 54321 1212")
+
+	_, _, err := wrapper.ParseProxyHeader(truncated)
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, wrapper.ErrMalformedProxyHeader,
+		"truncated-signature-present input must wrap ErrMalformedProxyHeader")
+	require.NotErrorIs(t, err, wrapper.ErrNoProxyHeader,
+		"signature-present-but-corrupt must NOT be classified as 'no header'")
+}
+
+// findFreeUDPPort opens an ephemeral UDP socket, captures the OS-
+// assigned port, then closes it so the caller can rebind. There is a
+// trivial TOCTOU window between Close and re-bind; the integration
+// test is happy to retry on conflict.
+func findFreeUDPPort(t *testing.T) int {
+	t.Helper()
+	c, err := net.ListenPacket("udp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := c.LocalAddr().(*net.UDPAddr).Port
+	_ = c.Close()
+	return port
+}
+
+// TEST: dotfiles-jc5 regression — the CORE bug guard. A FIRST
+// datagram with PROXY header creates the session; a SECOND datagram
+// from the SAME src tuple without a header must be routed via
+// LookupBySrcTuple to the existing session, NOT dropped.
+//
+// Pre-fix state: the second (headerless) datagram fails ParseProxyHeader,
+// hits the unconditional `continue` (drop), and never reaches upstream.
+// This test would FAIL — only one payload arrives upstream.
+//
+// Post-fix: the headerless second datagram is forwarded via the
+// session established by the first. Both payloads land upstream.
+func TestServeUDP_HeaderlessFollowupRoutesViaSession(t *testing.T) {
+	// Allocate upstream + wrapper ports.
+	upstreamPort := findFreeUDPPort(t)
+	wrapperPort := findFreeUDPPort(t)
+
+	// Upstream: collect payloads into a slice with a mutex.
+	upstreamConn, err := net.ListenPacket("udp", "127.0.0.1:"+strconv.Itoa(upstreamPort))
+	require.NoError(t, err)
+	defer func() { _ = upstreamConn.Close() }()
+
+	received := make(chan []byte, 8)
+	go func() {
+		buf := make([]byte, 65535)
+		for {
+			_ = upstreamConn.SetReadDeadline(time.Now().Add(3 * time.Second))
+			n, _, rerr := upstreamConn.ReadFrom(buf)
+			if rerr != nil {
+				return
+			}
+			cp := make([]byte, n)
+			copy(cp, buf[:n])
+			received <- cp
+		}
+	}()
+
+	// Wrapper: real session store + ServeUDP goroutine.
+	upstreamUDP, err := net.ResolveUDPAddr("udp", "127.0.0.1:"+strconv.Itoa(upstreamPort))
+	require.NoError(t, err)
+	store := wrapper.NewSessionStore(120*time.Second, upstreamUDP)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	servErr := make(chan error, 1)
+	go func() {
+		servErr <- wrapper.ServeUDP(ctx,
+			"127.0.0.1:"+strconv.Itoa(wrapperPort),
+			"127.0.0.1:"+strconv.Itoa(upstreamPort),
+			store)
+	}()
+
+	// Give ServeUDP a beat to bind. Best-effort: try to bind to the
+	// wrapper's port from outside; success means it's free (= wrapper
+	// not bound yet), failure means wrapper is holding it (= ready).
+	wrapperAddr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: wrapperPort}
+	bindDeadline := time.Now().Add(1 * time.Second)
+	for time.Now().Before(bindDeadline) {
+		probe, perr := net.ListenPacket("udp", "127.0.0.1:"+strconv.Itoa(wrapperPort))
+		if perr != nil {
+			// EADDRINUSE — wrapper is bound. Good.
+			break
+		}
+		_ = probe.Close()
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// Pinned source port — both datagrams must share this.
+	clientConn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer func() { _ = clientConn.Close() }()
+
+	// --- DATAGRAM 1: PROXY-headered (first datagram, establishes session) ---
+	// Use the client's actual src-port in the PROXY header — the real
+	// nginx behavior would put the real client's IP+port here, but for
+	// this test we just need a coherent header. The wrapper trusts the
+	// PROXY header for RealClientAddr, but routes by srcAddr (the
+	// wrapper-side src of the actual UDP read, i.e. our clientConn).
+	payload1 := []byte("PAYLOAD-FIRST-WITH-HEADER")
+	dg1 := buildProxyV1UDP("203.0.113.5", "127.0.0.1", 54321, wrapperPort, payload1)
+	_, werr := clientConn.WriteTo(dg1, wrapperAddr)
+	require.NoError(t, werr)
+
+	// --- DATAGRAM 2: headerless follow-up from SAME src port ---
+	// Pre-fix: this is dropped at ParseProxyHeader. Post-fix: routed
+	// via LookupBySrcTuple to the session created by dg1.
+	payload2 := []byte("PAYLOAD-SECOND-NO-HEADER")
+	_, werr = clientConn.WriteTo(payload2, wrapperAddr)
+	require.NoError(t, werr)
+
+	// --- DATAGRAM 3: another headerless follow-up from the SAME src
+	// port (further proves the lookup path isn't a one-shot). ---
+	payload3 := []byte("PAYLOAD-THIRD-NO-HEADER")
+	_, werr = clientConn.WriteTo(payload3, wrapperAddr)
+	require.NoError(t, werr)
+
+	// Collect upstream arrivals. Expected: payload1 (stripped),
+	// payload2 (raw — already headerless), payload3 (raw).
+	got := make(map[string]bool)
+	collectDeadline := time.After(2 * time.Second)
+collectLoop:
+	for len(got) < 3 {
+		select {
+		case b := <-received:
+			got[string(b)] = true
+		case <-collectDeadline:
+			break collectLoop
+		}
+	}
+
+	require.True(t, got[string(payload1)],
+		"first (headered) datagram payload must reach upstream, got=%v", keysOf(got))
+	require.True(t, got[string(payload2)],
+		"SECOND (headerless) datagram MUST reach upstream via "+
+			"LookupBySrcTuple — this is the dotfiles-jc5 regression guard. got=%v", keysOf(got))
+	require.True(t, got[string(payload3)],
+		"third (headerless) datagram MUST reach upstream — session "+
+			"lookup is not a one-shot. got=%v", keysOf(got))
+}
+
+// TEST: dotfiles-jc5 regression — a headerless datagram from an
+// UNKNOWN src tuple (no prior session established) must NOT be
+// forwarded. The lookup-before-drop path is gated on session
+// existence; orphan headerless traffic stays dropped.
+func TestServeUDP_HeaderlessOrphanIsDropped(t *testing.T) {
+	upstreamPort := findFreeUDPPort(t)
+	wrapperPort := findFreeUDPPort(t)
+
+	upstreamConn, err := net.ListenPacket("udp", "127.0.0.1:"+strconv.Itoa(upstreamPort))
+	require.NoError(t, err)
+	defer func() { _ = upstreamConn.Close() }()
+
+	var arrived atomic.Int32
+	go func() {
+		buf := make([]byte, 65535)
+		for {
+			_ = upstreamConn.SetReadDeadline(time.Now().Add(1 * time.Second))
+			_, _, rerr := upstreamConn.ReadFrom(buf)
+			if rerr != nil {
+				return
+			}
+			arrived.Add(1)
+		}
+	}()
+
+	upstreamUDP, err := net.ResolveUDPAddr("udp", "127.0.0.1:"+strconv.Itoa(upstreamPort))
+	require.NoError(t, err)
+	store := wrapper.NewSessionStore(120*time.Second, upstreamUDP)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		_ = wrapper.ServeUDP(ctx,
+			"127.0.0.1:"+strconv.Itoa(wrapperPort),
+			"127.0.0.1:"+strconv.Itoa(upstreamPort),
+			store)
+	}()
+
+	// Brief wait for bind.
+	time.Sleep(100 * time.Millisecond)
+
+	clientConn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer func() { _ = clientConn.Close() }()
+
+	wrapperAddr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: wrapperPort}
+	// Headerless datagram with NO prior session — must drop.
+	_, werr := clientConn.WriteTo([]byte("orphan-no-header-no-session"), wrapperAddr)
+	require.NoError(t, werr)
+
+	// Wait long enough that any (incorrect) forward would arrive.
+	time.Sleep(500 * time.Millisecond)
+	require.Equal(t, int32(0), arrived.Load(),
+		"headerless orphan datagram (no prior session) MUST be dropped, "+
+			"never forwarded to upstream")
+}
+
+func keysOf(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }

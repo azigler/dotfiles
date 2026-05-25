@@ -608,6 +608,108 @@ if ! grep -q "PAYLOAD=b'${PINNED_PAYLOAD}'" "$ECHO_LOG"; then
 fi
 log "OK: echo received stripped payload (wrapper consumed PROXY header)"
 
+# ---------------------------------------------------------------------
+# dotfiles-jc5 regression — nginx's UDP `proxy_protocol on` emits the
+# PROXY v1 header ONCE per nginx-UDP-session (keyed by client
+# <src-ip, src-port>), NOT once per datagram. The wrapper must route
+# subsequent (headerless) datagrams via session lookup, not drop them.
+#
+# Implementation note: nginx's loopback behavior with `proxy_responses 0`
+# allocates a fresh upstream socket per datagram, so going through
+# nginx here would NOT exercise the multi-datagram-same-session path
+# (each would get its own PROXY header and the bug would never
+# manifest in this loopback environment — the real-world bug shows up
+# on tailnet traffic where nginx reuses the upstream socket per real
+# client). To faithfully exercise the regression on the wrapper, we
+# BYPASS nginx for this stage and send directly to the wrapper port:
+# one synthetic PROXY-headered datagram first, then two HEADERLESS
+# follow-ups from the SAME pinned src port. Pre-fix wrapper drops
+# the follow-ups; post-fix the LookupBySrcTuple branch forwards them.
+# ---------------------------------------------------------------------
+
+stage "dotfiles-jc5 regression: header-once + 2 headerless follow-ups direct to wrapper"
+
+readonly REGRESSION_SRC_PORT=44442
+readonly REGRESSION_REAL_CLIENT_IP="203.0.113.5"
+readonly REGRESSION_REAL_CLIENT_PORT=54321
+readonly REGRESSION_PAYLOAD_PREFIX="JC5-MULTI-DATAGRAM"
+
+# Inline Python sender — one socket, three sendto() calls.
+# Datagram 1: hand-built PROXY v1 header + payload-1 → establishes session.
+# Datagrams 2 & 3: raw payload only (no PROXY header) → must route via
+# LookupBySrcTuple based on srcAddr=(127.0.0.1, REGRESSION_SRC_PORT).
+python3 - <<PYEOF
+import socket, time
+WRAPPER_PORT = ${WRAPPER_PORT}
+SRC_PORT = ${REGRESSION_SRC_PORT}
+REAL_IP = "${REGRESSION_REAL_CLIENT_IP}"
+REAL_PORT = ${REGRESSION_REAL_CLIENT_PORT}
+PREFIX = "${REGRESSION_PAYLOAD_PREFIX}"
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.bind(("127.0.0.1", SRC_PORT))
+
+# Datagram 1: PROXY v1 + payload
+hdr = f"PROXY TCP4 {REAL_IP} 127.0.0.1 {REAL_PORT} {WRAPPER_PORT}\r\n".encode()
+sock.sendto(hdr + f"{PREFIX}-1".encode(), ("127.0.0.1", WRAPPER_PORT))
+time.sleep(0.1)
+
+# Datagrams 2 & 3: raw, no header
+for i in (2, 3):
+    sock.sendto(f"{PREFIX}-{i}".encode(), ("127.0.0.1", WRAPPER_PORT))
+    time.sleep(0.05)
+sock.close()
+PYEOF
+
+# Give the wrapper its hot-path round trips + slack.
+sleep 0.5
+
+# Verify all three payloads reach upstream. Pre-fix wrapper would
+# drop payloads 2 + 3 (no PROXY header → ParseProxyHeader errors →
+# unconditional `continue`), so only JC5-MULTI-DATAGRAM-1 would land.
+JC5_HITS=0
+for i in 1 2 3; do
+    if grep -q "PAYLOAD=b'${REGRESSION_PAYLOAD_PREFIX}-${i}'" "$ECHO_LOG"; then
+        JC5_HITS=$((JC5_HITS + 1))
+        log "OK: echo received '${REGRESSION_PAYLOAD_PREFIX}-${i}'"
+    else
+        log "MISS: echo did NOT receive '${REGRESSION_PAYLOAD_PREFIX}-${i}'"
+    fi
+done
+
+if [[ "$JC5_HITS" -ne 3 ]]; then
+    fail "dotfiles-jc5 regression: expected all 3 datagrams to reach echo, \
+only $JC5_HITS arrived (pre-fix wrapper drops headerless follow-ups; \
+post-fix LookupBySrcTuple must route them via the existing session)"
+    log "  echo log (full):"
+    sed 's/^/    /' "$ECHO_LOG" >&2
+    log "  wrapper log tail:"
+    tail -30 "$WRAPPER_LOG" | sed 's/^/    /' >&2
+    exit 1
+fi
+log "OK: dotfiles-jc5 regression — header-once + 2 headerless follow-ups all reached echo"
+
+# Confirm UDS LOOKUP returns the SYNTHETIC real client IP+port from
+# the first datagram's PROXY header — proves the session was created
+# from the header, and the follow-ups went through that session.
+SESSION_FANOUT=$(grep "FANOUT_SRC=127.0.0.1:" "$ECHO_LOG" | \
+    grep -E "PAYLOAD=b'${REGRESSION_PAYLOAD_PREFIX}-[123]'" | \
+    head -1 | sed -n 's/^FANOUT_SRC=127\.0\.0\.1:\([0-9]\+\) .*/\1/p')
+if [[ -n "$SESSION_FANOUT" ]]; then
+    REGR_LOOKUP=$(printf 'LOOKUP udp %s\n' "$SESSION_FANOUT" | nc -U -w2 "$WRAPPER_UDS" 2>&1 || true)
+    EXPECTED_REGR="OK ${REGRESSION_REAL_CLIENT_IP}:${REGRESSION_REAL_CLIENT_PORT}"
+    if [[ "$REGR_LOOKUP" == "${EXPECTED_REGR}"* ]]; then
+        log "OK: jc5 regression LOOKUP returned synthetic real client (${EXPECTED_REGR})"
+    else
+        # Note: under the post-fix path, all 3 datagrams should share
+        # the SAME fan-out port (single session). If they don't, that's
+        # a separate concern (multiple sessions created) but not a
+        # blocker for the regression guard.
+        log "INFO: jc5 LOOKUP got '$REGR_LOOKUP' (expected prefix '${EXPECTED_REGR}'); "\
+"this can happen if the headerless follow-ups raced session creation."
+    fi
+fi
+
 # Extract the wrapper's fan-out source port from the echo log — this
 # is the key Robust.Server would query for via LOOKUP.
 FANOUT_PORT=$(grep 'FANOUT_SRC=127.0.0.1:' "$ECHO_LOG" | head -1 | \
