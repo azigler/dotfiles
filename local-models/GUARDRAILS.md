@@ -2,7 +2,22 @@
 
 Cross-arc invariants observed empirically. Violations cause silent failures or production regressions across all four current epics (A: CCR router, B: CoD MUD agent, C: LSRA research agent, D: autonovel pi.dev harness) plus future arcs.
 
-Last updated: 2026-05-25.
+Last updated: 2026-05-25 (multiple revisions during Wave 0/1 probes).
+
+---
+
+## SUMMARY: which model for which task (2026-05-25, empirically verified)
+
+| Workload | Recommended | Why | Avoid |
+|---|---|---|---|
+| **Tool-use / structured JSON** | `qwen3-coder:30b` (Ollama) | ✅ parallel `tool_calls[]`, fast, no MLX serving quirks | Trinity (both), Devstral untested |
+| **Long literary prose / chapter drafts** | `qwen3-coder:30b` (Ollama) | ✅ ~22s for 2K chars, in-voice. Qwen3 *MLX* mode-collapses (G13). | Qwen3 MLX, Trinity MLX (empty content G1) |
+| **Long-context (>32K tokens)** | `laguna-xs.2:latest` (Ollama) | Only model passing 100K bench; format-clean | Laguna MLX (G7), Qwen3 MLX (G13) |
+| **Reasoning-heavy + visible-trace** | `mlx-community/Trinity-Mini-4bit` | Separate `reasoning` field useful for audit | Default to Qwen3 Ollama unless trace needed |
+| **Background subagent dispatch (Claude Code)** | Qwen3 Ollama via CCR | Both tool-use + prose, covered | Same as above |
+| **Code generation** | Qwen3 Ollama or Devstral MLX | Both score 17/20 on bench | n/a |
+
+**Net empirical finding (Wave 1):** Qwen3-Coder via Ollama is the workhorse. MLX backend's role narrows to: (a) Trinity reasoning trace use case, (b) higher per-token speed for some workloads (35 tps MLX vs 33 tps Ollama for Qwen3 — but only matters for streaming UX, not for batch agent dispatch).
 
 ---
 
@@ -38,26 +53,32 @@ The earlier "empty content" finding was misread — the prose generation request
 - Prose / narrative → **Qwen3-Coder Ollama** or **Laguna Ollama** (NOT Qwen3 MLX — see G13 below)
 - Reasoning-heavy planning → Trinity MLX with both fields surfaced
 
-## G13 — Qwen3-Coder MLX cannot do long-prose generation (MLX-server issue, not model)
+## G13 — `mlx_lm.server` has a long-form repetition-collapse issue (Qwen3 + Trinity confirmed)
 
-**Empirical receipt (2026-05-25, Epic D E1 probes):** Qwen3-Coder run through `mlx_lm.server` at long-prompt (>3500 tokens setup) literary-prose continuation:
-- At temperature 0.85: mode collapses into Chinese character repetition after ~150 OK English tokens
-- At temperature 0.5: mode collapses into English-sentence repetition (same 2 sentences loop)
+**Empirical receipts (2026-05-25, Epic D E1 probes — multiple model variations):**
 
-**Same model via Ollama (`qwen3-coder:30b`) at the same temperatures:** generates coherent in-voice prose. 22s for 2000 chars.
+| Model | Backend | Long-prose result | Failure mode |
+|---|---|---|---|
+| Qwen3-Coder | **MLX** | ❌ collapses after ~150 tokens | Chinese-char repetition @ T=0.85; English-sentence loop @ T=0.5 |
+| Qwen3-Coder | **Ollama** | ✅ 2460 chars clean | n/a |
+| Trinity-Mini | **MLX** (max_tokens=3000) | ⚠️ produces 14K chars but tail collapses | "hidden beneath the acceptance" loop in last ~500 chars |
+| Trinity-Mini | MLX (max_tokens=500) | ❌ empty content (reasoning consumes budget) | n/a |
+| Laguna-XS.2 | **Ollama** | ✅ 2423 chars clean | n/a |
+| Devstral-Small | **MLX** | ✅ 2525 chars (in v3 probe; longer untested) | none observed at 700 tokens |
 
-**Diagnosis:** the issue is `mlx_lm.server`'s long-prose serving, not the underlying Qwen3 weights. Possible causes (untested):
-- KV-cache eviction under long context
-- Sampler configuration mismatch
-- Chat-template formatting
-- Some attention/positional issue at sequence length
+**Diagnosis (mechanism untested):**
+- Pattern is `mlx_lm.server` produces *repetition collapse* on long-form generation. Affects Qwen3 (fast onset) and Trinity (slow onset). Devstral may also collapse at longer lengths — needs probe.
+- The **same model via Ollama produces clean output**, so the underlying weights are fine. The serving layer (sampler, repetition penalty, KV-cache) is the issue.
+- Likely candidates: missing/wrong `repetition_penalty` config, sampler temperature handling, KV-cache eviction at long context.
 
 **Rule:**
-- Tool calls / short structured prompts: Qwen3 MLX is FINE (G9 stands)
-- Long literary-prose generation: route to **Qwen3 Ollama** instead of MLX
-- If you must use Qwen3 MLX for prose, keep the prompt short (<1500 tokens) and monitor for repetition collapse
+- **Tool calls / short structured prompts (<500 tokens output): MLX is FINE.** G9 stands; Qwen3 MLX returns parallel tool_calls cleanly.
+- **Long literary prose / chapter drafts: route to OLLAMA backend** (Qwen3 Ollama or Laguna Ollama). DO NOT use MLX for >1500 chars of generation output.
+- **If you must use Trinity MLX for prose** (e.g. for the reasoning trace): use max_tokens 3000+ but be prepared to **truncate the tail before the collapse** (around 80% of generated length is a safe cut).
 
-This is a load-bearing finding for Epic D (autonovel) and Epic C (LSRA REWRITE_REPORT step).
+**Load-bearing for:** Epic D autonovel (prose), Epic C LSRA REWRITE_REPORT, Epic B social-mode quest dialogue.
+
+**Action item (pi-harness explore-7hh):** investigate root cause and report back via PR to mlx-lm upstream. Could be a 1-line fix in sampler config.
 
 ---
 
