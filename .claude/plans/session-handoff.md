@@ -1,8 +1,9 @@
 # Session handoff — 2026-05-25 local-coding-models autonomous queue
 
-## State at offboard
+## State at offboard (refreshed)
 - **Branch**: main, clean
-- **Last commit** (dotfiles): `d2a7954 :wrench: ollama: add OLLAMA_CONTEXT_LENGTH + NUM_PARALLEL + MAX_LOADED_MODELS`
+- **Last commit** (dotfiles): `9eb2f0c :wrench: ollama: NUM_PARALLEL 2->1 + claude: enable push notif + remote-control startup`
+  - prior: `01923ee` (first offboard), `d2a7954` (env tweaks), `92dab31` (mlx install)
 - **Last commit** (explore): `64b15d5 :card_file_box: step-12: finetuning toolchain research + .9.1 sub-bead stub`
 - **Open beads**: 4 in `~/explore/.beads/` (epic-4te + sub-beads); 0 in dotfiles
 - **Beads ready**:
