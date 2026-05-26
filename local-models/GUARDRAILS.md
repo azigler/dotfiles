@@ -433,6 +433,15 @@ The MLX direct refusal is the surprising part: the model didn't try and fail, it
 
 **This finding is the real `why-llama-swap-exists` for our stack** — not just memory eviction (G14), but tool-call envelope correctness too.
 
+**Wave 13 root-cause correction (2026-05-26):** the initial "llama-swap injects tool envelope" hypothesis was FALSIFIED by source-read of llama-swap (`research-llama-swap-toolshim.md`) — llama-swap does ZERO tool-call transformation. The actual divergence is at mlx_lm.server's startup-flag level:
+
+- `:8081` (launchd `com.zig.mlx.plist`) starts with NO `--model` flag → lazy-load mode → tools silently fail (model's `chat_template.jinja` not applied properly for tools)
+- `:5802` (spawned by llama-swap for qwen3-coder) starts with `--model mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit` → eager-load mode → chat_template loaded correctly → tools work
+
+Empirically verified with deterministic temp=0+seed=42 across 3 trials per backend: MLX direct 0/3 emits tool_calls, llama-swap 3/3 emits 2 tool_calls (Edit+Bash). The divergence is structural, not sampling noise.
+
+**`mlx_lm.server` has a lazy-load chat-template bug** worth filing upstream. Llama-swap accidentally avoids it by always spawning `--model`-preloaded instances. Alternative workaround: restart `:8081` with explicit `--model X` (locks to single model but tools would work) — trades flexibility for fidelity; not currently recommended.
+
 **Secondary finding (file upstream issue):** `mlx_lm.server` v0.31.3 emits response `content` strings with literal `\n` characters instead of escaped `\\n`, breaking strict JSON parsing on the client. CCR + llama-swap re-encode and don't suffer; raw curl callers must use `strict=False` JSON parsing or pre-filter.
 
 **Research source:** `~/explore/local-coding-models/refs/research/research-ccr-tool-schema-followup.md`. Bead: `dotfiles-ukx.9`. Updates `dotfiles-ukx.6` §4.1 routing config (pico-mlx repoint :8081 → :8090).
