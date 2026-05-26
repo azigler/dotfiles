@@ -15,13 +15,17 @@
     },
     {
       "name": "pico-mlx",
-      "api_base_url": "http://100.72.47.4:8081/v1/chat/completions",
+      "api_base_url": "http://100.72.47.4:8090/v1/chat/completions",
       "api_key": "ollama",
       "models": [
-        "mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit",
-        "mlx-community/Trinity-Mini-4bit",
-        "mlx-community/Devstral-Small-2507-5bit"
-      ]
+        "qwen3-coder",
+        "trinity-mini",
+        "devstral",
+        "deepseek-coder-v2-lite-mlx"
+      ],
+      "transformer": {
+        "use": ["Anthropic"]
+      }
     },
     {
       "name": "pico-ollama",
@@ -30,13 +34,17 @@
       "models": [
         "qwen3-coder:30b",
         "laguna-xs.2:latest",
-        "devstral:24b"
-      ]
+        "devstral:24b",
+        "deepseek-coder-v2:16b-lite-instruct-q4_K_M"
+      ],
+      "transformer": {
+        "use": ["Anthropic"]
+      }
     }
   ],
   "Router": {
     "default": "anthropic,claude-opus-4-7",
-    "background": "pico-mlx,mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit",
+    "background": "pico-mlx,qwen3-coder",
     "longContext": "pico-ollama,laguna-xs.2:latest",
     "longContextThreshold": 50000
   }
