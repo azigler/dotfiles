@@ -415,6 +415,30 @@ if(e.body?.system?.length>1 && e.body?.system[1]?.text?.startsWith("<CCR-SUBAGEN
 
 ---
 
+## G16 — Tool-using subagents MUST route via llama-swap, NOT direct mlx_lm.server
+
+**Empirical receipt (2026-05-26, dotfiles-ukx.9):** Same Qwen3-Coder-30B-A3B-Instruct-4bit weights probed via three local backends with an identical parallel-tool-call payload (Edit + Bash tools, prompt forcing parallel use):
+
+| Backend | URL | Verdict |
+|---|---|---|
+| llama-swap | `100.72.47.4:8090` | **PASS** — 2 tool_calls (Edit + Bash) properly emitted |
+| Ollama | `100.72.47.4:11434` | **DEGRADED** — 1 tool_call (Edit only, Bash silently dropped) |
+| mlx_lm.server | `100.72.47.4:8081` | **REFUSED** — model returned plain text "I cannot execute multiple commands in parallel as requested" |
+
+The MLX direct refusal is the surprising part: the model didn't try and fail, it explicitly refused. Hypothesis: `mlx_lm.server`'s default chat template doesn't wrap the tools schema in Qwen3's expected `<tools>...</tools>` XML envelope, so from the model's perspective tools are not advertised. llama-swap injects the correct envelope before forwarding.
+
+**Routing rule:** **For any subagent that may emit parallel tool calls, route via llama-swap (`100.72.47.4:8090`).** Do NOT point CCR's `pico-mlx` provider at `mlx_lm.server` direct on :8081 for tool-using work. Direct MLX is fine for non-tool prose/completion work (PONG roundtrip works, autonovel-style prose works); the tool-call refusal is specific to the tool-schema path.
+
+**Ollama for tool-use is degraded but workable** for non-parallel cases. For parallel-emitting subagents (orchestrator dispatches that fan out Read/Edit/Bash), llama-swap is the safe path.
+
+**This finding is the real `why-llama-swap-exists` for our stack** — not just memory eviction (G14), but tool-call envelope correctness too.
+
+**Secondary finding (file upstream issue):** `mlx_lm.server` v0.31.3 emits response `content` strings with literal `\n` characters instead of escaped `\\n`, breaking strict JSON parsing on the client. CCR + llama-swap re-encode and don't suffer; raw curl callers must use `strict=False` JSON parsing or pre-filter.
+
+**Research source:** `~/explore/local-coding-models/refs/research/research-ccr-tool-schema-followup.md`. Bead: `dotfiles-ukx.9`. Updates `dotfiles-ukx.6` §4.1 routing config (pico-mlx repoint :8081 → :8090).
+
+---
+
 ## G15 — DeepSeek-Coder-V2-Lite MLX BLOCKED (MoE arch not supported, same pattern as Laguna)
 
 **Empirical receipt (2026-05-25 evening, explore-4te.13):** Attempted to load `mlx-community/DeepSeek-Coder-V2-Lite-Instruct-4bit` via stock mlx_lm.server. Result: HF auto-download started (4.1 GB downloaded into proper snapshots/ cache), then **HUNG indefinitely** — server process at 0% CPU, no log activity, no model load completed after 70+ min. Smoke test curl timed out at 5min then 30min budgets, returning no bytes.
