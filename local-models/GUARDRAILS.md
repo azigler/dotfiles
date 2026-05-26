@@ -445,10 +445,15 @@ Extended the probe across the other tool-shortlist models, all routed via llama-
 |---|---|---|
 | qwen3-coder | ✅ PASS | parallel tool_calls emitted correctly |
 | devstral-mlx | ❌ REFUSED / TEXT MODE | model narrates plan in text; no tool_calls |
-| trinity-mini-mlx | ❌ REFUSED / BUDGET | reasoning chain consumed 400-tok budget before emission (finish_reason=length) |
+| trinity-mini-mlx | 🟡 PARSEABLE via shim (at ≥2000 tok max) | Re-probe with max_tokens=2000: Trinity emits 2 parallel `<tool_call>...</tool_call>` XML blocks in CONTENT (correct args, both Edit + Bash). NOT in `message.tool_calls[]` because llama-swap doesn't parse Hermes XML. The Wave 5 `trinity_shim.py` is the client-side parsing solution — Trinity becomes VIABLE for parallel tool use when shim is applied |
 | deepseek-coder-v2-lite-mlx | ⛔ SKIPPED | G15 blocks (MoE arch unsupported in mlx-lm 0.31.3) |
 
-**Practical: the only tool-using local routing path is Qwen3-Coder via llama-swap :8090.** Devstral + Trinity don't emit tool calls even through the same llama-swap envelope that works for Qwen3. Hypothesis for Devstral: it uses Mistral-style tool envelope, not Qwen3's; llama-swap's shim is Qwen3-tuned. Trinity hypothesis: budget exhaustion (re-probe with 2000-token cap to verify).
+**Practical: tool-using local routing paths in priority order:**
+1. **Qwen3-Coder via llama-swap :8090** — native PASS; no shim needed
+2. **Trinity Mini via llama-swap :8090 + trinity_shim.py** — emits parallel `<tool_call>` XML correctly at max_tokens ≥2000; shim parses XML into structured `tool_calls[]`. Wave 5 already shipped the shim
+3. **(Fallback) Ollama Qwen3-Coder :11434** — DEGRADED (single tool call per turn), but works for sequential subagent dispatch with "one tool per assistant turn" hint
+
+**Devstral remains tool-mute** even through llama-swap (probable cause: Mistral-style tool envelope mismatch; needs per-model template override in llama-swap, or use Devstral as non-tool fallback only).
 
 **Updated routing rule:** CCR's `pico-mlx` provider for tool-using subagents → Qwen3-Coder via llama-swap :8090. For non-tool prose/completion work, direct MLX :8081 is still fine. Long-context Laguna → Ollama :11434 (unchanged). Devstral + Trinity stay non-tool-routed.
 
