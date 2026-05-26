@@ -22,10 +22,7 @@
         "trinity-mini",
         "devstral",
         "deepseek-coder-v2-lite-mlx"
-      ],
-      "transformer": {
-        "use": ["Anthropic"]
-      }
+      ]
     },
     {
       "name": "pico-ollama",
@@ -36,10 +33,7 @@
         "laguna-xs.2:latest",
         "devstral:24b",
         "deepseek-coder-v2:16b-lite-instruct-q4_K_M"
-      ],
-      "transformer": {
-        "use": ["Anthropic"]
-      }
+      ]
     }
   ],
   "Router": {

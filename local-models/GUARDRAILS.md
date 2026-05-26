@@ -496,6 +496,26 @@ Empirically verified with deterministic temp=0+seed=42 across 3 trials per backe
 
 **Research source:** `~/explore/local-coding-models/refs/research/research-ccr-tool-schema-followup.md`. Bead: `dotfiles-ukx.9`. Updates `dotfiles-ukx.6` §4.1 routing config (pico-mlx repoint :8081 → :8090).
 
+### Wave 15 G16 amendment — CCR config REVERSAL on `transformer: { use: ["Anthropic"] }`
+
+The Wave 11 ukx.8 research **recommended** `transformer: { use: ["Anthropic"] }` on the pico-mlx + pico-ollama providers. The Wave 13 G16 work + Wave 14 ukx.3/ukx.5 ALL propagated that recommendation into the production config + README.
+
+**Wave 15 ukx.12 empirical: that recommendation was WRONG.** When the smoke environment first tried to send tool-using requests through CCR → llama-swap, every request 404'd with `'dict object' has no attribute 'parameters'` (a Jinja error from mlx_lm.server's chat template trying to access `tool.parameters` on an Anthropic-shape dict that only has `input_schema`).
+
+**Root cause**: `transformer: { use: ["Anthropic"] }` tells CCR "this provider speaks Anthropic Messages format" — meaning CCR converts the OUTGOING (Unified → Anthropic) on the request side. But pico-mlx (mlx_lm.server via llama-swap) speaks OpenAI Chat Completions. So CCR was sending an Anthropic-shape body to an OpenAI-shape backend; the `input_schema` field never got renamed to `parameters`; the chat template's `{{ tool.parameters }}` access raised an AttributeError.
+
+**Fix (live in commit edf1964-+1)**: REMOVE the `transformer` block entirely from pico-mlx + pico-ollama providers. CCR's default behavior for an OpenAI-compat backend is to convert Anthropic→OpenAI on the request side via its built-in `convertAnthropicToolsToUnified` function (verified empirical: parallel tool calls now PASS through the full CCR→llama-swap pipeline at 2/2 emitted).
+
+**Lesson** (worth carrying to the [[preserve-process-artifacts]] memory + the /research SKILL anti-pattern table): **source-read research is necessary but not sufficient — every load-bearing recommendation needs an empirical wire-test before declaring victory**. ukx.8 source-read recommended the transformer config; only ukx.3's smoke env exercised the full pipeline and exposed that the recommendation was upside-down. This is the second time this session (G16-original was also reversed) — the pattern is clear.
+
+**Updated production posture** (all in dotfiles main as of Wave 15):
+- `~/dotfiles/claude-code-router/config.json` — no transformer blocks on pico-* providers
+- `~/dotfiles/claude-code-router/README.md` — needs update (ukx.5 doc references the now-removed block)
+- `dotfiles-ukx.6` §4.1 — needs update (still shows transformer block)
+- `dotfiles-ukx.8` + `dotfiles-ukx.9` research files — needs REVISED block flagging the wrong recommendation
+
+**Empirical receipt (2026-05-26)**: parallel tool-call probe through CCR /v1/messages → Router.background → pico-mlx (no transformer) → llama-swap :8090 → mlx_lm.server :5802 → Qwen3-Coder → 2 tool_use blocks (Edit + Bash) returned in correct Anthropic shape. End-to-end PASS.
+
 ### G16 extension (2026-05-26 same session) — Qwen3-Coder is the only working model
 
 Extended the probe across the other tool-shortlist models, all routed via llama-swap :8090 (the known-good path for Qwen3):
