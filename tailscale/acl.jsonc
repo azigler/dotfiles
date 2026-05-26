@@ -36,25 +36,27 @@
 // Future contractor / co-owner devices not tied to the user's account
 // match NO rule and are denied by default — allowlist-default-deny.
 //
-// SSH section: `check` action requires Tailscale-identity re-auth every 12h
-// before opening a new SSH session. Existing sessions stay live.
+// SSH section: all rules `accept` — no Tailscale-identity re-auth required.
+// Rationale: machine-to-machine automation (the granola webhook on pico
+// pushes transcripts to zig-computer via ssh on every Zapier hit) cannot
+// tolerate the 12h `check` re-auth expiry — when the check session lapsed
+// the webhook would fail silently with no operator in the loop to click an
+// auth URL. Removing `check` accepts that any compromised user-owned device
+// can SSH into the user's own tailnet devices without browser re-verify;
+// bounded because the attacker would already have full tailnet identity and
+// could do anything else within the ACL anyway. Flipped from `check` →
+// `accept` on 2026-05-26 (see commit message for context).
 //
-// Two SSH rules:
-//   1. autogroup:member → tag:server — clients (metis, iPhone) SSH into
-//      servers. Users: `ubuntu` (the Linux user on zig-computer) or
-//      autogroup:nonroot (any non-root user, e.g. `pico` on the Mac).
-//      Action: `check` — re-auth every 12h (user identity exists to check).
-//   2. tag:server → tag:server — server-to-server SSH (zig-computer ↔ pico).
-//      Closes a workflow gap: the user lives on zig-computer (the workshop)
-//      and needs to reach pico for ops/debug without bouncing through a
-//      laptop. Action: `accept` — `check` ISN'T POSSIBLE here because the
-//      source is a tagged device (machine identity, no human user to
-//      re-authenticate). Tailscale rejects `check` with tag:server in src
-//      ("'check' action does not support tags in src"). Security trade-off
-//      acknowledged: if a tagged server is compromised, the attacker can
-//      SSH into other tagged servers without re-auth. Bounded — server
-//      compromise is already a large problem; this doesn't worsen the
-//      blast radius materially.
+// Three SSH rules:
+//   1. autogroup:member → tag:server — user-owned devices (metis, iPhone,
+//      pico-as-untagged) SSH into tagged servers (zig-computer). Users:
+//      `ubuntu` (Linux user on zig) or autogroup:nonroot (any non-root,
+//      e.g. `pico` on the Mac). Action: `accept`.
+//   2. autogroup:member → autogroup:self — user-owned devices SSH into
+//      each other (metis → pico, etc.). Action: `accept`.
+//   3. tag:server → tag:server — server-to-server SSH. Action: `accept`
+//      (and structurally must be — Tailscale rejects `check` with
+//      tag:server in src: "'check' action does not support tags in src").
 //
 // See spec bead `dotfiles-phe` § 4.2 for the rationale + § 6 OQs for
 // decisions that shaped this. Server-to-server rule added post-spec as a
@@ -124,7 +126,7 @@
 
   "ssh": [
     {
-      "action": "check",
+      "action": "accept",
       "src":    ["autogroup:member"],
       "dst":    ["tag:server"],
       "users":  ["ubuntu", "autogroup:nonroot"],
@@ -137,8 +139,7 @@
     },
     {
       // user-to-self SSH (e.g. metis → pico now that pico is user-owned).
-      // 'check' re-auth every 12h, same as user-to-server.
-      "action": "check",
+      "action": "accept",
       "src":    ["autogroup:member"],
       "dst":    ["autogroup:self"],
       "users":  ["autogroup:nonroot"],
