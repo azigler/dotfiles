@@ -462,7 +462,9 @@ Extended the probe across the other tool-shortlist models, all routed via llama-
 2. **Trinity Mini via llama-swap :8090 + trinity_shim.py** — emits parallel `<tool_call>` XML correctly at max_tokens ≥2000; shim parses XML into structured `tool_calls[]`. Wave 5 already shipped the shim
 3. **(Fallback) Ollama Qwen3-Coder :11434** — DEGRADED (single tool call per turn), but works for sequential subagent dispatch with "one tool per assistant turn" hint
 
-**Devstral remains tool-mute** even through llama-swap (probable cause: Mistral-style tool envelope mismatch; needs per-model template override in llama-swap, or use Devstral as non-tool fallback only).
+**Devstral remains tool-mute in the currently-installed quants** — `mlx-community/Devstral-Small-2507-5bit` ships a 44-line tool-blind template; `mlx-community/Devstral-Small-2507-4bit-DWQ` same. Ollama `devstral:24b` ALSO broken (Wave 14 empirical probe: `finish_reason=stop`, 196 tokens, no tool_calls, plain markdown narration).
+
+**Wave 14 unblock path**: `lmstudio-community/Devstral-Small-2507-MLX-4bit` (13.3 GB, 4-bit) ships the full Mistral `[TOOL_CALLS]/[AVAILABLE_TOOLS]/[TOOL_RESULTS]` envelope. Swap llama-swap to this quant + re-probe to unblock Devstral. Tracked as `dotfiles-ukx.11`. Research at `~/explore/local-coding-models/refs/research/research-devstral-toolaware-quant.md`.
 
 **Updated routing rule:** CCR's `pico-mlx` provider for tool-using subagents → Qwen3-Coder via llama-swap :8090. For non-tool prose/completion work, direct MLX :8081 is still fine. Long-context Laguna → Ollama :11434 (unchanged). Devstral + Trinity stay non-tool-routed.
 
