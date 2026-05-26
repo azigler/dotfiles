@@ -262,24 +262,47 @@ Applies to: model downloads, benchmarks, fine-tuning, 24h agent runs, eviction p
 
 ---
 
-## G7 — Laguna MLX BLOCKED in mlx-lm 0.31.3, BUT upstream PR exists
+## G7 — Laguna MLX WORKAROUND-AVAILABLE via Blaizzy fork (was BLOCKED)
 
-**REVISED 2026-05-25 evening (research-agent finding):**
+**REVISED 2026-05-26 (Wave 10 D10 empirical):**
 
-- Upstream PR exists: [ml-explore/mlx-lm#1223](https://github.com/ml-explore/mlx-lm/pull/1223) by Prince Canuma (Blaizzy), opened 2026-04-28
-- **Status: still open, mergeable_state: blocked**, no maintainer review yet
-- 826 LOC across 7 files — Laguna is a genuinely novel arch (per-layer-type RoPE, variable head count, per-head sigmoid output gating, hybrid dense+MoE MLP). NOT a Llama clone. Not a 1-line alias fix.
-- **Workaround (test before relying on):** `pip install git+https://github.com/Blaizzy/mlx-lm.git@pc/add-lg`
-- Rebase status: well-maintained (last upstream merge 4 days before laguna commits)
-- vLLM, SGLang, TensorRT-LLM, Transformers, Ollama all have day-zero Laguna support — mlx-lm is the odd one out
+The Blaizzy mlx-lm fork (`pc/add-lg` branch) was empirically tested on pico in an isolated venv. Laguna XS.2 loads + generates correctly. G7 demoted from BLOCKED to WORKAROUND-AVAILABLE.
 
-**Recommendation:**
-1. Today: keep using Laguna Ollama (G7 stands operationally)
-2. This week: test Blaizzy's branch on pico — low-risk; if it works, can relax to "G7-ish until PR #1223 merges"
-3. Add a benchmark-comment to PR #1223 to nudge review (social proof — johntdavies's M5 Max bench is already there)
-4. Escalate past 2026-06-15 if no review
+**Workaround (verified working):**
+```bash
+python3.10 -m venv ~/laguna-test/.venv
+source ~/laguna-test/.venv/bin/activate
+pip install git+https://github.com/Blaizzy/mlx-lm.git@pc/add-lg
+# Test: from mlx_lm import load, generate
+#       model, tok = load("mlx-community/Laguna-XS.2-mxfp4")
+#       generate(model, tok, prompt="...", max_tokens=20)
+```
 
-**Research source:** `~/explore/local-coding-models/refs/research/research-laguna-mlx.md`. Bead: `explore-4te.18`.
+Empirical result (`~/d10-laguna-load.log` on pico, 2026-05-26):
+- `laguna` arch registered in branch's models registry ✓
+- Model loads (12 files, ~10 sec) ✓
+- Generation OK on capital-of-France prompt ✓
+- Minor tokenizer warning: `fix_mistral_regex=True` recommended (Mistral-Small-3.1 tokenizer issue; cosmetic)
+
+**Upstream status (unchanged):**
+- PR exists: [ml-explore/mlx-lm#1223](https://github.com/ml-explore/mlx-lm/pull/1223) by Blaizzy, opened 2026-04-28
+- **Still open, mergeable_state: blocked**, no maintainer review yet as of 2026-05-26
+- 826 LOC across 7 files — genuinely novel arch (per-layer-type RoPE, variable head count, per-head sigmoid output gating, hybrid dense+MoE MLP)
+- vLLM, SGLang, TensorRT-LLM, Transformers, Ollama all have day-zero Laguna support — mlx-lm was the odd one out
+
+**Current recommendation:**
+1. **Laguna MLX is now USABLE via fork-pinned venv** — for Laguna-specific work, install the Blaizzy fork in an isolated environment
+2. The system-wide mlx-lm (used by the launchd-managed `mlx_lm.server` at :8081) still does NOT support Laguna — only the fork venv does
+3. To benchmark Laguna MLX vs Laguna Ollama: start a fork-pinned `mlx_lm.server` on a different port, route per-bead
+4. Watch PR #1223 for upstream merge; switch system-wide install when merged (probably auto-fixable via `pip install -U mlx-lm` once a release ships)
+5. Add a benchmark-comment to PR #1223 to nudge review (social proof — johntdavies's M5 Max bench is already there; ours would be M1 Max)
+
+**Routing implications:**
+- AB-verdict v2 "Laguna MLX" row can be filled in via fork-pinned bench (Wave 11+ work)
+- `dotfiles-5e2` D10 deferred-decision can be marked RESOLVED
+- Hermes Agent pico-mlx plugin (`explore-7hh.13`) may want to expose both system MLX (:8081) AND Laguna-fork MLX as separate profiles
+
+**Research source:** `~/explore/local-coding-models/refs/research/research-laguna-mlx.md`. D10 result archived in bead `explore-4te.18` `--notes`.
 
 ---
 
