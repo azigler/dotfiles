@@ -1,9 +1,9 @@
 ---
-description: Per-session orchestrator token-cost ledger with a compute script that reads the Claude Code session JSONL on disk. Filters out subagent sidechains (those have their own per-bead rows). Use when a project wants a reproducible budget — research papers, billing transparency, or just curiosity about where your tokens go. Set up once via /onboard's first-session prompt; updated thereafter by /offboard.
+description: Per-session orchestrator token-cost ledger with a compute script that reads the Claude Code session JSONL on disk. Tracks INFERENCE cost only (input + output tokens at standard API rates) — cache infrastructure is shown as reference counters but excluded from the cost total, matching "what would this session have cost as raw API calls." Filters out subagent sidechains (those have their own per-bead rows). Use when a project wants a reproducible budget — research papers, billing transparency, or just curiosity about where your tokens go. Set up once via /onboard's first-session prompt; updated thereafter by /offboard.
 when_to_use: User asks "how much have I spent on this project?", "log this session's cost", "set up cost tracking", "where are my tokens going?" Also runs automatically during /offboard if .claude/plans/cost-tracking.md exists.
 ---
 
-# /cost-tracking — Per-session token cost ledger
+# /cost-tracking — Per-session inference cost ledger
 
 Every Claude Code session writes a JSONL log to disk
 (`~/.claude/projects/<slug>/<session-id>.jsonl`) with exact per-turn
@@ -11,8 +11,28 @@ token usage. This skill turns those logs into a project-level ledger:
 
 - **Orchestrator-only** token totals per session (subagent sidechains
   are filtered — those land per-bead via task-notification `<usage>`)
+- **Inference-only cost** (input + output × standard rates). Cache
+  infrastructure (cache_creation, cache_read) is tracked as reference
+  counters but EXCLUDED from the cost — that's overhead, not inference.
 - Applied pricing (Opus 4.7, Sonnet 4.6, Haiku 4.5)
 - Markdown-row append to `.claude/plans/cost-tracking.md`
+
+## Cost model (revised 2026-05-26)
+
+**The cost number is INFERENCE-ONLY:**
+```
+cost = input_tokens × input_rate + output_tokens × output_rate
+```
+
+Cache infrastructure overhead is NOT included in the headline cost.
+`--format verbose` shows the cache counts and a comparison
+"with-cache-infra" number for awareness, but the canonical cost is
+input + output only — matching "raw API call as if no caching."
+
+Why: cache is project infrastructure (a discipline for cheap reuse of
+context), not the inference work itself. Counting it inflates the
+number without describing what the session actually accomplished. The
+inference cost is the comparable, portable metric.
 
 ## Setup (once per project)
 

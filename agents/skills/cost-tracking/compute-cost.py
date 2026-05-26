@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
-"""Compute exact orchestrator token cost for a Claude Code session JSONL.
+"""Compute exact orchestrator INFERENCE cost for a Claude Code session JSONL.
 
 Reads the session JSONL on disk, filters out subagent sidechains
 (`isSidechain: true` — those have their own per-bead rows from
 task-notification `<usage>` blocks), sums orchestrator-only token usage,
 applies model pricing, and prints a row ready for cost-tracking.md.
+
+**Cost model: INFERENCE only (input + output tokens at standard API rates).**
+Cache infrastructure costs (cache_creation, cache_read) are tracked as
+reference counters but EXCLUDED from the cost total — that's overhead, not
+inference. This matches "what would this session have cost as raw API calls."
+
+Use `--format verbose` to see both: the inference cost (canonical) AND a
+"with-cache-infra" comparison number for awareness.
 
 Usage:
     python3 ~/.claude/skills/cost-tracking/compute-cost.py \\
@@ -19,10 +27,11 @@ slashes replaced by hyphens (e.g., `/home/ubuntu/foo` -> `-home-ubuntu-foo`).
 Format options:
     row          - markdown table row, ready to append to cost-tracking.md
     json         - machine-readable summary
-    verbose      - human-readable breakdown
+    verbose      - human-readable breakdown with cache-infra comparison
     commit-line  - one-liner for commit bodies (default for /choreo-style flows)
 
 Pricing source: Anthropic public API rates as of 2026-04-18.
+Revised 2026-05-26: cost = input + output only; cache_* excluded from total.
 """
 
 from __future__ import annotations
@@ -101,7 +110,26 @@ def sum_session_usage(jsonl_path: Path) -> dict:
 
 
 def compute_cost(totals: dict, model: str) -> float:
-    """Compute dollar cost from usage totals using model pricing."""
+    """Compute inference dollar cost from usage totals using model pricing.
+
+    INFERENCE-ONLY: input tokens at standard input rate + output tokens at
+    standard output rate. Cache infrastructure (cache_creation, cache_read)
+    is EXCLUDED — that's overhead, not inference. See compute_cost_with_cache
+    for the "with cache infra" comparison number.
+    """
+    rates = PRICING[model]
+    return (
+        totals["input_tokens"] * rates["input"]
+        + totals["output_tokens"] * rates["output"]
+    )
+
+
+def compute_cost_with_cache(totals: dict, model: str) -> float:
+    """Reference-only: cost WITH cache infrastructure included.
+
+    Use this only for awareness comparison in verbose output. The canonical
+    cost number (and what goes into the ledger / row format) is compute_cost.
+    """
     rates = PRICING[model]
     return (
         totals["input_tokens"] * rates["input"]
@@ -193,6 +221,7 @@ def main(argv: list[str]) -> int:
 
     totals = sum_session_usage(jsonl_path)
     cost = compute_cost(totals, args.model)
+    cost_with_cache = compute_cost_with_cache(totals, args.model)
     session_id_short = jsonl_path.stem[:8]
 
     if args.format == "json":
@@ -201,6 +230,7 @@ def main(argv: list[str]) -> int:
             "model": args.model,
             **totals,
             "cost_usd": round(cost, 4),
+            "cost_usd_with_cache_infra": round(cost_with_cache, 4),
         }
         print(json.dumps(out, indent=2))
     elif args.format == "verbose":
@@ -211,10 +241,17 @@ def main(argv: list[str]) -> int:
         print(f"Input tokens:            {totals['input_tokens']:,}")
         print(f"Output tokens:           {totals['output_tokens']:,}")
         print(
-            f"Cache creation tokens:   {totals['cache_creation_input_tokens']:,}"
+            f"Inference cost:          ${cost:.4f}  (input + output only — canonical)"
         )
-        print(f"Cache read tokens:       {totals['cache_read_input_tokens']:,}")
-        print(f"Cost:                    ${cost:.4f}")
+        print()
+        print("Cache infrastructure (reference only — NOT in cost total):")
+        print(
+            f"  Cache creation tokens: {totals['cache_creation_input_tokens']:,}"
+        )
+        print(f"  Cache read tokens:     {totals['cache_read_input_tokens']:,}")
+        print(
+            f"  With-cache-infra cost: ${cost_with_cache:.4f}  (for comparison)"
+        )
     elif args.format == "row":
         from datetime import date
 
