@@ -1,0 +1,23 @@
+[Unit]
+Description=Headless claude -p nightly digest (routed through CCR to local pico models)
+Documentation=file:%h/dotfiles/claude/systemd/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Route via CCR (Router.background → pico-mlx,qwen3-coder via llama-swap :8090).
+# CCR must already be running at 127.0.0.1:3456 (commit edf1964 wires that up).
+Environment=ANTHROPIC_BASE_URL=http://127.0.0.1:3456
+Environment=ANTHROPIC_AUTH_TOKEN=ccr-passthrough
+# The script is idempotent (appends to per-day digest file). No restart on
+# failure — the script itself files a `-t note` bead so silent breakage
+# doesn't accumulate; systemd's job is to be visible in `journalctl --user`.
+ExecStart=%h/dotfiles/claude/scripts/nightly-digest.sh
+# Generous timeout: local model warm-up can take ~30s on first hit.
+TimeoutStartSec=600
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

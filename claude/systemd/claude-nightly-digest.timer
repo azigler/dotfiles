@@ -1,0 +1,13 @@
+[Unit]
+Description=Schedule for claude-nightly-digest.service (daily 03:00 local)
+Documentation=file:%h/dotfiles/claude/systemd/README.md
+
+[Timer]
+# Daily at 03:00 local. Persistent=true catches missed runs (e.g. host
+# was asleep) on next boot.
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+Unit=claude-nightly-digest.service
+
+[Install]
+WantedBy=timers.target
