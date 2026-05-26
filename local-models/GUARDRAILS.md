@@ -415,6 +415,56 @@ if(e.body?.system?.length>1 && e.body?.system[1]?.text?.startsWith("<CCR-SUBAGEN
 
 ---
 
+## G17 — `claude -p` cannot reach CCR's per-request routing tag; use curl-direct for scripted CCR routing
+
+**Empirical receipt (2026-05-26, dotfiles-ukx.4 subagent dev):**
+
+Claude Code's `claude -p` (headless / SDK mode) cannot inject content at `system[1]` of the outgoing Anthropic Messages request, which is where CCR's `<CCR-SUBAGENT-MODEL>` per-request routing tag must live to be parsed (per `dotfiles-ukx.8` source-read of `anthropic.transformer.ts`).
+
+**Empirical failure modes (preserved as test artifacts dotfiles-7wi + dotfiles-l7d):**
+
+| Approach | Failure |
+|---|---|
+| `claude -p < prompt` (default opus) | Routes to Anthropic via CCR's `default` route — defeats local routing intent |
+| `claude --model haiku < prompt` | Rejected by Claude Code's client-side model validation before request leaves CC |
+| `claude -p --append-system-prompt "<CCR-SUBAGENT-MODEL>..."` | Tag lands at `system[2]`, not `system[1]` — CCR parser doesn't see it |
+
+CC fills `system[0]` (billing identifier) + `system[1]` (CC/SDK identifier) by hard-coded position; any user-supplied system content lands at `system[2]+`.
+
+**Workaround (in production at `~/dotfiles/claude/scripts/nightly-digest.sh`):**
+
+```bash
+curl -sS http://127.0.0.1:3456/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: dummy" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "claude-haiku-4-5-20251001",
+    "max_tokens": 4096,
+    "messages": [{"role":"user","content":"<prompt>"}]
+  }'
+```
+
+CCR sees `haiku` in body → consults Router → `background` route → `pico-mlx,qwen3-coder` → llama-swap on :8090 → local Qwen3 response. Verify routing worked by checking response body's `model:` field — should show `mlx-community/Qwen3-Coder-...`, not an Anthropic model.
+
+**Pattern generalizes:** any shell-side automation that wants CCR per-request routing should use curl-against-`/v1/messages`, NOT `claude -p`. The `claude` CLI is the wrong tool when CCR's routing intelligence needs to act per-request.
+
+**Affects:**
+- `dotfiles-ukx.6` §3.4 (headless mode) — spec needs amendment from "claude -p" to "curl-direct"
+- `explore-7hh.16` (LSRA prototype) — plan curl-direct for its automation
+- `bd-b5p.4` (Hermes-autonovel Phase 1) — same
+
+**Could change if upstream lands:**
+- A `--system-prefix` flag on `claude -p` that injects at `system[1]`
+- Pass-through `--model` strings without client-side validation (let CCR decide validity)
+- A native subagent-routing tag mechanism in CC that CCR could integrate against
+
+None exist as of Claude Code v2026-05 / CCR v2.0.0. File upstream feature request when next-priority.
+
+**Research source:** `~/explore/local-coding-models/refs/research/research-claude-p-ccr-tag-gap.md`. Bead: `dotfiles-ukx.4` (closed); test artifacts `dotfiles-7wi` + `dotfiles-l7d` (closed).
+
+---
+
 ## G16 — Tool-using subagents MUST route via llama-swap, NOT direct mlx_lm.server
 
 **Empirical receipt (2026-05-26, dotfiles-ukx.9):** Same Qwen3-Coder-30B-A3B-Instruct-4bit weights probed via three local backends with an identical parallel-tool-call payload (Edit + Bash tools, prompt forcing parallel use):
