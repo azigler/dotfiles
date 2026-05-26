@@ -437,6 +437,21 @@ The MLX direct refusal is the surprising part: the model didn't try and fail, it
 
 **Research source:** `~/explore/local-coding-models/refs/research/research-ccr-tool-schema-followup.md`. Bead: `dotfiles-ukx.9`. Updates `dotfiles-ukx.6` §4.1 routing config (pico-mlx repoint :8081 → :8090).
 
+### G16 extension (2026-05-26 same session) — Qwen3-Coder is the only working model
+
+Extended the probe across the other tool-shortlist models, all routed via llama-swap :8090 (the known-good path for Qwen3):
+
+| Model via llama-swap | Verdict | Notes |
+|---|---|---|
+| qwen3-coder | ✅ PASS | parallel tool_calls emitted correctly |
+| devstral-mlx | ❌ REFUSED / TEXT MODE | model narrates plan in text; no tool_calls |
+| trinity-mini-mlx | ❌ REFUSED / BUDGET | reasoning chain consumed 400-tok budget before emission (finish_reason=length) |
+| deepseek-coder-v2-lite-mlx | ⛔ SKIPPED | G15 blocks (MoE arch unsupported in mlx-lm 0.31.3) |
+
+**Practical: the only tool-using local routing path is Qwen3-Coder via llama-swap :8090.** Devstral + Trinity don't emit tool calls even through the same llama-swap envelope that works for Qwen3. Hypothesis for Devstral: it uses Mistral-style tool envelope, not Qwen3's; llama-swap's shim is Qwen3-tuned. Trinity hypothesis: budget exhaustion (re-probe with 2000-token cap to verify).
+
+**Updated routing rule:** CCR's `pico-mlx` provider for tool-using subagents → Qwen3-Coder via llama-swap :8090. For non-tool prose/completion work, direct MLX :8081 is still fine. Long-context Laguna → Ollama :11434 (unchanged). Devstral + Trinity stay non-tool-routed.
+
 ---
 
 ## G15 — DeepSeek-Coder-V2-Lite MLX BLOCKED (MoE arch not supported, same pattern as Laguna)
