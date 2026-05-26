@@ -1,109 +1,82 @@
-# Session handoff — 2026-05-25 beb8609d (LCM re-bench → 4-epic next-arc plan with /check passes complete)
+# Session handoff — 2026-05-26 beb8609d (local-coding-models multi-wave research arc + /research skill landed)
 
 ## State at offboard
-- **Current branch**: main (dotfiles, explore, blightmud); master (autonovel)
-- **Last commits**:
-  - dotfiles: `892b083 :card_file_box: beads: /check pass on dotfiles-ukx.6`
-  - explore: `afe830d :card_file_box: explore: bump submodule pointers`
-  - blightmud: `7413201 :card_file_box: beads: /check pass on blightmud-hgi.5`
-  - autonovel: `75d7cbc :card_file_box: beads: /check pass on bd-b5p.1`
-- **Open beads (dotfiles)**: dotfiles-ukx epic + 6 sub-beads (.1-.6). 2 deferred (st2/406).
-- **Open beads (explore)**: explore-nfc epic + sub-beads .1-.5. explore-4te.9 (fine-tuning) + .13 (DeepSeek bench) pending.
-- **Open beads (blightmud)**: blightmud-hgi epic + .2-.5. .1 closed (CoD bot approved).
-- **Open beads (autonovel)**: bd-b5p epic + .1 (spec).
-- **In-flight subagents**: none
-- **Dirty files**: `beads_report_dotfiles_2026-05-25.md` (untracked)
-- **Markers**: `.offboard-pending` not present
+- **Current branch**: main (dotfiles), main (explore + blightmud), master (autonovel)
+- **Last commit (dotfiles)**: `a600201 :zap: cost-tracking: cost = inference only (input + output); cache excluded`
+- **Open beads**: 9 dotfiles + 20 explore + 7 blightmud + 6 autonovel = 42 total
+- **In-flight subagents**: none (Wave 8 research all returned, Wave 9 bench done)
+- **In-flight on pico**: llama-swap on :8090, mlx_lm.server on :8081, Ollama serve on :11434, Ollama backend serving deepseek-r1:14b (loaded warm)
+- **Dirty files**: `beads_report_dotfiles_2026-05-25.md` (untracked, ignorable)
+- **Markers**: no `.offboard-pending`
 
-## What happened this session
+## What happened this session (~9-hour autonomous research arc)
 
-### Three arcs delivered:
+### Skills shipped (most durable artifact)
+- **`/research` global skill** at `~/.claude/skills/research/` — SKILL.md + 8 reference files codifying the orchestrator research harness pattern (frame → pre-flight → dispatch → verify → scrutinize → fold → layer → loop). Distinct from `/explore` (goals + iterate vs compile + publish). User feedback incorporated: mandatory scrutinize step, cost-tracking onboarding ask, "research tree not single report" framing.
+- **`/cost-tracking` revised** — cost now = INFERENCE only (input + output × standard rates). Cache infra tracked as reference counters but excluded from cost total. Matches "raw API call" intent.
+- **`~/dotfiles/local-models/`** toolkit: GUARDRAILS.md (G1-G15 + H1), `trinity_shim.py`, `qwen_sampler.py`, `healthcheck.sh`
 
-#### Arc 1 (LANDED): SD-WebUI permanent on-demand
-`a1111/com.zig.a1111.plist` is `RunAtLoad=false`. `sd-up` / `sd-down` are production controls. Do NOT re-enable LaunchAgent.
+### Research outputs (11 reports archived in `~/explore/local-coding-models/refs/research/`)
+- `research-mlx-repetition.md` — G13 fix (repetition_penalty body param)
+- `research-ccr-subagent-routing.md` — G12 fix (CCR `<CCR-SUBAGENT-MODEL>` tag in body.system[1])
+- `research-trinity-toolcalls.md` — G1 fix (hermes-shim pattern)
+- `research-laguna-mlx.md` — G7 workaround path (Blaizzy's branch)
+- `research-mlx-unload.md` — G14 workaround (llama-swap)
+- `research-pidev-tools.md` — pi.dev gap nuance
+- `research-hermes-vs-pidev.md` — substrate decision (Hermes)
+- `research-hermes-primer.md` — Hermes plugin/skill/session conventions + 4 live upstream bugs
+- `research-autonovel-on-hermes.md` — bd-b5p Phase-by-Phase migration map
+- `research-writing-harness-landscape.md` — NousResearch/autonovel ancestry discovered
+- `research-hermes-plugin-deepdive.md` — empirical plugin authoring walkthrough
+- `research-hermes-pidev-plugin-ecosystem.md` — 0-day gaps for our .13/.15
 
-#### Arc 2 (LANDED): Local-coding-models methodical re-bench (`explore-4te`)
-5 candidates re-benched + reasoning matrix. Synthesis at `~/explore/local-coding-models/refs/AB-verdict-v2.md`. **Verdicts:**
-- Daily-driver: **Qwen3-Coder MLX** (17/20 + 14/15 reasoning @ 35 tps)
-- Long-context: **Laguna Ollama** (only model passing 100K) + 14/15 reasoning
-- GLM: **3-bit (17.5 tps usable)**, not 4-bit (0.6 tps unusable)
-- Trinity: **MLX over Ollama** (Ollama's `<think>` inline breaks JSON parsers)
+### Empirical infrastructure
+- **CCR (claude-code-router) installed** at zig, smoke-verified end-to-end (Anthropic Messages → CCR → pico Qwen3 → "PONG")
+- **Hermes Agent installed** at `/home/ubuntu/explore/hermes-agent-trial/.venv/` + `~/.hermes/`. Empirically verified Hermes + Qwen3 Ollama tool-use works end-to-end. `hello-world-observability` plugin enabled as permanent canary at `~/.hermes/plugins/`.
+- **llama-swap installed** on pico:8090 (G14 solved — TTL-eviction working, 4 models registered, model-swap smoke verified)
+- **DeepSeek-Coder-V2-Lite pulled via Ollama** + benched: **17/20 standard suite pass (85%), 0 errors, median 44 tps** — ties Qwen3-Coder MLX. MLX path blocked per G15 (MoE arch unsupported).
+- **DeepSeek-R1:14b pulled** + benched: 6/20 (30%), 1 error — reasoning models exceed test max_tokens budgets; bench design doesn't suit them.
 
-#### Arc 3 (PLANNED + CHECKED): 4 epics + 4 specs + 4 adversarial /check passes
-Bead-store discipline applied — each epic lives in the repo it belongs to:
+### Spec / plan deliverables
+- **bd-b5p.4** — Phase 1 spec for Hermes-autonovel migration (D2 pivot): 1 cron + 1 skill + 1 delegate; 7 acceptance tests; 6 OQs; exit criteria defined
+- **explore-7hh.20** — llama-swap client migration plan (3 phases, per-phase rollback)
+- **bd-b5p.2** — autonovel-on-Hermes architecture map (Phase 0 gap audit)
+- **bd-b5p.3** — writing-harness landscape; NousResearch/autonovel discovered as user's ancestor pipeline
 
-##### Epic A: `dotfiles-ukx` (dotfiles repo) — Claude Code wired to local models
-**Spec**: `dotfiles-ukx.6` + /check notes. **Decision**: claude-code-router proxy (Anthropic Messages ↔ OpenAI-compat). **Key /check findings:**
-- Drop `Router.subagent` config key (not in CCR's documented surface); rely on `CLAUDE_CODE_SUBAGENT_MODEL` env var + `CUSTOM_ROUTER_PATH` as belt-and-suspenders
-- Bump pico `OLLAMA_CONTEXT_LENGTH=65536` (Laguna passes 100K; 32K too conservative)
-- Hard gate: `tooluse` transformer fidelity test must split into T4a/b/c (single Read, multi-line Edit, parallel Read+Bash)
-- 15 tests → 20; 9 spec edits queued
+### Cross-cutting
+- **explore-7hh epic RESCOPED** from "fix pi.dev" to "ship Hermes Agent" — 8 legacy sub-beads closed as superseded, 9 new sub-beads opened
+- **dotfiles-5e2** — deferred-decisions bead with D1-D12 open architectural questions
+- **`~/explore/refs/cross-epic-overlap-2026-05-25.md`** — canonical shared reference, updated with post-research-sweep findings
+- **Pico hung mlx server** (4h+ wedged on DeepSeek load attempt) — fixed via `launchctl kickstart -k gui/501/com.zig.mlx`
 
-##### Epic B: `blightmud-hgi` (blightmud submodule) — CoD MUD agent
-**Spec**: `blightmud-hgi.5` + /check notes. **CoD bot activity is APPROVED** (user supervising closely). **Key /check findings:**
-- **OQ-11 mis-rated LOW → should be HIGH**: daemon belongs on **ubuntu** (where blightmud + named pipe are), model calls go HTTP-LAN to pico. ssh-streaming the event pipe risks 100% data loss on tcp drop.
-- Drop monolithic 3-run graduation streak → per-mode (combat / explore / social-NEVER / quest-last)
-- Quest acceptance: verb whitelist not blacklist (matches §3 action-whitelist philosophy)
-- Death push-notification must fire ≤10s; otherwise "halt-always" silently degrades to "stuck"
+## What's next (priority order for next session)
 
-##### Epic C: `explore-nfc` (explore repo) — 24/7 scientific research agent (LSRA)
-**Spec**: `explore-nfc.5` + /check notes. **Heartbeat pattern over pi.dev/LangGraph.** **Key /check findings:**
-- **Selector starvation bug**: §4.2 row 4 CRITIQUE trigger as written never fires (no note flips below confidence 0.6 because synthesis writes null). Fix: `confidence is null OR < 0.6`
-- **Saturation via Trinity self-judgment is wrong**: asking weakest reasoner (12/15) to arbitrate "novel" is backwards. Use Jaccard-shingle dedup
-- **NEW OQ-13 (P1)**: model-residency policy across action types. Pico cliff at 30 GB weight-footprint; routing 4 models (Laguna 17 / Qwen 15 / Trinity 13 / GLM 44 GB) requires explicit eviction policy
-- Broken-seed policy: log+skip, don't halt (fail-fast contradicts test #8)
-
-##### Epic D: `bd-b5p` (autonovel submodule) — autonovel custom pi.dev harness
-**Spec**: `bd-b5p.1` + /check notes. **Replaces Claude Code in-harness orchestrator with pi.dev.** **Key /check findings:**
-- **HARD BLOCKER 1**: OQ-02 slop-eval was calibrated against Claude output. Promote test 6 to Phase-0 gate; if Qwen3 prose breaks correlation, build Qwen3-tells supplement bank before any 24h run. **#1 silent-failure risk** (drafts pass eval, readers smell AI)
-- **HARD BLOCKER 2**: OQ-03 voice transfer. Mandate prompt-augmentation via `identity/few_shot_bank/` — style-transfer literature: smaller models need *demonstrations*, not *descriptions*
-- **Drop Trinity-as-router**: routing-table is deterministic Python (per heartbeat/SKILL.md Step 3); LLM router wastes a call + adds non-determinism for zero benefit
-- Phase 1 = local-only (no Claude Code hybrid); decouple from dotfiles-ukx launch risk
-
-### Bead location discipline (now correct)
-Earlier in session beads were sloppy — Claude Code + MUD epics placed in umbrella explore beads. User caught it. Migrated 9 beads to correct stores (folder children → umbrella, submodules → own beads, dotfiles only for true dotfiles work). Supersession trail preserved.
-
-## What's next (recommended path — updated)
-
-The 4 specs are spec'd + checked. Each has a **Spec updates needed** list (9 / 6 / 9 / 7 edits) ready for re-dispatch to `/spec` before `/test` waves.
-
-**Recommended order:**
-
-1. **Epic A first** (`dotfiles-ukx.6`) — Wave 1: verify before building. `ssh pico` to confirm OLLAMA_CONTEXT_LENGTH, dispatch one-off worktree subagent to probe `$CLAUDE_CODE_SUBAGENT_MODEL` propagation, read CCR source for `Router.subagent` support. These are 30-min checks that gate spec edits.
-
-2. **Epic C in parallel** (`explore-nfc.5`) — resolve OQ-01 (selector trigger), OQ-13 (residency policy), then /test wave. Research agent has no external dependencies. User's stated primary use case.
-
-3. **Epic B after Epic A's W3** (`blightmud-hgi.5`) — depends on tooluse transformer verdict (subagent dispatch model needs to handle JSON cleanly). Daemon-on-ubuntu means setup is independent of pico router stability.
-
-4. **Epic D last** (`bd-b5p.1`) — depends on Phase-0 calibration pass (OQ-02). User has running autonovel today via Claude Code; pi.dev swap is enhancement not blocker.
-
-Pre-existing carryover:
-- **DeepSeek bench** (`explore-4te.13`) — candidate #6, run after current arcs settle
-- **Task #36** (pico disk cleanup, ~90 GB potential reclaim: ~/glm-flat 56GB, ~/trinity-gguf 15GB, residual cache 2GB, Laguna mxfp4 unused 17GB) — discuss with user before deleting
+1. **Wave 9 remaining**: D10 Laguna mlx-lm branch test (`pip install git+https://github.com/Blaizzy/mlx-lm.git@pc/add-lg` in isolated venv on pico), GLM revisit (3-bit only, confirm still 17.5 tps), DeepSeek-V2-Lite prose probe (one autonovel-style continuation to position in routing pool), AB-verdict-v2 matrix update (add DeepSeek rows, R1:14b note)
+2. **User-blocked items waiting** (Task list #36/#43/#44):
+   - #36 — pico disk cleanup go/no-go (`/tmp/pico-cleanup-2026-05-25.md` sent; ~73 GB safe-reclaim)
+   - #43 — Epic C E1 manual research dry-run (needs user-picked seed topic)
+   - #44 — Epic B E2 authenticated CoD check (needs character credentials)
+3. **bd-b5p.4 Phase 1 implementation** — ready for `/test` or `/impl` waves when user OKs (~1 week of work). Hermes Agent installed; skill authoring template proven via `~/.hermes/plugins/hello-world-observability/`.
+4. **explore-7hh.13/.14/.15 plugin work** — pico-mlx + pico-ollama provider plugins (two profiles per primer §7.3), heartbeat-skill mirror, beads observability. All have ecosystem-context cross-refs already folded into bead descriptions.
+5. **D11 Hermes upstream bug tracking** — #32239 cron auth propagation, #32220 subagent costs, #32217 SSRF, #32236/.35 cron skills scoping. Check status periodically.
 
 ## Warnings / watch-outs
 
-- **SD-WebUI stays permanently on-demand.** Per user explicit instruction. Don't re-enable LaunchAgent.
-- **CoD bot activity APPROVED** (user supervising closely). No gate.
-- **Hosted APIs RULED OUT** for local-model work. User explicit: "do NOT use a hosted API."
-- **GLM 4-bit weights superseded** by 3-bit at `~/glm-3bit/` on pico. Cleanup pending Task #36.
-- **Memory hygiene**: restart `mlx_lm.server` between models. Don't bench concurrently.
-- **`hf download` truncates `.incomplete`** on resume. Use curl-resume scripts on pico.
-- **Trinity MLX > Trinity Ollama** for tool-use (Ollama's inline `<think>` breaks JSON parsers).
-- **Laguna MLX BLOCKED** — `LagunaForCausalLM` not in mlx-lm 0.31.3. Ollama-only locally.
-- **Long jobs go to log files** on target host (memory pattern saved): >5min jobs use nohup-to-log; tail on demand; never harness-tracked timeouts.
-- **Bead location discipline**: folder children → umbrella, submodules → own beads, dotfiles only for true dotfiles work. Worktree subagents dispatched from target repo.
+- **llama-swap on :8090 is alternate, not replacement.** Existing launchctl `com.zig.mlx.plist` keeps mlx_lm.server on :8081 alive. Don't decommission :8081 until Phase 3 of explore-7hh.20 migration plan (multiple production clients on :8090 first).
+- **DeepSeek-R1:14b is NOT a drop-in replacement for V2-Lite.** R1 is reasoning-tuned (much longer outputs), fails our coding-eval suite's max_tokens budgets. If autonovel ever wants reasoning models, design separate eval.
+- **Hermes Agent canary plugin** at `~/.hermes/plugins/hello-world-observability/` is intentionally left enabled — every Hermes session fires its 4 hooks and appends to `~/.hermes/logs/hello-world-observability.log` as a stack-alive signal. Do NOT remove.
+- **`/dispatch` skill enhancement (D1)** for local routing via CCR tag is documented but NOT implemented per user direction (deferred). When ready: ~10 LOC change to inject `<CCR-SUBAGENT-MODEL>` tag conditionally.
+- **Cost-tracking model revised mid-session.** New cost number is inference-only (~$676 for this 9hr arc). With-cache-infra reference is ~$5663. Future `/offboard` rows use the new (lower, more accurate "actual work") number.
+- **Healthcheck-before-action discipline now codified as H1.** Run `~/dotfiles/local-models/healthcheck.sh` before any local-model work — past failure mode (4+ hour wedged mlx_lm.server) won't repeat.
+- **Pico disk: 333 GB used / 926 GB total (36%).** Plenty of room. ~73 GB safe-reclaim available pending user OK.
+- **Bead-location discipline** (per user feedback): cd to target repo before `br create/update/commit`. Research dispatches with `general-purpose` agents stay no-commit; orchestrator handles bead updates after agent returns.
+- **NousResearch/autonovel is the ANCESTOR** of user's autonovel (PR #2 from erhnysr/master in git log). Shared 5-layer architecture (voice/world/characters/outline/canon) + evaluate.py slop_score core. NOT Hermes-based; uses direct Anthropic API. Pattern-mining value preserved.
 
-## Cross-cutting: Phase 2 fine-tuning (`explore-4te.9`)
-Now load-bearing for Epic B (MUD-agent fine-tune) and Epic C (research-agent fine-tune). Should unblock once Epic A's foundation lands. Probably wave 7+.
+## /onboard should pick up
 
-## Files written / referenced
-- `~/dotfiles/.beads/issues.jsonl` (dotfiles-ukx + sub-beads + .6 spec + /check notes)
-- `~/explore/.beads/issues.jsonl` (explore-nfc + sub-beads + .5 spec + /check notes; explore-4te.9, .13)
-- `~/explore/blightmud/.beads/issues.jsonl` (blightmud-hgi + sub-beads + .5 spec + /check notes)
-- `~/explore/autonovel/.beads/issues.jsonl` (bd-b5p + .1 spec + /check notes)
-- `~/explore/local-coding-models/refs/AB-verdict-v2.md` — synthesis of bench arc
-- `~/explore/local-coding-models/refs/models-training-data.md` — per-model training data + licenses
-- `~/dotfiles/a1111/{README.md, com.zig.a1111.plist, sd-up, sd-down}` — SD on-demand
-- `/tmp/spec-bodies/{dotfiles-ukx-6, explore-nfc-spec, blightmud-hgi-spec, autonovel-spec}.md` — spec bodies (also in bead --notes)
-- `/tmp/check-notes/{dotfiles-ukx-6, explore-nfc-5, blightmud-hgi-5, bd-b5p-1}-check.md` — /check pass results (also in bead --notes)
+- Read this handoff note first (you're doing that now)
+- Read GUARDRAILS.md G1-G15 + H1 to internalize the cross-arc invariants
+- Read `~/explore/refs/cross-epic-overlap-2026-05-25.md` for the 5-epic cross-fold state
+- Check `dotfiles-5e2` (deferred decisions) for any user replies on D6/D8/D9 that unblock work
+- Check `br list --status open` across all 4 repos for the 42 open beads
+- If continuing autonomous: `/research` skill body has the full workflow; scrutinize step (3.5) is MANDATORY
