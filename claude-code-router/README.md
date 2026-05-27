@@ -12,8 +12,13 @@ limitations the next operator needs. For the spec (test cases, OQs, rationale
 walks), read bead `dotfiles-ukx.6` directly. For the cross-arc invariants this
 config depends on, read `../local-models/GUARDRAILS.md`.
 
-**Last verified:** 2026-05-26 — Wave 13 G16 root-cause work landed; `pico-mlx`
-provider now points at llama-swap :8090 (was :8081).
+**Last verified:** 2026-05-27 — Wave 16 amendments:
+- ukx.12 (Wave 15) — `transformer: { use: ["Anthropic"] }` block REMOVED
+  from pico-* providers (was causing 404 with `'dict object' has no
+  attribute 'parameters'` — see Section 8 "Wave 15 transformer reversal")
+- ukx.11 (Wave 16) — Devstral lmstudio-community quant swap landed but
+  PARTIAL: Devstral tool tier remains BLOCKED for compound reasons (G18).
+  Devstral prose tier still VIABLE.
 
 ---
 
@@ -202,11 +207,15 @@ operator knows which invariants touch CCR / local routing:
 | **G14** | `mlx_lm.server` has no model-unload endpoint — RSS grows monotonically across model swaps. Use llama-swap (already deployed) or PR #1274's `--idle-timeout`. |
 | **G15** | DeepSeek-Coder-V2-Lite MLX is BLOCKED (MoE arch unsupported in mlx-lm 0.31.3). Route via Ollama (`deepseek-coder-v2:16b-lite-instruct-q4_K_M`). |
 | **G16** | Tool-using subagents MUST route via llama-swap (`:8090`), NOT direct `mlx_lm.server` (`:8081`). Empirical: llama-swap PASS 3/3, MLX direct REFUSED 0/3, Ollama DEGRADED (drops 2nd parallel call). |
+| **G17** | `claude -p` cannot reach CCR's per-request `<CCR-SUBAGENT-MODEL>` tag — CC hardcodes system[0/1]; the tag parser checks system[1] and `--append-system-prompt` lands at system[2]. Workaround: scripted CCR routing uses direct curl to `/v1/messages`. |
+| **G18** | `mlx_lm.server` v0.31.3 response parser doesn't handle Mistral `[TOOL_CALLS]/[ARGS]` envelope — silently drops bytes. Affects Devstral / Mistral-Small / Codestral. Workaround: route those via Ollama, or build a shim (pattern: `local-models/trinity_shim.py`). Devstral tool tier stays BLOCKED until a parser lands. |
 
 The **G16 + G12 + G8** triad is what makes the current config work. Break any
 of them (repoint pico-mlx back to :8081, set CLAUDE_CODE_SUBAGENT_MODEL,
 collapse a model ID to a shorthand) and the next subagent dispatch silently
-regresses.
+regresses. **G18 + G17** add: don't try to enable Devstral for tool routing
+without a Mistral-envelope shim, and don't try to reach CCR's tag from
+`claude -p`.
 
 ---
 
@@ -216,10 +225,13 @@ regresses.
 
 - `dotfiles-ukx`     — parent epic (claude-code: wire to local models on pico)
 - `dotfiles-ukx.6`   — spec (read this for the "why" + test cases + OQ walks)
-- `dotfiles-ukx.8`   — research: CCR Anthropic transformer source audit (PASS)
+- `dotfiles-ukx.8`   — research: CCR Anthropic transformer source audit (PASS at source-read; **REVERSED empirically in Wave 15** — see ukx.12 for what actually happened)
 - `dotfiles-ukx.9`   — empirical per-backend tool-call probe (MLX REFUSED, Ollama DEGRADED, llama-swap PASS)
-- `dotfiles-ukx.10`  — bug: suspected mlx_lm.server lazy-load chat-template gap (DEFERRED — needs more isolation)
-- `dotfiles-ukx.11`  — task: swap llama-swap devstral entry to lmstudio-community quant (Wave 14 unblock for Devstral tool-use)
+- `dotfiles-ukx.10`  — bug: suspected mlx_lm.server lazy-load chat-template gap (DEFERRED — needs more isolation; G16 amendment narrowed the mechanism)
+- `dotfiles-ukx.11`  — task: swap llama-swap devstral entry to lmstudio-community quant (Wave 16 outcome: **PARTIAL** — quant landed but tool tier still BLOCKED per G18)
+- `dotfiles-ukx.12`  — bug: REMOVED `transformer` block from pico-* providers (Wave 15; CCR was Anthropic↔OpenAI inverting; verified-fixed)
+- `dotfiles-ukx.13`  — spec: Phase 3 full parity benchmark (N trials × 10 scenarios × 8 candidates incl Kimi-Linear)
+- `dotfiles-cl8`     — bug (DEFERRED): mlx_lm.server response parser missing Mistral `[TOOL_CALLS]/[ARGS]` envelope support
 
 ### Refs (file paths)
 
@@ -244,18 +256,47 @@ regresses.
 
 ## 8. Known limitations + workarounds
 
-### Devstral MLX/Ollama is tool-mute in installed quants
+### Devstral MLX/Ollama is tool-mute in installed quants (3-layer breakdown per Wave 16)
 
 - `mlx-community/Devstral-Small-2507-5bit` and `-4bit-DWQ` ship a 44-line
   tool-blind chat template — model narrates plans in text, never emits
   `tool_calls[]`. Ollama `devstral:24b` is also broken (Wave 14 probe:
   `finish_reason=stop`, 196 tokens, no tool_calls).
+- **Wave 16 unblock attempt (`dotfiles-ukx.11`): PARTIAL.** Swapped to
+  `lmstudio-community/Devstral-Small-2507-MLX-4bit` (13.3 GB, 68-line
+  tool-aware Mistral envelope). Empirical 3-layer probe showed:
+  1. **Chat template (Layer 1)**: ✓ tool-aware
+  2. **Model decode (Layer 2)**: DEGRADED — only 1 of 2 requested tool_calls
+     emitted, hallucinated LSP-style `{text, range}` schema instead of the
+     `{old_string, new_string}` requested; tokenizer regex warning
+  3. **mlx_lm.server response parser (Layer 3)**: BROKEN — server eats
+     Mistral `[TOOL_CALLS]/[ARGS]` envelope silently (G18). Returns empty
+     `message: {"role": "assistant"}` with no `content`/`tool_calls`.
 - **Workaround:** route Devstral only for non-tool work (prose, completion).
-  Tool-using dispatches go to Qwen3-Coder via llama-swap.
-- **Unblock path:** swap llama-swap's devstral entry to
-  `lmstudio-community/Devstral-Small-2507-MLX-4bit` (13.3 GB, ships the full
-  Mistral `[TOOL_CALLS]/[AVAILABLE_TOOLS]/[TOOL_RESULTS]` envelope). Tracked
-  as `dotfiles-ukx.11`.
+  Tool-using dispatches go to Qwen3-Coder via llama-swap (G16 canonical).
+- **Mitigation paths (not implemented):**
+  - Upstream fix to `mlx_lm.server` (see deferred `dotfiles-cl8`)
+  - Local shim mirroring `trinity_shim.py` for Mistral envelope
+  - Or just don't bother (Qwen3-Coder is the canonical tool tier)
+- See `~/explore/local-coding-models/refs/research/research-devstral-mlx-server-parser-gap.md` (73 lines, full raw-probe outputs).
+
+### Wave 15 transformer reversal (don't add `transformer: ["Anthropic"]` back)
+
+`dotfiles-ukx.8` source-read research recommended adding `transformer: { use:
+["Anthropic"] }` to pico-* providers in `config.json`. **Wave 15 empirical
+work (`dotfiles-ukx.12`) reversed this:**
+
+- With the transformer block, CCR converts Unified → Anthropic outgoing
+  (because the block tells CCR "this backend speaks Anthropic")
+- mlx_lm.server got Anthropic-shape body with `input_schema` instead of
+  `parameters` — Qwen3's chat template choked, returning 404 with
+  `'dict object' has no attribute 'parameters'`
+- **Fix:** REMOVE the transformer block. CCR's default
+  `convertAnthropicToolsToUnified` correctly produces the OpenAI-compat
+  `{type:function, function:{name, description, parameters}}` shape
+
+The current `config.json` (this dir) does NOT have a transformer block on
+pico-mlx or pico-ollama providers. Keep it that way.
 
 ### Trinity needs the shim + `max_tokens ≥ 2000`
 
