@@ -639,6 +639,48 @@ Measured 2026-05-25 from zig→pico over Tailscale, 100 sequential GETs:
 
 ---
 
+## G18 — `mlx_lm.server` tool-call response parser doesn't handle Mistral `[TOOL_CALLS]/[ARGS]` envelope
+
+**Status:** Verified empirically 2026-05-27 via `dotfiles-ukx.11` Devstral swap probe.
+
+`mlx_lm.server` v0.31.3's response-side tool-call parser only recognizes OpenAI-style `<|tool_call|>` markers (and Qwen3-specific variants). It does **not** parse Mistral's `[TOOL_CALLS]function_name[ARGS]{...}` envelope.
+
+**Symptom:** request a tool call against `lmstudio-community/Devstral-Small-2507-MLX-4bit` (or any Mistral-envelope model). Response comes back as `{"finish_reason": "stop", "message": {"role": "assistant"}}` — empty message, no `content`, no `tool_calls`. N completion tokens silently dropped.
+
+**Direct CLI probe** (bypassing server's parser) confirms the model IS emitting `[TOOL_CALLS]Edit[ARGS]{...}` correctly. The bytes are there; the server eats them.
+
+**Affected models:** any Mistral-family model loaded into `mlx_lm.server` (Devstral, Mistral-Small, Codestral, etc.).
+
+**Not affected:** Qwen3-Coder family (uses Qwen3-specific envelope mlx_lm.server understands).
+
+### Mitigation paths (none implemented yet — Devstral tool tier remains BLOCKED)
+
+1. **Upstream fix**: file an issue / PR against `ml-explore/mlx-lm` to add a Mistral `[TOOL_CALLS]/[ARGS]` envelope parser. Probably localized to the tool-call extraction layer.
+2. **Local shim**: pattern after `local-models/trinity_shim.py` — wrap the model's raw text output and convert `[TOOL_CALLS]function[ARGS]{json}` into OpenAI `tool_calls[]` shape. Lives in CCR's transformer layer.
+3. **Different runtime**: serve Devstral via Ollama (which has its own tool-parser) or `vllm` (which handles Mistral natively) instead of mlx_lm.server. Adds runtime divergence; not preferred.
+4. **Don't bother**: Qwen3-Coder via llama-swap is the canonical tool-tier path (G16 + ukx.9 PASS). Devstral was nice-to-have, not load-bearing.
+
+### Compound issues at the model level
+
+Even if mlx_lm.server's parser landed, Devstral itself has additional problems visible in the CLI probe:
+- **Serial, not parallel** — emits 1 tool_call instead of the requested 2 (Edit + Bash)
+- **Hallucinated schemas** — invented an LSP-style `{text, range}` for Edit instead of honoring the requested `{old_string, new_string}` from the tool's `parameters` JSON Schema
+- **Tokenizer regex warning** — `transformers` reports Mistral's tokenizer regex is incorrect; suggests `fix_mistral_regex=True`
+
+So Devstral's tool tier is broken at three layers, not one.
+
+**Operational impact**: Devstral remains BLOCKED for tool tier. Prose tier (plain text generation) still works fine. Don't add Devstral to CCR's `pico-mlx` provider's tool-routed models list. Keep using Qwen3-Coder MLX via llama-swap as the canonical tool-tier path.
+
+### Wave 14 → Wave 16 reversal pattern
+
+Wave 14 research (`research-devstral-toolaware-quant.md`) said path (b) — swap the quant — would unblock tool use. Empirical Wave 16 probe (this guardrail) showed path (b) gets us the right prompt template but doesn't fix the runtime parser gap.
+
+**3rd empirical reversal this arc** (after G16 original mechanism + ukx.8 transformer config). The discipline: source-read recommendations need wire-tests at EVERY load-bearing layer before declaring "fixed."
+
+See `~/explore/local-coding-models/refs/research/research-devstral-mlx-server-parser-gap.md` for the full 3-layer breakdown with raw probe outputs.
+
+---
+
 ## Cross-references
 
 - `~/explore/local-coding-models/refs/AB-verdict-v2.md` — bench source for G1/G3/G7
