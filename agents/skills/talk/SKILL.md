@@ -242,6 +242,15 @@ Once the exploded plan exists, **compress to a target slide count** (commonly 30
 
 See `reference/slide-plan-template.md` for the per-slide spec format and `reference/slide-plan-template.md`'s "Compression report format" section.
 
+### Bold-statement + structured-detail variant pattern
+
+For talks whose spine is a list of points where each carries detail (e.g., 7 control points, 5 lessons, 4 principles), consider rendering BOTH variants per point in the slide plan:
+
+- **Bold-statement variant** — a memorable single-sentence claim per point that sets up the detail. Often pairs well with a hero image.
+- **Structured-detail variant** — the actual substance, e.g., a 4-box layout with labeled sections (Surface / Recommendation / Mechanism / First question, etc.). Often text-heavy with no image.
+
+The user picks per slide during Google Slides assembly. The bold variant doubles as a great social-clip frame post-talk. The pair-per-point also forces you to write the bold AND the detail with parallelism between them — sharper output overall. See `~/cfp/talk-checkmarx-summit-2026/gamma/style-c-v3-payload.json` for a worked example (7 control points × 2 slides = 14 spine slides, plus title / about / thread / section dividers / outro / closing = 25 total). Sharpening the bold-statement copy is its own iteration (bead `ej8.11` in that project for the workshop trail).
+
 ## Step 6 — Design the visual narrative arc
 
 The deck tells a story across the WHOLE deck — a flip-book, a comic-book story shape — designed BEFORE any image generation. This is the highest-leverage step in the whole pipeline; it's also the easiest to skip and regret.
@@ -259,13 +268,19 @@ The talk-ai-council flagship: *the audience boards a yellow vintage school bus a
 
 See `reference/visual-arc-template.md` for the full template and the canonical-recurring-object discipline.
 
+### Inventory the target render's image-slot dimensions before firing image batches
+
+Gamma's default deck layout heavily favors **tall portrait image slots** (verified empirically across multiple decks: 18 of 18 images in one Checkmarx test deck were 1068×1600, ratio 0.67). A wide-only image batch will letterbox or crop badly when Gamma's layout drops them into tall slots.
+
+When the final deck assembly will mix layouts (Gamma → Google Slides, or any deck whose layout you can't fully control), **generate BOTH 16:9 and 9:16 orientations of the canonical hero subjects.** Costs ~2x in image-gen, eliminates the "wide images, tall slots" problem entirely. See `~/cfp/talk-checkmarx-summit-2026/gamma/` for the worked pattern: wide hero + tall hero v1 + tall hero v2 + life vignettes = 4 pools, ~36 images, each subject typically rendered in both orientations. The script `gamma/fire-batch-tall.sh` mirrors `fire-batch.sh` with `--aspect 9:16` and a portrait-recomposed shared environment block.
+
 ## Step 7 — Write the image narrative (Google Doc Tab 2)
 
 Collaborative iteration with the user **BEFORE** generation fires. Per [`/gdoc`](../gdoc/SKILL.md), use the doc's tab system — the talk-script and the image-narrative live in the SAME doc, on different tabs, so the user has one place to read both in sync.
 
 Image Narrative tab structure (4 sections + N per-slide entries):
 
-- **Section 1.1: Hard rules** (NON-NEGOTIABLE) — no people, no text in images, no trademarked likenesses, frame format (16:9 / 4:3 / etc.). Whatever's wrong on the first generation pass that you don't want to keep re-fixing — codify here once.
+- **Section 1.1: Hard rules** (NON-NEGOTIABLE) — no people, no text in images, no trademarked likenesses, frame format (16:9 / 4:3 / etc.). Whatever's wrong on the first generation pass that you don't want to keep re-fixing — codify here once. **Default-include the flush-edge / no-vignette rule** ("image must fill the entire frame flush to the canvas edges; NO white painterly border, NO vignette / matting / halo effect, NO feathered or softened edges"). The painterly cinematic register especially tempts the model to feather outward; the cartoony register tolerates it better but it's still good hygiene.
 - **Section 1.2: The canonical recurring object/character** — defined ONCE here, referenced everywhere. Without this, the image agent re-designs the canonical object per slide and the deck reads as 40 different cartoons stitched together.
 - **Section 1.3: Aesthetic register** — palette + treatment. Verbatim from your final-approved Style C `imageOptions.style` field, so the brief and the API call agree.
 - **Section 1.4: Detail discipline** — less is more. ONE primary subject per frame. AVOID secondary props, background clutter, detail flourishes.
@@ -315,6 +330,26 @@ Cost-aware, via [`/gamma`](../gamma/SKILL.md) and [`/openrouter`](../openrouter/
 After each fire, **post the gammaUrl to the Asana planning hub** as a plaintext comment via [`/asana`](../asana/SKILL.md). The Asana hub is the milestone-sync hub between the agent's work and the human's review surface. See `/asana` for the comment mechanics.
 
 Never fire Gamma autonomously, in loops, or as "let me try a few" speculation. Always confirm credit cost first. See `/gamma`'s "CRITICAL: cost awareness" section.
+
+### The painterly cinematic variant — a valid parallel pole
+
+The default hero-batch register (clean cartoony outlines, posed central subject) and a painterly cinematic register (visible loose brushwork, atmospheric depth, characters ACTING in scenes, dynamic low or close camera angles) are valid PARALLEL POLES of the same locked aesthetic. Many decks benefit from BOTH:
+
+- **Hero batch** — one image per control-point / lesson / spine subject. Default cartoony register. Image-led with a single central subject for the slide.
+- **Life-vignette batch** — scenes of the canonical species LIVING in the canonical environment, across the year / day / arc. Painterly cinematic register. Ambient / transition / "world texture" slides.
+
+Same canonical species and environment; different stylistic register; different role in the deck. Fire the hero batch FIRST (it locks the world); fire the life-vignette batch SECOND (it shows the world living). See `~/cfp/talk-checkmarx-summit-2026/gamma/image-briefs-life.json` for a worked example (9 vignettes: spring market morning / summer festival night / autumn harvest cart / winter snow / cafe close-up / worm's-eye landmark / traveler at gate / children playing / wildlife herd at dawn).
+
+### The 502 mitigation pattern
+
+Heavy parallel image refs cause provider tipover (see Anti-patterns on multi-megabyte refs). If you want to push the model toward a specific variant register, add the directive to PROMPT TEXT rather than attaching more refs. The 10 zig-coded canonical anchors at `~/.claude/skills/zig-voice/reference/` are sufficient image-to-image input for almost everything; everything else should be prompt-side.
+
+### nano-banana retry hygiene
+
+Two failure modes worth knowing:
+
+- **`finish_reason: "STOP"` with empty `images` array.** The model claimed it generated but didn't return the binary. Stochastic; a single retry usually lands. Don't over-engineer the prompt.
+- **`native_finish_reason: "IMAGE_SAFETY"`.** The model's safety filter blocked the output. Often stochastic — try the same prompt single-call first; if it still blocks, soften specific phrases (e.g., remove "weapon-shaped" descriptors, change "reaching for" to "examining," etc.).
 
 ## Step 10 — Resource pack repo
 
@@ -401,6 +436,26 @@ The talk repo is now mineable historical state for two downstream consumers:
 
 Drop a closing typed `note` bead: *"Handoff: talk delivered at <conf> on <date>. Next-stage skills: /zig-voice for content extraction; this repo is mineable for future talks."*
 
+### Fusion extraction — when the talk built a distinctive world
+
+If the talk developed a distinctive recurring aesthetic — a canonical environment, a recurring cast of characters/species, a specific palette + register — **extract it as a remix-ready reference** under `~/.claude/skills/zig-voice/reference/fusions/<slug>/`. Future talks and posts can extend the world without re-developing it from scratch.
+
+Worked pattern: `~/.claude/skills/zig-voice/reference/fusions/checkmarx-2026-seussian-town/`. Structure:
+
+- `README.md` organized as:
+  - **The Atlas** (the environment): spatial structure, architecture, time-of-day variants
+  - **The Bestiary** (the species/characters): per-species anatomy + what they do in scenes + variants (children / etc.)
+  - **Monument flora / inventory catalog** (recurring secondary visual elements)
+  - **Palette** (named colors + when they appear)
+  - **Aesthetic register** (default variant + painterly variant, if both exist)
+  - **Hard rules** (cohesion + safety + flush-edge rules)
+  - **The journey** (compressed iteration log — smokes → batches → revisions, so future-you can retrace or skip-to-the-end)
+  - **How to remix / extend** (easy remixes / higher-risk extensions / canonical reusable shared prompt block to paste-and-extend)
+  - **Provenance** (link back to the source talk's project repo + bead trail)
+- `images/` with 4-6 selected canonical reference images — for human reference only. **Don't attach as `--ref` to API calls** (heavy refs trigger 502s per Anti-patterns).
+
+The fusion extraction is its own bead in the talk repo (see `ej8.13` in the Checkmarx project for the worked example). Lands uncommitted in dotfiles; coworkers pick it up on next `~/dotfiles/zig-computer.distribute.sh`.
+
 ## CLAUDE.md template
 
 See `reference/claude-md-template.md` — paste at bootstrap, fill placeholders during Step 2 (discover constraints).
@@ -457,6 +512,9 @@ The flagship case study has 9+ beads tracking spec iterations, slide plan, visua
 - ❌ **Writing the script before the slide plan exists.** The slide plan is the spine; the script's H3 headings mirror the slides. Without that scaffold, the script drifts and re-scaffolds against itself mid-rev.
 - ❌ **Working on talk content without bead-tracking it.** Beads carry handoff context. A "let me just sketch the deck plan in a markdown file" detour breaks the trail; the next agent (or future-you) won't know what state the work is in.
 - ❌ **Treating the Asana planning hub as optional.** It's the human's review surface. Drop gammaUrls there as plaintext comments after every fire (see `/asana` for `text` field mechanics — comments are plaintext-only).
+- ❌ **Using Gamma's `aiGenerated` image source when you have a locked nano-banana aesthetic.** Gamma's image pipeline is opaque (different model from nano-banana, no image-to-image reference support, `style` field soft-capped at 500 chars — can't carry a full canonical taxonomy). When you have a curated visual register established in nano-banana, set `imageOptions.source: "placeholder"` on the Gamma fire and supply imagery from the nano-banana batch in Google Slides post-export. See `~/cfp/talk-checkmarx-summit-2026/.beads/issues.jsonl` bead `ej8.7` for the 5-reason diagnosis of why Gamma's per-slide imagery drifts off canonical (humans + horses replacing the locked species; wrong palette; etc).
+- ❌ **Attaching multi-megabyte reference images to parallel nano-banana calls.** Per-call payload × N parallel calls = N × per-call upstream bytes. With 14 refs averaging ~2MB each × 9 parallel calls = ~250MB simultaneous upstream → OpenRouter returns `502` on all calls. Keep the ref bundle lean — the 10 zig-coded canonical anchors at `~/.claude/skills/zig-voice/reference/` total ~6.5MB and are the proven sweet spot. If you want to push the model toward a specific variant register (e.g., a painterly look), express it in PROMPT text rather than adding more refs; downsize to 1K JPEGs first if you must attach.
+- ❌ **Forgetting the flush-edge / no-vignette rule on painterly prompts.** The painterly cinematic register tempts the model to feather brushwork outward into a white vignette / matting effect — unusable as a slide background. Always include in the hard-rules block: *"image must fill the entire frame flush to the canvas edges. NO white painterly border. NO vignette / matting / halo effect. NO feathered or softened edges."*
 
 ## Skills this composes with
 
