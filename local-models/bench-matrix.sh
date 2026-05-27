@@ -6,9 +6,9 @@
 # dotfiles-ukx.13 §4.2. Sequential per memory-hygiene G3 — never two
 # backends loaded at once. Lightest-first candidate ordering (OQ-04).
 # Explicit `ollama stop <model>` between Ollama candidates (OQ-05).
-# Healthcheck H1 before each candidate cohort. Per-cell call into
-# run-scenario.sh which handles per-trial wall caps + result-file
-# emission.
+# Healthcheck H1 before each candidate cohort (Wave 2: enforced + abort
+# on failure between cohorts). Per-cell call into run-scenario.sh which
+# handles per-trial wall caps + result-file emission.
 #
 # Usage:
 #   ./bench-matrix.sh                           # full matrix
@@ -21,6 +21,7 @@
 #   ./bench-matrix.sh --state-file /path/to/state.json
 #   ./bench-matrix.sh --dry-run                 # print plan, don't dispatch
 #   ./bench-matrix.sh --results-dir DIR         # override default results dir
+#   ./bench-matrix.sh --skip-healthcheck        # bypass H1 (operator escape)
 #
 # Env vars (mostly for testing):
 #   RUN_SCENARIO_PATH   override path to run-scenario.sh (default: sibling)
@@ -28,7 +29,7 @@
 #   SCENARIOS_DIR       override scenarios dir            (default: ../claude/sandbox/scenarios)
 #
 # Spec: dotfiles-ukx.13 §4.2
-# Bead: dotfiles-ukx.13.3
+# Bead: dotfiles-ukx.13.3 (Wave 1), dotfiles-ukx.13.4.2 (Wave 2)
 #
 
 set -uo pipefail
@@ -47,25 +48,37 @@ TIMEOUT_MIN=45     # global default per OQ-02
 SMOKE=0
 RESUME=0
 DRY_RUN=0
+SKIP_HEALTHCHECK=0
 CANDIDATES_CSV=""
 SCENARIOS_CSV=""
 
-# --- Lightest-first candidate roster (OQ-04, spec §3.3) ---
-# Order is load-order — trinity (smallest, fastest) first; deepseek-r1
-# (heaviest reasoning) last. Each entry has a backend tag so we can
-# decide whether to `ollama stop` between cohorts.
+# --- OQ-04 canonical roster (lightest → heaviest, 9 entries) ---
+# Order is load-order — trinity (smallest, fastest) first; kimi-linear
+# (heaviest) last per OQ-04 RESOLVED. Each entry has a backend tag so we
+# can decide whether to `ollama stop` between cohorts.
 #
 # Format: "<canonical-name>:<backend>:<ollama-model-tag-or-blank>"
+#
+# Order MUST match OQ-04 RESOLVED:
+#   1. Trinity-Mini (MLX)
+#   2. Qwen3-Coder MLX
+#   3. Qwen3-Coder Ollama
+#   4. Devstral (MLX, PARTIAL per G18)
+#   5. DeepSeek-Coder-V2-Lite Ollama (G15: MLX blocked)
+#   6. Laguna XS.2 Ollama (G7: MLX needs fork)
+#   7. DeepSeek-R1:14b Ollama
+#   8. GLM-4.5-Air 3-bit MLX
+#   9. Kimi-Linear-REAP-35B last (heaviest)
 ROSTER=(
   "trinity-mini:mlx:"
   "qwen3-coder:mlx:"
   "qwen3-coder-ollama:ollama:qwen3-coder:30b"
   "devstral:mlx:"
   "deepseek-coder-v2-lite-ollama:ollama:deepseek-coder-v2:16b"
-  "laguna-xs2:ollama:laguna-xs2:latest"
-  "kimi-linear:mlx:"
-  "glm-4.5-air:mlx:"
+  "laguna-xs2:ollama:laguna-xs.2:latest"
   "deepseek-r1-14b:ollama:deepseek-r1:14b"
+  "glm-4.5-air:mlx:"
+  "kimi-linear:mlx:"
 )
 
 # --- Arg parsing ---
@@ -88,21 +101,25 @@ Options:
                           (default: /tmp/bench-matrix-state.json)
   --dry-run               print plan; do not dispatch run-scenario.sh
   --results-dir DIR       override results dir
+  --skip-healthcheck      bypass H1 entirely (operator escape hatch for
+                          when pico state is known-good despite a flaky
+                          healthcheck — use sparingly)
 USAGE
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --candidates)  CANDIDATES_CSV="$2"; shift 2 ;;
-    --scenarios)   SCENARIOS_CSV="$2"; shift 2 ;;
-    --trials)      TRIALS="$2"; shift 2 ;;
-    --timeout)     TIMEOUT_MIN="$2"; shift 2 ;;
-    --smoke)       SMOKE=1; shift ;;
-    --resume)      RESUME=1; shift ;;
-    --state-file)  STATE_FILE="$2"; shift 2 ;;
-    --dry-run)     DRY_RUN=1; shift ;;
-    --results-dir) RESULTS_DIR="$2"; shift 2 ;;
-    -h|--help)     usage; exit 0 ;;
+    --candidates)        CANDIDATES_CSV="$2"; shift 2 ;;
+    --scenarios)         SCENARIOS_CSV="$2"; shift 2 ;;
+    --trials)            TRIALS="$2"; shift 2 ;;
+    --timeout)           TIMEOUT_MIN="$2"; shift 2 ;;
+    --smoke)             SMOKE=1; shift ;;
+    --resume)            RESUME=1; shift ;;
+    --state-file)        STATE_FILE="$2"; shift 2 ;;
+    --dry-run)           DRY_RUN=1; shift ;;
+    --results-dir)       RESULTS_DIR="$2"; shift 2 ;;
+    --skip-healthcheck)  SKIP_HEALTHCHECK=1; shift ;;
+    -h|--help)           usage; exit 0 ;;
     *)
       echo "error: unknown flag: $1" >&2
       usage
@@ -141,6 +158,15 @@ candidate_ollama_tag() {
   echo "$entry" | cut -d: -f3-
 }
 
+# --- Helper: print known-candidate roster (used in error msgs) ---
+print_roster_help() {
+  echo "       known candidates (OQ-04 canonical order, lightest-first):" >&2
+  local entry
+  for entry in "${ROSTER[@]}"; do
+    echo "         - ${entry%%:*}" >&2
+  done
+}
+
 # --- Build the candidate list (lightest-first re-sort if user provided CSV) ---
 selected_candidates=()
 if [[ -z "$CANDIDATES_CSV" ]]; then
@@ -154,10 +180,7 @@ else
   for c in "${user_cands[@]}"; do
     if ! candidate_meta "$c" >/dev/null; then
       echo "error: unknown candidate: $c" >&2
-      echo "       known candidates (lightest-first):" >&2
-      for entry in "${ROSTER[@]}"; do
-        echo "         - ${entry%%:*}" >&2
-      done
+      print_roster_help
       exit 1
     fi
   done
@@ -321,6 +344,7 @@ echo "    smoke:      $SMOKE"
 echo "    resume:     $RESUME"
 echo "    dry-run:    $DRY_RUN"
 echo "    results:    $RESULTS_DIR"
+echo "    skip-hc:    $SKIP_HEALTHCHECK"
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "==> DRY RUN — planning only, no dispatches"
@@ -338,15 +362,42 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   exit 0
 fi
 
-# --- Healthcheck H1 BEFORE any dispatch (T-05) ---
-if [[ -x "$HEALTHCHECK_PATH" ]]; then
-  echo "==> running healthcheck H1 ($HEALTHCHECK_PATH)..."
-  if ! "$HEALTHCHECK_PATH" >&2; then
-    echo "error: healthcheck H1 failed — aborting matrix (T-05)" >&2
-    exit 2
+# --- Healthcheck helper (Wave 2: invoked at start AND between cohorts) ---
+# Args: <phase-label> (e.g., "start-of-run" or "before $cand cohort").
+# On failure: writes a failure marker to RESULTS_DIR and exits 2 unless
+# --skip-healthcheck was requested.
+run_healthcheck() {
+  local phase="$1"
+  if [[ "$SKIP_HEALTHCHECK" -eq 1 ]]; then
+    return 0
   fi
-else
-  echo "warning: healthcheck not executable at $HEALTHCHECK_PATH — proceeding anyway" >&2
+  if [[ ! -x "$HEALTHCHECK_PATH" ]]; then
+    echo "warning: healthcheck not executable at $HEALTHCHECK_PATH ($phase) — proceeding anyway" >&2
+    return 0
+  fi
+  echo "==> running healthcheck H1 ($phase, $HEALTHCHECK_PATH)..."
+  if ! "$HEALTHCHECK_PATH" >&2; then
+    echo "error: healthcheck H1 failed ($phase) — aborting matrix" >&2
+    # Failure marker file in results dir so a human / downstream tool
+    # can see WHY the matrix stopped mid-run. Filename is HEALTHCHECK_FAIL-
+    # prefixed (NOT containing candidate names) so analyze-bench's
+    # scenario-by-prefix-match doesn't accidentally treat the marker as
+    # a result file.
+    local marker="$RESULTS_DIR/HEALTHCHECK_FAIL-$(date -u +%Y%m%dT%H%M%SZ).txt"
+    {
+      echo "Healthcheck H1 failed at phase: $phase"
+      echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      echo "Healthcheck script: $HEALTHCHECK_PATH"
+      echo "Aborted matrix mid-run. See healthcheck stderr above for diagnostics."
+    } > "$marker" 2>/dev/null || true
+    return 2
+  fi
+  return 0
+}
+
+# --- Healthcheck H1 BEFORE any dispatch (T-05) ---
+if ! run_healthcheck "start-of-run"; then
+  exit 2
 fi
 
 # --- Convert MINUTES → SECONDS for the run-scenario.sh passthrough ---
@@ -359,8 +410,10 @@ PREV_BACKEND=""
 PREV_OLLAMA_TAG=""
 SMOKE_FAILED=0
 SMOKE_FAILED_CANDIDATES=()
+COHORT_IDX=0
 
 for cand in "${selected_candidates[@]}"; do
+  COHORT_IDX=$((COHORT_IDX + 1))
   backend="$(candidate_backend "$cand")"
   ollama_tag="$(candidate_ollama_tag "$cand")"
 
@@ -370,11 +423,22 @@ for cand in "${selected_candidates[@]}"; do
     ollama stop "$PREV_OLLAMA_TAG" 2>/dev/null || true
   fi
 
-  echo "==> candidate cohort: $cand (backend=$backend)"
+  # --- Healthcheck BETWEEN cohorts (Wave 2 / T-W2-H-1, T-W2-H-2) ---
+  # Skip on the FIRST cohort — the start-of-run H1 above already covered
+  # that. From cohort 2 onward, gate each cohort with a fresh H1 to catch
+  # pico state drift mid-run.
+  if [[ "$COHORT_IDX" -gt 1 ]]; then
+    if ! run_healthcheck "before-cohort-$cand"; then
+      # Abort cleanly with a clear failure marker (already written by
+      # run_healthcheck). Stop the final Ollama if any, then exit.
+      if [[ -n "$PREV_OLLAMA_TAG" && "$PREV_BACKEND" == "ollama" ]]; then
+        ollama stop "$PREV_OLLAMA_TAG" 2>/dev/null || true
+      fi
+      exit 2
+    fi
+  fi
 
-  # Healthcheck between cohorts (not before the first one — H1 covers that).
-  # Spec §3.3 calls for H1 between candidate cohorts; we keep this lean
-  # for now (just the initial H1) and a hook for between-cohort if needed.
+  echo "==> candidate cohort: $cand (backend=$backend)"
 
   # --- Inner loop: per-scenario cell ---
   for scen_path in "${selected_scenarios[@]}"; do
@@ -388,14 +452,16 @@ for cand in "${selected_candidates[@]}"; do
 
     echo "    RUN  $scen_base × $cand × $TRIALS trials (cap=${TIMEOUT_MIN}m)"
 
-    # Dispatch into run-scenario.sh. The model-tag arg uses the candidate
-    # name; run-scenario.sh accepts "opus" or "local" by default but
-    # bench-matrix passes the canonical candidate name through to the
-    # stub in test mode. In production, this layer will need to map
-    # candidate→model-tag for the real run-scenario.sh.
+    # Dispatch into run-scenario.sh. Wave 2 uses --candidate <name> as
+    # the canonical form (per T-W2-D-4). We ALSO pass the candidate name
+    # positionally so legacy test stubs that grab `$1=scenario; $2=candidate`
+    # still see the right value — run-scenario.sh now accepts candidate
+    # names positionally as well (Wave 2 widening of the legacy opus|local
+    # gate).
     "$RUN_SCENARIO_PATH" \
       "$scen_path" \
       "$cand" \
+      --candidate "$cand" \
       --trials "$TRIALS" \
       --timeout "$TIMEOUT_SEC" \
       --results-dir "$RESULTS_DIR" \
