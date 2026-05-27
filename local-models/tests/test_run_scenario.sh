@@ -19,7 +19,12 @@
 
 set -u  # NOT set -e: we want to count test failures, not abort.
 
-DOTFILES_ROOT="${DOTFILES_ROOT:-/home/ubuntu/dotfiles}"
+# DOTFILES_ROOT defaults to the worktree this test file lives in
+# (tests/ → local-models/ → repo root), so the test exercises the
+# SAME-worktree impl, NOT the main tree's already-merged version.
+# (Wave 2 dotfiles-ukx.13.4.2 — fix for /scrutiny finding #4: tests
+# pointed at the main tree silently masked Wave 2 regressions.)
+DOTFILES_ROOT="${DOTFILES_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
 RUN_SCENARIO="$DOTFILES_ROOT/claude/sandbox/run-scenario.sh"
 
 PASS_COUNT=0

@@ -24,7 +24,10 @@
 
 set -u
 
-DOTFILES_ROOT="${DOTFILES_ROOT:-/home/ubuntu/dotfiles}"
+# DOTFILES_ROOT defaults to the worktree this test file lives in
+# (tests/ → local-models/ → repo root). See test_run_scenario.sh for
+# the Wave 2 dotfiles-ukx.13.4.2 /scrutiny finding #4 context.
+DOTFILES_ROOT="${DOTFILES_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
 BENCH_MATRIX="$DOTFILES_ROOT/local-models/bench-matrix.sh"
 
 PASS_COUNT=0

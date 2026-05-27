@@ -157,6 +157,18 @@ Options:
 USAGE
 }
 
+# Early help-check: -h / --help must fire BEFORE arg-count validation so
+# `run-scenario.sh --help` works without the operator first passing a
+# scenario-file just to discover usage. (/scrutiny finding #5.)
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+  esac
+done
+
 if [[ $# -lt 1 ]]; then
   usage
   exit 1
@@ -212,10 +224,19 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- Resolve dispatch: --candidate takes precedence over positional ---
+# When BOTH are supplied (e.g., bench-matrix.sh dispatch which sends both
+# the positional candidate for stub-compat AND --candidate for the W2
+# contract): the --candidate flag wins. We warn if they DIFFER — that
+# would indicate an operator typo. Same value is the common case
+# (bench-matrix sends both for compat) and stays silent.
 CCR_ROUTE=""
 HF_MODEL=""
 
 if [[ -n "$CANDIDATE_NAME" ]]; then
+  if [[ -n "$MODEL_TAG" && "$MODEL_TAG" != "$CANDIDATE_NAME" \
+        && "$MODEL_TAG" != "opus" && "$MODEL_TAG" != "local" ]]; then
+    echo "warning: positional '$MODEL_TAG' differs from --candidate '$CANDIDATE_NAME'; --candidate wins" >&2
+  fi
   if ! dispatch="$(resolve_candidate "$CANDIDATE_NAME")"; then
     print_unknown_candidate_help "$CANDIDATE_NAME"
     exit 1
@@ -274,6 +295,37 @@ if [[ "$DRY_RUN_ROUTING" -eq 1 ]]; then
   echo "ccr-route: ${CCR_ROUTE:-<none — opus uses Anthropic directly>}"
   echo "hf-model:  $HF_MODEL"
   echo "provider:  $PROVIDER_LABEL"
+
+  # Per /scrutiny finding #3 (belt-and-suspenders): cross-check that the
+  # resolved CCR route is actually registered in the project's
+  # claude-code-router/config.json. Pre-Wave-2.1, this script printed
+  # routes for glm-4.5-air + kimi-linear that didn't exist in CCR config,
+  # so a live run would 404. The Wave 2.1 commit adds them to config —
+  # this check guards against future drift.
+  RS_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+  CCR_CONFIG="$RS_SCRIPT_DIR/../../claude-code-router/config.json"
+  if [[ -n "$CCR_ROUTE" && -f "$CCR_CONFIG" ]]; then
+    PROVIDER_NAME="${CCR_ROUTE%%,*}"
+    MODEL_NAME="${CCR_ROUTE#*,}"
+    if python3 -c "
+import json, sys
+with open('$CCR_CONFIG') as f:
+    cfg = json.load(f)
+for p in cfg.get('Providers', []):
+    if p.get('name') == '$PROVIDER_NAME':
+        sys.exit(0 if '$MODEL_NAME' in p.get('models', []) else 2)
+sys.exit(1)
+" 2>/dev/null; then
+      echo "config-check: OK (provider=$PROVIDER_NAME has model=$MODEL_NAME)"
+    else
+      rc=$?
+      case "$rc" in
+        1) echo "config-check: WARN provider '$PROVIDER_NAME' not in $CCR_CONFIG" ;;
+        2) echo "config-check: WARN model '$MODEL_NAME' not registered under '$PROVIDER_NAME' in $CCR_CONFIG" ;;
+        *) echo "config-check: WARN unexpected validator exit ($rc)" ;;
+      esac
+    fi
+  fi
   exit 0
 fi
 
@@ -381,6 +433,12 @@ esac
 # The marker format includes the byte count + cap so analyze-bench can
 # surface the truncation reason. Per T-W2-F-3, the marker substring
 # "truncated" MUST appear.
+#
+# NOTE: uses `declare -A` (associative array), which requires bash 4+.
+# macOS ships bash 3.2 at /bin/bash; this script's shebang is
+# `#!/usr/bin/env bash` so it picks up Homebrew/MacPorts bash 5+ on
+# typical dev macs. If a future deployment needs bash 3 portability,
+# replace the assoc array with a sorted-paths sentinel list.
 emit_filecontents() {
   local d f size
   # Collect all files across all candidate dirs (single pass, dedup by
@@ -395,9 +453,14 @@ emit_filecontents() {
       seen[$f]=1
       # Skip non-regular files (symlinks-to-dirs, sockets, fifos).
       [[ ! -f "$f" ]] && continue
-      # Skip binary files. grep can't reliably search for NUL bytes
-      # across variants (treats $'\0' as empty pattern). Use python3
-      # which we already depend on for routing-evidence parsing.
+      # 8KB heuristic for binary detection: if the first 8KB contains a
+      # NUL byte, treat the file as binary and skip the body (analyzers
+      # don't grep binary blobs). NOT a definitive binary-vs-text classifier
+      # (won't catch e.g. UTF-16 BOMs without NULs early); good enough to
+      # filter the common .o/.so/.png/.zip cases that bench scenarios may
+      # produce. grep can't reliably search for NUL bytes across variants
+      # (treats $'\0' as empty pattern); python3 (already a dep for
+      # routing-evidence parsing) does it correctly.
       if python3 -c 'import sys
 sys.exit(0 if b"\x00" in open(sys.argv[1], "rb").read(8192) else 1)' \
           "$f" 2>/dev/null; then
@@ -428,9 +491,16 @@ run_one_trial() {
   local trial_num="$1"
   local is_cold_load="$2"   # "true" or "false"
 
-  local TIMESTAMP RESULT_FILE
+  local TIMESTAMP RESULT_FILE FILENAME_CAND
   TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-  RESULT_FILE="$RESULTS_DIR/${SCENARIO_BASENAME}-${MODEL_TAG}-trial${trial_num}-${TIMESTAMP}.md"
+  # Use the candidate name (not just MODEL_TAG which is always "local"
+  # for the 7 non-opus candidates) so different cohorts produce distinct
+  # result filenames. /scrutiny #2 fix: pre-Wave-2.1 the filename used
+  # ${MODEL_TAG} alone, collapsing qwen3-coder + trinity-mini + ... into
+  # a single namespace, breaking rebuild_state_from_results_dir AND
+  # making same-second cells overwrite each other.
+  FILENAME_CAND="${CANDIDATE_NAME:-$MODEL_TAG}"
+  RESULT_FILE="$RESULTS_DIR/${SCENARIO_BASENAME}-${FILENAME_CAND}-trial${trial_num}-${TIMESTAMP}.md"
 
   # --- Defensive pre-Setup rm -rf (OQ-07) ---
   # Wipe any sandbox subdirs referenced by Setup's mkdir lines before

@@ -21,7 +21,9 @@
         "qwen3-coder",
         "trinity-mini",
         "devstral",
-        "deepseek-coder-v2-lite-mlx"
+        "deepseek-coder-v2-lite-mlx",
+        "glm-4.5-air",
+        "kimi-linear"
       ]
     },
     {
@@ -32,7 +34,8 @@
         "qwen3-coder:30b",
         "laguna-xs.2:latest",
         "devstral:24b",
-        "deepseek-coder-v2:16b-lite-instruct-q4_K_M"
+        "deepseek-coder-v2:16b-lite-instruct-q4_K_M",
+        "deepseek-r1:14b"
       ]
     }
   ],

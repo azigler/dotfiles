@@ -14,8 +14,17 @@ from pathlib import Path
 
 import pytest
 
-# Real planned paths — these are what the Wave 1 impl will create.
-DOTFILES_ROOT = Path(os.environ.get("DOTFILES_ROOT", "/home/ubuntu/dotfiles"))
+# DOTFILES_ROOT defaults to the worktree this conftest.py lives in
+# (tests/ → local-models/ → repo root), so pytest exercises the
+# SAME-worktree impl, NOT the main tree's already-merged version.
+# (Wave 2 dotfiles-ukx.13.4.2 — fix for /scrutiny finding #4: pytest
+# pointed at the main tree silently masked Wave 2 regressions.)
+DOTFILES_ROOT = Path(
+    os.environ.get(
+        "DOTFILES_ROOT",
+        str(Path(__file__).resolve().parent.parent.parent),
+    )
+)
 ANALYZE_BIN = DOTFILES_ROOT / "local-models" / "analyze-bench.py"
 BENCH_MATRIX = DOTFILES_ROOT / "local-models" / "bench-matrix.sh"
 RUN_SCENARIO = DOTFILES_ROOT / "claude" / "sandbox" / "run-scenario.sh"

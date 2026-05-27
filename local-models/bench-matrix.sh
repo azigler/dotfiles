@@ -69,6 +69,14 @@ SCENARIOS_CSV=""
 #   7. DeepSeek-R1:14b Ollama
 #   8. GLM-4.5-Air 3-bit MLX
 #   9. Kimi-Linear-REAP-35B last (heaviest)
+#
+# NOTE: the SHORT names below (`laguna-xs2`, `glm-4.5-air`, `kimi-linear`)
+# are the BENCH-MATRIX-LAYER identifiers — chosen to be backend-bucket
+# variants in the OQ-04 reconciliation. The spec's 8-roster CANONICAL
+# names (`laguna-xs.2`, `glm-4.5-air-3bit`, `kimi-linear-reap-35b`)
+# resolve to these via ALIAS_MAP below. Same model, two naming layers:
+# bench-matrix iterates the 9-row OQ-04 reconciliation, run-scenario.sh
+# exposes the 8-roster canonical names — ALIAS_MAP bridges the two.
 ROSTER=(
   "trinity-mini:mlx:"
   "qwen3-coder:mlx:"
@@ -80,6 +88,54 @@ ROSTER=(
   "glm-4.5-air:mlx:"
   "kimi-linear:mlx:"
 )
+
+# --- Baseline (out-of-roster but accepted via --candidates) ---
+# `opus` is the Anthropic Opus baseline — NOT iterated in the default
+# matrix loop (the default roster is the 9 local candidates), but accepted
+# as a --candidates value so operators can dispatch the baseline through
+# bench-matrix uniformly. run-scenario.sh handles routing.
+BASELINE_DISPATCH=(
+  "opus:opus:"
+)
+
+# --- Alias map: spec-canonical → bench-matrix-roster names ---
+# /scrutiny finding #1: bench-matrix.sh --candidates <name> was rejecting
+# 5/9 spec-canonical names. We resolve them via this alias map BEFORE
+# looking them up in ROSTER. Identity aliases are included for clarity
+# (so a single lookup path covers all valid inputs).
+#
+# Format: "<input-name>=<roster-name>"
+ALIAS_MAP=(
+  # Identity (no-op aliases for direct roster names — keeps lookup uniform)
+  "trinity-mini=trinity-mini"
+  "qwen3-coder=qwen3-coder"
+  "qwen3-coder-ollama=qwen3-coder-ollama"
+  "devstral=devstral"
+  "deepseek-coder-v2-lite-ollama=deepseek-coder-v2-lite-ollama"
+  "laguna-xs2=laguna-xs2"
+  "deepseek-r1-14b=deepseek-r1-14b"
+  "glm-4.5-air=glm-4.5-air"
+  "kimi-linear=kimi-linear"
+  # Baseline
+  "opus=opus"
+  # Spec-canonical → bench-matrix-layer (per scrutiny #1)
+  "deepseek-coder-v2-lite=deepseek-coder-v2-lite-ollama"
+  "laguna-xs.2=laguna-xs2"
+  "glm-4.5-air-3bit=glm-4.5-air"
+  "kimi-linear-reap-35b=kimi-linear"
+)
+
+# resolve_alias <input-name> → echoes roster name; returns 0 on hit, 1 on miss
+resolve_alias() {
+  local name="$1" entry
+  for entry in "${ALIAS_MAP[@]}"; do
+    if [[ "${entry%%=*}" == "$name" ]]; then
+      echo "${entry#*=}"
+      return 0
+    fi
+  done
+  return 1
+}
 
 # --- Arg parsing ---
 usage() {
@@ -130,10 +186,18 @@ done
 
 mkdir -p "$RESULTS_DIR"
 
-# --- Helper: lookup a candidate's metadata from ROSTER ---
+# --- Helper: lookup a candidate's metadata from ROSTER (or BASELINE_DISPATCH) ---
+# Accepts the roster name directly; for spec-canonical aliases, call
+# resolve_alias first.
 candidate_meta() {
   local name="$1" entry
   for entry in "${ROSTER[@]}"; do
+    if [[ "${entry%%:*}" == "$name" ]]; then
+      echo "$entry"
+      return 0
+    fi
+  done
+  for entry in "${BASELINE_DISPATCH[@]}"; do
     if [[ "${entry%%:*}" == "$name" ]]; then
       echo "$entry"
       return 0
@@ -165,31 +229,63 @@ print_roster_help() {
   for entry in "${ROSTER[@]}"; do
     echo "         - ${entry%%:*}" >&2
   done
+  echo "       baseline:" >&2
+  for entry in "${BASELINE_DISPATCH[@]}"; do
+    echo "         - ${entry%%:*}" >&2
+  done
+  echo "       accepted spec-canonical aliases:" >&2
+  echo "         - deepseek-coder-v2-lite (-> deepseek-coder-v2-lite-ollama)" >&2
+  echo "         - laguna-xs.2            (-> laguna-xs2)" >&2
+  echo "         - glm-4.5-air-3bit       (-> glm-4.5-air)" >&2
+  echo "         - kimi-linear-reap-35b   (-> kimi-linear)" >&2
 }
 
 # --- Build the candidate list (lightest-first re-sort if user provided CSV) ---
 selected_candidates=()
 if [[ -z "$CANDIDATES_CSV" ]]; then
+  # Default: iterate the OQ-04 roster (9 local candidates, lightest-first).
+  # NOTE: opus baseline is NOT in the default iteration — it's only dispatched
+  # when the operator explicitly names it via --candidates.
   for entry in "${ROSTER[@]}"; do
     selected_candidates+=("${entry%%:*}")
   done
 else
-  # Split CSV, then re-sort by lightest-first order from ROSTER.
+  # Split CSV, alias-resolve each name, then re-sort by ROSTER order
+  # (lightest-first). opus is appended to the END since it's not in
+  # ROSTER — preserves the lightest-first invariant for local candidates
+  # while still allowing the baseline through.
   IFS=',' read -ra user_cands <<< "$CANDIDATES_CSV"
-  # Validate each one exists in the roster; fail fast on unknown (edge 5).
+  resolved_cands=()
   for c in "${user_cands[@]}"; do
-    if ! candidate_meta "$c" >/dev/null; then
+    if rosname="$(resolve_alias "$c")"; then
+      # Validate the resolved name exists (catch alias map → ROSTER drift).
+      if ! candidate_meta "$rosname" >/dev/null; then
+        echo "error: alias '$c' resolves to '$rosname' but no such entry in ROSTER/BASELINE — bench-matrix.sh config bug" >&2
+        exit 1
+      fi
+      resolved_cands+=("$rosname")
+    else
       echo "error: unknown candidate: $c" >&2
       print_roster_help
       exit 1
     fi
   done
-  # Reorder per ROSTER, preserving lightest-first.
+  # Reorder per ROSTER, preserving lightest-first (local candidates).
   for entry in "${ROSTER[@]}"; do
     name="${entry%%:*}"
-    for c in "${user_cands[@]}"; do
+    for c in "${resolved_cands[@]}"; do
       if [[ "$c" == "$name" ]]; then
         selected_candidates+=("$name")
+        break
+      fi
+    done
+  done
+  # Append baseline (opus) at the end if requested (NOT in ROSTER iteration).
+  for entry in "${BASELINE_DISPATCH[@]}"; do
+    bname="${entry%%:*}"
+    for c in "${resolved_cands[@]}"; do
+      if [[ "$c" == "$bname" ]]; then
+        selected_candidates+=("$bname")
         break
       fi
     done
