@@ -334,3 +334,222 @@ def test_grep_runner_handles_missing_binary_gracefully(
     assert verdict != "PASS", (
         f"unverifiable Pass criteria (missing binary) must not PASS; got {verdict}"
     )
+
+
+# ============================================================================
+# Wave 2 (dotfiles-ukx.13.4) — additional edge cases
+# Bead: dotfiles-ukx.13.4.1
+#
+# Adds tests for:
+#   T-W2-F-3:  FILECONTENTS size-cap — large/binary files surface a
+#              <<truncated>> marker rather than dumping multi-MB into result
+#   EDGE-W2-A: bench-matrix --candidates with misspelled candidate fails fast
+#              with a helpful error naming the roster (typo guidance)
+#   EDGE-W2-B: bench-matrix --skip-healthcheck combined with a known-bad pico
+#              (HEALTHCHECK_FORCE_FAIL=1) still runs without invoking H1
+# ============================================================================
+
+
+def test_w2_f_3_filecontents_size_cap_and_truncation_marker(tmp_path: Path):
+    """T-W2-F-3: the FILECONTENTS snapshot must NOT dump binary blobs or
+    arbitrarily-large file contents into the result file. When a captured
+    file exceeds the per-file size cap (50KB per spec), the snapshot must
+    contain a `<<truncated>>` (or equivalent) marker.
+
+    This is a contract test on the IMPL that emits FILECONTENTS: we feed
+    analyze_bench a fake result file that already carries a `<<truncated>>`
+    marker, and assert the analyzer does NOT crash on it AND does not treat
+    truncated content as a definitive PASS / FAIL.
+    """
+    import textwrap
+
+    mod = _import_analyze_bench()
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    scenario = scenarios_dir / "12-large-output.md"
+    scenario.write_text(
+        textwrap.dedent("""\
+            # Scenario 12 — large output
+            ## Setup
+            ```bash
+            : # noop (real Setup would seed a small file)
+            ```
+            ## Prompt
+            Write a big file.
+            ## Pass criteria
+            - `grep -c 'EXPECTED_MARKER' /tmp/bench-w2/s12/big.bin` equals `1`
+            ## Cleanup
+            ```bash
+            rm -rf /tmp/bench-w2/s12
+            ```
+        """)
+    )
+
+    results_dir = tmp_path / "results"
+    results_dir.mkdir()
+    trial = results_dir / "12-large-output-qwen3-coder-1-20260527T120000Z.md"
+    # Truncation marker present where the body would be — the impl agent
+    # may use `<<truncated>>` or `<<truncated:NN-bytes>>` or similar; assert
+    # the contract: the marker substring "truncated" is in the FILECONTENTS line.
+    trial.write_text(
+        textwrap.dedent("""\
+            # Scenario result: 12-large-output (qwen3-coder) trial 1
+
+            - **Scenario file**: `claude/sandbox/scenarios/12-large-output.md`
+            - **Candidate**: `qwen3-coder`
+            - **Trial**: 1
+            - **Wall time**: 5s
+            - **wall_cap_seconds**: 2700
+            - **cold_load_trial**: true
+            - **scoring_tier**: 1
+            - **claude exit code**: 0
+
+            ## Sandbox state after run (pre-cleanup snapshot)
+
+            ```
+                /tmp/bench-w2/s12/big.bin
+            FILECONTENTS:/tmp/bench-w2/s12/big.bin:<<truncated:60000-bytes-exceeded-50KB-cap>>
+            ```
+
+            ## Claude output
+
+            ```
+            Wrote 60KB. DONE
+            ```
+
+            ## flagged_log_excerpt
+
+            ```
+            ```
+        """)
+    )
+
+    # Analyzer must not crash on truncated FILECONTENTS — and it must NOT
+    # PASS the trial just because the truncation marker "happens to contain"
+    # EXPECTED_MARKER as a substring (it doesn't, but contract is: never
+    # PASS on truncated bodies).
+    verdict = mod.grep_runner(scenario_path=scenario, trial_path=trial)
+    assert verdict != "PASS", (
+        f"T-W2-F-3: truncated FILECONTENTS must NOT yield PASS (unverifiable); got {verdict}"
+    )
+
+    # Also: end-to-end through the CLI — the analyzer must process the file
+    # without raising a traceback even if the truncation marker is huge.
+    out_file = tmp_path / "parity-trunc.md"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ANALYZE_BIN),
+            "--results-dir",
+            str(results_dir),
+            "--scenarios-dir",
+            str(scenarios_dir),
+            "--out",
+            str(out_file),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    combined = (result.stdout + result.stderr).lower()
+    assert "traceback" not in combined, (
+        f"T-W2-F-3: analyzer must not crash on truncated FILECONTENTS; got:\n{combined}"
+    )
+    assert result.returncode == 0, (
+        f"T-W2-F-3: analyzer must succeed (exit 0) on truncated bodies; stderr: {result.stderr}"
+    )
+
+
+def test_w2_edge_a_misspelled_candidate_lists_roster_in_error(tmp_path: Path):
+    """EDGE-W2-A: bench-matrix --candidates with a misspelled candidate
+    (e.g., 'qwen3coder' instead of 'qwen3-coder') must fail fast AND surface
+    the canonical roster in the error so the operator can fix the typo
+    without grepping source.
+    """
+    fake_results = tmp_path / "results"
+    fake_results.mkdir()
+    result = subprocess.run(
+        [
+            str(BENCH_MATRIX),
+            "--candidates",
+            "qwen3coder",  # misspelled — missing hyphen
+            "--scenarios",
+            "01",
+            "--trials",
+            "1",
+            "--dry-run",
+            "--results-dir",
+            str(fake_results),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert result.returncode != 0, (
+        "EDGE-W2-A: misspelled candidate must exit non-zero (got 0)"
+    )
+    combined = (result.stdout + result.stderr).lower()
+    # Error message must include AT LEAST ONE roster entry for typo guidance.
+    roster_hints = (
+        "trinity-mini",
+        "qwen3-coder",
+        "kimi-linear",
+        "devstral",
+        "deepseek",
+        "laguna",
+        "glm",
+    )
+    matches = [h for h in roster_hints if h in combined]
+    assert len(matches) >= 1, (
+        f"EDGE-W2-A: unknown-candidate error must list the canonical roster; "
+        f"found 0 hints in: {combined}"
+    )
+
+
+def test_w2_edge_b_skip_healthcheck_with_known_bad_pico(tmp_path: Path):
+    """EDGE-W2-B: --skip-healthcheck combined with a healthcheck that would
+    otherwise abort (HEALTHCHECK_FORCE_FAIL=1 via stub) must still let the
+    matrix proceed — this is the operator escape hatch for when pico state
+    is known-good despite a flaky healthcheck.
+
+    We exercise the flag through --dry-run (no actual dispatch needed; just
+    verify the flag is accepted AND that the dry-run plan doesn't choke on
+    a would-fail-but-skipped healthcheck).
+    """
+    import os
+
+    fake_results = tmp_path / "results"
+    fake_results.mkdir()
+    env = os.environ.copy()
+    env["HEALTHCHECK_FORCE_FAIL"] = "1"
+    # Point healthcheck at /bin/false so any accidental call would fail too —
+    # belt-and-suspenders test that --skip-healthcheck genuinely skips.
+    env["HEALTHCHECK_PATH"] = "/bin/false"
+    result = subprocess.run(
+        [
+            str(BENCH_MATRIX),
+            "--skip-healthcheck",
+            "--dry-run",
+            "--candidates",
+            "qwen3-coder",
+            "--scenarios",
+            "01",
+            "--trials",
+            "1",
+            "--results-dir",
+            str(fake_results),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=30,
+    )
+    # Dry-run with --skip-healthcheck = exit 0 (no healthcheck invoked,
+    # plan printed). If --skip-healthcheck isn't recognized, the unknown-flag
+    # branch in bench-matrix.sh will exit 1.
+    assert result.returncode == 0, (
+        f"EDGE-W2-B: --skip-healthcheck must be accepted and bypass H1; "
+        f"exit={result.returncode}, stderr: {result.stderr}, stdout: {result.stdout}"
+    )

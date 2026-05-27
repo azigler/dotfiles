@@ -434,6 +434,318 @@ KSTUB
   fi
 }
 
+# ============================================================================
+# Wave 2 (dotfiles-ukx.13.4) — production end-to-end coverage
+# Bead: dotfiles-ukx.13.4.1
+#
+# Adds tests for:
+#   T-W2-D-4: bench-matrix.sh --candidates qwen3-coder invokes run-scenario.sh
+#             with --candidate qwen3-coder (delegation assertion)
+#   T-W2-R-1: --dry-run roster snapshot matches OQ-04 canonical order
+#   T-W2-R-2: roster iterates exactly 9 candidates lightest→heaviest (OQ-04)
+#   T-W2-H-1: bench-matrix iterating N candidates fires healthcheck N+1 times
+#             (1 at start + N between cohorts; OR N if start-of-each semantics)
+#   T-W2-H-2: failed inter-cohort H1 aborts the matrix + writes failure marker
+#   T-W2-H-3: --skip-healthcheck disables between-cohort H1 (operator escape)
+# ============================================================================
+
+# OQ-04 canonical roster order (lightest→heaviest, 9 entries per spec §3.3).
+# Names match bench-matrix.sh ROSTER canonical-name field.
+OQ04_CANONICAL_ORDER=(
+  "trinity-mini"
+  "qwen3-coder"
+  "qwen3-coder-ollama"
+  "devstral"
+  "deepseek-coder-v2-lite-ollama"
+  "laguna-xs2"
+  "deepseek-r1-14b"
+  "glm-4.5-air"
+  "kimi-linear"
+)
+
+# ---- TEST: T-W2-D-4 — bench-matrix dispatches with --candidate <name> flag ----
+test_w2_d_4_delegates_with_candidate_flag() {
+  local results_dir
+  results_dir="$(mk_results_dir)"
+  : > "$INVOCATIONS_LOG"
+
+  # Replace the stub with one that records the FULL arg vector so we can
+  # inspect whether --candidate <name> was passed (vs the legacy positional
+  # candidate-as-model-tag form).
+  local arg_stub_dir="$SCRATCH/argspy-stub"
+  mkdir -p "$arg_stub_dir"
+  local argspy_log="$SCRATCH/argspy.log"
+  : > "$argspy_log"
+  cat > "$arg_stub_dir/run-scenario.sh" <<ARGSPY
+#!/usr/bin/env bash
+# Argspy stub: record EVERY arg verbatim so the test can assert flag shape.
+echo "ARGV: \$*" >> "$argspy_log"
+# Find --results-dir to emit a fake result so bench-matrix completes.
+RESULTS_DIR="."
+SCEN="\$1"; shift
+CAND_POSITIONAL="\$1"; shift
+while [[ \$# -gt 0 ]]; do
+  case "\$1" in
+    --results-dir) RESULTS_DIR="\$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+mkdir -p "\$RESULTS_DIR"
+TS="\$(date -u +%Y%m%dT%H%M%SZ)"
+SCEN_BASE="\$(basename "\$SCEN" .md)"
+echo "fake" > "\$RESULTS_DIR/\${SCEN_BASE}-stubbed-1-\${TS}.md"
+exit 0
+ARGSPY
+  chmod +x "$arg_stub_dir/run-scenario.sh"
+
+  PATH="$arg_stub_dir:$STUB_DIR:$PATH" \
+  SCENARIOS_DIR="$SCEN_DIR" \
+  RUN_SCENARIO_PATH="$arg_stub_dir/run-scenario.sh" \
+  HEALTHCHECK_PATH="$STUB_DIR/healthcheck.sh" \
+    "$BENCH_MATRIX" \
+    --candidates qwen3-coder \
+    --scenarios 01 \
+    --trials 1 \
+    --results-dir "$results_dir" \
+    > /dev/null 2>&1
+
+  # The recorded ARGV must contain `--candidate qwen3-coder` (the Wave 2
+  # dispatch form). Accept either order: anywhere in the recorded line.
+  if grep -qE '(^|[[:space:]])--candidate[[:space:]]+qwen3-coder([[:space:]]|$)' "$argspy_log"; then
+    pass "T-W2-D-4: bench-matrix invokes run-scenario.sh with --candidate qwen3-coder"
+  else
+    fail "T-W2-D-4: bench-matrix invokes run-scenario.sh with --candidate qwen3-coder" \
+      "recorded argv had no --candidate flag: $(cat "$argspy_log")"
+  fi
+}
+
+# ---- TEST: T-W2-R-1 — --dry-run roster matches OQ-04 canonical order ----
+test_w2_r_1_dry_run_roster_matches_oq04() {
+  local results_dir output_capture
+  results_dir="$(mk_results_dir)"
+  output_capture="$(run_bm \
+    --dry-run \
+    --results-dir "$results_dir" \
+    2>&1)"
+
+  # Extract the candidate-name list from the "candidates:" line in plan summary.
+  # bench-matrix prints e.g. "    candidates: trinity-mini qwen3-coder ..."
+  local cand_line
+  cand_line="$(echo "$output_capture" | grep -E '^[[:space:]]*candidates:' | head -1)"
+  if [[ -z "$cand_line" ]]; then
+    fail "T-W2-R-1: --dry-run emits a 'candidates:' line in the plan" \
+      "no candidates: line in output: $output_capture"
+    return
+  fi
+
+  # Strip prefix "    candidates: " to get the ordered list.
+  local ordered
+  ordered="$(echo "$cand_line" | sed -E 's/^[[:space:]]*candidates:[[:space:]]*//')"
+
+  # The first candidate MUST be trinity-mini (lightest); the last must be
+  # kimi-linear (heaviest per OQ-04). Both invariants together pin the order.
+  local first last
+  first="$(echo "$ordered" | awk '{print $1}')"
+  last="$(echo "$ordered" | awk '{print $NF}')"
+  if [[ "$first" == "trinity-mini" ]]; then
+    pass "T-W2-R-1: roster lightest-first (trinity-mini is first per OQ-04)"
+  else
+    fail "T-W2-R-1: roster lightest-first" \
+      "expected first=trinity-mini; got '$first'. Full ordered: $ordered"
+  fi
+  if [[ "$last" == "kimi-linear" ]]; then
+    pass "T-W2-R-1: roster heaviest-last (kimi-linear is last per OQ-04)"
+  else
+    fail "T-W2-R-1: roster heaviest-last" \
+      "expected last=kimi-linear; got '$last'. Full ordered: $ordered"
+  fi
+}
+
+# ---- TEST: T-W2-R-2 — roster iterates exactly 9 candidates in OQ-04 order ----
+test_w2_r_2_roster_full_count_and_order() {
+  local results_dir output_capture
+  results_dir="$(mk_results_dir)"
+  output_capture="$(run_bm \
+    --dry-run \
+    --results-dir "$results_dir" \
+    2>&1)"
+
+  local cand_line ordered
+  cand_line="$(echo "$output_capture" | grep -E '^[[:space:]]*candidates:' | head -1)"
+  ordered="$(echo "$cand_line" | sed -E 's/^[[:space:]]*candidates:[[:space:]]*//')"
+
+  # Exactly 9 candidates per OQ-04 (Trinity, Qwen3 MLX, Qwen3 Ollama,
+  # Devstral, DeepSeek-V2, Laguna, DeepSeek-R1, GLM, Kimi).
+  local count
+  count="$(echo "$ordered" | tr -s ' ' '\n' | grep -c '^[a-z]' || true)"
+  if [[ "$count" -eq 9 ]]; then
+    pass "T-W2-R-2: roster has exactly 9 candidates per OQ-04 (got $count)"
+  else
+    fail "T-W2-R-2: roster has exactly 9 candidates per OQ-04" \
+      "got $count: $ordered"
+  fi
+
+  # Pairwise ordering: assert deepseek-r1-14b appears AFTER laguna-xs2
+  # (which is the OQ-04-specific reorder relative to Wave 1's roster).
+  # The Wave 1 ROSTER places kimi-linear before glm-4.5-air, which is
+  # backwards per OQ-04 ("Kimi last"). Assert glm appears BEFORE kimi.
+  local glm_pos kimi_pos laguna_pos r1_pos
+  glm_pos="$(echo "$ordered" | tr ' ' '\n' | grep -n '^glm-4.5-air$' | head -1 | cut -d: -f1)"
+  kimi_pos="$(echo "$ordered" | tr ' ' '\n' | grep -n '^kimi-linear$' | head -1 | cut -d: -f1)"
+  laguna_pos="$(echo "$ordered" | tr ' ' '\n' | grep -n '^laguna-xs2$' | head -1 | cut -d: -f1)"
+  r1_pos="$(echo "$ordered" | tr ' ' '\n' | grep -n '^deepseek-r1-14b$' | head -1 | cut -d: -f1)"
+
+  if [[ -n "$glm_pos" && -n "$kimi_pos" && "$glm_pos" -lt "$kimi_pos" ]]; then
+    pass "T-W2-R-2: OQ-04 order — glm-4.5-air ($glm_pos) precedes kimi-linear ($kimi_pos)"
+  else
+    fail "T-W2-R-2: OQ-04 order — glm-4.5-air precedes kimi-linear" \
+      "glm_pos=$glm_pos kimi_pos=$kimi_pos ordered=$ordered"
+  fi
+  if [[ -n "$laguna_pos" && -n "$r1_pos" && "$laguna_pos" -lt "$r1_pos" ]]; then
+    pass "T-W2-R-2: OQ-04 order — laguna-xs2 ($laguna_pos) precedes deepseek-r1-14b ($r1_pos)"
+  else
+    fail "T-W2-R-2: OQ-04 order — laguna-xs2 precedes deepseek-r1-14b" \
+      "laguna_pos=$laguna_pos r1_pos=$r1_pos ordered=$ordered"
+  fi
+}
+
+# ---- TEST: T-W2-H-1 — healthcheck fires between candidate cohorts ----
+test_w2_h_1_healthcheck_between_cohorts() {
+  local results_dir
+  results_dir="$(mk_results_dir)"
+  : > "$INVOCATIONS_LOG"
+  : > "$HC_LOG"
+
+  # Iterate 3 candidates; expect healthcheck.sh to fire AT LEAST 3 times
+  # (one between each pair / once per cohort), and AT MOST 4 (start-of-run +
+  # between-cohort). Either start-of-each-cohort (3 fires) or
+  # start-of-run + between (4 fires) is acceptable; <3 means no between-cohort
+  # H1 happens.
+  run_bm \
+    --candidates "trinity-mini,qwen3-coder,qwen3-coder-ollama" \
+    --scenarios 01 \
+    --trials 1 \
+    --results-dir "$results_dir" \
+    > /dev/null 2>&1
+
+  local hc_count
+  hc_count="$(wc -l < "$HC_LOG" | tr -d ' ')"
+  # 3 candidates → 3 cohorts → expect 3 or 4 H1 invocations.
+  if [[ "$hc_count" -ge 3 && "$hc_count" -le 4 ]]; then
+    pass "T-W2-H-1: H1 fires between candidate cohorts (got $hc_count fires for 3 candidates)"
+  else
+    fail "T-W2-H-1: H1 fires between candidate cohorts" \
+      "expected 3 or 4 fires for 3 candidates; got $hc_count. HC log: $(cat "$HC_LOG")"
+  fi
+}
+
+# ---- TEST: T-W2-H-2 — H1 mid-matrix failure aborts + writes failure marker ----
+test_w2_h_2_intercohort_h1_failure_aborts() {
+  local results_dir
+  results_dir="$(mk_results_dir)"
+  : > "$INVOCATIONS_LOG"
+  : > "$HC_LOG"
+
+  # Build a healthcheck stub that PASSES on first call (start of run) and
+  # FAILS on subsequent calls (between-cohort). This simulates pico state
+  # drift mid-matrix — bench-matrix MUST abort, not continue silently.
+  local hc_state_file="$SCRATCH/hc-call-count"
+  echo "0" > "$hc_state_file"
+  local flaky_stub_dir="$SCRATCH/flaky-hc-stub"
+  mkdir -p "$flaky_stub_dir"
+  cat > "$flaky_stub_dir/healthcheck.sh" <<FLAKY
+#!/usr/bin/env bash
+N=\$(cat "$hc_state_file")
+N=\$((N + 1))
+echo "\$N" > "$hc_state_file"
+echo "HC call \$N" >> "$HC_LOG"
+# First call (start-of-run) passes; subsequent calls fail.
+if [[ "\$N" -eq 1 ]]; then
+  exit 0
+fi
+exit 2
+FLAKY
+  chmod +x "$flaky_stub_dir/healthcheck.sh"
+
+  # Two candidates so there's at least one between-cohort transition.
+  PATH="$flaky_stub_dir:$STUB_DIR:$PATH" \
+  SCENARIOS_DIR="$SCEN_DIR" \
+  RUN_SCENARIO_PATH="$STUB_DIR/run-scenario.sh" \
+  HEALTHCHECK_PATH="$flaky_stub_dir/healthcheck.sh" \
+    "$BENCH_MATRIX" \
+    --candidates "trinity-mini,qwen3-coder" \
+    --scenarios 01 \
+    --trials 1 \
+    --results-dir "$results_dir" \
+    > "$SCRATCH/h2-output.log" 2>&1
+  local code=$?
+
+  # Abort = either non-zero exit OR a clearly-labelled failure marker in
+  # output. The matrix MUST NOT silently continue.
+  local combined
+  combined="$(cat "$SCRATCH/h2-output.log")"
+  if [[ $code -ne 0 ]] || echo "$combined" | grep -qiE "(healthcheck.*fail|H1.*fail|aborting|abort.*matrix)"; then
+    pass "T-W2-H-2: between-cohort H1 failure aborts matrix (exit=$code)"
+  else
+    fail "T-W2-H-2: between-cohort H1 failure aborts matrix" \
+      "exit=$code and no failure marker in output: $combined"
+  fi
+
+  # The second candidate should NOT have completed any cells — verify by
+  # counting result .md files for qwen3-coder.
+  local qwen_results
+  qwen_results="$(find "$results_dir" -maxdepth 1 -name '*qwen3-coder*' | wc -l | tr -d ' ')"
+  # 0 = aborted before qwen ran; >0 = silently continued (BAD)
+  if [[ "$qwen_results" -eq 0 ]]; then
+    pass "T-W2-H-2: aborted matrix did NOT run qwen3-coder cohort after H1 failure"
+  else
+    fail "T-W2-H-2: aborted matrix did NOT run qwen3-coder cohort" \
+      "$qwen_results qwen result files exist — matrix continued past H1 failure"
+  fi
+}
+
+# ---- TEST: T-W2-H-3 — --skip-healthcheck disables between-cohort H1 ----
+test_w2_h_3_skip_healthcheck_flag() {
+  local results_dir
+  results_dir="$(mk_results_dir)"
+  : > "$INVOCATIONS_LOG"
+  : > "$HC_LOG"
+
+  # With --skip-healthcheck and a healthcheck that would FAIL if called,
+  # the matrix should still complete successfully (operator's escape hatch
+  # when pico state is known-good).
+  HEALTHCHECK_FORCE_FAIL=1 \
+  PATH="$STUB_DIR:$PATH" \
+  SCENARIOS_DIR="$SCEN_DIR" \
+  RUN_SCENARIO_PATH="$STUB_DIR/run-scenario.sh" \
+  HEALTHCHECK_PATH="$STUB_DIR/healthcheck.sh" \
+    "$BENCH_MATRIX" \
+    --skip-healthcheck \
+    --candidates "trinity-mini,qwen3-coder" \
+    --scenarios 01 \
+    --trials 1 \
+    --results-dir "$results_dir" \
+    > "$SCRATCH/h3-output.log" 2>&1
+  local code=$?
+
+  # Acceptable: exit 0 (matrix ran past would-fail H1 thanks to --skip-healthcheck).
+  if [[ $code -eq 0 ]]; then
+    pass "T-W2-H-3: --skip-healthcheck bypasses H1 (matrix completes despite would-fail HC)"
+  else
+    fail "T-W2-H-3: --skip-healthcheck bypasses H1" \
+      "exit=$code; output: $(cat "$SCRATCH/h3-output.log")"
+  fi
+  # And the healthcheck script should NOT have been called at all.
+  local hc_count
+  hc_count="$(wc -l < "$HC_LOG" | tr -d ' ')"
+  if [[ "$hc_count" -eq 0 ]]; then
+    pass "T-W2-H-3: --skip-healthcheck prevents ANY HC invocation (count=0)"
+  else
+    fail "T-W2-H-3: --skip-healthcheck prevents ANY HC invocation" \
+      "HC called $hc_count times despite --skip-healthcheck"
+  fi
+}
+
 # ---- Run all tests ----
 
 if [[ ! -x "$BENCH_MATRIX" ]]; then
@@ -450,6 +762,14 @@ test_smoke_pass_shape
 test_lightest_first_ordering
 test_ollama_stop_between_candidates
 test_kimi_smoke_gate
+
+# Wave 2 (dotfiles-ukx.13.4.1)
+test_w2_d_4_delegates_with_candidate_flag
+test_w2_r_1_dry_run_roster_matches_oq04
+test_w2_r_2_roster_full_count_and_order
+test_w2_h_1_healthcheck_between_cohorts
+test_w2_h_2_intercohort_h1_failure_aborts
+test_w2_h_3_skip_healthcheck_flag
 
 # ---- Summary ----
 

@@ -291,6 +291,190 @@ test_quiet_suppresses_stdout() {
   fi
 }
 
+# ============================================================================
+# Wave 2 (dotfiles-ukx.13.4) — production end-to-end coverage
+# Bead: dotfiles-ukx.13.4.1
+#
+# Adds tests for:
+#   T-W2-D-1: --candidate <name> flag accepted (not rejected as bogus model-tag)
+#   T-W2-D-2: --candidate <unknown> fails fast with 8-roster in error message
+#   T-W2-D-3: --candidate <each of the 8> + --dry-run-routing prints route + HF model
+#   T-W2-F-1: snapshot captures FILECONTENTS BEFORE Cleanup nukes sandbox
+# ============================================================================
+
+# Canonical 8-candidate roster per dotfiles-ukx.13.4 task spec.
+CANON_ROSTER=(
+  "opus"
+  "qwen3-coder"
+  "trinity-mini"
+  "devstral"
+  "deepseek-coder-v2-lite"
+  "laguna-xs.2"
+  "glm-4.5-air-3bit"
+  "kimi-linear-reap-35b"
+)
+
+# ---- TEST: T-W2-D-1 — --candidate <name> flag accepted, not "model tag" error ----
+test_w2_d_1_candidate_flag_accepted() {
+  local results_dir
+  results_dir="$(mk_results_dir)"
+  local stderr_capture
+  # Use --candidate WITHOUT a positional model-tag; the runner must accept
+  # the flag and dispatch (NOT exit with "model tag must be opus or local").
+  stderr_capture="$(PATH="$FAKE_BIN:$PATH" "$RUN_SCENARIO" \
+    "$SCEN_FILE" \
+    --candidate qwen3-coder \
+    --trials 1 \
+    --results-dir "$results_dir" \
+    --quiet \
+    2>&1 1>/dev/null)" || true
+  if echo "$stderr_capture" | grep -qiE "model tag must be (opus|'opus')"; then
+    fail "T-W2-D-1: --candidate qwen3-coder accepted by run-scenario.sh" \
+      "got 'model tag must be opus|local' error: $stderr_capture"
+  else
+    pass "T-W2-D-1: --candidate qwen3-coder accepted (no model-tag-validation rejection)"
+  fi
+}
+
+# ---- TEST: T-W2-D-2 — --candidate <unknown> fails fast naming 8-roster ----
+test_w2_d_2_unknown_candidate_lists_roster() {
+  local results_dir
+  results_dir="$(mk_results_dir)"
+  local stderr_capture exit_code
+  stderr_capture="$(PATH="$FAKE_BIN:$PATH" "$RUN_SCENARIO" \
+    "$SCEN_FILE" \
+    --candidate nonexistent-bogus-xyz \
+    --results-dir "$results_dir" \
+    --quiet \
+    2>&1 1>/dev/null)"
+  exit_code=$?
+  assert_ne_zero "$exit_code" "T-W2-D-2: --candidate <unknown> exits non-zero"
+  # The error message must name AT LEAST ONE of the canonical roster entries
+  # so the operator can discover the valid names. We check for 'qwen3-coder'
+  # (the most-likely-typed) and 'trinity-mini' (the lightest).
+  local found_count=0
+  for c in "${CANON_ROSTER[@]}"; do
+    if echo "$stderr_capture" | grep -qF "$c"; then
+      found_count=$((found_count + 1))
+    fi
+  done
+  if [[ "$found_count" -ge 2 ]]; then
+    pass "T-W2-D-2: unknown-candidate error names ≥2 of the 8 roster entries (found $found_count)"
+  else
+    fail "T-W2-D-2: unknown-candidate error names ≥2 of the 8 roster entries" \
+      "found $found_count in stderr: $stderr_capture"
+  fi
+}
+
+# ---- TEST: T-W2-D-3 — --dry-run-routing prints resolved route + HF path per candidate ----
+test_w2_d_3_dry_run_routing_per_candidate() {
+  # For each of the 8 canonical candidates, --candidate <name> --dry-run-routing
+  # must print BOTH the CCR routing tag AND a HF model path (so the operator
+  # can audit which model would actually be loaded before going live).
+  local all_pass=1
+  for cand in "${CANON_ROSTER[@]}"; do
+    local stdout_capture exit_code
+    stdout_capture="$(PATH="$FAKE_BIN:$PATH" "$RUN_SCENARIO" \
+      "$SCEN_FILE" \
+      --candidate "$cand" \
+      --dry-run-routing \
+      2>&1)"
+    exit_code=$?
+    if [[ "$exit_code" -ne 0 ]]; then
+      fail "T-W2-D-3: --candidate $cand --dry-run-routing exits 0" \
+        "exit=$exit_code; output: $stdout_capture"
+      all_pass=0
+      continue
+    fi
+    # Must mention the candidate name AND either a route/tag/model path.
+    # We accept any of: 'route', 'ccr', 'model', '/', 'mlx-community', 'pico-',
+    # or a HF-style org/name path. Lenient because the impl agent picks the
+    # exact wording — we just guard that SOMETHING informative comes back.
+    if echo "$stdout_capture" | grep -qF "$cand" && \
+       echo "$stdout_capture" | grep -qiE "(route|ccr|model|/|provider)"; then
+      :
+    else
+      fail "T-W2-D-3: --candidate $cand --dry-run-routing shows route + HF model" \
+        "output missing candidate-name or route/model info: $stdout_capture"
+      all_pass=0
+    fi
+  done
+  if [[ "$all_pass" -eq 1 ]]; then
+    pass "T-W2-D-3: --dry-run-routing resolves all 8 canonical candidates (route + model path)"
+  fi
+}
+
+# ---- TEST: T-W2-F-1 — FILECONTENTS captured BEFORE Cleanup nukes sandbox ----
+test_w2_f_1_filecontents_survives_cleanup() {
+  # Use a scenario whose Cleanup `rm -rf`s the sandbox. The result .md file
+  # MUST still contain FILECONTENTS:<path>:<body> lines for files Setup created.
+  local results_dir scen_dir scen_file
+  results_dir="$(mk_results_dir)"
+  scen_dir="$SCRATCH/scenarios-f1"
+  mkdir -p "$scen_dir"
+  scen_file="$scen_dir/filecontents-cleanup.md"
+  cat > "$scen_file" <<'SCEN'
+# Scenario — FILECONTENTS must survive Cleanup
+
+## Setup
+```bash
+mkdir -p /tmp/bench-rs-test/f1
+echo "SETUP_MARKER_BODY_X7Q" > /tmp/bench-rs-test/f1/marker.txt
+```
+
+## Prompt
+Do nothing. Reply DONE.
+
+## Pass criteria
+- `grep -c 'SETUP_MARKER_BODY_X7Q' /tmp/bench-rs-test/f1/marker.txt` equals `1`
+
+## Cleanup
+```bash
+rm -rf /tmp/bench-rs-test/f1
+```
+SCEN
+
+  PATH="$FAKE_BIN:$PATH" "$RUN_SCENARIO" \
+    "$scen_file" \
+    --candidate opus \
+    --trials 1 \
+    --results-dir "$results_dir" \
+    --quiet \
+    > /dev/null 2>&1 || true
+
+  # Also tolerate the legacy positional-model-tag form if --candidate isn't
+  # wired yet by the impl — we still want a result file so the second
+  # assertion can fire.
+  if ! ls "$results_dir"/*.md > /dev/null 2>&1; then
+    PATH="$FAKE_BIN:$PATH" "$RUN_SCENARIO" \
+      "$scen_file" opus \
+      --trials 1 \
+      --results-dir "$results_dir" \
+      --quiet \
+      > /dev/null 2>&1 || true
+  fi
+
+  local result_file
+  result_file="$(find "$results_dir" -maxdepth 1 -name '*.md' | head -1)"
+  if [[ -z "$result_file" ]]; then
+    fail "T-W2-F-1: FILECONTENTS line survives Cleanup" \
+      "no result file emitted (sandbox dir nuked AND nothing captured)"
+    rm -rf /tmp/bench-rs-test/f1
+    return
+  fi
+
+  # The sandbox dir is gone after Cleanup, so the contents MUST have been
+  # snapshotted INTO the result file. Look for the FILECONTENTS marker + body.
+  if grep -qE '^FILECONTENTS:.*marker\.txt' "$result_file" && \
+     grep -q 'SETUP_MARKER_BODY_X7Q' "$result_file"; then
+    pass "T-W2-F-1: FILECONTENTS captured pre-Cleanup (marker.txt body survives sandbox rm)"
+  else
+    fail "T-W2-F-1: FILECONTENTS captured pre-Cleanup" \
+      "result file missing FILECONTENTS:marker.txt + body; sandbox-dir-exists=$([[ -d /tmp/bench-rs-test/f1 ]] && echo yes || echo no)"
+  fi
+  rm -rf /tmp/bench-rs-test/f1
+}
+
 # ---- Run all tests ----
 
 # Sanity: the script under test must exist
@@ -308,6 +492,12 @@ test_defensive_rm_before_setup
 test_wall_cap_seconds_recorded
 test_results_dir_flag_honored
 test_quiet_suppresses_stdout
+
+# Wave 2 (dotfiles-ukx.13.4.1)
+test_w2_d_1_candidate_flag_accepted
+test_w2_d_2_unknown_candidate_lists_roster
+test_w2_d_3_dry_run_routing_per_candidate
+test_w2_f_1_filecontents_survives_cleanup
 
 # ---- Summary ----
 

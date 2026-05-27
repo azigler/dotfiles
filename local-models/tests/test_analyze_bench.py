@@ -322,3 +322,151 @@ def test_analyze_bench_emits_json_when_asked(
         "JSON output must expose a 'cells' or 'matrix' key; got: "
         + ", ".join(data.keys())
     )
+
+
+# ============================================================================
+# Wave 2 (dotfiles-ukx.13.4) — production end-to-end coverage
+# Bead: dotfiles-ukx.13.4.1
+#
+# Adds tests for:
+#   T-W2-F-2: grep_runner returns PASS/FAIL (NOT INCONCLUSIVE) for trials
+#             produced by the real run-scenario.sh with concrete Pass criteria,
+#             once FILECONTENTS is emitted into the snapshot per T-W2-F-1.
+# ============================================================================
+
+
+def test_w2_f_2_grep_runner_deterministic_on_live_runner(tmp_path: Path):
+    """T-W2-F-2: grep_runner returns PASS/FAIL deterministically (NOT
+    INCONCLUSIVE) for trials produced by the LIVE run-scenario.sh on
+    scenarios whose Cleanup nukes the sandbox.
+
+    This is the cross-feature link between Feature 3 (FILECONTENTS in real
+    snapshot) and Tier 1 scoring: end-to-end the analyzer must reach a
+    deterministic verdict even when the sandbox files no longer exist on
+    disk (Cleanup destroyed them).
+
+    Today this FAILS because run-scenario.sh's snapshot captures `find`
+    paths (not file contents) before Cleanup. After Wave 2 impl wires
+    FILECONTENTS into the snapshot, grep_runner gets the content it needs.
+    """
+    import os
+    import shutil
+    import textwrap
+
+    from conftest import RUN_SCENARIO
+
+    # Fake `claude` binary on PATH: drains stdin and prints predictable output.
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "claude").write_text(
+        "#!/usr/bin/env bash\ncat >/dev/null\necho 'DONE'\nexit 0\n"
+    )
+    (bin_dir / "claude").chmod(0o755)
+
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    scenario = scenarios_dir / "11-deterministic.md"
+    # Scenario with a concrete grep-able pass criterion AND a Cleanup that
+    # nukes the sandbox dir. After the run, the analyzer has no on-disk
+    # file to fall back on — only what the snapshot captured.
+    scenario.write_text(
+        textwrap.dedent("""\
+            # Scenario 11 — deterministic, sandbox nuked by Cleanup
+
+            ## Setup
+            ```bash
+            mkdir -p /tmp/bench-w2-f2
+            echo "def sum_two(): pass" > /tmp/bench-w2-f2/calc.py
+            ```
+
+            ## Prompt
+            Do nothing. Reply DONE.
+
+            ## Pass criteria
+            - `grep -c '^def sum_two' /tmp/bench-w2-f2/calc.py` equals `1`
+            - Final model output contains `DONE`
+
+            ## Cleanup
+            ```bash
+            rm -rf /tmp/bench-w2-f2
+            ```
+        """)
+    )
+
+    results_dir = tmp_path / "results"
+    results_dir.mkdir()
+
+    # Invoke the REAL run-scenario.sh, accepting either the new --candidate
+    # form (Wave 2) or the legacy positional 'opus' fallback for forward-compat.
+    env = os.environ.copy()
+    env["PATH"] = f"{bin_dir}:{env['PATH']}"
+
+    # Try --candidate form first (Wave 2). If the runner doesn't know
+    # --candidate yet, fall back to the legacy positional model-tag.
+    proc = subprocess.run(
+        [
+            str(RUN_SCENARIO),
+            str(scenario),
+            "--candidate",
+            "opus",
+            "--trials",
+            "1",
+            "--results-dir",
+            str(results_dir),
+            "--quiet",
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+        timeout=30,
+    )
+    if proc.returncode != 0 or not list(results_dir.glob("*.md")):
+        # Legacy fallback
+        proc = subprocess.run(
+            [
+                str(RUN_SCENARIO),
+                str(scenario),
+                "opus",
+                "--trials",
+                "1",
+                "--results-dir",
+                str(results_dir),
+                "--quiet",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=30,
+        )
+
+    # Defensive cleanup in case Cleanup didn't fire (test isolation).
+    shutil.rmtree("/tmp/bench-w2-f2", ignore_errors=True)
+
+    trial_files = sorted(results_dir.glob("*.md"))
+    assert trial_files, (
+        f"T-W2-F-2: run-scenario.sh produced no result file; stderr: {proc.stderr}"
+    )
+    trial = trial_files[0]
+
+    mod = _import_analyze_bench()
+    verdict = mod.grep_runner(scenario_path=scenario, trial_path=trial)
+    # The sandbox is gone (Cleanup rm -rf'd it). If FILECONTENTS isn't in
+    # the snapshot, grep_runner falls through to "couldn't resolve" =
+    # INCONCLUSIVE. After Wave 2 impl, FILECONTENTS IS in the snapshot =
+    # deterministic PASS (sum_two is present).
+    assert verdict in ("PASS", "FAIL", "INCONCLUSIVE", "N/A"), (
+        f"unexpected verdict shape: {verdict!r}"
+    )
+    assert verdict != "INCONCLUSIVE", (
+        f"T-W2-F-2: live run-scenario.sh + analyze-bench must reach a "
+        f"deterministic verdict on a sandbox-nuked scenario "
+        f"(FILECONTENTS must be in the snapshot pre-Cleanup); got INCONCLUSIVE. "
+        f"trial path: {trial}"
+    )
+    # And since the scenario seeds sum_two AND prompt response is DONE, the
+    # only correct deterministic verdict is PASS.
+    assert verdict == "PASS", (
+        f"T-W2-F-2: deterministic verdict on sum_two-bearing trial must be PASS; got {verdict}"
+    )
