@@ -40,10 +40,18 @@ br close <bead-id>
 git add .beads/issues.jsonl
 git commit -m ":card_file_box: beads: close <bead-id>"
 
-git worktree remove --force .claude/worktrees/agent-XXXX
+git worktree remove --force --force .claude/worktrees/agent-XXXX
 git branch -D worktree-agent-XXXX
 git push origin --delete worktree-agent-XXXX 2>/dev/null || true
 ```
+
+`--force --force` (not just `--force`) — the subagent's worktree lock
+(`reason: claude agent <id>`) can briefly outlive the agent's final
+reply because the agent process hasn't fully exited yet. Single `-f`
+overrides modified files but not locks; double `-f -f` overrides both.
+By the time the orchestrator reaches cleanup (after merge + bead close)
+the agent's work is committed, so forcing past the lock is safe — there
+is no real concurrent writer.
 
 When closing multiple beads at once (parallel agents), batch them:
 
