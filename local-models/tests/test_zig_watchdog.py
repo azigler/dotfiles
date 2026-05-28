@@ -227,13 +227,18 @@ def test_probe_hermes_crash_when_service_inactive(wd):
     assert job.probe() == wd.ProbeResult.CRASH
 
 
-def test_probe_hermes_crash_loop_when_3_crashes(wd):
-    """Diagnostics show a task with consecutive_crashes >= 3 → CRASH."""
+def test_probe_hermes_crash_loop_when_3_crashes_actionable(wd):
+    """Diagnostics show an unblocked task with consecutive_crashes >= 3 → CRASH.
+
+    Regression guard for bd-hpi: CRASH must surface only when the watchdog
+    can do something. An unblocked task with repeated crashes is actionable
+    (revive will block it).
+    """
     diag = json.dumps(
         [
             {
                 "task_id": "t_360fa078",
-                "status": "blocked",
+                "status": "ready",  # not blocked → actionable
                 "diagnostics": [
                     {
                         "kind": "repeated_crashes",
@@ -253,8 +258,48 @@ def test_probe_hermes_crash_loop_when_3_crashes(wd):
     )
     job = wd.HermesGatewayJob(executor=ex)
     assert job.probe() == wd.ProbeResult.CRASH
-    # Job retains the crash-loop task id for revive()
+    # Job retains the crash-loop task id for revive() to act on
     assert "t_360fa078" in job.crash_loop_task_ids
+    assert "t_360fa078" in job._actionable_crash_loop_task_ids
+
+
+def test_probe_hermes_ok_when_only_blocked_tasks_have_crashes(wd):
+    """Stale diagnostic on already-blocked task → OK (not CRASH).
+
+    Regression guard for bd-hpi: previously the probe surfaced CRASH every
+    tick when the only crash-loop diagnostic was on a task that had already
+    been blocked (manually OR by a prior watchdog revive). That produced a
+    perpetual red "gateway crashing" banner in the SPA even though the
+    gateway was healthy and the revive had no work to do. Fix: only return
+    CRASH when actionable_crash_loop_task_ids is non-empty.
+    """
+    diag = json.dumps(
+        [
+            {
+                "task_id": "t_360fa078",
+                "status": "blocked",  # already blocked → not actionable
+                "diagnostics": [
+                    {
+                        "kind": "repeated_crashes",
+                        "severity": "critical",
+                        "data": {"consecutive_crashes": 99},
+                    }
+                ],
+            }
+        ]
+    )
+    ex = FakeExecutor(
+        responses={
+            "systemctl_is_active_hermes": [(0, "active", "")],
+            "hermes_dispatch_dry_run": [(0, "{}", "")],
+            "hermes_diagnostics_json": [(0, diag, "")],
+        }
+    )
+    job = wd.HermesGatewayJob(executor=ex)
+    assert job.probe() == wd.ProbeResult.OK
+    # The blocked task is still visible for diagnostics (just not actionable)
+    assert "t_360fa078" in job.crash_loop_task_ids
+    assert "t_360fa078" not in job._actionable_crash_loop_task_ids
 
 
 def test_revive_hermes_blocks_crash_loop_task(wd):

@@ -345,7 +345,11 @@ class HermesGatewayJob(_Job):
                     # Only block tasks that aren't already blocked.
                     if entry.get("status") != "blocked":
                         self._actionable_crash_loop_task_ids.append(tid)
-        if self.crash_loop_task_ids:
+        # CRASH means "the revive can do something." Stale diagnostics from
+        # already-blocked tasks are informational, not actionable — surfacing
+        # them as CRASH produces a false "gateway crashing" signal in the SPA
+        # banner every tick forever. Fix bd-hpi.
+        if self._actionable_crash_loop_task_ids:
             return ProbeResult.CRASH
         return ProbeResult.OK
 

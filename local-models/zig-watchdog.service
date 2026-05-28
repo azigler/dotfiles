@@ -1,6 +1,6 @@
 [Unit]
 Description=zig-watchdog — mechanical stall/crash detection for long-running local-models jobs
-Documentation=https://github.com/andrewzigler/dotfiles (bead dotfiles-olh)
+Documentation=https://github.com/andrewzigler/dotfiles
 After=network-online.target
 Wants=network-online.target
 
