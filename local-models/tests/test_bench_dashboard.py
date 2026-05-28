@@ -619,3 +619,268 @@ def test_api_html_includes_watchdog_widget(live_server_with_watchdog):
         assert "/api/watchdog-state.json" in body
         # Notification API plumbing
         assert "Notification" in body
+
+
+# --- Tests: per-trial detail endpoint + parser ----------------------------
+#
+# Bead dotfiles-a1y — surface prompt / output / sandbox state / verdict
+# per trial cell. parse_result_file_full extends parse_result_file with
+# the section bodies (currently dropped). GET /api/trial/<id> returns the
+# parsed JSON, ?raw=1 returns the original .md, missing trials → 404.
+
+# A full real-shape result file (mirrors the trinity-mini smoke output) —
+# every section the modal needs is present, and the flagged excerpt is
+# intentionally empty (which is the common, modal-should-hide case).
+REAL_RESULT_FULL_TRINITY = textwrap.dedent("""\
+    # Scenario result: 01-trivial-rename (local) trial 1
+
+    - **Scenario file**: `/home/ubuntu/dotfiles/claude/sandbox/scenarios/01-trivial-rename.md`
+    - **Model tag**: `local`
+    - **Candidate**: `trinity-mini`
+    - **CCR route**: `pico-mlx,trinity-mini`
+    - **HF model**: `mlx-community/Trinity-Mini-4bit`
+    - **Trial**: 1
+    - **Started**: 2026-05-28T00:38:20Z
+    - **Wall time**: 685s
+    - **wall_cap_seconds**: 1200
+    - **cold_load_trial**: true
+    - **scoring_tier**: 1
+    - **claude exit code**: 0
+    - **verdict_tag**: OK
+    - **Result file**: `/home/ubuntu/dotfiles/claude/sandbox/results/01-trivial-rename-trinity-mini-trial1-20260528T003820Z.md`
+
+    ## Model routing evidence
+
+    (CCR log: /home/ubuntu/.claude-code-router/logs/ccr-20260526041459.log)
+        Using background model for claude-haiku-4-5
+        Using background model for claude-haiku-4-5
+
+    ## Sandbox state after run (pre-cleanup snapshot)
+
+    ```
+        /tmp/claude-local-test/s01/calc.py
+    FILECONTENTS:/tmp/claude-local-test/s01/calc.py:def sum_two(a, b):
+    ```
+
+    ## Prompt sent
+
+    ```
+    In `/tmp/claude-local-test/s01/calc.py`, rename the function `add_numbers` to `sum_two`. Update the call site too. Make no other changes. When done, reply with the single word "DONE".
+    ```
+
+    ## Claude output
+
+    ```
+    DONE
+    ```
+
+    ## flagged_log_excerpt
+
+    ```
+    ```
+    """)
+
+
+# A second fixture where flagged_log_excerpt has actual content — the
+# modal should show that section, not hide it.
+REAL_RESULT_FULL_FLAGGED = textwrap.dedent("""\
+    # Scenario result: 02-fail-case (local) trial 1
+
+    - **Scenario file**: `/home/ubuntu/dotfiles/claude/sandbox/scenarios/02-fail-case.md`
+    - **Candidate**: `qwen3-coder`
+    - **Trial**: 1
+    - **Started**: 2026-05-28T01:00:00Z
+    - **Wall time**: 900s
+    - **claude exit code**: 1
+    - **verdict_tag**: FAIL
+
+    ## Model routing evidence
+
+    (CCR log: routed)
+
+    ## Sandbox state after run (pre-cleanup snapshot)
+
+    ```
+    state body
+    ```
+
+    ## Prompt sent
+
+    ```
+    prompt body
+    ```
+
+    ## Claude output
+
+    ```
+    output body
+    ```
+
+    ## flagged_log_excerpt
+
+    ```
+    WARNING: tool call timed out after 30s
+    ERROR: nonzero exit from sandbox cleanup
+    ```
+    """)
+
+
+@pytest.fixture
+def results_dir_full(tmp_path: Path) -> Path:
+    """Results dir holding a trial whose .md has all detail sections."""
+    d = tmp_path / "results-full"
+    d.mkdir()
+    (
+        d / "01-trivial-rename-trinity-mini-trial1-20260528T003820Z.md"
+    ).write_text(REAL_RESULT_FULL_TRINITY)
+    (d / "02-fail-case-qwen3-coder-trial1-20260528T010000Z.md").write_text(
+        REAL_RESULT_FULL_FLAGGED
+    )
+    return d
+
+
+@pytest.fixture
+def live_server_full(dashboard, results_dir_full, driver_log_file):
+    """Like live_server, but pointed at the results-full fixture so the
+    /api/trial/<id> endpoint has rich detail to surface."""
+    port = _free_port()
+    server = dashboard.make_server(
+        host="127.0.0.1",
+        port=port,
+        results_dir=results_dir_full,
+        log_path=driver_log_file,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    for _ in range(50):
+        try:
+            urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/healthz", timeout=0.1
+            )
+            break
+        except (urllib.error.URLError, ConnectionRefusedError):
+            time.sleep(0.02)
+    try:
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_parse_result_file_full_extracts_prompt_sent(dashboard):
+    """TEST: parse_result_file_full extracts the Prompt sent block body."""
+    info = dashboard.parse_result_file_full(
+        Path("01-trivial-rename-trinity-mini-trial1-20260528T003820Z.md"),
+        REAL_RESULT_FULL_TRINITY,
+    )
+    assert "rename the function `add_numbers` to `sum_two`" in (
+        info["prompt_sent"] or ""
+    )
+    assert (
+        info["prompt_sent"]
+        .strip()
+        .endswith('reply with the single word "DONE".')
+    )
+
+
+def test_parse_result_file_full_extracts_claude_output(dashboard):
+    """TEST: parse_result_file_full extracts the Claude output block body."""
+    info = dashboard.parse_result_file_full(
+        Path("01-trivial-rename-trinity-mini-trial1-20260528T003820Z.md"),
+        REAL_RESULT_FULL_TRINITY,
+    )
+    assert info["claude_output"].strip() == "DONE"
+
+
+def test_parse_result_file_full_extracts_sandbox_state(dashboard):
+    """TEST: parse_result_file_full extracts the Sandbox state body."""
+    info = dashboard.parse_result_file_full(
+        Path("01-trivial-rename-trinity-mini-trial1-20260528T003820Z.md"),
+        REAL_RESULT_FULL_TRINITY,
+    )
+    assert "/tmp/claude-local-test/s01/calc.py" in (
+        info["sandbox_state_after_raw"] or ""
+    )
+    assert "FILECONTENTS:" in info["sandbox_state_after_raw"]
+
+
+def test_parse_result_file_full_flagged_excerpt_empty(dashboard):
+    """TEST: parse_result_file_full returns empty string when flagged block
+    body is empty (the common case)."""
+    info = dashboard.parse_result_file_full(
+        Path("01-trivial-rename-trinity-mini-trial1-20260528T003820Z.md"),
+        REAL_RESULT_FULL_TRINITY,
+    )
+    assert info["flagged_log_excerpt"] == ""
+
+
+def test_parse_result_file_full_flagged_excerpt_present(dashboard):
+    """TEST: parse_result_file_full extracts flagged excerpt body when present."""
+    info = dashboard.parse_result_file_full(
+        Path("02-fail-case-qwen3-coder-trial1-20260528T010000Z.md"),
+        REAL_RESULT_FULL_FLAGGED,
+    )
+    assert "WARNING" in info["flagged_log_excerpt"]
+    assert "ERROR" in info["flagged_log_excerpt"]
+
+
+def test_api_trial_returns_json_for_existing(live_server_full):
+    """TEST: GET /api/trial/<id> returns parsed JSON detail for an existing trial."""
+    tid = "01-trivial-rename-trinity-mini-trial1-20260528T003820Z"
+    with urllib.request.urlopen(
+        f"{live_server_full}/api/trial/{tid}", timeout=2
+    ) as resp:
+        assert resp.status == 200
+        ctype = resp.headers.get("Content-Type", "")
+        assert "application/json" in ctype
+        data = json.loads(resp.read().decode("utf-8"))
+    assert data["id"] == tid
+    assert data["scenario"] == "01-trivial-rename"
+    assert data["candidate"] == "trinity-mini"
+    assert data["trial"] == 1
+    assert data["verdict_tag"] == "OK"
+    assert data["wall_time_s"] == 685
+    assert data["exit_code"] == 0
+    # The new sections must be present (and non-empty for the rich trial).
+    assert "rename the function" in data["prompt_sent"]
+    assert data["claude_output"].strip() == "DONE"
+    assert "FILECONTENTS:" in data["sandbox_state_after_raw"]
+    assert data["flagged_log_excerpt"] == ""
+    # raw_markdown is the original file body verbatim
+    assert "## Prompt sent" in data["raw_markdown"]
+
+
+def test_api_trial_raw_returns_text_plain(live_server_full):
+    """TEST: GET /api/trial/<id>?raw=1 returns the original .md as text/plain."""
+    tid = "01-trivial-rename-trinity-mini-trial1-20260528T003820Z"
+    with urllib.request.urlopen(
+        f"{live_server_full}/api/trial/{tid}?raw=1", timeout=2
+    ) as resp:
+        assert resp.status == 200
+        ctype = resp.headers.get("Content-Type", "")
+        assert "text/plain" in ctype
+        body = resp.read().decode("utf-8")
+    # The raw markdown contains the section headers verbatim.
+    assert body.startswith("# Scenario result:")
+    assert "## Prompt sent" in body
+    assert "## Claude output" in body
+
+
+def test_api_trial_missing_returns_404(live_server_full):
+    """TEST: GET /api/trial/<nonexistent-id> returns HTTP 404."""
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        urllib.request.urlopen(
+            f"{live_server_full}/api/trial/nonexistent-trial", timeout=2
+        )
+    assert excinfo.value.code == 404
+
+
+def test_api_html_includes_trial_modal(live_server_full):
+    """TEST: HTML index includes the trial-detail modal markup + cell handlers."""
+    with urllib.request.urlopen(f"{live_server_full}/", timeout=2) as resp:
+        body = resp.read().decode("utf-8")
+    # Modal container the JS toggles
+    assert "trial-detail-modal" in body or "trial-modal" in body
+    # The fetch wiring for /api/trial/
+    assert "/api/trial/" in body

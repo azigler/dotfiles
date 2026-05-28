@@ -34,6 +34,7 @@ import json
 import logging
 import re
 import sys
+import urllib.parse
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -183,6 +184,114 @@ def parse_result_file(path: Path, text: str | None = None) -> dict[str, Any]:
             out["scoring_tier"] = _parse_int(value)
         elif key == "started":
             out["started"] = value or None
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Per-trial detail parser (bead dotfiles-a1y).
+# ---------------------------------------------------------------------------
+#
+# The per-trial result .md files contain a sequence of `## <Section>` headings
+# with fenced code blocks beneath them. parse_result_file() above only
+# extracts the bullet-list metadata; the section bodies (Prompt sent, Claude
+# output, Sandbox state after run, Model routing evidence, flagged_log_excerpt)
+# were dropped on the floor. parse_result_file_full() adds those bodies so the
+# dashboard's per-trial modal can surface them.
+
+# Section heading matcher — matches "## Prompt sent" or
+# "## Sandbox state after run (pre-cleanup snapshot)" (we strip the
+# parenthetical when normalizing the key).
+_SECTION_HEADING = re.compile(r"^##\s+(?P<title>.+?)\s*$")
+
+# Map normalized heading text → output-dict key.
+_SECTION_KEYS: dict[str, str] = {
+    "prompt sent": "prompt_sent",
+    "claude output": "claude_output",
+    "sandbox state after run": "sandbox_state_after_raw",
+    "model routing evidence": "model_routing_evidence",
+    "flagged_log_excerpt": "flagged_log_excerpt",
+}
+
+
+def _normalize_section_title(title: str) -> str:
+    """Drop trailing parentheticals and lowercase so heading variants match.
+
+    "Sandbox state after run (pre-cleanup snapshot)" → "sandbox state after run"
+    "Prompt sent"                                    → "prompt sent"
+    """
+    t = re.sub(r"\s*\([^)]*\)\s*$", "", title).strip().lower()
+    return t
+
+
+def parse_result_file_full(
+    path: Path, text: str | None = None
+) -> dict[str, Any]:
+    """Parse a result .md file and ALSO return the per-section bodies.
+
+    Returns a superset of parse_result_file() with these additional keys:
+
+        prompt_sent              : str — fenced body under `## Prompt sent`
+        claude_output            : str — fenced body under `## Claude output`
+        sandbox_state_after_raw  : str — fenced body under `## Sandbox state after run...`
+        model_routing_evidence   : str — body under `## Model routing evidence`
+                                         (may be free text, not fenced)
+        flagged_log_excerpt      : str — fenced body under `## flagged_log_excerpt`
+                                         (empty when the run was clean)
+        raw_markdown             : str — the original file contents verbatim
+        id                       : str — URL-safe identifier (filename stem)
+
+    Section bodies for fenced sections are the content BETWEEN the opening
+    and closing ``` fences (with trailing newline stripped). The
+    Model-routing-evidence section is not always fenced, so we collect
+    everything up to the next `##` heading instead.
+    """
+    if text is None:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    base = parse_result_file(path, text)
+    out: dict[str, Any] = dict(base)
+    out["id"] = path.stem
+    out["raw_markdown"] = text
+    for key in _SECTION_KEYS.values():
+        out[key] = ""
+
+    lines = text.splitlines()
+    i = 0
+    n = len(lines)
+    while i < n:
+        line = lines[i]
+        hm = _SECTION_HEADING.match(line)
+        if not hm:
+            i += 1
+            continue
+        norm = _normalize_section_title(hm.group("title"))
+        key = _SECTION_KEYS.get(norm)
+        if key is None:
+            i += 1
+            continue
+        # Advance into the section body.
+        j = i + 1
+        # Skip blank lines after the heading.
+        while j < n and lines[j].strip() == "":
+            j += 1
+        # Fenced body?
+        if j < n and lines[j].strip().startswith("```"):
+            # Skip the opening fence, accumulate until the matching closing fence.
+            j += 1
+            body_start = j
+            while j < n and not lines[j].strip().startswith("```"):
+                j += 1
+            body = "\n".join(lines[body_start:j])
+            out[key] = body
+            # Step past the closing fence so we don't re-detect it.
+            i = j + 1
+            continue
+        # Unfenced body — collect until the next `##` heading or EOF.
+        body_start = j
+        while j < n and not lines[j].startswith("## "):
+            j += 1
+        body = "\n".join(lines[body_start:j]).rstrip()
+        out[key] = body
+        i = j
     return out
 
 
@@ -539,6 +648,93 @@ HTML_PAGE = r"""<!doctype html>
   .verdict-OK   { color: var(--ok); font-weight: 600; }
   .verdict-FAIL { color: var(--err); font-weight: 600; }
   a { color: var(--info); }
+
+  /* ---- per-trial detail modal (bead dotfiles-a1y) -------------------- */
+  /* The trial-chip is the clickable token rendered per-trial inside the
+     roster Trials cell. Hover → highlight; cursor signals clickability. */
+  .trial-chip {
+    display: inline-block;
+    padding: 1px 6px;
+    margin-right: .25rem;
+    border-radius: 3px;
+    background: var(--border);
+    color: var(--text);
+    font-size: .75rem;
+    cursor: pointer;
+    user-select: none;
+    border: 1px solid transparent;
+  }
+  .trial-chip:hover { border-color: var(--info); color: var(--info); }
+  .trial-chip.verdict-OK   { background: rgba(46,160,67,.15); color: var(--ok); }
+  .trial-chip.verdict-FAIL { background: rgba(248,81,73,.15); color: var(--err); }
+
+  #trial-detail-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, .65);
+    display: none;
+    align-items: flex-start;
+    justify-content: center;
+    z-index: 1000;
+    padding: 2rem 1rem;
+    overflow-y: auto;
+  }
+  #trial-detail-modal.open { display: flex; }
+  #trial-detail-modal .modal-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    width: 100%;
+    max-width: 1000px;
+    padding: 1.25rem 1.5rem 1.5rem;
+    position: relative;
+  }
+  #trial-detail-modal .modal-close {
+    position: absolute;
+    top: .5rem;
+    right: .75rem;
+    background: transparent;
+    color: var(--dim);
+    border: none;
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+  #trial-detail-modal .modal-close:hover { color: var(--text); }
+  #trial-detail-modal h2 { margin: 0 0 .25rem; font-size: 1rem; }
+  #trial-detail-modal .modal-meta { color: var(--dim); font-size: .85rem; margin-bottom: 1rem; }
+  #trial-detail-modal details {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    margin-bottom: .75rem;
+    background: #0b0e13;
+  }
+  #trial-detail-modal details > summary {
+    padding: .5rem .75rem;
+    cursor: pointer;
+    font-weight: 600;
+    user-select: none;
+    color: var(--text);
+  }
+  #trial-detail-modal details > summary:hover { color: var(--info); }
+  #trial-detail-modal details > pre {
+    margin: 0;
+    padding: .75rem;
+    background: #010409;
+    border-top: 1px solid var(--border);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    font-size: .82rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: #b3c0d1;
+    max-height: 400px;
+    overflow: auto;
+  }
+  #trial-detail-modal .modal-footer {
+    margin-top: 1rem;
+    font-size: .82rem;
+    color: var(--dim);
+  }
 </style>
 </head>
 <body>
@@ -612,6 +808,43 @@ HTML_PAGE = r"""<!doctype html>
     <pre class="log" id="log-tail">—</pre>
   </div>
 
+  <!-- ============================================================
+       Per-trial detail modal (bead dotfiles-a1y)
+       Hidden until a roster trial-chip is clicked; populated via
+       GET /api/trial/<id> and toggled via the .open class.
+       Closes on Esc, click on the dim backdrop, or the X button.
+       ============================================================ -->
+  <div id="trial-detail-modal" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="modal-card">
+      <button type="button" class="modal-close" id="trial-modal-close" aria-label="Close">×</button>
+      <h2 id="trial-modal-title">Trial detail</h2>
+      <div class="modal-meta" id="trial-modal-meta">—</div>
+      <details id="trial-section-prompt">
+        <summary>Prompt sent</summary>
+        <pre id="trial-prompt-body"></pre>
+      </details>
+      <details id="trial-section-output" open>
+        <summary>Claude output</summary>
+        <pre id="trial-output-body"></pre>
+      </details>
+      <details id="trial-section-sandbox">
+        <summary>Sandbox state after run</summary>
+        <pre id="trial-sandbox-body"></pre>
+      </details>
+      <details id="trial-section-routing">
+        <summary>Model routing evidence</summary>
+        <pre id="trial-routing-body"></pre>
+      </details>
+      <details id="trial-section-flagged" style="display:none">
+        <summary>Flagged log excerpt</summary>
+        <pre id="trial-flagged-body"></pre>
+      </details>
+      <div class="modal-footer">
+        <a id="trial-raw-link" href="#" target="_blank" rel="noopener">Open raw .md file</a>
+      </div>
+    </div>
+  </div>
+
 <script>
 const REFRESH_MS = 5000;
 
@@ -646,17 +879,41 @@ function renderState(state) {
   body.innerHTML = "";
   for (const c of state.candidates || []) {
     const tr = document.createElement("tr");
-    const lastTrial = (c.trials && c.trials.length) ? c.trials[c.trials.length - 1] : null;
+    const trials = c.trials || [];
+    const lastTrial = trials.length ? trials[trials.length - 1] : null;
     const lastWall = lastTrial && lastTrial.wall_time_s != null ? lastTrial.wall_time_s : "—";
     const lastVerdict = lastTrial && lastTrial.verdict_tag ? lastTrial.verdict_tag : "—";
     const verdictClass = lastVerdict === "OK" ? "verdict-OK" :
                          lastVerdict === "FAIL" ? "verdict-FAIL" : "";
+
+    // Render each trial as a clickable chip → opens the trial-detail modal.
+    // The chip text is "trial N (verdict)" so the operator can spot which one
+    // they want to inspect. trial_id is derived from the result_file basename
+    // (strip the .md extension).
+    let chips = "";
+    if (trials.length === 0) {
+      chips = "<span class=trial-cell>0 result(s)</span>";
+    } else {
+      for (const t of trials) {
+        const fname = (t.result_file || "").split("/").pop() || "";
+        const tid = fname.replace(/\.md$/, "");
+        const v = t.verdict_tag || "—";
+        const vc = v === "OK" ? "verdict-OK" : v === "FAIL" ? "verdict-FAIL" : "";
+        chips +=
+          "<span class='trial-chip " + vc + "' " +
+          "data-trial-id='" + esc(tid) + "' " +
+          "title='Click for full trial detail'>" +
+          "T" + esc(t.trial != null ? t.trial : "?") + " " + esc(v) +
+          "</span>";
+      }
+    }
+
     tr.innerHTML =
       "<td class=num>" + esc(c.position) + "</td>" +
       "<td><strong>" + esc(c.name) + "</strong> " +
         "<span class=backend>" + esc(c.backend) + "</span></td>" +
       "<td><span class='badge " + esc(c.status) + "'>" + esc(c.status) + "</span></td>" +
-      "<td class=trial-cell>" + esc((c.trials || []).length) + " result(s)</td>" +
+      "<td>" + chips + "</td>" +
       "<td class=num>" + esc(lastWall) + "</td>" +
       "<td class='" + verdictClass + "'>" + esc(lastVerdict) + "</td>";
     body.appendChild(tr);
@@ -664,6 +921,86 @@ function renderState(state) {
 
   document.getElementById("log-tail").textContent = state.log_tail || "—";
 }
+
+// ---- per-trial detail modal (bead dotfiles-a1y) -------------------------
+// Click any .trial-chip in the roster → fetch /api/trial/<id> → populate
+// and show the modal. Modal closes on Esc / backdrop click / X button.
+
+function openTrialModal(tid) {
+  const modal = document.getElementById("trial-detail-modal");
+  const title = document.getElementById("trial-modal-title");
+  const meta = document.getElementById("trial-modal-meta");
+  // Reset section bodies + transient state while we fetch.
+  document.getElementById("trial-prompt-body").textContent = "(loading)";
+  document.getElementById("trial-output-body").textContent = "(loading)";
+  document.getElementById("trial-sandbox-body").textContent = "(loading)";
+  document.getElementById("trial-routing-body").textContent = "(loading)";
+  document.getElementById("trial-flagged-body").textContent = "";
+  document.getElementById("trial-section-flagged").style.display = "none";
+  title.textContent = "Trial detail — " + tid;
+  meta.textContent = "loading…";
+  document.getElementById("trial-raw-link").href = "/api/trial/" + encodeURIComponent(tid) + "?raw=1";
+  modal.classList.add("open");
+  modal.setAttribute("aria-hidden", "false");
+
+  fetch("/api/trial/" + encodeURIComponent(tid), {cache: "no-store"})
+    .then(r => {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    })
+    .then(data => {
+      title.textContent =
+        (data.scenario || "?") + " · " +
+        (data.candidate || "?") + " · trial " + (data.trial != null ? data.trial : "?");
+      const verdict = data.verdict_tag || "—";
+      const vc = verdict === "OK" ? "verdict-OK" : verdict === "FAIL" ? "verdict-FAIL" : "";
+      meta.innerHTML =
+        "started: " + esc(data.started || "—") + " · " +
+        "wall: " + esc(data.wall_time_s != null ? data.wall_time_s + "s" : "—") + " · " +
+        "exit: " + esc(data.exit_code != null ? data.exit_code : "—") + " · " +
+        "verdict: <span class='" + vc + "'>" + esc(verdict) + "</span>";
+      document.getElementById("trial-prompt-body").textContent = data.prompt_sent || "(none)";
+      document.getElementById("trial-output-body").textContent = data.claude_output || "(none)";
+      document.getElementById("trial-sandbox-body").textContent = data.sandbox_state_after_raw || "(none)";
+      document.getElementById("trial-routing-body").textContent = data.model_routing_evidence || "(none)";
+      const flagged = data.flagged_log_excerpt || "";
+      if (flagged.trim()) {
+        document.getElementById("trial-flagged-body").textContent = flagged;
+        document.getElementById("trial-section-flagged").style.display = "";
+      } else {
+        document.getElementById("trial-section-flagged").style.display = "none";
+      }
+    })
+    .catch(err => {
+      meta.textContent = "error: " + err.message;
+    });
+}
+
+function closeTrialModal() {
+  const modal = document.getElementById("trial-detail-modal");
+  modal.classList.remove("open");
+  modal.setAttribute("aria-hidden", "true");
+}
+
+document.addEventListener("click", function(ev) {
+  const chip = ev.target.closest(".trial-chip");
+  if (chip && chip.dataset.trialId) {
+    openTrialModal(chip.dataset.trialId);
+    return;
+  }
+  if (ev.target.id === "trial-modal-close") {
+    closeTrialModal();
+    return;
+  }
+  // Backdrop click — only when target IS the modal container, not its card.
+  if (ev.target.id === "trial-detail-modal") {
+    closeTrialModal();
+  }
+});
+
+document.addEventListener("keydown", function(ev) {
+  if (ev.key === "Escape") closeTrialModal();
+});
 
 async function refresh() {
   try {
@@ -797,7 +1134,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:
-        path = self.path.split("?", 1)[0]
+        path, _, query_str = self.path.partition("?")
+        query = urllib.parse.parse_qs(query_str)
         cfg = self.server.dashboard_config  # type: ignore[attr-defined]
 
         if path == "/healthz":
@@ -845,6 +1183,52 @@ class DashboardHandler(BaseHTTPRequestHandler):
             wd_dir = cfg.get("watchdog_dir") or DEFAULT_WATCHDOG_DIR
             alerts = read_watchdog_alerts(wd_dir)
             body = json.dumps(alerts, indent=2).encode("utf-8")
+            self._send(200, body, "application/json; charset=utf-8")
+            return
+
+        if path.startswith("/api/trial/"):
+            trial_id = path[len("/api/trial/") :]
+            # Defensive: strip any trailing slash, refuse anything that looks
+            # like a directory traversal attempt.
+            trial_id = trial_id.rstrip("/")
+            if not trial_id or "/" in trial_id or ".." in trial_id:
+                self._send(
+                    404, b"trial not found\n", "text/plain; charset=utf-8"
+                )
+                return
+            results_dir = Path(cfg["results_dir"])
+            fp = results_dir / f"{trial_id}.md"
+            if not fp.exists():
+                self._send(
+                    404, b"trial not found\n", "text/plain; charset=utf-8"
+                )
+                return
+            try:
+                text = fp.read_text(encoding="utf-8", errors="replace")
+            except OSError as exc:
+                self._send(
+                    500,
+                    f"could not read trial file: {exc}\n".encode(),
+                    "text/plain; charset=utf-8",
+                )
+                return
+            # ?raw=1 → serve the original .md verbatim as text/plain
+            raw_flag = query.get("raw", ["0"])[0]
+            if raw_flag in ("1", "true", "yes"):
+                self._send(
+                    200, text.encode("utf-8"), "text/plain; charset=utf-8"
+                )
+                return
+            try:
+                info = parse_result_file_full(fp, text)
+            except Exception as exc:
+                self._send(
+                    500,
+                    f"parser error: {exc}\n".encode(),
+                    "text/plain; charset=utf-8",
+                )
+                return
+            body = json.dumps(info, indent=2).encode("utf-8")
             self._send(200, body, "application/json; charset=utf-8")
             return
 
