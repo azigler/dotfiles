@@ -43,48 +43,17 @@ PICO_SSH = "pico"
 DASHBOARD_HEALTHZ_URL = "http://localhost:8765/healthz"
 START_DASHBOARD_SH = "/home/ubuntu/dotfiles/local-models/start-dashboard.sh"
 BENCH_MATRIX_SH = "/home/ubuntu/dotfiles/local-models/bench-matrix.sh"
-HERMES_BIN = "/home/ubuntu/explore/hermes-agent-trial/.venv/bin/hermes"
 
 # Probe thresholds
 HF_STALL_ETIME_MIN = 5  # minutes of cumulative etime with CPU=0 before STALL
-HERMES_CRASH_LOOP_THRESHOLD = 3
 
-# Regex matching a Hermes `kanban show` event line. Format:
-#   [YYYY-MM-DD HH:MM] [optional 'run N'] event_name {data}
-# The event_name is alphanumeric_with_underscores; data is loose dict syntax
-# we don't try to parse. We only care about the event_name and the implicit
-# ordering (the lines are emitted chronologically).
-_HERMES_EVENT_LINE_RE = re.compile(
-    r"^\s*\[(?P<ts>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\]\s*"
-    r"(?:\[run\s+\d+\]\s*)?"
-    r"(?P<event>[a-z_]+)\b",
-    re.MULTILINE,
-)
-
-
-def _count_crashes_since_last_unblock(show_text: str) -> int:
-    """Count `crashed` events that occurred after the most recent `unblocked`.
-
-    If the task has never been unblocked, count all `crashed` events from the
-    start. Used to filter out stale lifetime crash counters from Hermes —
-    `consecutive_crashes` doesn't reset on unblock, so a task that previously
-    crash-looped and was manually unblocked to retry would otherwise re-trip
-    the watchdog on its first tick. Fix bd-cke.
-    """
-    if not show_text:
-        return 0
-    events = list(_HERMES_EVENT_LINE_RE.finditer(show_text))
-    if not events:
-        return 0
-    last_unblock_idx = -1
-    for i, m in enumerate(events):
-        if m.group("event") == "unblocked":
-            last_unblock_idx = i
-    return sum(
-        1
-        for m in events[last_unblock_idx + 1 :]
-        if m.group("event") == "crashed"
-    )
+# NOTE: A HermesGatewayJob existed at this position through 2026-05-28. It was
+# stripped (dotfiles-lzs, Phase C-lite) because it was the ONLY job class that
+# touched ~/.hermes/kanban.db from outside the gateway process — exactly the
+# WAL multi-writer pattern that caused the Wave 19 corruption. With Phase A+B
+# concurrency caps + per-board partition now applied, the gateway doesn't need
+# babysitting. The other 3 job classes (BenchMatrix, HfDownload,
+# BenchDashboard) don't touch Hermes at all and remain.
 
 
 # ---------------------------------------------------------------------------
@@ -196,23 +165,13 @@ class SubprocessExecutor:
                 f"nohup {cmdline} > {log} 2>&1 & disown"
             )
             return ["ssh", "-o", "ConnectTimeout=5", PICO_SSH, remote]
-        if kind == "systemctl_is_active_hermes":
-            return ["systemctl", "--user", "is-active", "hermes-gateway"]
-        if kind == "systemctl_restart_hermes":
-            return ["systemctl", "--user", "restart", "hermes-gateway"]
-        if kind == "hermes_dispatch_dry_run":
-            return [HERMES_BIN, "kanban", "dispatch", "--dry-run", "--json"]
-        if kind == "hermes_diagnostics_json":
-            return [HERMES_BIN, "kanban", "diagnostics", "--json"]
-        if kind == "hermes_kanban_show":
-            task_id = kwargs.get("task_id", "")
-            return [HERMES_BIN, "kanban", "show", task_id]
-        if kind == "hermes_kanban_block":
-            task_id = kwargs.get("task_id", "")
-            reason = kwargs.get(
-                "reason", "auto-blocked by zig-watchdog: crash-loop detected"
-            )
-            return [HERMES_BIN, "kanban", "block", task_id, reason]
+        # NOTE: Hermes-related kinds (systemctl_*_hermes, hermes_dispatch_dry_run,
+        # hermes_diagnostics_json, hermes_kanban_show, hermes_kanban_block) were
+        # removed 2026-05-28 (dotfiles-lzs, Phase C-lite). They were the only
+        # executor handlers that touched ~/.hermes/kanban.db from outside the
+        # gateway process — the WAL multi-writer pattern that triggered Wave 19
+        # corruption. The watchdog no longer monitors Hermes; with Phase A+B
+        # caps live, the gateway doesn't need outside babysitting.
         if kind == "curl_dashboard_healthz":
             return ["curl", "-sf", "--max-time", "5", DASHBOARD_HEALTHZ_URL]
         if kind == "shell_start_dashboard":
@@ -326,116 +285,6 @@ class HfDownloadJob(_Job):
         for pid, cmdline in self._stalled:
             rc, _, _ = self.executor.run(
                 "ssh_kill_and_restart_hf", pid=pid, cmdline=cmdline
-            )
-            if rc != 0:
-                all_ok = False
-        return ReviveResult.SUCCESS if all_ok else ReviveResult.FAILED
-
-
-class HermesGatewayJob(_Job):
-    """Hermes gateway + kanban dispatcher. CRASH on inactive service OR
-    repeated_crashes diagnostic >= threshold."""
-
-    name = "HermesGateway"
-
-    def __init__(self, executor: Any):
-        self.executor = executor
-        self._service_inactive = False
-        # All crash-loop tasks ever detected this probe (for visibility)
-        self.crash_loop_task_ids: list[str] = []
-        # Subset that aren't already blocked (the ones revive() should act on)
-        self._actionable_crash_loop_task_ids: list[str] = []
-
-    def probe(self) -> ProbeResult:
-        self._service_inactive = False
-        self.crash_loop_task_ids = []
-        self._actionable_crash_loop_task_ids = []
-        rc, _out, _ = self.executor.run("systemctl_is_active_hermes")
-        if rc != 0:
-            self._service_inactive = True
-            return ProbeResult.CRASH
-        # dispatch dry-run as liveness check
-        dr_rc, _, _ = self.executor.run("hermes_dispatch_dry_run")
-        if dr_rc != 0:
-            return ProbeResult.UNKNOWN
-        # diagnostics for crash-loop tasks
-        diag_rc, diag_out, _ = self.executor.run("hermes_diagnostics_json")
-        if diag_rc != 0:
-            return ProbeResult.UNKNOWN
-        try:
-            diags = json.loads(diag_out) if diag_out.strip() else []
-        except json.JSONDecodeError:
-            return ProbeResult.UNKNOWN
-        for entry in diags or []:
-            tid = entry.get("task_id")
-            for d in entry.get("diagnostics", []) or []:
-                if d.get("kind") != "repeated_crashes":
-                    continue
-                count = (
-                    (d.get("data") or {}).get("consecutive_crashes")
-                    or d.get("count")
-                    or 0
-                )
-                try:
-                    count = int(count)
-                except (TypeError, ValueError):
-                    count = 0
-                if count >= HERMES_CRASH_LOOP_THRESHOLD and tid:
-                    self.crash_loop_task_ids.append(tid)
-                    # Only block tasks that aren't already blocked.
-                    if entry.get("status") != "blocked":
-                        self._actionable_crash_loop_task_ids.append(tid)
-        # Per-task recent-crashes filter (bd-cke): the diagnostic's
-        # `consecutive_crashes` is a lifetime counter that doesn't reset on
-        # unblock — so a task that previously crash-looped and was blocked,
-        # then unblocked to retry under different conditions (e.g. our skill
-        # fix), shows as "97 crashes" forever. Without this filter the
-        # watchdog re-blocks any actually-working retry on its first tick.
-        # The fix: count `crashed` events whose timestamps fall AFTER the
-        # most recent `unblocked` event; only treat as actionable if the
-        # recent count meets the threshold.
-        recently_actionable: list[str] = []
-        for tid in self._actionable_crash_loop_task_ids:
-            rc, out, _ = self.executor.run("hermes_kanban_show", task_id=tid)
-            if rc != 0:
-                # Conservative: if we can't read the events, fall back to
-                # the diagnostic's count — i.e. preserve old behavior.
-                recently_actionable.append(tid)
-                continue
-            recent = _count_crashes_since_last_unblock(out)
-            if recent >= HERMES_CRASH_LOOP_THRESHOLD:
-                recently_actionable.append(tid)
-        self._actionable_crash_loop_task_ids = recently_actionable
-        # CRASH means "the revive can do something." Stale diagnostics from
-        # already-blocked tasks OR tasks whose lifetime counter is stale
-        # post-unblock are informational, not actionable. Fix bd-hpi + bd-cke.
-        if self._actionable_crash_loop_task_ids:
-            return ProbeResult.CRASH
-        return ProbeResult.OK
-
-    def revive(self) -> ReviveResult:
-        if self._service_inactive:
-            rc, _, _ = self.executor.run("systemctl_restart_hermes")
-            return ReviveResult.SUCCESS if rc == 0 else ReviveResult.FAILED
-        # If every detected crash-loop task is already blocked there's nothing
-        # to do — the prior block held; treat as SUCCESS so we don't burn down
-        # the revive_attempts counter for a non-actionable observation.
-        if (
-            not self._actionable_crash_loop_task_ids
-            and self.crash_loop_task_ids
-        ):
-            return ReviveResult.SUCCESS
-        if not self._actionable_crash_loop_task_ids:
-            return ReviveResult.FAILED
-        all_ok = True
-        for tid in self._actionable_crash_loop_task_ids:
-            rc, _, _ = self.executor.run(
-                "hermes_kanban_block",
-                task_id=tid,
-                reason=(
-                    f"auto-blocked by zig-watchdog: "
-                    f">={HERMES_CRASH_LOOP_THRESHOLD} crashes detected"
-                ),
             )
             if rc != 0:
                 all_ok = False
@@ -637,7 +486,6 @@ def default_jobs(executor: Any) -> list[Any]:
     return [
         BenchMatrixJob(executor=executor),
         HfDownloadJob(executor=executor),
-        HermesGatewayJob(executor=executor),
         BenchDashboardJob(executor=executor),
     ]
 
