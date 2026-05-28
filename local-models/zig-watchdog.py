@@ -49,6 +49,43 @@ HERMES_BIN = "/home/ubuntu/explore/hermes-agent-trial/.venv/bin/hermes"
 HF_STALL_ETIME_MIN = 5  # minutes of cumulative etime with CPU=0 before STALL
 HERMES_CRASH_LOOP_THRESHOLD = 3
 
+# Regex matching a Hermes `kanban show` event line. Format:
+#   [YYYY-MM-DD HH:MM] [optional 'run N'] event_name {data}
+# The event_name is alphanumeric_with_underscores; data is loose dict syntax
+# we don't try to parse. We only care about the event_name and the implicit
+# ordering (the lines are emitted chronologically).
+_HERMES_EVENT_LINE_RE = re.compile(
+    r"^\s*\[(?P<ts>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\]\s*"
+    r"(?:\[run\s+\d+\]\s*)?"
+    r"(?P<event>[a-z_]+)\b",
+    re.MULTILINE,
+)
+
+
+def _count_crashes_since_last_unblock(show_text: str) -> int:
+    """Count `crashed` events that occurred after the most recent `unblocked`.
+
+    If the task has never been unblocked, count all `crashed` events from the
+    start. Used to filter out stale lifetime crash counters from Hermes —
+    `consecutive_crashes` doesn't reset on unblock, so a task that previously
+    crash-looped and was manually unblocked to retry would otherwise re-trip
+    the watchdog on its first tick. Fix bd-cke.
+    """
+    if not show_text:
+        return 0
+    events = list(_HERMES_EVENT_LINE_RE.finditer(show_text))
+    if not events:
+        return 0
+    last_unblock_idx = -1
+    for i, m in enumerate(events):
+        if m.group("event") == "unblocked":
+            last_unblock_idx = i
+    return sum(
+        1
+        for m in events[last_unblock_idx + 1 :]
+        if m.group("event") == "crashed"
+    )
+
 
 # ---------------------------------------------------------------------------
 # Result enums
@@ -167,6 +204,9 @@ class SubprocessExecutor:
             return [HERMES_BIN, "kanban", "dispatch", "--dry-run", "--json"]
         if kind == "hermes_diagnostics_json":
             return [HERMES_BIN, "kanban", "diagnostics", "--json"]
+        if kind == "hermes_kanban_show":
+            task_id = kwargs.get("task_id", "")
+            return [HERMES_BIN, "kanban", "show", task_id]
         if kind == "hermes_kanban_block":
             task_id = kwargs.get("task_id", "")
             reason = kwargs.get(
@@ -345,10 +385,30 @@ class HermesGatewayJob(_Job):
                     # Only block tasks that aren't already blocked.
                     if entry.get("status") != "blocked":
                         self._actionable_crash_loop_task_ids.append(tid)
+        # Per-task recent-crashes filter (bd-cke): the diagnostic's
+        # `consecutive_crashes` is a lifetime counter that doesn't reset on
+        # unblock — so a task that previously crash-looped and was blocked,
+        # then unblocked to retry under different conditions (e.g. our skill
+        # fix), shows as "97 crashes" forever. Without this filter the
+        # watchdog re-blocks any actually-working retry on its first tick.
+        # The fix: count `crashed` events whose timestamps fall AFTER the
+        # most recent `unblocked` event; only treat as actionable if the
+        # recent count meets the threshold.
+        recently_actionable: list[str] = []
+        for tid in self._actionable_crash_loop_task_ids:
+            rc, out, _ = self.executor.run("hermes_kanban_show", task_id=tid)
+            if rc != 0:
+                # Conservative: if we can't read the events, fall back to
+                # the diagnostic's count — i.e. preserve old behavior.
+                recently_actionable.append(tid)
+                continue
+            recent = _count_crashes_since_last_unblock(out)
+            if recent >= HERMES_CRASH_LOOP_THRESHOLD:
+                recently_actionable.append(tid)
+        self._actionable_crash_loop_task_ids = recently_actionable
         # CRASH means "the revive can do something." Stale diagnostics from
-        # already-blocked tasks are informational, not actionable — surfacing
-        # them as CRASH produces a false "gateway crashing" signal in the SPA
-        # banner every tick forever. Fix bd-hpi.
+        # already-blocked tasks OR tasks whose lifetime counter is stale
+        # post-unblock are informational, not actionable. Fix bd-hpi + bd-cke.
         if self._actionable_crash_loop_task_ids:
             return ProbeResult.CRASH
         return ProbeResult.OK

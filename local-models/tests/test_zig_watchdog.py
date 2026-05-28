@@ -249,11 +249,19 @@ def test_probe_hermes_crash_loop_when_3_crashes_actionable(wd):
             }
         ]
     )
+    # Events show ≥3 recent crashes (no prior unblock to gate them)
+    show_text = (
+        "Events (X):\n"
+        "  [2026-05-28 03:00] [run 1] crashed {}\n"
+        "  [2026-05-28 03:01] [run 2] crashed {}\n"
+        "  [2026-05-28 03:02] [run 3] crashed {}\n"
+    )
     ex = FakeExecutor(
         responses={
             "systemctl_is_active_hermes": [(0, "active", "")],
             "hermes_dispatch_dry_run": [(0, "{}", "")],
             "hermes_diagnostics_json": [(0, diag, "")],
+            "hermes_kanban_show": [(0, show_text, "")],
         }
     )
     job = wd.HermesGatewayJob(executor=ex)
@@ -302,6 +310,178 @@ def test_probe_hermes_ok_when_only_blocked_tasks_have_crashes(wd):
     assert "t_360fa078" not in job._actionable_crash_loop_task_ids
 
 
+def test_probe_hermes_ok_when_all_crashes_predate_unblock(wd):
+    """Sticky lifetime crash counter from before an unblock → OK.
+
+    Regression guard for bd-cke: Hermes's `consecutive_crashes` counter doesn't
+    reset on unblock, so a task that previously crash-looped, was blocked, then
+    unblocked to retry under different conditions (e.g. our skill fix) shows
+    high lifetime crashes forever. Without the bd-cke fix the watchdog would
+    re-block the task on its first tick post-unblock based on stale counter.
+    Fixed by counting crashed events whose timestamps fall AFTER the most
+    recent unblocked event.
+    """
+    diag = json.dumps(
+        [
+            {
+                "task_id": "t_360fa078",
+                "status": "ready",
+                "diagnostics": [
+                    {
+                        "kind": "repeated_crashes",
+                        "severity": "critical",
+                        "data": {"consecutive_crashes": 97},
+                    }
+                ],
+            }
+        ]
+    )
+    # Real-shape kanban-show output: 97 crashes BEFORE the unblock, 0 after.
+    show_text = (
+        "Events (X):\n"
+        "  [2026-05-28 02:36] [run 98] crashed {'pid': 1}\n"
+        "  [2026-05-28 02:37] [run 99] crashed {'pid': 2}\n"
+        "  [2026-05-28 02:38] [run 100] crashed {'pid': 3}\n"
+        "  [2026-05-28 02:39] [run 101] blocked {'reason': 'crash-loop'}\n"
+        "  [2026-05-28 04:42] unblocked\n"
+        "  [2026-05-28 04:42] [run 102] claimed {'lock': 'x'}\n"
+        "  [2026-05-28 04:42] [run 102] spawned {'pid': 99}\n"
+    )
+    ex = FakeExecutor(
+        responses={
+            "systemctl_is_active_hermes": [(0, "active", "")],
+            "hermes_dispatch_dry_run": [(0, "{}", "")],
+            "hermes_diagnostics_json": [(0, diag, "")],
+            "hermes_kanban_show": [(0, show_text, "")],
+        }
+    )
+    job = wd.HermesGatewayJob(executor=ex)
+    assert job.probe() == wd.ProbeResult.OK
+    # The task is still in the visible list (informational) but not actionable.
+    assert "t_360fa078" in job.crash_loop_task_ids
+    assert "t_360fa078" not in job._actionable_crash_loop_task_ids
+
+
+def test_probe_hermes_crash_when_crashes_after_unblock(wd):
+    """≥3 crashes after the most recent unblock → still CRASH.
+
+    Companion to test_probe_hermes_ok_when_all_crashes_predate_unblock:
+    confirms the bd-cke fix doesn't suppress a genuine fresh crash-loop.
+    """
+    diag = json.dumps(
+        [
+            {
+                "task_id": "t_abc",
+                "status": "ready",
+                "diagnostics": [
+                    {
+                        "kind": "repeated_crashes",
+                        "data": {"consecutive_crashes": 100},
+                    }
+                ],
+            }
+        ]
+    )
+    show_text = (
+        "Events (X):\n"
+        "  [2026-05-28 02:00] [run 1] crashed {}\n"
+        "  [2026-05-28 02:01] [run 2] crashed {}\n"
+        "  [2026-05-28 02:02] [run 3] crashed {}\n"
+        "  [2026-05-28 02:03] [run 4] blocked {'reason': 'first loop'}\n"
+        "  [2026-05-28 05:00] unblocked\n"
+        "  [2026-05-28 05:01] [run 5] crashed {}\n"
+        "  [2026-05-28 05:02] [run 6] crashed {}\n"
+        "  [2026-05-28 05:03] [run 7] crashed {}\n"
+    )
+    ex = FakeExecutor(
+        responses={
+            "systemctl_is_active_hermes": [(0, "active", "")],
+            "hermes_dispatch_dry_run": [(0, "{}", "")],
+            "hermes_diagnostics_json": [(0, diag, "")],
+            "hermes_kanban_show": [(0, show_text, "")],
+        }
+    )
+    job = wd.HermesGatewayJob(executor=ex)
+    assert job.probe() == wd.ProbeResult.CRASH
+    assert "t_abc" in job._actionable_crash_loop_task_ids
+
+
+def test_probe_hermes_crash_when_never_unblocked(wd):
+    """≥3 crashes total + never unblocked → CRASH.
+
+    Preserves the original fresh-crash-loop detection (the case the watchdog
+    was originally designed for).
+    """
+    diag = json.dumps(
+        [
+            {
+                "task_id": "t_fresh",
+                "status": "ready",
+                "diagnostics": [
+                    {
+                        "kind": "repeated_crashes",
+                        "data": {"consecutive_crashes": 5},
+                    }
+                ],
+            }
+        ]
+    )
+    show_text = (
+        "Events (X):\n"
+        "  [2026-05-28 03:00] [run 1] spawned {}\n"
+        "  [2026-05-28 03:01] [run 1] crashed {}\n"
+        "  [2026-05-28 03:02] [run 2] spawned {}\n"
+        "  [2026-05-28 03:03] [run 2] crashed {}\n"
+        "  [2026-05-28 03:04] [run 3] crashed {}\n"
+    )
+    ex = FakeExecutor(
+        responses={
+            "systemctl_is_active_hermes": [(0, "active", "")],
+            "hermes_dispatch_dry_run": [(0, "{}", "")],
+            "hermes_diagnostics_json": [(0, diag, "")],
+            "hermes_kanban_show": [(0, show_text, "")],
+        }
+    )
+    job = wd.HermesGatewayJob(executor=ex)
+    assert job.probe() == wd.ProbeResult.CRASH
+    assert "t_fresh" in job._actionable_crash_loop_task_ids
+
+
+def test_count_crashes_since_last_unblock_helper(wd):
+    """Direct unit test on the helper.
+
+    Verifies the parser does what its name claims, separately from the
+    HermesGatewayJob probe-and-revive integration.
+    """
+    text = (
+        "Events (X):\n"
+        "  [2026-05-28 01:00] [run 1] crashed {}\n"
+        "  [2026-05-28 01:01] [run 2] crashed {}\n"
+        "  [2026-05-28 01:02] [run 3] blocked {}\n"
+        "  [2026-05-28 02:00] unblocked\n"
+        "  [2026-05-28 02:01] [run 4] crashed {}\n"
+    )
+    assert wd._count_crashes_since_last_unblock(text) == 1
+    # No unblock event → count all crashes from start
+    no_unblock = (
+        "Events (X):\n"
+        "  [2026-05-28 01:00] [run 1] crashed {}\n"
+        "  [2026-05-28 01:01] [run 2] crashed {}\n"
+    )
+    assert wd._count_crashes_since_last_unblock(no_unblock) == 2
+    # Empty string returns 0
+    assert wd._count_crashes_since_last_unblock("") == 0
+    # Multiple unblocks: count crashes after the LAST one
+    multi = (
+        "  [2026-05-28 01:00] [run 1] crashed {}\n"
+        "  [2026-05-28 01:01] unblocked\n"
+        "  [2026-05-28 01:02] [run 2] crashed {}\n"
+        "  [2026-05-28 01:03] unblocked\n"
+        "  [2026-05-28 01:04] [run 3] crashed {}\n"
+    )
+    assert wd._count_crashes_since_last_unblock(multi) == 1
+
+
 def test_revive_hermes_blocks_crash_loop_task(wd):
     """Revive issues `hermes kanban block <task_id>` for each crash-loop task."""
     diag = json.dumps(
@@ -318,11 +498,20 @@ def test_revive_hermes_blocks_crash_loop_task(wd):
             }
         ]
     )
+    # Events show ≥3 recent crashes so probe surfaces it as actionable
+    show_text = (
+        "Events (X):\n"
+        "  [2026-05-28 03:00] [run 1] crashed {}\n"
+        "  [2026-05-28 03:01] [run 2] crashed {}\n"
+        "  [2026-05-28 03:02] [run 3] crashed {}\n"
+        "  [2026-05-28 03:03] [run 4] crashed {}\n"
+    )
     ex = FakeExecutor(
         responses={
             "systemctl_is_active_hermes": [(0, "active", "")],
             "hermes_dispatch_dry_run": [(0, "{}", "")],
             "hermes_diagnostics_json": [(0, diag, "")],
+            "hermes_kanban_show": [(0, show_text, "")],
             "hermes_kanban_block": [(0, "", "")],
         }
     )
