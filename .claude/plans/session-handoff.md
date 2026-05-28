@@ -1,86 +1,94 @@
-# Session handoff — 2026-05-28 Wave 16 (Hermes-conformance pivot + Phase 1 autonomous PROVEN + Phase 2 kanban-substrate shipped)
+# Session handoff — 2026-05-28 (Wave 17-19, ~6h session)
+
+Session id: `beb8609d-14f4-46ce-875f-977f61012bec`
 
 ## State at offboard
-- **Current branch (dotfiles)**: main
-- **Last commit (dotfiles)**: `754efb7 :card_file_box: beads: close ukx.13.3 SHIP + file ukx.13.4 Wave 2 follow-up` (then Wave 2 ukx.13.4 chain: 8187061, b314e95, d6d175c, 9fca3e3, d431d14)
-- **Last commit (explore)**: `9489f53 :arrow_up: autonovel: bump (bd-b5p.6 operationalize CLOSED — Phase 2 autonomous via kanban substrate)`
-- **Last commit (autonovel)**: `6cd2da5 :card_file_box: beads: close bd-b5p.6 (operationalize complete; end-to-end Phase 2 proven via t_360fa078)`
-- **Last commit (linearb/weekly-reporting)**: `90578a6 :bulb: cross-arc heads-up: evaluate Hermes Agent kanban substrate`
-- **Open beads (dotfiles)**: 5 — ukx.6 (P1 spec, in-flight), ukx (P2 epic), ukx.13 (P2 spec), ukx.13.4 (P2 feature — Wave 2 production end-to-end), 5e2 (P3 decision), cl8 (P3 bug deferred)
-- **Open beads (explore)**: 9 (mostly research epics + spec; explore-7hh.16 LSRA needs same Pattern-5→kanban-worker pivot per the conformance research)
-- **Open beads (autonovel)**: ~8 (bd-b5p epic + bd-b5p.5 Phase 2 spec + bd-b5p.7 Phase 2 kanban-substrate spec OPEN as the canonical reference + 5.6/5.7/5.8 trail beads)
-- **Markers**: `.offboard-pending` was present, cleared by this offboard
 
-## What happened this session (~6-hour autonomous Wave 16 arc)
+- **Current branch**: main (dotfiles)
+- **Last commit (dotfiles)**: `107ac0d :bug: zig-watchdog: count crashes since last unblock (not lifetime counter)`
+- **Last commit (explore submodule)**: `8411bf3 :memo: refs: Hermes conformance canon Wave 18-19 addendum + companion research`
+- **Last commit (linearb/weekly-reporting)**: `6188014 :link: refs: symlink shared Hermes conformance canon from local-coding-models`
+- **Open beads (dotfiles)**: 11 — 2 new P2 bugs from this session (cho, ns3), 5 existing ukx series, 4 deferred
+- **In-flight subagents at offboard**: none (all returned)
+- **Markers**: `.offboard-pending` will be cleared by this offboard
+- **Hermes gateway**: active (PID 3199445, 3+ hours uptime, but 3 stale `(deleted)` FDs visible — see Wave 19 architectural finding)
+- **zig-watchdog timer**: **STOPPED** intentionally (to avoid recreating the write-contention race; redesign as Hermes plugin pending — see Phase C)
+- **bench-dashboard SPA**: live at `http://100.98.174.21:8765/` with trial-detail modal (Wave 18 ship)
+- **smoke matrix**: 8 of 9 cells completed (more on this below)
+- **Phase 2 substrate** (`autonovel-writer` profile + kanban worker): broken; t_7663dee2 blocked; SKILL exec-step bug → `dotfiles-cho`
 
-### Wave 14B residue cleanup (early)
-- Subagent ramp-up via /onboard rebuild post-compaction.
-- Read 31 skill bodies in main session per /onboard discipline.
+## What happened this session — Waves 17, 18, 19
 
-### Wave 16A — autonovel Phase 2 SHIPPED (then re-spec'd)
-- bd-b5p.5 Phase 2 spec /check'd via bd-b5p.5.1 (10 OQs walked, IMPL-READY).
-- bd-b5p.5.3 Phase 2 impl SHIPPED (Pattern 5 SKILL.md procedural recipe + delegate_task from inside execute_code). 60 tests pass.
-- **/scrutiny caught real bug**: `runner.py:333` missing `strict_preamble_check=True` in production end-to-end path. Inline fix + regression test added (bd-ylg). Verdict upgraded to SHIP.
-- bd-b5p.5.6 follow-up: Pattern 5 SKILL.md doc fix landed.
+### Wave 17 (bench-dashboard SPA + zig-watchdog v1)
 
-### Wave 16B — ukx.13 Phase 3 bench scaffolding SHIPPED (full /spec → /check → /test → /impl pipeline)
-- ukx.13 P2 spec written + amended per /check (10 OQs walked, 3 P1 ACCEPT/MODIFY, IMPL-READY).
-- ukx.13.3 Wave 1 impl SHIPPED — run-scenario.sh extensions + bench-matrix.sh + analyze-bench.py Tier 1. 41/41 tests pass + /scrutiny SHIP. Disclosed candidate→model-tag dispatch gap for Wave 2.
-- ukx.13.4 Wave 2 production end-to-end ALSO SHIPPED via fix-first cycle: 14 new tests RED → impl → /scrutiny FIX-FIRST (caught 4 critical+major: naming-scheme split, filename collision on MODEL_TAG, missing CCR routes, DOTFILES_ROOT default tested MAIN not worktree) → impl re-fix → 61/61 GREEN → SHIP.
+- **bench-dashboard SPA SHIPPED** (`60bbc98`, bead `dotfiles-vgb`): tailnet-private Python stdlib-only server at `http://100.98.174.21:8765/`. Parses `/tmp/bench-matrix-smoke-*.log` + `claude/sandbox/results/*.md` filesystem state. JSON state + healthz endpoints + auto-refresh HTML dashboard with log tail panel. 13/13 tests; /scrutinize SHIP zero findings.
+- **zig-watchdog v1 SHIPPED** (`bc4de46`, bead `dotfiles-olh`): single Python file + systemd-user timer (5min). Four job classes (BenchMatrix / HfDownload / HermesGateway / BenchDashboard) with probe()+revive(). Extended SPA with `/api/alerts.json` + `/api/watchdog-state.json` + browser Notifications API. 37/37 tests across both files; /scrutinize SHIP zero critical, 3 minor noted.
+- **Kimi-Linear pull complete**: was hung in CLOSE_WAIT 8h; killed + restarted; 20 GB landed on pico (5/5 files).
+- **Watchdog empirically self-validated**: when my own `pgrep` collision killed the dashboard, the next 5min tick auto-revived it (alerts.json entry is proof).
 
-### Wave 16C — empirical reversal #4 (Kimi-Linear-REAP fails mlx-lm 0.31.3 load)
-- `nightmedia/Kimi-Linear-REAP-35B-A3B-Instruct-mxfp4-mlx` pulled (18.7 GB) but FAILS with `KeyError: 'model.layers.3.self_attn.kv_b_proj.biases'` — REAP-pruned weights don't match mlx-lm loader expectations.
-- Backup pull: `mlx-community/Kimi-Linear-48B-A3B-Instruct-3bit` (21.5 GB) — IN FLIGHT at offboard (slow tail at 19/21.5 GB, watcher armed at bm11kotet).
-- 4th empirical reversal in this arc (after G16 mechanism, ukx.8 transformer, ukx.11 Devstral PARTIAL).
+### Wave 18 (skill-resolver fix + watchdog M2 + cke + trial-detail modal)
 
-### Wave 16D — Hermes-conformance pivot (THE BIG ONE)
-- User flagged: "let's conform to Hermes architecture; we may have clobbered the design with anti-patterns."
-- Conformance research subagent returned HIGH-confidence verdict: **we drifted severely.** Natural autonomous-workload substrate is `hermes kanban` + gateway-embedded dispatcher (NOT cron LLM-path which biases toward narration + lacks tool-call accounting).
-- bd-b5p.5.7 confabulation root cause clarified — NOT an upstream bug. It's a "wrong primitive" symptom (cron LLM-path's prompt prefix biases toward narration; no tool-call gate; TOOL_USE_ENFORCEMENT_GUIDANCE doesn't auto-inject for Anthropic models; kanban_complete() IS the structured gate).
-- Report archived: `~/explore/local-coding-models/refs/research/research-hermes-conformance.md` (220 lines, file:line citations).
+- **Hermes `--skills` resolver root cause IDENTIFIED** via novel-research subagent (clean POC from docs): skill exists in BOTH `external_dirs` AND profile-local → `tools/skills_tool.py:1011-1033` refuses to guess → `success=False` → CLI shows misleading "Unknown skill(s)". Fix applied via `rm -rf` of 3 dup skill dirs from profile-local + default-home. External_dirs stays as SSoT. Backup at `/tmp/hermes-skill-backup-20260528T044221Z/`.
+- **Dashboard per-trial detail modal SHIPPED** (`da0e277`, bead `dotfiles-a1y`): click any non-queued cell → modal with prompt sent / Claude output / sandbox state / model routing evidence / flagged log excerpt. New `/api/trial/<id>` endpoint (JSON + `?raw=1` text/plain + 404). 9 new tests, 26/26 dashboard tests total. /scrutinize SHIP zero findings.
+- **zig-watchdog M2 + Documentation= fixes** (`ac61672`, bead `dotfiles-hpi`): HermesGateway probe now returns OK when only blocked-task crashes exist (was perpetual CRASH); systemd unit Documentation= URL fixed (no more "Invalid URL" warnings). 21/21 tests.
+- **zig-watchdog "count crashes since unblock" fix** (`107ac0d`, bead `dotfiles-cke`): watchdog had killed a working Phase 2 retry based on stale lifetime crash counter. Fix parses task event log via new helper `_count_crashes_since_last_unblock(show_text)`. 25/25 tests. Live-verified: HermesGateway=OK with t_360fa078 still blocked.
 
-### Wave 16E — Hermes conformance pivot SHIPPED (user authorized both Wave 1 + Wave 2)
-- **Wave 1 (mechanical, PROVEN)**: Phase 1 cron `9b0199d09d68` (--LLM path, confabulating) deleted. New cron `f63079296927` registered as `--no-agent --script run-autonovel.sh --workdir ... --deliver local`. Zero LLM in cron path, zero confabulation surface. **Manual trigger 22:59 produced REAL Karlach prose** (slop=0.3 verbatim runner.py stdout). Cron daily 09:00 UTC.
-- **Wave 2 (architectural)**: bd-b5p.7 NEW Phase 2 kanban-substrate spec (supersedes bd-b5p.5.6 Pattern 5). Full /spec → /check (6 OQs, OQ-K-5 found `hermes kanban daemon` deprecated — dispatcher embedded in gateway, simplifying install) → /test (91 tests, 79 pytest + 12 bash) → /impl (Option B — full deliverable including config bump + symlink) → /scrutiny FIX-FIRST (3 findings: phantom impl bead, PATH-fragile script, empty 7.2 description) → all fixed → SHIP.
-- Hermes gateway daemon installed: `hermes-gateway.service` systemd user unit (with linger).
-- ~/.hermes/config.yaml: `delegation.child_timeout_seconds: 600 → 1800` (per OQ-K-2).
-- Phase 2 cron `1aefcbda7c1d` registered (daily 21:00 UTC, --no-agent --script enqueue-autonovel-phase2.sh).
-- **Phase 2 end-to-end PROVEN at 00:00 UTC**: manual cron trigger → script enqueued kanban task `t_360fa078` (assignee=autonovel-writer, status=ready). The gateway-embedded dispatcher will spawn the worker.
+### Wave 19 (kanban DB corruption + architectural diagnosis + canon update)
 
-### Wave 16F — Cross-arc heads-up shipped
-- `weekly-reporting-wpg.1` filed in `~/linearb/weekly-reporting` — NOT a directive, but a research-prompt for the sibling agent's editorial timers arc. Documents the 3-tier Hermes pattern + 7 gotchas + 5 OQs. Operator decides CONFORM / PARTIAL CONFORM / STAY.
+- **kanban DB corrupted ~04:53 UTC**: "sqlite refused to open file: database disk image is malformed". Hermes auto-created 6+ `.corrupt.bak` files in 30 sec; `.recover` yielded SCHEMA only (0 INSERTs). All task history lost (t_360fa078, t_2d3dcc3e, t_093c0add). Recovered via fresh `hermes kanban init`.
+- **Architectural-fit research subagent** returned with structural diagnosis at `~/explore/local-coding-models/refs/research/research-hermes-architectural-fit.md`: our harness fights WAL's design contract. Hermes ships single-writer dispatcher; we layered 4 extra writers (watchdog CLI fan-out, cron enqueue, ad-hoc CLI, worker spawn-crash cycles). WAL = 1 writer + many readers; we routinely run 4-6 short-lived writers. Live evidence: gateway PID 3199445 holds 8 FDs on kanban.db, 3 labeled `(deleted)` — the corruption-prone state.
+- **Recommended structural fix**: Options 1+2+4 (in-process Hermes plugin instead of systemd-timer CLI fan-out + per-workload board partition + concurrency caps `max_in_progress: 3 / max_spawn: 2`). All authorized by user; NONE applied yet (deferred to next session).
+- **Hermes canon updated** (`8411bf3` on explore submodule): research-hermes-conformance.md extended with Wave 18-19 ADDENDUM §A-E (six failures, WAL contract, 7 architectural rules, proto-skill caveats, cross-arc alignment). Companion docs `research-hermes-architectural-fit.md` + `research-hermes-skills-novel.md` canonized into refs/research/.
+- **Cross-arc symlink shipped** (`6188014` on weekly-reporting): `~/linearb/weekly-reporting/refs/` now has INDEX.md + symlinks to all 3 conformance docs + the autonovel-phase2-worker proto-skill bundle. Sibling agent reads same canon — no more parallel re-derivation.
+- **Phase 2 SKILL exec-step bug filed** (`dotfiles-cho`, P2): worker calls `kanban_show()` ✓ then `exec(import sys ...)` → truncated traceback → LLM retries → 30min wall → killed → re-spawn → same. The autonovel-phase2-worker SKILL.md's procedural-recipe pattern is the anti-pattern; canon §C Rule 6 codifies this.
+- **Smoke matrix corruption-write-contention bug filed** (`dotfiles-ns3`, P2): proposed F1 (filelock OR read-only sqlite OR plugin) / F2 (rolling daily snapshot) / F3 (operational discipline) defenses.
 
-## What's running on its own at offboard
-- ✅ **Phase 1 autonovel** — cron `f63079296927`, daily 09:00 UTC, --no-agent --script. PROVEN firing with real prose. Confabulation surface = 0.
-- ✅ **Phase 2 autonovel kanban-worker** — cron `1aefcbda7c1d`, daily 21:00 UTC, --no-agent --script enqueues kanban task. Gateway-embedded dispatcher spawns the worker. PROVEN at the kanban-create step; the full worker pipeline pending the dispatcher's first run (likely within minutes of offboard).
-- ✅ **hermes-gateway.service** systemd user unit, lingered survives logout.
-- ✅ **5 Wave 14B plugins** at ~/.hermes/plugins/ (heartbeat, beads-observability, pico-mlx, pico-ollama, pico-mlx-trinity-shim).
-- ⏳ **Kimi-Linear 3-bit pull** at 19/21.5 GB (~88%, slow tail, watcher armed at bm11kotet).
+### Smoke matrix — 8 of 9 candidates COMPLETED (this is huge)
+
+While the Hermes Phase 2 work was thrashing, the bench matrix quietly ran 9 candidates on scenario 01-trivial-rename. Results at `claude/sandbox/results/01-trivial-rename-*-trial1-*.md`:
+
+| Candidate | Wall time | Verdict |
+|---|---|---|
+| trinity-mini (initial) | 685s | OK |
+| trinity-mini (resumed) | 690s | OK |
+| qwen3-coder MLX (initial) | 705s | OK |
+| qwen3-coder MLX (resumed) | 704s | OK |
+| qwen3-coder-ollama | 722s | OK |
+| devstral MLX | 738s | OK |
+| deepseek-coder-v2-lite-ollama | 740s | OK |
+| glm-4.5-air 3-bit MLX | 744s | OK |
+| deepseek-r1-14b ollama | 764s | OK |
+| laguna-xs2 ollama | 826s | OK |
+| **kimi-linear MLX** | **1200s** | **TIMEOUT** (hit 20min cap) |
+
+**This is the first real parity data we have.** 8 of 9 candidates can do scenario-01 trivial-rename. Kimi-Linear hit the cap — could be slow first-load OR genuinely heavier than the 20m budget. Range is 685s–826s for the working set (1.21× spread). Opus baseline was ~12s, so we're at ~55-70× multiplier — fails the hypothesis of <10× as a starting point.
+
+**The dashboard's trial-detail modal is the right surface to validate these.** Click each cell at `http://100.98.174.21:8765/` to see the actual prompt + Claude output + sandbox state.
 
 ## What's next (priority order)
-1. **Verify Phase 2 worker actually completes** — `hermes kanban show t_360fa078` (or whatever the next task ID is) should show kanban_complete + metadata + artifacts. Verify `publish_queue/<id>.json` lands.
-2. **Kimi-Linear 3-bit smoke** — when pull completes (watcher fires), run CLI smoke probe via `mlx_lm.generate`. If basic decode works: add to llama-swap config + add to AB-verdict v2.2 as candidate #8.
-3. **Wave 17 LSRA C-pilot Pattern 5 → kanban-worker pivot** — `explore-7hh.16` needs the same redesign as autonovel did. Mirror the bd-b5p.7 spec shape, dispatch the same /spec → /check → /test → /impl pipeline.
-4. **ukx.13 Phase 3 smoke matrix run** — `bench-matrix.sh --smoke --candidates all --scenarios 01 --trials 1` (~2h pico). Then full matrix (~100h pico) per user OK.
-5. **bd-b5p.5.7 close-eligible after ≥7 clean Phase 2 daily fires** — the cron confabulation bug is fixed-by-redesign per the kanban conformance work.
-6. **bd-b5p.5.8 close-eligible** — verify-queue-file guard subsumed by `kanban_complete(metadata, artifacts)` structured handoff.
-7. **explore-7hh.22 Hermes skill_view raw=True FR** — possibly moot under kanban; deferred.
+
+1. **Click through smoke matrix results in the dashboard** (~10-15 min). Validate which candidates actually did the task correctly (verdict=OK is grep-based Tier 1; real quality check needs human eye on outputs). This is THE user-facing payoff of the dashboard shipped today.
+2. **Apply Phase A architectural caps** (5 min inline): edit `~/.hermes/config.yaml` to add `kanban.max_in_progress: 3` + `kanban.max_spawn: 2`. Restart gateway (this flushes the 3 stale `(deleted)` FDs visible right now — required hygiene).
+3. **Apply Phase B per-workload board partition** (30 min): `hermes kanban boards create autonovel-writer`. Update `~/.hermes/scripts/enqueue-autonovel-phase2.sh` to set `HERMES_KANBAN_BOARD=autonovel-writer`. Future tasks on isolated DB.
+4. **Phase C — port zig-watchdog to a Hermes plugin** (~1 day, dispatch subagent): `~/.hermes/plugins/zig-watchdog/__init__.py` with `on_session_start` daemon thread inside the gateway process. Shares FDs. Zero new opener processes. Delete the systemd timer once plugin is proven. Recommended template: `~/.hermes/plugins/heartbeat/__init__.py`.
+5. **Fix the autonovel-phase2-worker SKILL** (`dotfiles-cho`): SKILL.md is written as procedural recipe ("then call exec(...) then call delegate_task..."). Replace with documentation-style (what the worker DOES) + let `KANBAN_GUIDANCE` (auto-injected at `agent/prompt_builder.py:188-257`) drive the lifecycle. Or: convert Phase 2 to deterministic `--no-agent --script` like Phase 1 (the autonovel use case may not need an LLM at all).
+6. **Run ukx.13 Phase 3 full matrix** (~100h): 9 candidates × 10 scenarios × 3 trials. Smoke proved 8/9 candidates work at all on scenario 01. Now go wide.
+7. **File Hermes upstream issue**: `unblock_task` should inject a synthetic `reclaimed` marker so `_rule_repeated_crashes` resets. Would have prevented the entire bd-cke scramble.
 
 ## Warnings / watch-outs
-- **Phase 1 + Phase 2 crons are BOTH now real autonomous daily fires.** Phase 1 09:00 UTC produces 1 paragraph to `autonovel/write/runs/phase1-smoke/draft-*.md`. Phase 2 21:00 UTC enqueues a kanban task that the gateway-dispatched worker should complete with a `publish_queue/<id>.json` file. Operator should glance at both daily for the first week.
-- **bd-b5p.5.6 (Pattern 5 SKILL.md) and bd-b5p.5.7 (cron confabulation bug) stay OPEN as the design trail**. Don't close prematurely — they document HOW we arrived at the kanban substrate.
-- **Conformance research finding applies cross-arc**: weekly-reporting got a heads-up bead. LSRA (explore-7hh.16) needs the same pivot. Any future Hermes-skill work should start from kanban-worker shape, not from SKILL-as-procedural-recipe.
-- **4 empirical reversals of source-read research in this arc** — discipline reaffirmed across G16, ukx.8, ukx.11 Devstral PARTIAL, Kimi-Linear-REAP. /research SKILL Step 3 (Verify) is non-negotiable for load-bearing recommendations.
-- **2 substantial /scrutiny FIX-FIRST catches this session** (bd-b5p.5.3 strict_preamble_check; ukx.13.4.2 naming/filename/CCR/DOTFILES_ROOT-default). User's calibration ("use /scrutinize even on inline fixes") validated empirically — saved real production bugs.
-- **The kanban probe task `t_360fa078`** is queued. Next dispatcher tick (within minutes) will spawn the worker. If you onboard during/after that worker fires, check `hermes kanban show t_360fa078` to see the kanban_complete metadata (or, if the worker confabulated, the structured handoff WILL be missing — which is the whole point of the new substrate vs. the old one).
-- **Phase 2 cron 1aefcbda7c1d (daily 21:00 UTC) will fire tomorrow.** If the worker pattern doesn't work cleanly on the first real fire, `hermes cron pause 1aefcbda7c1d` reverses it. Phase 1 (09:00 UTC) is the safe one.
-- **Pico disk**: 380 GB used / 500 GB free — fine. ~73 GB safe-reclaim from task #36 still pending user go/no-go.
+
+- **Hermes gateway has 3 stale `(deleted)` FDs on kanban.db RIGHT NOW**. Restart on next session to flush (pair with Phase A config edit).
+- **zig-watchdog timer is STOPPED**. Re-enabling without Phase A caps + the plugin-port redesign will likely re-corrupt kanban.db within hours. If you must restart it, do `max_in_progress`/`max_spawn` caps first.
+- **Phase 2 substrate is BROKEN** end-to-end. Phase 1 (`--no-agent --script`) still works autonomously and proved overnight. The autonovel cron at 21:00 UTC will fail with the SKILL bug (`dotfiles-cho`) — either fix the SKILL OR pause the cron via `hermes cron pause 1aefcbda7c1d` until fixed.
+- **Six failures pattern** documented in Wave 18-19 ADDENDUM §A of the conformance ref. The sibling agent (weekly-reporting) has been notified via symlinked refs/. Read it before building any new Hermes worker on this stack.
+- **Skill backup at `/tmp/hermes-skill-backup-20260528T044221Z/`** (6 tgz files). Can restore the deleted profile-local skills via `tar xzf` if the external_dirs SSoT model needs reversion. Cleanup at end of week if all working.
+- **`.offboard-pending` marker** existed at session start (from prior session-end hook). Cleared in Step 5 of this offboard.
+- **Smoke matrix RESULT files are untracked** in dotfiles. They're not in .gitignore but conventionally aren't committed (transient bench data). The HEALTHCHECK_FAIL marker from the aborted run is also there. Leave or clean up next session.
+- **Beads `weekly-reporting-dsn` + `weekly-reporting-cg0` need re-check** against new canon Rule 1 (no systemd-timer watchdogs) + Rule 2 (per-workload board). Sibling agent now has the symlinked refs to do this.
 
 ## /onboard should pick up
 - Read this handoff first
-- Read `~/explore/local-coding-models/refs/research/research-hermes-conformance.md` — THE definitive architectural reference, will guide all future Hermes-skill work
-- Read `~/dotfiles/local-models/GUARDRAILS.md` — G18 new this session; G16/G17 still load-bearing
-- Check `hermes cron list` + `hermes kanban list` + `journalctl --user -u hermes-gateway --since '1 hour ago'` to see overnight fire results
-- Check Kimi 3-bit pull status (watcher bm11kotet may have fired notification; if so, smoke probe)
-- Check open beads across 4 repos (dotfiles, explore, autonovel, linearb/weekly-reporting); the canonical "what's next" via `bv --robot-next`
-- `br ready` in each repo for action-eligible work
+- Read `~/explore/local-coding-models/refs/research/research-hermes-conformance.md` Wave 18-19 ADDENDUM (§A-E)
+- Check smoke matrix results via the dashboard (`http://100.98.174.21:8765/`)
+- Decide on Phases A/B/C application order (user pre-authorized all three; restart of gateway loses the in-flight worker which is currently blocked anyway)
+- `br ready` for action-eligible work across 4 repos (dotfiles, explore, autonovel, linearb/weekly-reporting)
