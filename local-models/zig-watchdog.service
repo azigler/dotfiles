@@ -1,0 +1,14 @@
+[Unit]
+Description=zig-watchdog — mechanical stall/crash detection for long-running local-models jobs
+Documentation=https://github.com/andrewzigler/dotfiles (bead dotfiles-olh)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /home/ubuntu/dotfiles/local-models/zig-watchdog.py
+# One tick should finish well under 60s even when remote ssh calls time out.
+# Cap at 120s so a hung ssh doesn't pile up backlogged service invocations.
+TimeoutStartSec=120
+# StandardOutput=journal is the default for Type=oneshot under systemd-user.
+Nice=10

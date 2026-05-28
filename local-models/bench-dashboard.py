@@ -65,6 +65,10 @@ DEFAULT_LOG_GLOB = "/tmp/bench-matrix-*.log"
 LOG_TAIL_LINES = 30
 LOG_MAX_LINES = 5000  # /api/log truncation cap
 
+# zig-watchdog SPA integration (spec dotfiles-olh §4.6)
+DEFAULT_WATCHDOG_DIR = Path.home() / ".cache" / "zig-watchdog"
+ALERTS_TAIL_LIMIT = 100  # /api/alerts.json returns the last N entries
+
 
 # ---------------------------------------------------------------------------
 # Pure parsing functions (unit-testable without HTTP).
@@ -392,6 +396,54 @@ def build_state(
 
 
 # ---------------------------------------------------------------------------
+# zig-watchdog SPA bridge helpers (spec dotfiles-olh §4.6).
+# Each helper degrades gracefully when the watchdog hasn't run yet, so the
+# dashboard can be brought up before the systemd-user timer.
+# ---------------------------------------------------------------------------
+
+
+def read_watchdog_state(watchdog_dir: Path) -> dict[str, Any]:
+    """Return the parsed watchdog state.json, or a minimal empty-shell shape."""
+    p = Path(watchdog_dir) / "state.json"
+    if not p.exists():
+        return {"last_tick_utc": None, "jobs": {}}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"last_tick_utc": None, "jobs": {}}
+
+
+def read_watchdog_alerts(
+    watchdog_dir: Path, limit: int = ALERTS_TAIL_LIMIT
+) -> list[dict[str, Any]]:
+    """Return the last `limit` watchdog alerts as a JSON array.
+
+    The on-disk file is JSON-lines (append-only); this normalizes to an array
+    so the SPA's JS can just `for (const a of arr)` it. Lines that fail to
+    parse are skipped (don't crash the endpoint over a torn write).
+    """
+    p = Path(watchdog_dir) / "alerts.json"
+    if not p.exists():
+        return []
+    try:
+        text = p.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    out: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    if limit and len(out) > limit:
+        out = out[-limit:]
+    return out
+
+
+# ---------------------------------------------------------------------------
 # HTML dashboard (single string; vanilla JS).
 # ---------------------------------------------------------------------------
 
@@ -502,6 +554,35 @@ HTML_PAGE = r"""<!doctype html>
     <span class="abort">ABORTED:</span> <span id="abort-reason"></span>
   </div>
 
+  <div id="watchdog-alert-banner" class="panel" style="display:none;border-color:var(--err);">
+    <span class="abort">WATCHDOG ALERTING:</span>
+    <span id="watchdog-alert-detail"></span>
+  </div>
+
+  <div class="panel" id="watchdog-panel">
+    <div class="toolbar">
+      <strong>zig-watchdog</strong>
+      <span>(mechanical stall/crash probes, 5-min tick)</span>
+      <a href="/api/watchdog-state.json">state</a> ·
+      <a href="/api/alerts.json">alerts</a>
+      <span id="watchdog-last-tick" style="margin-left:auto;color:var(--dim);">—</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Job</th>
+          <th>Last probe</th>
+          <th>Revive attempts</th>
+          <th>Last revive</th>
+          <th>State</th>
+        </tr>
+      </thead>
+      <tbody id="watchdog-body">
+        <tr><td colspan="5" style="color:var(--dim);">(no watchdog ticks yet — start with: <code>bash local-models/install-zig-watchdog.sh</code>)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
   <div class="panel">
     <div class="toolbar">
       <strong>Candidate roster</strong>
@@ -594,8 +675,100 @@ async function refresh() {
   }
 }
 
+// ---- zig-watchdog SPA bridge (spec dotfiles-olh §4.6) ---------------------
+// Polls /api/watchdog-state.json + /api/alerts.json every REFRESH_MS,
+// renders the watchdog widget, and fires browser Notification on new alerts.
+const ALERT_SEEN_KEY = "zig-watchdog:last-seen-utc";
+
+function probeBadgeClass(p) {
+  if (p === "OK") return "done";
+  if (p === "STALL") return "aborted";
+  if (p === "CRASH") return "aborted";
+  return "queued";
+}
+
+function renderWatchdog(state) {
+  const body = document.getElementById("watchdog-body");
+  const jobs = (state && state.jobs) || {};
+  const names = Object.keys(jobs).sort();
+  document.getElementById("watchdog-last-tick").textContent =
+    state && state.last_tick_utc ? "last tick: " + state.last_tick_utc : "—";
+  if (!names.length) {
+    return;  // keep the "(no watchdog ticks yet)" placeholder row
+  }
+  body.innerHTML = "";
+  let anyAlerting = false;
+  let alertingNames = [];
+  for (const name of names) {
+    const j = jobs[name];
+    const probe = j.last_probe || "UNKNOWN";
+    if (j.alerting) { anyAlerting = true; alertingNames.push(name); }
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      "<td><strong>" + esc(name) + "</strong></td>" +
+      "<td><span class='badge " + probeBadgeClass(probe) + "'>" + esc(probe) + "</span></td>" +
+      "<td class=num>" + esc(j.revive_attempts != null ? j.revive_attempts : "—") + "</td>" +
+      "<td class=trial-cell>" + esc(j.last_revive_attempt_utc || "—") + "</td>" +
+      "<td>" + (j.alerting ? "<span class='badge failed'>ALERTING</span>" : "<span class='badge done'>ok</span>") + "</td>";
+    body.appendChild(tr);
+  }
+  const banner = document.getElementById("watchdog-alert-banner");
+  if (anyAlerting) {
+    banner.style.display = "";
+    document.getElementById("watchdog-alert-detail").textContent =
+      alertingNames.join(", ") + " — see /api/alerts.json";
+  } else {
+    banner.style.display = "none";
+  }
+}
+
+function maybeNotify(alerts) {
+  if (!("Notification" in window)) return;
+  if (Notification.permission !== "granted") return;
+  const lastSeen = localStorage.getItem(ALERT_SEEN_KEY) || "";
+  let newest = lastSeen;
+  for (const a of alerts) {
+    if (a.utc > lastSeen) {
+      try {
+        new Notification("zig-watchdog: " + (a.job || "?"), {
+          body: (a.kind || "") + " — " + (a.detail || ""),
+          tag: "zig-watchdog-" + a.utc,
+        });
+      } catch (err) { /* notification API hiccup; non-fatal */ }
+      if (a.utc > newest) newest = a.utc;
+    }
+  }
+  if (newest && newest !== lastSeen) {
+    localStorage.setItem(ALERT_SEEN_KEY, newest);
+  }
+}
+
+async function refreshWatchdog() {
+  try {
+    const [sRes, aRes] = await Promise.all([
+      fetch("/api/watchdog-state.json", {cache: "no-store"}),
+      fetch("/api/alerts.json", {cache: "no-store"}),
+    ]);
+    const state = await sRes.json();
+    const alerts = await aRes.json();
+    renderWatchdog(state);
+    maybeNotify(alerts);
+  } catch (err) {
+    console.warn("watchdog refresh failed", err);
+  }
+}
+
+// Ask for browser-notification permission once, on first user gesture friendly
+// load (browsers no longer prompt without a gesture, but requesting is a
+// no-op when already granted/denied).
+if ("Notification" in window && Notification.permission === "default") {
+  try { Notification.requestPermission(); } catch (err) { /* old API */ }
+}
+
 refresh();
+refreshWatchdog();
 setInterval(refresh, REFRESH_MS);
+setInterval(refreshWatchdog, REFRESH_MS);
 </script>
 </body>
 </html>
@@ -661,6 +834,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send(200, body, "application/json; charset=utf-8")
             return
 
+        if path == "/api/watchdog-state.json":
+            wd_dir = cfg.get("watchdog_dir") or DEFAULT_WATCHDOG_DIR
+            state = read_watchdog_state(wd_dir)
+            body = json.dumps(state, indent=2).encode("utf-8")
+            self._send(200, body, "application/json; charset=utf-8")
+            return
+
+        if path == "/api/alerts.json":
+            wd_dir = cfg.get("watchdog_dir") or DEFAULT_WATCHDOG_DIR
+            alerts = read_watchdog_alerts(wd_dir)
+            body = json.dumps(alerts, indent=2).encode("utf-8")
+            self._send(200, body, "application/json; charset=utf-8")
+            return
+
         if path == "/api/log":
             log_path = cfg["log_path"] or _find_latest_log()
             if log_path and log_path.exists():
@@ -691,18 +878,26 @@ def make_server(
     port: int,
     results_dir: Path,
     log_path: Path | None,
+    watchdog_dir: Path | None = None,
 ) -> ThreadingHTTPServer:
     """Construct a ThreadingHTTPServer bound to (host, port) carrying
-    dashboard config (results_dir + optional fixed log_path) on the server
-    instance so the handler can read it per-request.
+    dashboard config (results_dir + optional fixed log_path + optional
+    watchdog state dir) on the server instance so the handler can read it
+    per-request.
 
     Pass `log_path=None` to auto-discover the most recent
     /tmp/bench-matrix-*.log on each request.
+
+    Pass `watchdog_dir=None` to use ~/.cache/zig-watchdog (the live default).
+    Tests should pass an explicit tmp dir.
     """
     server = ThreadingHTTPServer((host, port), DashboardHandler)
     server.dashboard_config = {  # type: ignore[attr-defined]
         "results_dir": Path(results_dir),
         "log_path": Path(log_path) if log_path is not None else None,
+        "watchdog_dir": Path(watchdog_dir)
+        if watchdog_dir is not None
+        else None,
     }
     return server
 
@@ -734,6 +929,14 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help=f"explicit driver-log path (default: auto-discover {DEFAULT_LOG_GLOB})",
     )
+    parser.add_argument(
+        "--watchdog-dir",
+        type=Path,
+        default=None,
+        help=(
+            f"zig-watchdog state/alerts dir (default: {DEFAULT_WATCHDOG_DIR})"
+        ),
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -746,13 +949,15 @@ def main(argv: list[str] | None = None) -> int:
         port=args.port,
         results_dir=args.results_dir,
         log_path=args.log_path,
+        watchdog_dir=args.watchdog_dir,
     )
     logging.info(
-        "bench-dashboard serving on %s:%d (results_dir=%s, log_path=%s)",
+        "bench-dashboard serving on %s:%d (results_dir=%s, log_path=%s, watchdog_dir=%s)",
         args.host,
         args.port,
         args.results_dir,
         args.log_path or f"auto:{DEFAULT_LOG_GLOB}",
+        args.watchdog_dir or DEFAULT_WATCHDOG_DIR,
     )
     try:
         server.serve_forever()

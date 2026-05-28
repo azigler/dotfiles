@@ -1,0 +1,16 @@
+[Unit]
+Description=zig-watchdog timer — fires zig-watchdog.service every 5 minutes
+Documentation=https://github.com/andrewzigler/dotfiles (bead dotfiles-olh)
+
+[Timer]
+# First tick 1 minute after boot, then every 5 minutes thereafter.
+OnBootSec=1min
+OnUnitActiveSec=5min
+# Persistent=true causes systemd to fire the timer on next start if it was
+# missed during a reboot — exactly the durability semantics we want for a
+# "make sure long-running jobs aren't silently dead" watchdog.
+Persistent=true
+Unit=zig-watchdog.service
+
+[Install]
+WantedBy=timers.target

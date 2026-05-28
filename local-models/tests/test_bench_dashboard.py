@@ -438,3 +438,184 @@ def test_api_healthz(live_server):
         assert resp.status == 200
         body = resp.read().decode("utf-8")
         assert body == "ok\n"
+
+
+# --- Tests: zig-watchdog SPA-integration endpoints + widget ---------------
+#
+# These tests exercise the dashboard's extension surface added for the
+# zig-watchdog (spec dotfiles-olh §4.6):
+#   - GET /api/watchdog-state.json → contents of ~/.cache/zig-watchdog/state.json
+#   - GET /api/alerts.json         → tail of ~/.cache/zig-watchdog/alerts.json
+#                                    as a JSON array (line-delimited input)
+#   - HTML index includes a `watchdog` widget that the SPA's JS hydrates.
+#
+# To avoid mutating the operator's real `~/.cache/zig-watchdog/`, we point the
+# dashboard at a tmp dir via the same dashboard_config mechanism it already
+# uses for results_dir + log_path.
+
+
+@pytest.fixture
+def watchdog_state_dir(tmp_path: Path) -> Path:
+    """Stand-in for ~/.cache/zig-watchdog/ with realistic state + alerts."""
+    d = tmp_path / "zig-watchdog-cache"
+    d.mkdir()
+    state = {
+        "last_tick_utc": "2026-05-28T03:00:00Z",
+        "jobs": {
+            "BenchMatrix": {
+                "last_probe": "STALL",
+                "last_probe_utc": "2026-05-28T03:00:00Z",
+                "last_revive_attempt_utc": None,
+                "revive_attempts": 0,
+                "alerting": False,
+            },
+            "HermesGateway": {
+                "last_probe": "CRASH",
+                "last_probe_utc": "2026-05-28T03:00:00Z",
+                "last_revive_attempt_utc": "2026-05-28T03:00:01Z",
+                "revive_attempts": 3,
+                "alerting": True,
+            },
+        },
+    }
+    (d / "state.json").write_text(json.dumps(state, indent=2))
+    # JSON-lines alerts: two entries
+    alert_lines = [
+        json.dumps(
+            {
+                "utc": "2026-05-28T03:05:00Z",
+                "job": "HermesGateway",
+                "kind": "crash-loop-detected",
+                "detail": "task t_360fa078 crashed 5x in 5min",
+                "auto_action": "blocked",
+            }
+        ),
+        json.dumps(
+            {
+                "utc": "2026-05-28T03:00:00Z",
+                "job": "BenchMatrix",
+                "kind": "stall-detected",
+                "detail": "aborted at qwen3-coder-ollama",
+                "auto_action": "restarted",
+            }
+        ),
+    ]
+    (d / "alerts.json").write_text("\n".join(alert_lines) + "\n")
+    return d
+
+
+@pytest.fixture
+def live_server_with_watchdog(
+    dashboard, results_dir_two_done, driver_log_file, watchdog_state_dir
+):
+    """Like live_server, but additionally pointed at a watchdog cache dir."""
+    port = _free_port()
+    server = dashboard.make_server(
+        host="127.0.0.1",
+        port=port,
+        results_dir=results_dir_two_done,
+        log_path=driver_log_file,
+        watchdog_dir=watchdog_state_dir,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    for _ in range(50):
+        try:
+            urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/healthz", timeout=0.1
+            )
+            break
+        except (urllib.error.URLError, ConnectionRefusedError):
+            time.sleep(0.02)
+    try:
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_api_watchdog_state_returns_json(live_server_with_watchdog):
+    """TEST: /api/watchdog-state.json returns the watchdog state.json verbatim."""
+    with urllib.request.urlopen(
+        f"{live_server_with_watchdog}/api/watchdog-state.json", timeout=2
+    ) as resp:
+        assert resp.status == 200
+        ctype = resp.headers.get("Content-Type", "")
+        assert "application/json" in ctype
+        data = json.loads(resp.read().decode("utf-8"))
+        assert "jobs" in data
+        assert "HermesGateway" in data["jobs"]
+        assert data["jobs"]["HermesGateway"]["alerting"] is True
+
+
+def test_api_alerts_returns_array(live_server_with_watchdog):
+    """TEST: /api/alerts.json returns a JSON array (last 100 entries)."""
+    with urllib.request.urlopen(
+        f"{live_server_with_watchdog}/api/alerts.json", timeout=2
+    ) as resp:
+        assert resp.status == 200
+        ctype = resp.headers.get("Content-Type", "")
+        assert "application/json" in ctype
+        arr = json.loads(resp.read().decode("utf-8"))
+        assert isinstance(arr, list)
+        assert len(arr) == 2
+        assert {a["job"] for a in arr} == {"HermesGateway", "BenchMatrix"}
+
+
+def test_api_alerts_when_missing_returns_empty_array(
+    dashboard, results_dir_two_done, driver_log_file, tmp_path
+):
+    """TEST: /api/alerts.json returns [] when alerts.json doesn't exist yet."""
+    empty_dir = tmp_path / "empty-watchdog"
+    empty_dir.mkdir()
+    port = _free_port()
+    server = dashboard.make_server(
+        host="127.0.0.1",
+        port=port,
+        results_dir=results_dir_two_done,
+        log_path=driver_log_file,
+        watchdog_dir=empty_dir,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    for _ in range(50):
+        try:
+            urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/healthz", timeout=0.1
+            )
+            break
+        except (urllib.error.URLError, ConnectionRefusedError):
+            time.sleep(0.02)
+    try:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/api/alerts.json", timeout=2
+        ) as resp:
+            arr = json.loads(resp.read().decode("utf-8"))
+            assert arr == []
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/api/watchdog-state.json", timeout=2
+        ) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            # Missing state.json → minimal shell that the UI can still render
+            assert "jobs" in data
+            assert data["jobs"] == {}
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_api_html_includes_watchdog_widget(live_server_with_watchdog):
+    """TEST: HTML index includes a Watchdog widget the SPA's JS can hydrate."""
+    with urllib.request.urlopen(
+        f"{live_server_with_watchdog}/", timeout=2
+    ) as resp:
+        body = resp.read().decode("utf-8")
+        # Widget marker — the JS hydrates this container.
+        assert "watchdog" in body.lower()
+        # JS uses /api/alerts.json + /api/watchdog-state.json
+        assert "/api/alerts.json" in body
+        assert "/api/watchdog-state.json" in body
+        # Notification API plumbing
+        assert "Notification" in body
