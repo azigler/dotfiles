@@ -99,8 +99,11 @@ else
 fi
 
 # ---- 6. Functional completion probe (catches hang-after-handshake) ----
-# Use the smallest fastest model that's likely already warm — qwen3-coder via Ollama (Ollama keeps it warm 24h)
-if probe_completion "$OLLAMA_URL" "qwen3-coder:30b" 30; then
+# Use the smallest fastest model that's likely already warm — qwen3-coder via Ollama (Ollama keeps it warm 24h).
+# Timeout 90s to accommodate cold-load (the 30b model takes ~60-70s to load from disk into Metal on pico
+# after an Ollama restart; subsequent requests return in <2s once warm). Empirically (2026-05-30): the
+# previous 30s timeout was too tight after Ollama restarts, falsely flagging the stack as wedged.
+if probe_completion "$OLLAMA_URL" "qwen3-coder:30b" 90; then
     green "✓ Qwen3 Ollama completion roundtrip OK (proves stack actually serves, not just handshakes)"
 else
     crit "✗ Qwen3 Ollama completion hung or failed — stack may be wedged even if handshake works"
