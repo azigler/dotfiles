@@ -513,10 +513,29 @@ for cand in "${selected_candidates[@]}"; do
   backend="$(candidate_backend "$cand")"
   ollama_tag="$(candidate_ollama_tag "$cand")"
 
-  # --- Inter-cohort cleanup (OQ-05 — explicit ollama stop) ---
-  if [[ -n "$PREV_OLLAMA_TAG" && "$PREV_BACKEND" == "ollama" ]]; then
-    echo "==> stopping previous Ollama candidate ($PREV_OLLAMA_TAG) for clean eviction..."
-    ollama stop "$PREV_OLLAMA_TAG" 2>/dev/null || true
+  # --- Inter-cohort cleanup (OQ-05 + ezu extension — definitive eviction via server restart) ---
+  # ALWAYS evict the prior backend's resident model at EVERY cohort transition,
+  # regardless of what the next backend is. Per local-coding-models-ezu
+  # (2026-05-30): the previous "only ollama stop if same backend" rule left
+  # the prior model resident during cross-backend transitions (MLX→Ollama /
+  # Ollama→MLX), violating G3 memory hygiene and causing OOM wedges on pico's
+  # ~30GB Metal cliff.
+  #
+  # Why kill+restart instead of `ollama stop` / `mlx_lm.server` API:
+  # - mlx_lm.server has NO unload API (auto-evict only on new-model request)
+  # - `ollama stop $tag` and `POST /api/generate {keep_alive:0}` both return
+  #   success but empirically (2026-05-30) leave the model in /api/ps with
+  #   24 GB VRAM still committed. Eviction is async / unreliable.
+  # - Server restart is the only definitive path; cost ~5s + the next cohort's
+  #   first-request cold-load (~30-60s for 30b models, sub-second for small).
+  if [[ "$PREV_BACKEND" == "ollama" ]]; then
+    echo "==> restarting Ollama on pico to evict prior model ($PREV_OLLAMA_TAG)..."
+    ssh pico 'pkill -9 -f "ollama serve" 2>/dev/null; sleep 2; cd /opt/homebrew/var && nohup env OLLAMA_HOST=100.72.47.4:11434 OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=24h OLLAMA_CONTEXT_LENGTH=131072 OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=2 /opt/homebrew/opt/ollama/bin/ollama serve >> /opt/homebrew/var/log/ollama.log 2>&1 & disown' 2>/dev/null || true
+    sleep 6
+  elif [[ "$PREV_BACKEND" == "mlx" ]]; then
+    echo "==> restarting mlx_lm.server on pico to evict prior MLX model..."
+    ssh pico 'pkill -9 -f mlx_lm.server 2>/dev/null; sleep 2; cd /Users/pico && nohup /Users/pico/.local/bin/mlx_lm.server --host 100.72.47.4 --port 8081 --log-level INFO >> /tmp/mlx.log 2>&1 & disown' 2>/dev/null || true
+    sleep 6
   fi
 
   # --- Healthcheck BETWEEN cohorts (Wave 2 / T-W2-H-1, T-W2-H-2) ---
@@ -526,10 +545,8 @@ for cand in "${selected_candidates[@]}"; do
   if [[ "$COHORT_IDX" -gt 1 ]]; then
     if ! run_healthcheck "before-cohort-$cand"; then
       # Abort cleanly with a clear failure marker (already written by
-      # run_healthcheck). Stop the final Ollama if any, then exit.
-      if [[ -n "$PREV_OLLAMA_TAG" && "$PREV_BACKEND" == "ollama" ]]; then
-        ollama stop "$PREV_OLLAMA_TAG" 2>/dev/null || true
-      fi
+      # run_healthcheck). The inter-cohort eviction above already ran;
+      # nothing more to clean up here. Exit.
       exit 2
     fi
   fi
@@ -583,10 +600,15 @@ for cand in "${selected_candidates[@]}"; do
   PREV_OLLAMA_TAG="$ollama_tag"
 done
 
-# Final ollama stop for the last cohort if needed.
-if [[ -n "$PREV_OLLAMA_TAG" && "$PREV_BACKEND" == "ollama" ]]; then
-  echo "==> final Ollama stop ($PREV_OLLAMA_TAG) for clean shutdown..."
-  ollama stop "$PREV_OLLAMA_TAG" 2>/dev/null || true
+# Final backend cleanup (matrix exit): leave pico in a known-clean state.
+# Per ezu: use server-restart for definitive eviction, not `ollama stop` (which
+# is async/unreliable per empirical 2026-05-30 observation).
+if [[ "$PREV_BACKEND" == "ollama" ]]; then
+  echo "==> final Ollama restart on pico for clean shutdown (last cohort: $PREV_OLLAMA_TAG)..."
+  ssh pico 'pkill -9 -f "ollama serve" 2>/dev/null; sleep 2; cd /opt/homebrew/var && nohup env OLLAMA_HOST=100.72.47.4:11434 OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=24h OLLAMA_CONTEXT_LENGTH=131072 OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=2 /opt/homebrew/opt/ollama/bin/ollama serve >> /opt/homebrew/var/log/ollama.log 2>&1 & disown' 2>/dev/null || true
+elif [[ "$PREV_BACKEND" == "mlx" ]]; then
+  echo "==> final mlx_lm.server restart on pico for clean shutdown..."
+  ssh pico 'pkill -9 -f mlx_lm.server 2>/dev/null; sleep 2; cd /Users/pico && nohup /Users/pico/.local/bin/mlx_lm.server --host 100.72.47.4 --port 8081 --log-level INFO >> /tmp/mlx.log 2>&1 & disown' 2>/dev/null || true
 fi
 
 # --- Persist state ---
