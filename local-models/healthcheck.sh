@@ -109,6 +109,17 @@ else
     crit "✗ Qwen3 Ollama completion hung or failed — stack may be wedged even if handshake works"
 fi
 
+# ---- 6b. CCR end-to-end completion probe (catches CCR-layer wedges that the
+# direct-to-pico probe above misses). Empirically (2026-05-31): matrix v2's
+# 270 trials all returned CCR 500 because Ollama-via-CCR was broken even
+# though Ollama-direct was fine. Healthcheck previously only handshaked CCR
+# at /v1/models; missed the broken POST path entirely. NEVER AGAIN.
+if probe_completion "$CCR_URL" "claude-haiku-4-5" 90; then
+    green "✓ CCR completion roundtrip OK (proves bench-runner's actual path works, not just CCR handshake)"
+else
+    crit "✗ CCR completion failed — bench would receive 500s. THIS IS THE LAYER BENCH USES."
+fi
+
 # ---- 7. Pico disk ----
 disk_pct=$(ssh -o ConnectTimeout=5 pico 'df -h ~ | tail -1 | awk "{print \$5}" | tr -d %' 2>/dev/null)
 if [[ -n "$disk_pct" ]]; then

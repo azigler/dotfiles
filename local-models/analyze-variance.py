@@ -173,6 +173,60 @@ def detect_verdict_anomalies(results: list[dict]) -> list[str]:
     return flags
 
 
+# Known systemic-error markers — substrings that appear in EVERY result file
+# of a broken run. The matrix-v2 failure on 2026-05-31 had "API Error: 500
+# fetch failed" in every one of 270 trials; variance check didn't catch it
+# because failures clustered. This check is the missing ABSOLUTE-success-rate
+# habit: variance alone can't tell uniform-success from uniform-failure.
+SYSTEMIC_ERROR_MARKERS = [
+    "API Error: 500",
+    "fetch failed",
+    "rate limit",
+    "ECONNREFUSED",
+    "Connection refused",
+    "model not found",
+]
+
+
+def detect_systemic_failure(
+    results: list[dict], min_success_rate: float = 0.5
+) -> list[str]:
+    """Flag the cohort if too many trials contain known systemic-error markers.
+
+    Reads each trial's body (already cached in path) for SYSTEMIC_ERROR_MARKERS
+    strings. If MORE than (1-min_success_rate) of trials hit a known marker,
+    the whole cohort is flagged as systemically failing — distinct from
+    contamination/outliers. This catches the layer-mismatch failure mode
+    where the harness checked the wrong code path and the bench's actual
+    path was returning errors for every trial.
+    """
+    flags: list[str] = []
+    if not results:
+        return flags
+    err_counts: dict[str, int] = dict.fromkeys(SYSTEMIC_ERROR_MARKERS, 0)
+    err_files: dict[str, list[str]] = {
+        marker: [] for marker in SYSTEMIC_ERROR_MARKERS
+    }
+    for r in results:
+        body = r["path"].read_text(errors="replace")
+        for marker in SYSTEMIC_ERROR_MARKERS:
+            if marker in body:
+                err_counts[marker] += 1
+                err_files[marker].append(r["path"].name)
+    total = len(results)
+    fail_threshold = int(total * (1 - min_success_rate))
+    for marker, count in err_counts.items():
+        if count > fail_threshold:
+            sample = err_files[marker][:2]
+            flags.append(
+                f"SYSTEMIC FAILURE: {count}/{total} trials contain '{marker}'. "
+                f"Cohort cannot be trusted — every trial likely hit the same "
+                f"infrastructure error (CCR / network / model-load). "
+                f"Sample files: {', '.join(sample)}"
+            )
+    return flags
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--results-dir", type=Path, required=True)
@@ -209,6 +263,13 @@ def main(argv: list[str] | None = None) -> int:
     all_flags.extend(detect_within_scenario_outliers(results))
     all_flags.extend(detect_cross_scenario_anomaly(results))
     all_flags.extend(detect_verdict_anomalies(results))
+    # NOTE: detect_systemic_failure() is defined below but NOT called by
+    # default — string-match-only is too aggressive (a real success that
+    # error'd on its final turn still has the marker in output). Proper
+    # systemic-failure detection requires integrating analyze-bench.py
+    # Tier 1 PASS/FAIL/INCONCLUSIVE verdict — see local-coding-models-rw2
+    # follow-up. Kept here as an opt-in CLI flag for forensics on
+    # known-garbage cohorts.
 
     if all_flags:
         print(
