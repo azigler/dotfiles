@@ -40,6 +40,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Provides safe_pkill_remote / safe_pgrep_remote that confirm absence after kill.
 # shellcheck source=/home/ubuntu/dotfiles/local-models/lib/safe_remote.sh
 source "$SCRIPT_DIR/lib/safe_remote.sh"
+
+# Source the pico exclusive-access lock convention (MEMORY: feedback-silent-success-pattern #3).
+# Provides pico_acquire / pico_release / pico_check. Bench-matrix takes the
+# lock on entry and releases on exit so concurrent pico consumers (autonovel,
+# LSRA, dev claude calls routed local) cannot silently contaminate results.
+# shellcheck source=/home/ubuntu/dotfiles/local-models/lib/pico_lock.sh
+source "$SCRIPT_DIR/lib/pico_lock.sh"
+PICO_LOCK_OWNER="bench-matrix"
 DOTFILES_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # --- Defaults ---
@@ -462,6 +470,20 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   done
   exit 0
 fi
+
+# --- Pico exclusive-access lock (MEMORY: feedback-silent-success-pattern #3) ---
+# Estimate upper-bound duration: candidates × scenarios × trials × per-trial cap.
+# This is generous (real avg is ~3 min/trial); the lock auto-expires so a
+# crashed matrix doesn't block pico forever.
+PICO_LOCK_DURATION=$(( ${#selected_candidates[@]} * ${#selected_scenarios[@]} * TRIALS * TIMEOUT_MIN * 60 ))
+echo "==> acquiring pico exclusive-access lock (duration ${PICO_LOCK_DURATION}s upper bound)..."
+if ! pico_acquire "$PICO_LOCK_OWNER" "$PICO_LOCK_DURATION" \
+    "Phase 3 bench matrix: ${#selected_candidates[@]} candidates × ${#selected_scenarios[@]} scenarios × $TRIALS trials"; then
+  echo "ABORT: another consumer holds the pico lock. Either wait for them or `bash $SCRIPT_DIR/lib/pico_lock.sh check`." >&2
+  exit 4
+fi
+# Release on ANY exit (normal completion, error, SIGINT, etc.)
+trap 'pico_release "$PICO_LOCK_OWNER" 2>/dev/null || true' EXIT
 
 # --- Healthcheck helper (Wave 2: invoked at start AND between cohorts) ---
 # Args: <phase-label> (e.g., "start-of-run" or "before $cand cohort").
