@@ -530,11 +530,11 @@ for cand in "${selected_candidates[@]}"; do
   #   first-request cold-load (~30-60s for 30b models, sub-second for small).
   if [[ "$PREV_BACKEND" == "ollama" ]]; then
     echo "==> restarting Ollama on pico to evict prior model ($PREV_OLLAMA_TAG)..."
-    ssh pico 'pkill -9 -f "ollama serve" 2>/dev/null; sleep 2; cd /opt/homebrew/var && nohup env OLLAMA_HOST=100.72.47.4:11434 OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=24h OLLAMA_CONTEXT_LENGTH=131072 OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=2 /opt/homebrew/opt/ollama/bin/ollama serve >> /opt/homebrew/var/log/ollama.log 2>&1 & disown' 2>/dev/null || true
+    ssh pico 'pkill -9 -f "ollama" 2>/dev/null; sleep 2; cd /opt/homebrew/var && nohup env OLLAMA_HOST=100.72.47.4:11434 OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=24h OLLAMA_CONTEXT_LENGTH=131072 OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=2 /opt/homebrew/opt/ollama/bin/ollama serve >> /opt/homebrew/var/log/ollama.log 2>&1 & disown' 2>/dev/null || true
     sleep 6
   elif [[ "$PREV_BACKEND" == "mlx" ]]; then
     echo "==> restarting mlx_lm.server on pico to evict prior MLX model..."
-    ssh pico 'pkill -9 -f mlx_lm.server 2>/dev/null; sleep 2; cd /Users/pico && nohup /Users/pico/.local/bin/mlx_lm.server --host 100.72.47.4 --port 8081 --log-level INFO >> /tmp/mlx.log 2>&1 & disown' 2>/dev/null || true
+    ssh pico 'pkill -9 -f "mlx" 2>/dev/null; sleep 2; cd /Users/pico && nohup /Users/pico/.local/bin/mlx_lm.server --host 100.72.47.4 --port 8081 --log-level INFO >> /tmp/mlx.log 2>&1 & disown' 2>/dev/null || true
     sleep 6
   fi
 
@@ -605,10 +605,10 @@ done
 # is async/unreliable per empirical 2026-05-30 observation).
 if [[ "$PREV_BACKEND" == "ollama" ]]; then
   echo "==> final Ollama restart on pico for clean shutdown (last cohort: $PREV_OLLAMA_TAG)..."
-  ssh pico 'pkill -9 -f "ollama serve" 2>/dev/null; sleep 2; cd /opt/homebrew/var && nohup env OLLAMA_HOST=100.72.47.4:11434 OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=24h OLLAMA_CONTEXT_LENGTH=131072 OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=2 /opt/homebrew/opt/ollama/bin/ollama serve >> /opt/homebrew/var/log/ollama.log 2>&1 & disown' 2>/dev/null || true
+  ssh pico 'pkill -9 -f "ollama" 2>/dev/null; sleep 2; cd /opt/homebrew/var && nohup env OLLAMA_HOST=100.72.47.4:11434 OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=24h OLLAMA_CONTEXT_LENGTH=131072 OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=2 /opt/homebrew/opt/ollama/bin/ollama serve >> /opt/homebrew/var/log/ollama.log 2>&1 & disown' 2>/dev/null || true
 elif [[ "$PREV_BACKEND" == "mlx" ]]; then
   echo "==> final mlx_lm.server restart on pico for clean shutdown..."
-  ssh pico 'pkill -9 -f mlx_lm.server 2>/dev/null; sleep 2; cd /Users/pico && nohup /Users/pico/.local/bin/mlx_lm.server --host 100.72.47.4 --port 8081 --log-level INFO >> /tmp/mlx.log 2>&1 & disown' 2>/dev/null || true
+  ssh pico 'pkill -9 -f "mlx" 2>/dev/null; sleep 2; cd /Users/pico && nohup /Users/pico/.local/bin/mlx_lm.server --host 100.72.47.4 --port 8081 --log-level INFO >> /tmp/mlx.log 2>&1 & disown' 2>/dev/null || true
 fi
 
 # --- Persist state ---
