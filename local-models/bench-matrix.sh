@@ -35,6 +35,11 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Source the verify-the-negation harness (MEMORY: feedback-silent-success-pattern #1).
+# Provides safe_pkill_remote / safe_pgrep_remote that confirm absence after kill.
+# shellcheck source=/home/ubuntu/dotfiles/local-models/lib/safe_remote.sh
+source "$SCRIPT_DIR/lib/safe_remote.sh"
 DOTFILES_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # --- Defaults ---
@@ -529,12 +534,20 @@ for cand in "${selected_candidates[@]}"; do
   # - Server restart is the only definitive path; cost ~5s + the next cohort's
   #   first-request cold-load (~30-60s for 30b models, sub-second for small).
   if [[ "$PREV_BACKEND" == "ollama" ]]; then
-    echo "==> restarting Ollama on pico to evict prior model ($PREV_OLLAMA_TAG)..."
-    ssh pico 'pkill -9 -f "ollama" 2>/dev/null; sleep 2; cd /opt/homebrew/var && nohup env OLLAMA_HOST=100.72.47.4:11434 OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=24h OLLAMA_CONTEXT_LENGTH=131072 OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=2 /opt/homebrew/opt/ollama/bin/ollama serve >> /opt/homebrew/var/log/ollama.log 2>&1 & disown' 2>/dev/null || true
+    echo "==> evicting prior Ollama model ($PREV_OLLAMA_TAG) — kill+verify, then restart..."
+    safe_pkill_remote pico "ollama" || {
+      echo "ABORT: failed to fully evict ollama processes from pico" >&2
+      exit 3
+    }
+    ssh pico 'cd /opt/homebrew/var && nohup env OLLAMA_HOST=100.72.47.4:11434 OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=24h OLLAMA_CONTEXT_LENGTH=131072 OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=2 /opt/homebrew/opt/ollama/bin/ollama serve >> /opt/homebrew/var/log/ollama.log 2>&1 & disown' 2>/dev/null || true
     sleep 6
   elif [[ "$PREV_BACKEND" == "mlx" ]]; then
-    echo "==> restarting mlx_lm.server on pico to evict prior MLX model..."
-    ssh pico 'pkill -9 -f "mlx" 2>/dev/null; sleep 2; cd /Users/pico && nohup /Users/pico/.local/bin/mlx_lm.server --host 100.72.47.4 --port 8081 --log-level INFO >> /tmp/mlx.log 2>&1 & disown' 2>/dev/null || true
+    echo "==> evicting prior MLX model — kill+verify, then restart mlx_lm.server..."
+    safe_pkill_remote pico "mlx" || {
+      echo "ABORT: failed to fully evict mlx processes from pico" >&2
+      exit 3
+    }
+    ssh pico 'cd /Users/pico && nohup /Users/pico/.local/bin/mlx_lm.server --host 100.72.47.4 --port 8081 --log-level INFO >> /tmp/mlx.log 2>&1 & disown' 2>/dev/null || true
     sleep 6
   fi
 
@@ -596,6 +609,16 @@ for cand in "${selected_candidates[@]}"; do
     completed_cells+=("$key")
   done
 
+  # --- Cohort-end variance check (harness: silent-success habit #2) ---
+  # MEMORY: feedback-silent-success-pattern + local-coding-models-u3y.
+  # Catches contamination BEFORE the operator scrolls past it.
+  # Non-strict for now (advisory); flip --strict to abort the run on flag
+  # once we trust the thresholds.
+  echo "==> variance check for cohort $cand..."
+  python3 "$SCRIPT_DIR/analyze-variance.py" \
+    --results-dir "$RESULTS_DIR" \
+    --cohort "$cand" || true
+
   PREV_BACKEND="$backend"
   PREV_OLLAMA_TAG="$ollama_tag"
 done
@@ -604,11 +627,13 @@ done
 # Per ezu: use server-restart for definitive eviction, not `ollama stop` (which
 # is async/unreliable per empirical 2026-05-30 observation).
 if [[ "$PREV_BACKEND" == "ollama" ]]; then
-  echo "==> final Ollama restart on pico for clean shutdown (last cohort: $PREV_OLLAMA_TAG)..."
-  ssh pico 'pkill -9 -f "ollama" 2>/dev/null; sleep 2; cd /opt/homebrew/var && nohup env OLLAMA_HOST=100.72.47.4:11434 OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=24h OLLAMA_CONTEXT_LENGTH=131072 OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=2 /opt/homebrew/opt/ollama/bin/ollama serve >> /opt/homebrew/var/log/ollama.log 2>&1 & disown' 2>/dev/null || true
+  echo "==> final Ollama eviction on pico (last cohort: $PREV_OLLAMA_TAG)..."
+  safe_pkill_remote pico "ollama" || echo "WARN: final ollama eviction had survivors (matrix run still complete)" >&2
+  ssh pico 'cd /opt/homebrew/var && nohup env OLLAMA_HOST=100.72.47.4:11434 OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=24h OLLAMA_CONTEXT_LENGTH=131072 OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=2 /opt/homebrew/opt/ollama/bin/ollama serve >> /opt/homebrew/var/log/ollama.log 2>&1 & disown' 2>/dev/null || true
 elif [[ "$PREV_BACKEND" == "mlx" ]]; then
-  echo "==> final mlx_lm.server restart on pico for clean shutdown..."
-  ssh pico 'pkill -9 -f "mlx" 2>/dev/null; sleep 2; cd /Users/pico && nohup /Users/pico/.local/bin/mlx_lm.server --host 100.72.47.4 --port 8081 --log-level INFO >> /tmp/mlx.log 2>&1 & disown' 2>/dev/null || true
+  echo "==> final mlx_lm.server eviction on pico..."
+  safe_pkill_remote pico "mlx" || echo "WARN: final mlx eviction had survivors (matrix run still complete)" >&2
+  ssh pico 'cd /Users/pico && nohup /Users/pico/.local/bin/mlx_lm.server --host 100.72.47.4 --port 8081 --log-level INFO >> /tmp/mlx.log 2>&1 & disown' 2>/dev/null || true
 fi
 
 # --- Persist state ---
