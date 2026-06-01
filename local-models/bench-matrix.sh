@@ -97,6 +97,7 @@ ROSTER=(
   "devstral:mlx:"
   "deepseek-coder-v2-lite-ollama:ollama:deepseek-coder-v2:16b"
   "laguna-xs2:ollama:laguna-xs.2:latest"
+  "minicpm4.1:ollama:openbmb/minicpm4.1:latest"
   "deepseek-r1-14b:ollama:deepseek-r1:14b"
   "glm-4.5-air:mlx:"
   "kimi-linear:mlx:"
@@ -126,6 +127,7 @@ ALIAS_MAP=(
   "devstral=devstral"
   "deepseek-coder-v2-lite-ollama=deepseek-coder-v2-lite-ollama"
   "laguna-xs2=laguna-xs2"
+  "minicpm4.1=minicpm4.1"
   "deepseek-r1-14b=deepseek-r1-14b"
   "glm-4.5-air=glm-4.5-air"
   "kimi-linear=kimi-linear"
@@ -564,13 +566,25 @@ for cand in "${selected_candidates[@]}"; do
     ssh pico 'cd /opt/homebrew/var && nohup env OLLAMA_HOST=100.72.47.4:11434 OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=24h OLLAMA_CONTEXT_LENGTH=131072 OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=2 /opt/homebrew/opt/ollama/bin/ollama serve >> /opt/homebrew/var/log/ollama.log 2>&1 & disown' 2>/dev/null || true
     sleep 6
   elif [[ "$PREV_BACKEND" == "mlx" ]]; then
-    echo "==> evicting prior MLX model — kill+verify, then restart mlx_lm.server..."
-    safe_pkill_remote pico "mlx" || {
-      echo "ABORT: failed to fully evict mlx processes from pico" >&2
-      exit 3
-    }
-    ssh pico 'cd /Users/pico && nohup /Users/pico/.local/bin/mlx_lm.server --host 100.72.47.4 --port 8081 --log-level INFO >> /tmp/mlx.log 2>&1 & disown' 2>/dev/null || true
-    sleep 6
+    # llama-swap (the supervisor on pico:8090, which the bench's pico-mlx route
+    # actually targets via CCR) handles MLX model switching natively: when the
+    # next cohort's first request arrives for a different MLX model, llama-swap
+    # unloads the prior model and loads the new one. There is no manual eviction
+    # required on the bench side.
+    #
+    # Earlier code here did `safe_pkill_remote pico "mlx" + restart mlx_lm.server
+    # on port 8081` — that's leftover from the pre-llama-swap setup where the
+    # bench routed direct to mlx_lm.server. With llama-swap fronting MLX, the
+    # pkill fights llama-swap's own respawn discipline: kill the child mlx_lm
+    # process → llama-swap respawns it → pgrep sees a new PID and reports it as
+    # a survivor → ABORT.  Empirically caught 2026-06-01 (matrix v3 aborted at
+    # the trinity→qwen3 cohort transition).
+    #
+    # The fix is to do nothing here for MLX. llama-swap is the right abstraction
+    # for inter-cohort eviction; trust it. Pure: cross-cohort first-request
+    # latency includes the load-new + unload-old cost (~30-60s for 30B models),
+    # which the per-cell 45-min cap absorbs comfortably.
+    echo "==> MLX cohort transition: trusting llama-swap to swap models on next request (no manual eviction)..."
   fi
 
   # --- Healthcheck BETWEEN cohorts (Wave 2 / T-W2-H-1, T-W2-H-2) ---

@@ -94,8 +94,24 @@ _OUTPUT_CONTAINS_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Matches: File [still] (has|contains) [the] `NEEDLE` [tail words]
+# Examples this catches:
+#   File still has the `if __name__ == "__main__":` guard
+#   File contains `def sum_two(`
+#   File has the `import json` line
+# The needle is read from backticks; tail prose after the closing backtick is
+# ignored. This is the catch-all for NL-phrased "file contains X" criteria that
+# don't fit the structured `grep -c 'PAT' PATH equals N` shape.
+_FILE_CONTAINS_RE = re.compile(
+    r"^file\s+(?:still\s+)?(?:has|contains)\b.*?`(?P<needle>[^`]+)`",
+    re.IGNORECASE,
+)
+
 # FILECONTENTS marker emitted by the test conftest sandbox snapshots:
 #   FILECONTENTS:/tmp/foo/bar.py:def sum_two(): pass
+# The body uses literal `\n` substrings (single-line transport across the
+# pipeline). _extract_filecontents_map converts them to real newlines so
+# line-anchored greps (^def …) work as authors expect.
 _FILECONTENTS_RE = re.compile(
     r"^FILECONTENTS:(?P<path>[^:]+):(?P<body>.*)$",
 )
@@ -119,12 +135,17 @@ def _extract_trial_section(trial_text: str, heading: str) -> str:
 
 
 def _extract_filecontents_map(sandbox_state: str) -> dict[str, str]:
-    """Read FILECONTENTS:<path>:<body> lines into a {path: body} map."""
+    """Read FILECONTENTS:<path>:<body> lines into a {path: body} map.
+
+    The body is transported single-line with literal ``\\n`` substrings;
+    convert those to real newlines so line-anchored greps (``^def foo``) work
+    against multi-line file contents the same way they would on disk.
+    """
     result: dict[str, str] = {}
     for line in sandbox_state.splitlines():
         m = _FILECONTENTS_RE.match(line.strip())
         if m:
-            result[m.group("path")] = m.group("body")
+            result[m.group("path")] = m.group("body").replace("\\n", "\n")
     return result
 
 
@@ -174,6 +195,22 @@ def _check_grep_count(
         return None
     count = sum(1 for line in body.splitlines() if matcher.search(line))
     return count == expected
+
+
+def _check_file_contains(
+    needle: str, contents_map: dict[str, str]
+) -> bool | None:
+    """True if any captured file's contents contain ``needle`` as a substring.
+
+    Used for NL-phrased "File still has `X`" / "File contains `X`" criteria
+    where the scenario doesn't specify which file — answers "did the model
+    preserve/produce X anywhere in the captured sandbox?".
+
+    Returns None when the contents map is empty (couldn't resolve any file).
+    """
+    if not contents_map:
+        return None
+    return any(needle in body for body in contents_map.values())
 
 
 def _check_file_exists(
@@ -258,6 +295,11 @@ def grep_runner(*, scenario_path: Path, trial_path: Path) -> str:
             res = _check_output_contains(
                 oc.group("rest"), claude_output, negate
             )
+            results.append(res)
+            continue
+        fc = _FILE_CONTAINS_RE.search(bullet)
+        if fc:
+            res = _check_file_contains(fc.group("needle"), contents_map)
             results.append(res)
             continue
         # No structural match — fall back to "does this bullet reference a
