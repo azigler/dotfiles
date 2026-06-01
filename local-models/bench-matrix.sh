@@ -631,15 +631,18 @@ for cand in "${selected_candidates[@]}"; do
     completed_cells+=("$key")
   done
 
-  # --- Cohort-end variance check (harness: silent-success habit #2) ---
-  # MEMORY: feedback-silent-success-pattern + local-coding-models-u3y.
-  # Catches contamination BEFORE the operator scrolls past it.
+  # --- Cohort-end variance + Tier 1 PASS-rate check ---
+  # MEMORY: feedback-silent-success-pattern habits #2 + #4.
+  # Beads: local-coding-models-u3y (variance), local-coding-models-rw2 (Tier 1
+  # PASS rate — the fourth habit that catches uniform-failure cohorts the
+  # variance check alone treats as "clean uniformity").
   # Non-strict for now (advisory); flip --strict to abort the run on flag
   # once we trust the thresholds.
-  echo "==> variance check for cohort $cand..."
+  echo "==> variance + PASS-rate check for cohort $cand..."
   python3 "$SCRIPT_DIR/analyze-variance.py" \
     --results-dir "$RESULTS_DIR" \
-    --cohort "$cand" || true
+    --cohort "$cand" \
+    --scenarios-dir "$SCENARIOS_DIR" || true
 
   PREV_BACKEND="$backend"
   PREV_OLLAMA_TAG="$ollama_tag"

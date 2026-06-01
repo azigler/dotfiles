@@ -1,24 +1,31 @@
 #!/usr/bin/env python3
-"""analyze-variance.py — cross-trial + cross-scenario variance check.
+"""analyze-variance.py — cross-trial + cross-scenario variance + PASS-rate check.
 
-Harness for the "compare across runs, not within one" discipline. Detects
-contamination/anomalies in bench-matrix.sh output by comparing wall times
-within a cohort. Catches the V1 trinity-mini failure mode (scenario 01 at
-685s while scenario 03 was 181s — 3.7x outlier, clearly contaminated).
+Harness for the "compare across runs, not within one" discipline PLUS the
+"absolute-success-rate" check (the missing fourth habit from
+feedback-silent-success-pattern). Detects contamination/anomalies in
+bench-matrix.sh output by combining wall-time variance with Tier 1
+PASS/FAIL/INCONCLUSIVE scoring from analyze-bench.py.
 
-Bead: local-coding-models-u3y follow-up.
-MEMORY: feedback-silent-success-pattern habit #2.
+Beads:
+  - local-coding-models-u3y follow-up (variance checks)
+  - local-coding-models-rw2 (PASS-rate check — closes the gap that let v2's
+    270 garbage trials pass the variance harness as "uniform = clean")
+MEMORY: feedback-silent-success-pattern habits #2 + #4.
 
 CLI:
     python3 analyze-variance.py --results-dir DIR --cohort CANDIDATE
     python3 analyze-variance.py --results-dir DIR --cohort CANDIDATE --strict
+    python3 analyze-variance.py --results-dir DIR --cohort CANDIDATE \
+        --scenarios-dir DIR [--min-pass-rate 0.30]
 
 Exit codes:
     0 = no anomalies detected
-    1 = anomalies detected (cohort likely contaminated); reasons on stderr
+    1 = anomalies detected (cohort likely contaminated OR systemic failure);
+        reasons on stderr
     2 = usage error / no results found
 
-Two checks:
+Three checks:
   1. Within-scenario trial variance: trials of the same scenario within the
      cohort should cluster. Flag any trial > 2x the median of the same
      (scenario, cohort). Three-trial median is robust to one outlier.
@@ -26,6 +33,10 @@ Two checks:
      usually fall within ~5x. Flag if (max_scenario_median /
      min_scenario_median) > 10x — strong signal that one scenario is being
      starved (memory pressure, network, contention).
+  3. (--scenarios-dir) Absolute PASS rate via Tier 1 grep-runner. Flag the
+     cohort if PASS-rate < min_pass_rate. Variance alone cannot tell uniform
+     success from uniform failure; this is the missing fourth habit. The
+     v2-garbage case had 0 PASS / 270 trials, all variance-clean.
 
 --strict makes anomaly cohorts exit non-zero so callers (bench-matrix.sh)
 can abort. Without --strict, it just reports.
@@ -34,10 +45,23 @@ can abort. Without --strict, it just reports.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import re
 import statistics
 import sys
 from pathlib import Path
+
+
+def _load_analyze_bench():
+    """Load analyze-bench.py via importlib (hyphen in filename blocks `import`)."""
+    sibling = Path(__file__).parent / "analyze-bench.py"
+    spec = importlib.util.spec_from_file_location("analyze_bench", sibling)
+    if spec is None or spec.loader is None:
+        return None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
 
 # Result file name shape:
 #   <scenario_base>-<candidate>-trial<N>-<UTCTS>.md
@@ -227,6 +251,76 @@ def detect_systemic_failure(
     return flags
 
 
+def detect_low_pass_rate(
+    results: list[dict],
+    scenarios_dir: Path,
+    min_pass_rate: float = 0.30,
+) -> list[str]:
+    """Flag the cohort if Tier 1 PASS rate falls below ``min_pass_rate``.
+
+    The missing fourth habit. Variance alone cannot tell uniform-success
+    from uniform-failure — matrix v2 was 270 trials of garbage that all
+    clustered to the same wall time and all reported verdict_tag=OK.
+    Tier 1 (analyze-bench.score_trial) deterministically scores each
+    trial as PASS / FAIL / INCONCLUSIVE by parsing the scenario's
+    ``## Pass criteria`` block.
+
+    If fewer than ``min_pass_rate`` of trials PASS, flag the cohort as
+    systemically failing — distinct from the variance/outlier flags.
+
+    A threshold of 0.30 means at least 9/30 trials must PASS to clear.
+    v2-garbage scored 0/270 PASS; even threshold 1% catches it. A clean
+    cohort typically scores 0.7-1.0 across scenarios it can handle.
+    INCONCLUSIVE trials count as neither PASS nor FAIL — the rate is
+    PASS_count / total_count.
+    """
+    flags: list[str] = []
+    if not results:
+        return flags
+    bench = _load_analyze_bench()
+    if bench is None:
+        flags.append(
+            "PASS-RATE CHECK SKIPPED: could not import analyze-bench.py "
+            "(file missing or unreadable). Variance flags alone CANNOT "
+            "distinguish uniform success from uniform failure — re-run with "
+            "analyze-bench.py reachable."
+        )
+        return flags
+    verdicts: dict[str, int] = {"PASS": 0, "FAIL": 0, "INCONCLUSIVE": 0}
+    per_trial: list[tuple[str, str]] = []
+    for r in results:
+        try:
+            verdict = bench.score_trial(
+                trial_path=r["path"], scenarios_dir=scenarios_dir
+            )
+        except Exception as e:
+            verdict = "INCONCLUSIVE"
+            per_trial.append((r["path"].name, f"INCONCLUSIVE (error: {e})"))
+            verdicts["INCONCLUSIVE"] += 1
+            continue
+        if verdict not in verdicts:
+            verdict = "INCONCLUSIVE"
+        verdicts[verdict] += 1
+        per_trial.append((r["path"].name, verdict))
+    total = len(results)
+    pass_rate = verdicts["PASS"] / total if total else 0.0
+    summary = (
+        f"Tier 1 verdicts: {verdicts['PASS']} PASS, {verdicts['FAIL']} FAIL, "
+        f"{verdicts['INCONCLUSIVE']} INCONCLUSIVE (PASS rate "
+        f"{pass_rate * 100:.0f}%)"
+    )
+    print(f"  {summary}")
+    if pass_rate < min_pass_rate:
+        flags.append(
+            f"LOW PASS RATE: {verdicts['PASS']}/{total} trials PASS "
+            f"({pass_rate * 100:.0f}% < {min_pass_rate * 100:.0f}% threshold). "
+            f"Cohort cannot be trusted as a measurement — investigate before "
+            f"drawing conclusions. {verdicts['FAIL']} FAIL, "
+            f"{verdicts['INCONCLUSIVE']} INCONCLUSIVE."
+        )
+    return flags
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--results-dir", type=Path, required=True)
@@ -237,6 +331,27 @@ def main(argv: list[str] | None = None) -> int:
         "--strict",
         action="store_true",
         help="exit nonzero on any flag (so bench-matrix.sh can abort)",
+    )
+    parser.add_argument(
+        "--scenarios-dir",
+        type=Path,
+        default=None,
+        help=(
+            "scenarios dir containing <scen>.md files; enables Tier 1 "
+            "PASS-rate check via analyze-bench.score_trial. Without this "
+            "flag, only variance/outlier checks run (uniform-failure cohorts "
+            "will not be flagged)."
+        ),
+    )
+    parser.add_argument(
+        "--min-pass-rate",
+        type=float,
+        default=0.30,
+        help=(
+            "minimum fraction of trials that must Tier-1 PASS for the cohort "
+            "to clear the absolute-success check (default 0.30; only used "
+            "when --scenarios-dir is supplied)"
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -263,13 +378,29 @@ def main(argv: list[str] | None = None) -> int:
     all_flags.extend(detect_within_scenario_outliers(results))
     all_flags.extend(detect_cross_scenario_anomaly(results))
     all_flags.extend(detect_verdict_anomalies(results))
-    # NOTE: detect_systemic_failure() is defined below but NOT called by
-    # default — string-match-only is too aggressive (a real success that
-    # error'd on its final turn still has the marker in output). Proper
-    # systemic-failure detection requires integrating analyze-bench.py
-    # Tier 1 PASS/FAIL/INCONCLUSIVE verdict — see local-coding-models-rw2
-    # follow-up. Kept here as an opt-in CLI flag for forensics on
-    # known-garbage cohorts.
+    if args.scenarios_dir is not None:
+        if not args.scenarios_dir.exists():
+            print(
+                f"warning: --scenarios-dir {args.scenarios_dir} not found; "
+                f"skipping Tier 1 PASS-rate check",
+                file=sys.stderr,
+            )
+        else:
+            all_flags.extend(
+                detect_low_pass_rate(
+                    results, args.scenarios_dir, args.min_pass_rate
+                )
+            )
+    else:
+        print(
+            "  ⚠ Tier 1 PASS-rate check SKIPPED (no --scenarios-dir). "
+            "Variance flags alone cannot detect uniform-failure cohorts "
+            "(see local-coding-models-rw2 — the v2-garbage scenario)."
+        )
+
+    # detect_systemic_failure() remains opt-in only — it's a string-match
+    # forensic tool for known-garbage cohorts. Use the Tier 1 PASS-rate
+    # check above instead for production gating.
 
     if all_flags:
         print(

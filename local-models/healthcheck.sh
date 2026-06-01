@@ -84,18 +84,25 @@ else
     crit "✗ Ollama server :11434 not responding — try: ssh pico '/opt/homebrew/opt/ollama/bin/ollama serve'"
 fi
 
-# ---- 4. llama-swap (8090) — optional ----
+# ---- 4. llama-swap (8090) — REQUIRED for pico-mlx via CCR ----
+# Bench-matrix routes pico-mlx candidates through CCR -> llama-swap -> MLX. If
+# llama-swap is down, every mlx-via-CCR call returns "fetch failed" (2026-05-31
+# matrix v2 garbage was exactly this: llama-swap dead the entire 21h run).
+# bench-matrix.sh does NOT auto-start llama-swap (only ollama + mlx-raw), so
+# this check is the gate. Manual restart: ssh pico 'nohup /opt/homebrew/bin/
+# llama-swap -config /Users/pico/.config/llama-swap/config.yaml -listen
+# 100.72.47.4:8090 -watch-config >> /tmp/llama-swap.log 2>&1 & disown'
 if probe_endpoint "$LLAMASWAP_URL/v1/models" 5 2>/dev/null; then
-    green "✓ llama-swap :8090 responding"
+    green "✓ llama-swap :8090 responding (pico-mlx-via-CCR path)"
 else
-    yellow "○ llama-swap :8090 not running (optional; start with /tmp/llama-swap-start.sh on pico)"
+    crit "✗ llama-swap :8090 DOWN — every pico-mlx-via-CCR call will 'fetch fail'. Start it on pico."
 fi
 
-# ---- 5. CCR (local 3456) — optional ----
-if probe_endpoint "$CCR_URL/v1/models" 3 2>/dev/null; then
+# ---- 5. CCR (local 3456) — REQUIRED for the bench ----
+if probe_endpoint "$CCR_URL/" 3 2>/dev/null; then
     green "✓ CCR :3456 responding"
 else
-    yellow "○ CCR :3456 not running (optional; start with 'ccr start')"
+    crit "✗ CCR :3456 not running — start with 'ccr start'"
 fi
 
 # ---- 6. Functional completion probe (catches hang-after-handshake) ----
@@ -111,11 +118,21 @@ fi
 
 # ---- 6b. CCR end-to-end completion probe (catches CCR-layer wedges that the
 # direct-to-pico probe above misses). Empirically (2026-05-31): matrix v2's
-# 270 trials all returned CCR 500 because Ollama-via-CCR was broken even
-# though Ollama-direct was fine. Healthcheck previously only handshaked CCR
-# at /v1/models; missed the broken POST path entirely. NEVER AGAIN.
-if probe_completion "$CCR_URL" "claude-haiku-4-5" 90; then
-    green "✓ CCR completion roundtrip OK (proves bench-runner's actual path works, not just CCR handshake)"
+# 270 trials all returned "API Error: 500 fetch failed" because llama-swap on
+# pico was down. The OLD probe used /v1/chat/completions (OpenAI endpoint) with
+# bare model name 'claude-haiku-4-5' — that hit CCR's openai handler and bypassed
+# Router.background entirely, so it missed the bench's actual failure mode.
+# THIS probe mimics what claude-local actually sends: POST /v1/messages
+# (Anthropic shape) with model=claude-haiku-4-5 which triggers Router.background
+# = pico-mlx,qwen3-coder, exercising the full chain CCR -> llama-swap -> MLX.
+# NEVER AGAIN.
+ccr_completion_response=$(curl -sS --max-time 120 -X POST "$CCR_URL/v1/messages" \
+    -H 'Content-Type: application/json' \
+    -H 'anthropic-version: 2023-06-01' \
+    -H 'Authorization: Bearer ccr' \
+    -d '{"model":"claude-haiku-4-5","messages":[{"role":"user","content":"reply ok"}],"max_tokens":15}' 2>&1)
+if echo "$ccr_completion_response" | grep -q '"content"'; then
+    green "✓ CCR -> Router.background -> pico-mlx -> llama-swap -> MLX roundtrip OK (bench's actual path)"
 else
     crit "✗ CCR completion failed — bench would receive 500s. THIS IS THE LAYER BENCH USES."
 fi
