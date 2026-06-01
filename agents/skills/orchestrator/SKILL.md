@@ -101,20 +101,26 @@ state changes in real time. No manual setup needed.
 
 ## Cross-repo dispatch — subagent self-recovers worktree placement
 
-If the dotfiles orchestrator (or any orchestrator that drives work across
-multiple repos: cfp managing per-conference repos, the linearb fleet
-managing agent clones, etc.) dispatches a worktree subagent for work in
-a DIFFERENT repo than the orchestrator's project root, the worktree gets
-created in the orchestrator's project — not the target. The
-`WorktreeCreate` hook resolves cwd from the orchestrator's persistent
+Whenever the orchestrator drives work across multiple repos — dotfiles
+managing project trees, cfp/* managing per-conference sibling repos, the
+linearb fleet managing agent clones — and dispatches a worktree subagent
+for work in a DIFFERENT repo than the orchestrator's project root, the
+worktree gets created in the orchestrator's project, not the target.
+The `WorktreeCreate` hook resolves cwd from the orchestrator's persistent
 project context, NOT from `cd` commands in the most recent Bash call
 (the harness resets Bash cwd to project root between calls; verified
 2026-05-24 — the "Shell cwd was reset to ..." reminder after every
 Bash run is literal, not cosmetic).
 
+The trigger is repo-agnostic: it fires any time `orchestrator-repo` ≠
+`target-repo`, regardless of which side is dotfiles. Hard-coding the
+check to a single anchor (e.g. `== /home/ubuntu/dotfiles`) was the
+original 2026-05-24 shape and silently no-ops for every non-dotfiles
+orchestrator (cfp/mise → cfp/talk-mise-en-place, etc.).
+
 Symptoms when this misfires:
-- Subagent's branch lives in the wrong repo (e.g., a dotfiles branch for
-  vs14 work)
+- Subagent's branch lives in the wrong repo (e.g., a dotfiles branch
+  for vs14 work, or a cfp/mise branch for talk-mise-en-place work)
 - `.beads/` symlink points at the wrong project's beads
 - Orchestrator's post-merge step fails because the branch doesn't exist
   in the orchestrator's repo
@@ -122,42 +128,64 @@ Symptoms when this misfires:
 Since the harness does NOT honor a cd-before-Agent pattern (the cd
 doesn't persist past the Bash call), the actual fix lives in the
 **dispatch prompt**: tell the subagent to detect-and-recover by
-creating their OWN worktree in the target repo at session start.
+creating their OWN worktree in the target repo at session start. The
+canonical block lives in [/dispatch](../dispatch/SKILL.md) under
+"For cross-repo dispatch" — paste it into every dispatch where the
+target repo differs from the orchestrator's anchor, substituting the
+target repo's absolute path for `TARGET_REPO`:
 
 ```bash
-# In the prompt CRITICAL block:
-if [[ "$(git rev-parse --show-toplevel 2>/dev/null)" == "/home/ubuntu/dotfiles"* ]]; then
-  cd /home/ubuntu/<target-repo>
-  WT="/tmp/<target>-agent-$(basename "$OLDPWD")"
-  git worktree add "$WT" -b worktree-agent-$(basename "$OLDPWD")
+# In the prompt CRITICAL block. The check is anchor-agnostic — it
+# compares the subagent's worktree against TARGET_REPO, so it works
+# no matter which repo the orchestrator is running in.
+TARGET_REPO="/home/ubuntu/<target-repo-absolute-path>"   # e.g. /home/ubuntu/vacation-station-14
+CURRENT_TOPLEVEL="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [[ "$CURRENT_TOPLEVEL" != "$TARGET_REPO"* ]]; then
+  # Harness placed the worktree under the orchestrator's repo, not the target — recover.
+  WT="/tmp/$(basename "$TARGET_REPO")-agent-$(basename "$CURRENT_TOPLEVEL")"
+  cd "$TARGET_REPO"
+  git worktree add "$WT" -b "worktree-agent-$(basename "$CURRENT_TOPLEVEL")"
   cd "$WT"
   # CRITICAL: replace the worktree's stale .beads/ checkout with a symlink
-  # to the target's live .beads/. The session-start.sh hook auto-does
-  # this for harness-created worktrees, but NOT for the manual
-  # recovery flow above. Without the symlink, `br show / update / close`
-  # would operate on the worktree's checkout-snapshot, diverging from
-  # the orchestrator's view of bead state.
+  # to the target's live .beads/. session-start.sh auto-symlinks for
+  # harness-created worktrees but NOT for this manual recovery flow.
+  # Without the symlink, `br show / update / close` would operate on
+  # the worktree's checkout-snapshot, diverging from the orchestrator's
+  # view of bead state.
   rm -rf .beads
-  ln -s /home/ubuntu/<target-repo>/.beads .beads
+  ln -s "$TARGET_REPO/.beads" .beads
 fi
 # All subsequent work happens from $WT (the target-repo worktree).
 ```
 
 The orchestrator's post-merge step then runs from the target repo
-(NOT dotfiles), and the branch is in the target's git. Use `git
+(NOT its own anchor), and the branch is in the target's git. Use `git
 cherry-pick` instead of `git merge` if the pre-merge-worktree.sh hook
 trips on cross-repo-branch-not-in-orchestrator (the hook reads from
 the orchestrator's cwd-pinned project root and can't see the target's
 branches).
 
-Worked example (vs-4h1 → vs-q7m, 2026-05-24): the dotfiles orchestrator
-dispatched the SS14 C# patches for `~/vacation-station-14`. First
-attempt the subagent improvised a `/tmp/vs14-agent-...` recovery
-worktree without the prompt asking; second attempt (vs-q7m) baked the
-recovery into the prompt's CRITICAL block so it's deterministic.
-Orchestrator merged via cherry-pick (the pre-merge-worktree.sh hook
-blocked direct merge because it checked main..branch FROM the dotfiles
-cwd where the branch doesn't exist as a real branch).
+Worked examples:
+
+- **dotfiles → vacation-station-14 (vs-4h1 / vs-q7m, 2026-05-24)** —
+  first worked instance. First attempt the subagent improvised a
+  `/tmp/vs14-agent-...` recovery worktree without the prompt asking;
+  second attempt (vs-q7m) baked the recovery into the prompt's
+  CRITICAL block so it's deterministic. Orchestrator merged via
+  cherry-pick (the pre-merge-worktree.sh hook blocked direct merge
+  because it checked main..branch FROM the dotfiles cwd where the
+  branch doesn't exist as a real branch).
+
+- **cfp/mise → cfp/talk-mise-en-place (tm-i5t, 2026-05-28)** — confirmed
+  repo-agnostic. The mise paper-repo orchestrator dispatched the
+  slide-plan subagent for the sibling talk repo; the harness placed
+  the worktree under `cfp/mise/.claude/worktrees/`. The recovery
+  snippet wasn't in the prompt (it still hard-coded the dotfiles
+  check), so the subagent self-recovered by writing directly to
+  talk-mise-en-place's main branch — valid for one-shot research-style
+  work but skips the bead-trailer audit trail. The parameterized
+  block above is now the canonical recovery for any cross-repo
+  dispatch (dotfiles, cfp umbrella, linearb fleet, etc.).
 
 Longer-term fix (out of scope here): the `WorktreeCreate` hook could
 accept a target-repo arg via env var or prompt convention. Filing as

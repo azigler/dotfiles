@@ -165,6 +165,44 @@ a static skeleton that didn't import any of the components. Runtime
 verification would have caught it in 60 seconds. Don't repeat it.
 ```
 
+### For cross-repo dispatch (orchestrator anchored in a different repo)
+
+When the orchestrator's project root is NOT the target repo for this
+dispatch — dotfiles orchestrator → vacation-station-14; cfp/mise →
+cfp/talk-mise-en-place; linearb fleet → agent clones — the harness
+places the worktree in the ORCHESTRATOR's repo, not the target. The
+subagent must self-recover. Paste this as the FIRST CRITICAL block,
+with `TARGET_REPO` filled in to the target repo's absolute path:
+
+```
+## CRITICAL: cross-repo recovery (your worktree may be in the wrong repo)
+
+The orchestrator's anchor repo is NOT your target. The harness's
+worktree placement follows the orchestrator's persistent cwd, not the
+`cd` in the dispatch message. Run this as your FIRST Bash call before
+any other work — detect mis-placement and recover. The check is
+anchor-agnostic, so it stays correct regardless of which repo the
+orchestrator is in:
+
+TARGET_REPO="/home/ubuntu/<target-repo-absolute-path>"
+CURRENT_TOPLEVEL="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [[ "$CURRENT_TOPLEVEL" != "$TARGET_REPO"* ]]; then
+  WT="/tmp/$(basename "$TARGET_REPO")-agent-$(basename "$CURRENT_TOPLEVEL")"
+  cd "$TARGET_REPO"
+  git worktree add "$WT" -b "worktree-agent-$(basename "$CURRENT_TOPLEVEL")"
+  cd "$WT"
+  rm -rf .beads && ln -s "$TARGET_REPO/.beads" .beads
+fi
+# All subsequent work happens here.
+```
+
+The orchestrator's post-merge step then runs from `$TARGET_REPO`, not
+its own anchor, and may need `git cherry-pick` instead of `git merge`
+if the pre-merge-worktree.sh hook trips on cross-repo-branch state.
+
+See [/orchestrator](../orchestrator/SKILL.md) "Cross-repo dispatch"
+for full background, symptoms, and worked examples.
+
 ## Wave-position context
 
 Include this when the dispatch is part of a multi-wave flow (TDD,
