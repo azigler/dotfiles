@@ -57,14 +57,22 @@ else
     exit 2
 fi
 
-# ---- 2. MLX server (8081) ----
+# ---- 2. MLX server (8081) — informational only ----
+# The bench routes pico-mlx candidates through llama-swap on :8090 (see #4
+# below), NOT directly to mlx_lm.server on :8081. llama-swap spawns its own
+# mlx_lm.server children on dynamic ports per loaded model. A bare :8081
+# raw-MLX server is no longer required for the bench. Kept here as a yellow
+# nice-to-have for operators who route direct to MLX for debugging.
 if probe_endpoint "$MLX_URL/v1/models" 5; then
-    green "✓ MLX server :8081 responding (/v1/models)"
+    green "✓ MLX server :8081 responding (informational; bench uses llama-swap :8090)"
 else
-    crit "✗ MLX server :8081 not responding — try: ssh pico 'launchctl kickstart -k gui/501/com.zig.mlx'"
+    yellow "○ MLX :8081 not running (informational only; bench uses llama-swap :8090)"
 fi
 
-# Check MLX process state
+# Check MLX-process RSS aggregate (llama-swap's children may show up here).
+# Caps the per-process check at ~25 GB to flag the memory-cliff approach
+# before pico OOMs. >30 GB is a hard warning; bench should never get there
+# with the 4-bit-quantized roster.
 mlx_state=$(ssh -o ConnectTimeout=5 pico 'pid=$(pgrep -f mlx_lm.server | head -1); [[ -n "$pid" ]] && ps -o rss,etime -p $pid 2>/dev/null | tail -1' 2>/dev/null)
 if [[ -n "$mlx_state" ]]; then
     rss_kb=$(echo "$mlx_state" | awk '{print $1}')
@@ -73,7 +81,7 @@ if [[ -n "$mlx_state" ]]; then
     if [[ "$rss_gb" -gt 30 ]]; then
         red "⚠ MLX RSS ${rss_gb} GB (>30) — possible model accumulation; consider kickstart if no active jobs"
     else
-        green "✓ MLX RSS ${rss_gb} GB, uptime $etime"
+        green "✓ mlx_lm.server (under llama-swap) RSS ${rss_gb} GB, uptime $etime"
     fi
 fi
 
