@@ -1,30 +1,33 @@
 #!/usr/bin/env bash
 #
 # claude-local — invoke `claude` (the CLI) but force CCR routing to a local
-# model (pico-mlx,qwen3-coder via llama-swap, per GUARDRAILS G16).
+# model on pico (default: pico-mlx,qwen3-coder via llama-swap, per GUARDRAILS G16).
 #
-# Routing mechanism (TWO complementary layers; both injected belt-and-braces):
+# Routing mechanism (PRIMARY: fully-qualified --model + BACKUP in-prompt tag):
 #
-#   Layer A — model-tier trigger (PRIMARY). CCR's Router has a `background`
-#   entry pointing at pico-mlx,qwen3-coder. When Claude Code sends a request
-#   with model=claude-haiku-* (the "small/cheap tier"), CCR maps it to
-#   `Router.background` and routes via llama-swap. We achieve this by
-#   passing --model claude-haiku-4-5 to the claude CLI.
+#   PRIMARY (added 2026-06-01 per local-coding-models-8ti) — pass --model
+#   as the CCR fully-qualified "provider,model" form (e.g.
+#   --model pico-mlx,trinity-mini). CCR 1.x's modelRoutes table indexes
+#   exact "provider,model" strings, so the request resolves directly via
+#   getProvider(provider) without going through Router.{default,background}
+#   rules. This is the most reliable per-request routing mechanism on the
+#   current Claude Code v2.1.150 + CCR 1.0.73 combination.
 #
-#   Layer B — explicit in-prompt tag (BACKUP per GUARDRAILS G12). We also
-#   inject <CCR-SUBAGENT-MODEL>pico-mlx,qwen3-coder</CCR-SUBAGENT-MODEL>
-#   via --append-system-prompt. CCR's handler scans body.system[].text
-#   for this tag and overrides routing when found. On the current Claude
-#   Code CLI (v2.1.150), --append-system-prompt lands the tag at
-#   system[2] (because Claude Code reserves system[0]=billing-header and
-#   system[1]=canonical-claude-prompt). CCR's published scan logic per G12
-#   reads system[1] strictly, so this layer may not fire on every CCR
-#   release — but it's harmless when ignored and load-bearing when CCR
-#   ever broadens the scan.
+#   BACKUP — the in-prompt <CCR-SUBAGENT-MODEL> tag per GUARDRAILS G12,
+#   delivered via --append-system-prompt. On current Claude Code v2.1.150
+#   the append lands at system[2]; CCR 1.0.73 scans system[1] strictly so
+#   this layer does not currently fire. Kept as harmless future-compat in
+#   case CCR broadens the scan or the CLI changes append placement.
 #
-# Both layers are belt-and-braces. The combination tests the routing path
-# AND surfaces honest empirical failures (e.g. the current llama-swap
-# tool-schema serialization issue caught during ukx.3 smoke runs).
+# Why both: PRIMARY does the actual work today; BACKUP costs nothing and
+# keeps the code resilient across the moving target of Claude Code + CCR
+# version churn.
+#
+# History: prior to 2026-06-01, PRIMARY was Layer A (model=claude-haiku-4-5
+# → Router.background → pico-mlx,qwen3-coder). That mechanism worked but
+# COLLAPSED ALL candidates to qwen3-coder regardless of CCR_ROUTE, because
+# Router.background's target is fixed in CCR config. Bench-matrix needs
+# per-candidate routing, hence the move to --model provider,model directly.
 #
 # All other args pass through to `claude` unchanged.
 #
@@ -35,14 +38,14 @@
 #
 # Env overrides (rarely needed):
 #   CCR_ROUTE=pico-ollama,laguna-xs.2:latest claude-local -p "..."
-#   CCR_MODEL_TIER=claude-haiku-4-5 claude-local -p "..."  (force the tier)
+#   CCR_MODEL_TIER=claude-haiku-4-5 claude-local -p "..."  (force Router.background)
 #   ANTHROPIC_BASE_URL_LOCAL=http://other-ccr:3456 claude-local -p "..."
 #
 # Refs:
 #   - GUARDRAILS G12: ~/dotfiles/local-models/GUARDRAILS.md (in-prompt tag)
 #   - GUARDRAILS G16: same file (llama-swap is the only PASS path for tools)
 #   - CCR README: ~/dotfiles/claude-code-router/README.md
-#   - Bead: dotfiles-ukx.3
+#   - Bead: dotfiles-ukx.3, local-coding-models-8ti (per-candidate routing fix)
 #
 set -euo pipefail
 
@@ -51,11 +54,19 @@ set -euo pipefail
 export ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL_LOCAL:-http://127.0.0.1:3456}"
 export ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN_LOCAL:-ccr}"
 
-# Layer A: trigger CCR's background tier via haiku model alias.
-CCR_MODEL_TIER="${CCR_MODEL_TIER:-claude-haiku-4-5}"
+# Route — fully-qualified "provider,model" form. Default routes to llama-swap's
+# qwen3-coder; override per-candidate via CCR_ROUTE env (set by run-scenario.sh).
+CCR_ROUTE="${CCR_ROUTE:-pico-mlx,qwen3-coder}"
 
-# Layer B: in-prompt routing tag per G12 (belt-and-braces).
-CCR_ROUTE_TAG="<CCR-SUBAGENT-MODEL>${CCR_ROUTE:-pico-mlx,qwen3-coder}</CCR-SUBAGENT-MODEL>"
+# PRIMARY routing: --model carries the fully-qualified route directly.
+# CCR_MODEL_TIER override exists for the rare case where caller wants
+# Router.{default,background,...} dispatch instead (set to claude-haiku-4-5
+# or similar tier-name model).
+CCR_MODEL_TIER="${CCR_MODEL_TIER:-$CCR_ROUTE}"
+
+# BACKUP: in-prompt routing tag per G12 (currently dead on Claude Code
+# v2.1.150 + CCR 1.0.73 because of system-array placement; harmless).
+CCR_ROUTE_TAG="<CCR-SUBAGENT-MODEL>${CCR_ROUTE}</CCR-SUBAGENT-MODEL>"
 
 # Sanity probe: warn if CCR isn't up. Don't block — caller may have a reason.
 if ! curl -sS -m 2 -o /dev/null "${ANTHROPIC_BASE_URL}/" 2>/dev/null; then
@@ -63,5 +74,5 @@ if ! curl -sS -m 2 -o /dev/null "${ANTHROPIC_BASE_URL}/" 2>/dev/null; then
   echo "claude-local: run \`ccr start\` first, or set ANTHROPIC_BASE_URL_LOCAL" >&2
 fi
 
-# Pass through all args, injecting BOTH layers.
+# Pass through all args, injecting both PRIMARY + BACKUP.
 exec claude --model "${CCR_MODEL_TIER}" --append-system-prompt "${CCR_ROUTE_TAG}" "$@"
