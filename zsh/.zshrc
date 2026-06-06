@@ -54,7 +54,7 @@ unsetopt correct_all
 unsetopt correct
 ENABLE_CORRECTION="false"
 
-. "$HOME/.local/bin/env"
+[[ -f "$HOME/.local/bin/env" ]] && . "$HOME/.local/bin/env"
 
 # bun completions
 [ -s "/home/ubuntu/.bun/_bun" ] && source "/home/ubuntu/.bun/_bun"
