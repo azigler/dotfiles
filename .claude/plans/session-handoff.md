@@ -78,3 +78,67 @@ The user's framing landed hard mid-session: **memories are weak; mechanisms are 
 4. If healthy, `bash ~/dotfiles/local-models/healthcheck.sh` to confirm the new CCR probe passes
 5. Then: kick off Phase 3 matrix v3 (now with the new harness checks)
 6. While matrix runs: think about how to integrate analyze-bench Tier 1 into the variance harness so the 270-trial-garbage scenario CANNOT happen again
+
+---
+
+# 2026-06-06 cleanup pass (post-Hermes-uninstall)
+
+Major cleanup since the May 31 handoff above. The user is in cleanup mode
+preparing for refactor week.
+
+## State at end of this cleanup window
+
+- **Branch**: main (dotfiles); last commit on main `3c1ab2f :broom: gitconfig: use bare 'gh' for credential helper`
+- **Open beads (dotfiles)**: 1 (`dotfiles-5e2` — living deferred-decisions backlog; KEEP OPEN). Was 3 (ukx epic, cl8, 5e2) before this triage.
+- **Deferred beads**: 4 (ukx.10 chat-template upstream bug, cl8 Mistral envelope parser, st2 tailscale-ssh nerdfonts, 406 zig-zone tailnet)
+- **In-flight subagents**: none (this triage subagent is the last one)
+- **Worktrees**: only main + this triage agent. No orphan worktrees.
+
+## What got cleaned
+
+1. **Hermes fully uninstalled** (~275 MB reclaimed on pico). Autonovel-as-Hermes substrate path ABANDONED. Successor TBD — no current candidate. `dotfiles-5e2` D2/D3/D11/D12 are now MOOT (tracked in bead's notes section).
+2. **Pico disk reclaim**: 218 GB reclaimed (`dotfiles-5e2` D6 RESOLVED). Sweep of `~/glm-flat`, `~/trinity-gguf`, and other superseded model weights.
+3. **Tailnet ports cleaned**: 9119/8765/8766 closed (related to Hermes + autonovel handoff endpoints that no longer exist).
+4. **Session matrix arc fully wound down**: all matrix v2-related beads closed or deferred. The harness pieces (`safe_pkill_remote`, `analyze-variance.py`, `pico_lock.sh`, plus the May 31 absolute-PASS-rate Tier 1 check) stayed shipped — they remain useful even though we're not running matrix v3 right now.
+5. **CCR pinned to 1.0.73** (`dotfiles-g03` closed). v2.0.0 has a routing regression that bit the matrix arc. Any future CCR upgrade should re-validate the per-scenario routing before promotion.
+6. **reef git reconnected to github** (cross-arc fix from this cleanup window — not in dotfiles tree directly).
+7. **Misc dotfiles polish** (the recent `:broom:` run): gitconfig credential-helper, zsh/tmux portability fixes, gpg.program moved to local include, VSCode extension swap, cursor/tmux color pinning.
+
+## Triage pass 2026-06-06 (this subagent)
+
+- **`dotfiles-ukx` epic CLOSED (force).** All AC sub-beads .1-.5 satisfied (CCR installed, routing config shipped, test suite via Phase 3 bench, headless via systemd nightly-digest, README dotfiles snapshot). `.10` left DEFERRED (upstream isolation bug); production routes around it via llama-swap per G16. Closure rationale in bead `--notes` (TRIAGE 2026-06-06 section).
+- **`dotfiles-cl8` DEFERRED to 2027-01-01.** Bead's own description says "DEFERRED — investigate before filing upstream"; Mistral-envelope parser is upstream-blocked + Devstral was nice-to-have anyway. Production tool-tier path is Qwen3-Coder via llama-swap; no current need.
+- **`dotfiles-5e2` KEEPING OPEN.** Living-list of D1 (/dispatch --local), D4 (CCR sampler-defaults transformer), D5 (Trinity shim — now moot tag), D7-D9 (awaiting-user items), D10 (RESOLVED). The Hermes-related items (D2/D3/D11/D12) flagged MOOT in `--notes`. Bead remains the canonical place to log new deferred decisions.
+- **Orphan check**: only 5e2 (intentional living-list reference).
+- **Stale check (14 days)**: 0.
+- **In-progress**: 0 (clean — no zombies).
+
+## Skill drift (informational; do NOT auto-sync)
+
+Global (`~/.claude/skills/`) vs canonical (`~/linearb/skills/.claude/skills/`):
+
+- **DRIFT**: `cost-tracking`, `dispatch`, `orchestrator`, `talk`
+- **MISSING in canonical**: `research` (exists only globally)
+
+Per `/distribute` workflow these get reconciled separately — flagged here for the user's next distribution pass.
+
+## Memory + handoff state
+
+- `MEMORY.md` index matches the 7 feedback files in the project memory dir (verified).
+- This handoff is the freshest available; next `/onboard` should read everything BELOW the `2026-06-06 cleanup pass` separator and treat the matrix-v2 narrative above as historical.
+
+## What's next (revised, post-cleanup)
+
+The "Phase 3 matrix" was the May 31 plan; that arc is fully wound down now. The next session is **refactor week**:
+
+1. Consume the `/scrutinize` fleet's reports on (a) the matrix-v2-was-garbage arc, (b) the Hermes-as-autonovel arc — both being studied by parallel scrutinize subagents per the user's plan
+2. Decide autonovel substrate (no current candidate; not Hermes, not custom pi.dev, not heartbeat)
+3. Triage `dotfiles-5e2` D1 (/dispatch --local flag) — small, scoped, autonomous-OK when ready
+4. Decide if/when to revisit Phase 3 bench with v3 harness now that pico is clean
+
+## Watch-outs
+
+- **Don't run `bv` bare** — it opens an interactive TUI that blocks the agent loop. Use `bv --robot-next` etc.
+- **CCR remains pinned at 1.0.73**. Any `npm update -g` could silently break routing.
+- **`refs/` is not a dotfiles convention** — skip the housekeeping refs/INDEX.md step for this repo.
+- **`dotfiles-5e2` is a deliberately-open living list**, not an orphan to clean. Don't close it in the next triage.
