@@ -1,6 +1,6 @@
 #!/bin/bash
 
-if [[ "$__CFBundleIdentifier" = *"VSCode"* ]]; then
+if [[ "$__CFBundleIdentifier" = *"VSCode"* || "$OVERRIDE_TMUX" = "true" ]]; then
   return
 fi
 

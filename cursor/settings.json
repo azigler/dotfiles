@@ -58,5 +58,6 @@
   "update.releaseTrack": "prerelease",
   "workbench.iconTheme": "material-icon-theme",
   "workbench.colorTheme": "One Dark Pro",
-  "window.commandCenter": true
+  "window.commandCenter": true,
+  "window.autoDetectColorScheme": false
 }
