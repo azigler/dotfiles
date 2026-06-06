@@ -45,3 +45,5 @@ ts4
 
 # bv (beads viewer) local config and caches
 .bv/
+
+claude/sandbox
