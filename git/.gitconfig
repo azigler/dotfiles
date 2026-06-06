@@ -9,8 +9,8 @@
 	signingkey = 8CA628797E026F48
 [init]
 	defaultBranch = main
-[gpg]
-	program = /usr/bin/gpg
+[include]
+	path = ~/.gitconfig.local
 [credential "https://github.com"]
 	helper = 
 	helper = !/usr/bin/gh auth git-credential

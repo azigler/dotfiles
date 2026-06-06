@@ -132,7 +132,12 @@ sync() {
             ;;
         "gh")
             sync_source "$SCRIPT_DIR/gh/config.yml" "$HOME/.config/gh/config.yml"
-            git config --global gpg.program $(which gpg)
+            # gpg.program is machine-local (Mac brew vs Linux system) — write
+            # to ~/.gitconfig.local (included by the tracked .gitconfig) so the
+            # tracked file stays portable.
+            _gpg="$(command -v gpg)"
+            [[ -n "$_gpg" ]] && git config --file "$HOME/.gitconfig.local" gpg.program "$_gpg"
+            unset _gpg
             ;;
         "git")
             sync_source "$SCRIPT_DIR/git/.gitconfig" "$HOME/.gitconfig"
