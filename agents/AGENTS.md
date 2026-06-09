@@ -158,9 +158,13 @@ Project-scoped skill sets (e.g. LinearB-internal skills under
 ## Reference material conventions
 
 - **`refs/`** at project root — active reference material the agent
-  loads to do its work (API guides, research papers, design briefs).
-  Plural form. Lives at the **project root**, not under `.claude/` —
-  fewer permission prompts, visible to git/IDE/coworkers.
+  loads to do its work (API guides, research papers, design briefs),
+  plus **session artifacts**: `refs/session-handoff.md` (written by
+  `/offboard`) and `refs/cost-tracking.md` (opt-in ledger). Plural
+  form. Lives at the **project root**, not under `.claude/` — visible
+  to git/IDE/coworkers and consistent fleet-wide. (Note: permission
+  treatment is identical for both locations per Claude Code docs,
+  verified 2026-06-09 — visibility/consistency is the real rationale.)
 - **`specs/`** at project root — formal specifications, file-based
   (`01-foo.md`, `02-bar.md`). Pre-existing only; new specs go in beads
   via `/spec` (see below).
@@ -174,8 +178,10 @@ Project-scoped skill sets (e.g. LinearB-internal skills under
   to scan, time-ordered, greppable, no file rot.
 - **`.claude/refs/`**, **`.claude/ref/`**, **`.claude/plans/`**,
   root-level `PLAN.md` are all **deprecated** — beads cover plans /
-  decisions / notes (typed); `refs/` covers reference material;
-  `specs/` covers legacy file-based specs only.
+  decisions / notes (typed); `refs/` covers reference material AND
+  session artifacts (handoff note, cost ledger — migrated out of
+  `.claude/plans/` 2026-06-09); `specs/` covers legacy file-based
+  specs only.
 
 **Project-specific (declared in project's own CLAUDE.md, NOT global):**
 - `/branch`, `/release` — version-branch + tagged-release pipeline (lb-agent-factory, reef)

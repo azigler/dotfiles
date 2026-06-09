@@ -157,8 +157,8 @@ yourself based on the framing):
    session via /offboard." If yes, fire `/cost-tracking` setup:
    ```bash
    cp ~/.claude/skills/cost-tracking/reference/ledger-template.md \
-      .claude/plans/cost-tracking.md
-   git add .claude/plans/cost-tracking.md
+      refs/cost-tracking.md
+   git add refs/cost-tracking.md
    git commit -m ":dollar: cost: bootstrap cost-tracking ledger for /research arc"
    ```
    Then `/offboard` auto-appends a row each session. See the

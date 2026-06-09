@@ -39,7 +39,7 @@ For a brand-new research arc:
 - Create healthcheck.sh if substrate has a known failure mode
 - Create deferred-decisions bead at project level
 - Bootstrap `refs/research/` directory
-- Optionally bootstrap `.claude/plans/cost-tracking.md` (per Step 0a)
+- Optionally bootstrap `refs/cost-tracking.md` (per Step 0a)
 
 ## Wave numbering rationale
 

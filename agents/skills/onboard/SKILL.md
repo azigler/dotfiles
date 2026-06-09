@@ -33,7 +33,8 @@ Before reading the foundation, check whether this is genuinely a
 fresh project — none of the usual artifacts exist:
 
 ```bash
-[ ! -f CLAUDE.md ] && [ ! -d .beads ] && [ ! -f .claude/plans/session-handoff.md ] \
+[ ! -f CLAUDE.md ] && [ ! -d .beads ] && [ ! -f refs/session-handoff.md ] \
+  && [ ! -f .claude/plans/session-handoff.md ] \
   && [ "$(git log --oneline 2>/dev/null | wc -l)" -le 1 ] \
   && echo "FIRST_SESSION"
 ```
@@ -56,7 +57,7 @@ If FIRST_SESSION:
      orchestrator + subagents have a shared task store.
      [/beads](../beads/SKILL.md)
    - **cost-tracking** — per-session token-cost ledger.
-     `cp ~/.claude/skills/cost-tracking/reference/ledger-template.md .claude/plans/cost-tracking.md`
+     `cp ~/.claude/skills/cost-tracking/reference/ledger-template.md refs/cost-tracking.md`
      then `/offboard` will auto-log each session.
      [/cost-tracking](../cost-tracking/SKILL.md)
 
@@ -87,9 +88,9 @@ continuing:
 1. **`CLAUDE.md`** at the repo root — project definition, file layout,
    conventions, architecture decisions
 2. **`MEMORY.md`** if present — user preferences, operational lessons
-3. **`.claude/plans/session-handoff.md`** (or `refs/session-handoff.md`)
-   if present — the prior session's handoff note. Pick up from where we
-   left off
+3. **`refs/session-handoff.md`** (legacy: `.claude/plans/session-handoff.md`
+   — migrate via `git mv` on first touch) if present — the prior
+   session's handoff note. Pick up from where we left off
 
 ## Step 2: Load every skill body — in the main session, no exceptions
 
@@ -229,10 +230,11 @@ offboard retroactively.
 Some projects extend `/onboard` with their own steps (cost-tracking
 ledgers, custom registries, etc.). Look for:
 
-- `.claude/plans/cost-tracking.md` — if present, the project tracks
-  per-session token cost. `/offboard` updates it.
-- `.claude/plans/models-manifest.md` — model pricing reference for
-  cost-tracking computations.
+- `refs/cost-tracking.md` (legacy: `.claude/plans/cost-tracking.md`) —
+  if present, the project tracks per-session token cost. `/offboard`
+  updates it.
+- `refs/models-manifest.md` (legacy: `.claude/plans/models-manifest.md`)
+  — model pricing reference for cost-tracking computations.
 
 If those files don't exist, skip those steps. The core onboard /
 offboard cycle works without them.

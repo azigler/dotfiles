@@ -1,6 +1,6 @@
 ---
 description: Per-session orchestrator token-cost ledger with a compute script that reads the Claude Code session JSONL on disk. Tracks INFERENCE cost only (input + output tokens at standard API rates) — cache infrastructure is shown as reference counters but excluded from the cost total, matching "what would this session have cost as raw API calls." Filters out subagent sidechains (those have their own per-bead rows). Use when a project wants a reproducible budget — research papers, billing transparency, or just curiosity about where your tokens go. Set up once via /onboard's first-session prompt; updated thereafter by /offboard.
-when_to_use: User asks "how much have I spent on this project?", "log this session's cost", "set up cost tracking", "where are my tokens going?" Also runs automatically during /offboard if .claude/plans/cost-tracking.md exists.
+when_to_use: User asks "how much have I spent on this project?", "log this session's cost", "set up cost tracking", "where are my tokens going?" Also runs automatically during /offboard if refs/cost-tracking.md exists.
 ---
 
 # /cost-tracking — Per-session inference cost ledger
@@ -15,7 +15,7 @@ token usage. This skill turns those logs into a project-level ledger:
   infrastructure (cache_creation, cache_read) is tracked as reference
   counters but EXCLUDED from the cost — that's overhead, not inference.
 - Applied pricing (Opus 4.7, Sonnet 4.6, Haiku 4.5)
-- Markdown-row append to `.claude/plans/cost-tracking.md`
+- Markdown-row append to `refs/cost-tracking.md`
 
 ## Cost model (revised 2026-05-26)
 
@@ -39,16 +39,20 @@ inference cost is the comparable, portable metric.
 ```bash
 # 1. Copy the ledger template into the project
 cp ~/.claude/skills/cost-tracking/reference/ledger-template.md \
-   .claude/plans/cost-tracking.md
+   refs/cost-tracking.md
 
 # 2. Edit the header to reflect this project (purpose, model discipline)
 
 # 3. Commit the empty ledger
-git add .claude/plans/cost-tracking.md
+git add refs/cost-tracking.md
 git commit -m ":dollar: cost: bootstrap cost-tracking ledger"
 ```
 
 After bootstrap, `/offboard` automatically appends a row each session.
+
+Session artifacts standardized on `refs/` 2026-06-09. Projects with a
+legacy `.claude/plans/cost-tracking.md` keep working (check both), but
+migrate on first touch: `git mv .claude/plans/cost-tracking.md refs/`.
 
 The compute script is GLOBAL — it lives at
 `~/.claude/skills/cost-tracking/compute-cost.py` (symlinked from
@@ -59,7 +63,7 @@ dotfiles). Projects don't need their own copy.
 `/offboard` Step 4 invokes the script if the project has the ledger:
 
 ```bash
-if [ -f .claude/plans/cost-tracking.md ]; then
+if [ -f refs/cost-tracking.md ]; then
   python3 ~/.claude/skills/cost-tracking/compute-cost.py --format row >> /tmp/cost-row.txt
   # Then offboard appends that row to the right table in cost-tracking.md
 fi
@@ -138,7 +142,7 @@ when the same prompt context replays each turn).
 - Sessions ENTIRELY in subagent worktrees (those don't have an
   orchestrator JSONL — subagent costs land per-bead)
 
-If a project doesn't have `.claude/plans/cost-tracking.md`, `/offboard`
+If a project doesn't have `refs/cost-tracking.md`, `/offboard`
 silently skips Step 4. No-op, no error. Cost-tracking is opt-in.
 
 ## Extending the ledger
@@ -151,7 +155,7 @@ table. Projects can add more — research projects often have:
 - **GPU consumption** — wall-clock + dollar cost of training runs
 - **Per-resource consumption** — Gamma credits, Asana ops, etc.
 
-Hackathon-gemma's `.claude/plans/cost-tracking.md` is a strong reference
+Hackathon-gemma's ledger (still at its legacy `.claude/plans/` path) is a strong reference
 for the multi-table extended pattern. Copy the bones from
 [reference/ledger-template.md](reference/ledger-template.md) and add
 sections as needed.
@@ -160,4 +164,4 @@ sections as needed.
 
 - [/offboard](../offboard/SKILL.md) — invokes this script as part of session exit
 - [/onboard](../onboard/SKILL.md) — offers to bootstrap cost-tracking on first session
-- [reference/ledger-template.md](reference/ledger-template.md) — the template to copy into `.claude/plans/cost-tracking.md`
+- [reference/ledger-template.md](reference/ledger-template.md) — the template to copy into `refs/cost-tracking.md`

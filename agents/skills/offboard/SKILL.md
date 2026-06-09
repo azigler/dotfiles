@@ -47,8 +47,16 @@ If the file doesn't exist, the project doesn't track cost — skip Step 4.
 
 ## Step 3: Write the session handoff note
 
-Write `.claude/plans/session-handoff.md` (overwrite, don't append — it's
-a snapshot, not a log; history lives in git):
+Write `refs/session-handoff.md` (overwrite, don't append — it's
+a snapshot, not a log; history lives in git). Session artifacts live
+in `refs/` at the project root (standardized 2026-06-09). If the
+project still has a legacy `.claude/plans/session-handoff.md`, migrate
+it first — one-time, then this note lives in refs/:
+
+```bash
+mkdir -p refs
+[ -f .claude/plans/session-handoff.md ] && git mv .claude/plans/session-handoff.md refs/session-handoff.md
+```
 
 ```markdown
 # Session handoff — YYYY-MM-DD <session-id-short>
@@ -74,15 +82,17 @@ a snapshot, not a log; history lives in git):
 
 ## Step 4 (optional): Compute orchestrator cost
 
-If the project has `.claude/plans/cost-tracking.md`, log this session's
-tokens via the global `/cost-tracking` skill's compute script:
+If the project has `refs/cost-tracking.md` (legacy:
+`.claude/plans/cost-tracking.md` — migrate via `git mv` on first
+touch), log this session's tokens via the global `/cost-tracking`
+skill's compute script:
 
 ```bash
-if [ -f .claude/plans/cost-tracking.md ]; then
+if [ -f refs/cost-tracking.md ]; then
   ROW=$(python3 ~/.claude/skills/cost-tracking/compute-cost.py --format row)
   echo "$ROW"
   # Then append $ROW to the "Orchestrator consumption (per-session)" table
-  # in .claude/plans/cost-tracking.md (just above the running-total line).
+  # in refs/cost-tracking.md (just above the running-total line).
 fi
 ```
 
@@ -99,8 +109,16 @@ After appending the row, update the running-total row below it.
 ```bash
 rm -f .offboard-pending
 
-git add .claude/plans/session-handoff.md
-[ -f .claude/plans/cost-tracking.md ] && git add .claude/plans/cost-tracking.md
+# Record this session as offboarded — session-end.sh compares this to
+# its own session_id and skips dropping .offboard-pending on a match.
+# (Both files are in the global gitignore.)
+mkdir -p .claude
+PROJECT_SLUG=$(pwd | sed 's|/|-|g')
+SESSION_ID=$(basename "$(ls -t "$HOME/.claude/projects/${PROJECT_SLUG}/"*.jsonl 2>/dev/null | head -1)" .jsonl)
+[ -n "$SESSION_ID" ] && echo "$SESSION_ID" > .claude/last-offboard-session
+
+git add refs/session-handoff.md
+[ -f refs/cost-tracking.md ] && git add refs/cost-tracking.md
 
 git commit -m "$(cat <<'EOF'
 :dollar: cost: log orchestrator session <session-id-short>
@@ -151,9 +169,11 @@ action" is honest and useful — better than no note at all.
 
 `session-end.sh` (the `SessionEnd` hook) drops a `.offboard-pending`
 file at the repo root when a session ends **without** `/offboard`
-having run — detected by HEAD not having committed this session's
-handoff note. The next session's `/onboard` Step 0 finds the marker,
-runs `/offboard` retroactively, then clears it.
+having run — detected primarily by `.claude/last-offboard-session`
+matching the ending session's id (Step 5 writes it), with
+HEAD-committed-the-handoff-note as fallback. The next session's
+`/onboard` Step 0 finds the marker, runs `/offboard` retroactively,
+then clears it.
 
 `pre-compact.sh` deliberately does NOT drop the marker: compaction
 keeps the same session alive, and that session's own post-compaction

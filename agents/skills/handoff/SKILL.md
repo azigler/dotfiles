@@ -133,7 +133,7 @@ When the orchestrator runs `/handoff` on itself (before
 
 - All in-flight subagents have either returned or been documented as in-flight
 - Worktrees with closed beads are cleaned up
-- Next session's plan is in `.claude/plans/session-handoff.md` (written by `/offboard`)
+- Next session's plan is in `refs/session-handoff.md` (written by `/offboard`)
 
 This is mostly redundant with `/offboard` — fire it explicitly only
 when you want a sanity-check before context compaction.
