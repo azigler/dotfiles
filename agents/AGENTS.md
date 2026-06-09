@@ -25,6 +25,25 @@ it claimed.)
 
 At session end run `/offboard` — handoff note, optional cost log, commit.
 
+## Surfacing to Andrew — AskUserQuestion, not trailing prose
+
+When you end a turn needing Andrew's input — a decision, feedback on a
+deliverable, "which of these next?" — ask via the **AskUserQuestion
+tool**, not a free-text question at the end of your message. The tmux
+lexicon and notifications key off the tool: an open AskUserQuestion
+shows 🔔 (blocked on Andrew); a turn that merely ends shows ✅. A prose
+question reads as ✅ — Andrew gets no signal you're waiting, and the
+work sits.
+
+Target state for every window: 🧠 (thinking) or 🔔 (needs Andrew).
+✅ means "genuinely idle — nothing to ask, waiting for new delegation."
+If you finished a deliverable and there's an obvious next-step decision,
+that's a 🔔 moment — ask it with the tool.
+
+Exception: autonomous loops (/pulse ticks, scheduled runs) never block
+on AskUserQuestion — they file a P1 `human:` bead + push notification
+and end the tick.
+
 ## Delegation
 
 For any task that writes code, use `subagent_type: "subagent"` with
