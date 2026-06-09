@@ -27,8 +27,10 @@ like every other doc in the fleet.
    `client_email` (in the key file — typically
    `*@*.iam.gserviceaccount.com`).
 
+<!-- private-start -->
 > **LinearB:** the factory connector + its service-account key
 > locations are in `~/linearb/refs/gdoc-connector.md`.
+<!-- private-end -->
 
 ## Quick setup (per project)
 
@@ -80,9 +82,11 @@ hand. These are the rules.
 
 If your writer takes Slack mrkdwn or markdown, drive the Docs API with
 a shared op-emitter library that pre-encodes the styling contract
-above, rather than re-deriving it per agent. (The LinearB factory
-ships one — see `~/linearb/refs/gdoc-connector.md` for the import path
-and call shape.)
+above, rather than re-deriving it per agent.
+<!-- private-start -->
+(The LinearB factory ships one — see `~/linearb/refs/gdoc-connector.md`
+for the import path and call shape.)
+<!-- private-end -->
 
 #### Path B — HTML importer fallback
 
@@ -192,7 +196,9 @@ your environment:
 AGENT_DIR="<a directory with googleapis installed>"
 SA_KEY="<path to your service-account .json>"
 ```
+<!-- private-start -->
 (LinearB factory paths: `~/linearb/refs/gdoc-connector.md`.)
+<!-- private-end -->
 
 ### Create a new tab
 
@@ -289,10 +295,12 @@ Tabs were added to the Docs API in 2024. Key points:
   `document.body` which only returns first tab when `includeTabsContent`
   is false)
 
+<!-- private-start -->
 ## Connector API Reference
 
 The lb-agent-di Google connector's function surface — read / write /
 drive / auth — is documented in `~/linearb/refs/gdoc-connector.md`.
+<!-- private-end -->
 
 ---
 

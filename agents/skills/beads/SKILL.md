@@ -436,7 +436,9 @@ is the single source of truth.
 - [reference/handoff-templates.md](reference/handoff-templates.md) — bead description templates per pipeline stage (spec / check / test / impl / eval)
 - [reference/epics.md](reference/epics.md) — when and how to use epics; `br epic status` workflow
 - [reference/dependencies.md](reference/dependencies.md) — `br dep` family for cross-bead blocking
+<!-- private-start -->
 - `~/linearb/refs/asana-integration.md` — LinearB-only: daily bead-log subtasks via the fleet proxy (private reference)
+<!-- private-end -->
 - [reference/bv.md](reference/bv.md) — `bv` (beads_viewer) graph-aware triage analysis: full robot-flag reference + jq recipes
 - [/fix](../fix/SKILL.md) — fix-and-guard for bugs (creates `-t bug` bead + regression test)
 - [/triage](../triage/SKILL.md) — bead-state hygiene (uses `br orphans`, `br stale`, `br epic close-eligible`)

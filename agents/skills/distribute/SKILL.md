@@ -43,6 +43,24 @@ changes from `linearb/skills/`.
 ~/dotfiles/zig-computer.distribute.sh --no-settings
 ```
 
+## Private-reference blocks (stripped on distribute)
+
+Skill content that only makes sense on this machine — pointers to
+`~/linearb/refs/*`, personal paths, fleet GIDs — gets wrapped in
+HTML-comment markers in the dotfiles original:
+
+```markdown
+<!-- private-start -->
+**LinearB note:** ... `~/linearb/refs/asana-fleet.md` ...
+<!-- private-end -->
+```
+
+The distribute script deletes everything between (and including) the
+markers from the DISTRIBUTED copies; the originals keep them. When you
+add a machine-local pointer to any paragon skill, wrap it — otherwise
+a coworker's agent chases a path that doesn't exist on their machine.
+(Added 2026-06-09; asana, beads, fix, gdoc carry the first blocks.)
+
 ## What this is NOT
 
 - **Not** the lb-agent-factory `distribute` skill. That one syncs

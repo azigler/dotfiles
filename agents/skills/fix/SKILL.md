@@ -134,11 +134,13 @@ For routine fixes (typos, small logic bugs caught in review), the bead
 itself is the record — don't clutter the external tracker with
 one-line fixes.
 
+<!-- private-start -->
 **LinearB fleet (private):** when `FLEET_URL` / `FLEET_TOKEN` / `AGENT`
 / `AGENT_PARENT_GID` are set, bead-start and bead-close auto-log on the
 agent's daily bead-log subtask; the receipt-of-work template + the GTM
 Engineering project GIDs live in `~/linearb/refs/asana-fleet.md` and
 `~/linearb/refs/asana-integration.md`.
+<!-- private-end -->
 
 ## Variants
 

@@ -10,11 +10,13 @@ two rich-text surfaces render, and the strict-XML rules behind them.
 The knowledge here is empirical — Asana's rendering does not match its
 API's acceptance, and the gotchas are not in the official docs.
 
+<!-- private-start -->
 **LinearB note:** the `lb-agent-fleet` proxy, the workspace + agent
 GIDs, and the daily-bead-log / receipt-of-work workflows are
 LinearB-internal — they live in `~/linearb/refs/asana-fleet.md`. Load
 that ref when doing LinearB Asana work; it builds on the mechanics
 below.
+<!-- private-end -->
 
 ## html_notes for task bodies, plaintext `text` for comments
 
@@ -74,6 +76,8 @@ title context carry the hierarchy.
 
 ## See also
 
+<!-- private-start -->
 - `~/linearb/refs/asana-fleet.md` — the LinearB fleet-proxy workflow:
   endpoints, workspace + agent GIDs, daily bead-log, receipt-of-work.
   Load it for any LinearB Asana work.
+<!-- private-end -->

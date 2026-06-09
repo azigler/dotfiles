@@ -111,6 +111,12 @@ note "[2/4] skills/ (clean + copy paragon set)"
 run "rm -rf '$DEST_SKILLS_DIR'"
 run "mkdir -p '$DEST_SKILLS_DIR'"
 run "cp -R '$SRC/agents/skills/.' '$DEST_SKILLS_DIR/'"
+# Strip private-reference blocks from the DISTRIBUTED copies only —
+# pointers to machine-local files (~/linearb/refs/..., personal paths)
+# that a coworker's clone can't resolve. Convention: everything between
+# <!-- private-start --> and <!-- private-end --> (inclusive) is
+# removed. The dotfiles originals keep the blocks.
+run "find '$DEST_SKILLS_DIR' -name '*.md' -exec sed -i '/<!-- private-start -->/,/<!-- private-end -->/d' {} +"
 
 note "[3/4] hooks/ (clean + copy)"
 run "rm -rf '$DEST_HOOKS_DIR'"
