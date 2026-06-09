@@ -1,6 +1,7 @@
 ---
 description: Spec writing — produces a formal specification as a high-priority bead typed `spec` (NOT a file). The spec content lives in the bead's --description with sections for Overview / Baseline / Changes / Formal Spec / Test Cases / Open Questions / Future. Pairs with /check (walks OQs), /test (extracts cases), /impl (implements). Pre-existing specs/ folders stay file-based; new specs created with this skill are beads.
 argument-hint: "<scope-name>"
+when_to_use: Defined work needs a formal specification before /check, /test, /impl. Produces a typed spec BEAD (not a file); ends ready for /check to walk the open questions.
 ---
 
 # /spec — Specification Writing

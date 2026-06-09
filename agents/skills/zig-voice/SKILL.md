@@ -1,6 +1,7 @@
 ---
 name: zig-voice
 description: Andrew Zigler's writing voice — tone, rhythm, structure, and anti-patterns for all long-form and social content
+when_to_use: Only for content Andrew publishes under his name — LinkedIn posts, blog drafts, newsletter copy. Never for work artifacts, Asana descriptions, chat, or status reports.
 ---
 
 # Zig Voice Guide

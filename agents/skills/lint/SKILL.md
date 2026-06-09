@@ -1,6 +1,7 @@
 ---
 description: Code quality policy and linter reference for all supported languages (biome for JS/TS/JSON/CSS, ruff for Python, rustfmt+clippy for Rust, golangci-lint for Go). Documents what auto-runs on file write vs commit-time gates, when to disable rules, per-language gaps and how to compensate, and project-specific config conventions.
 allowed-tools: Bash(biome *) Bash(ruff *) Bash(cargo fmt*) Bash(cargo clippy*) Bash(golangci-lint *) Bash(rustfmt *) Bash(gofmt *)
+when_to_use: Reference for code-quality policy — which checks auto-run on file write vs gate at commit/task boundaries, and when rule-disabling is acceptable. The hooks run the actual checks.
 ---
 
 # /lint — Code Quality

@@ -1,5 +1,6 @@
 ---
 description: Session entrypoint -- discover state, honor any pending offboard, classify work, route to next action. Paired with /offboard.
+when_to_use: Start of every orchestrator session (mandatory), and immediately after context compaction. Step 0 retroactively honors a prior session's .offboard-pending marker.
 ---
 
 # /onboard
@@ -92,35 +93,47 @@ continuing:
    — migrate via `git mv` on first touch) if present — the prior
    session's handoff note. Pick up from where we left off
 
-## Step 2: Load every skill body — in the main session, no exceptions
+## Step 2: Load the toolkit digest — in the main session
 
-This is the most-skipped step and the one onboarding exists for. Do not
-shortcut it. Enumerate the read list:
+Read `~/.claude/skills/TOOLKIT.md` with the Read tool, in THIS
+conversation. It is the per-skill digest — job, fire-when,
+prereqs/side-effects, and the single load-bearing anti-pattern for
+every global skill — at ~3k tokens.
+
+(History: until 2026-06-09 this step mandated reading every SKILL.md
+body and claimed the cost was "a few-thousand tokens." Measured:
+59,929 words ≈ 75–85k tokens per session start, re-paid after every
+compaction. The digest preserves the orchestrator-knows-its-toolkit
+property at ~4% of that cost; full bodies still load on invocation.)
+
+Also check for project-local skills the digest doesn't cover:
 
 ```bash
-ls ~/.claude/skills/*/SKILL.md ./.claude/skills/*/SKILL.md 2>/dev/null
+ls ./.claude/skills/*/SKILL.md 2>/dev/null
 ```
 
-Read **every** file that lists, with the Read tool, in THIS
-conversation. The skill listing already in your context shows only
-descriptions — the bodies carry the anti-patterns, prereqs, side-effect
-flags, and ergonomics you need to orchestrate well.
+Read project-local INDEX.md / skill descriptions if present.
 
-Three ways this step gets done wrong — all forbidden:
+Then load FULL bodies selectively, up front, for the 1–3 skills
+today's classified work (Step 5) actually leans on — e.g. read
+/impl + /dispatch bodies before an implementation session, /talk
+before deck work. Everything else loads when invoked.
 
-- ❌ **Dispatching an Explore / general-purpose agent to read them.** A
-  subagent's context is discarded when it returns — the bodies land in
-  *its* context, not yours. You must read them yourself.
-- ❌ **Reading "a representative few."** Read all of them. The skill you
-  skip is the one whose anti-pattern you needed.
-- ❌ **Skipping because it's long.** It is a few-thousand tokens, paid
-  once per session — that is the trade onboarding exists to make. An
-  orchestrator that doesn't know its own toolkit is a worse
-  orchestrator than one that paid the read-cost upfront.
+Two ways this step still gets done wrong — both forbidden:
 
-When done you can state **"Loaded N/N skill bodies."** Step 7's
-orientation report requires that count — the step is gated: you cannot
-produce a valid report without having done this.
+- ❌ **Delegating the TOOLKIT read to a subagent.** Its context is
+  discarded when it returns — read it yourself.
+- ❌ **Skipping it because the skill listing "looks sufficient."** The
+  listing has descriptions; the digest has the anti-patterns and
+  side-effect flags. The anti-pattern you skip is the one you needed.
+
+If TOOLKIT.md is missing or visibly stale, fall back to reading the
+full bodies and file a bead to regenerate it (post-write-skill.sh
+nudges digest updates on every skill edit).
+
+When done you can state **"Toolkit digest loaded (N skills; full
+bodies: <list or none>)."** Step 7's orientation report requires that
+line.
 
 ## Step 3: Discover live state
 
@@ -192,7 +205,7 @@ Show a concise orientation report:
 
 **Version**: vN.M.R
 **Active branch**: <name or main>
-**Skills loaded**: N/N skill bodies
+**Toolkit**: digest loaded (N skills; full bodies: <list or none>)
 **Position**: <where in the plan>
 **Active plan**: <plan file path, if any>
 **Open beads**: <count, with priorities>

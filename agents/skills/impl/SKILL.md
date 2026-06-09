@@ -1,5 +1,6 @@
 ---
 description: Orchestrator-level implementation planning for test-first development. Creates test + impl beads, dispatches subagents in the right wave order, runs the quality gate. The flow is /spec -> /check -> /test -> /impl with hand-offs via beads. This skill is the orchestrator's playbook for the dispatch + merge loop, not what implementer subagents read.
+when_to_use: Orchestrator is ready to dispatch implementation agents — after /check's Implementation Readiness summary and after the test wave has merged. Never fires autonomously.
 ---
 
 # /impl — Implementation Orchestrator Workflow

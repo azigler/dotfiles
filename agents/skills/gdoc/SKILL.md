@@ -1,6 +1,7 @@
 ---
 name: gdoc
 description: Read, write, format, and collaborate on Google Docs from Claude Code — the gdoc.sh shim, the Tabs API, service-account auth, and a canonical styling contract (Arial 11pt, 20/16/13pt headings). LinearB connector specifics are a separate private reference.
+when_to_use: Reading, writing, formatting, or collaborating on Google Docs from the CLI; load when the user mentions shared-doc work.
 ---
 
 # /gdoc — Google Docs

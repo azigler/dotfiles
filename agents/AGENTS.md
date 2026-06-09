@@ -13,11 +13,15 @@ the Agent tool.
 ## At session start
 
 Run `/onboard` (or read its skill file). It reads CLAUDE.md, MEMORY.md,
-the prior session's handoff note, and **all available skill files in
-the main session** (not via an Explore agent — an orchestrator that
-doesn't know its own toolkit is a worse orchestrator). The skill listing
-shows descriptions only; the bodies have the anti-patterns, prereqs,
-and ergonomics.
+the prior session's handoff note (`refs/session-handoff.md`), and the
+**skills TOOLKIT digest** (`~/.claude/skills/TOOLKIT.md`) — in the
+main session, not via an Explore agent; an orchestrator that doesn't
+know its own toolkit is a worse orchestrator. The digest carries each
+skill's anti-patterns, prereqs, and side-effect flags at ~3k tokens;
+full bodies load on invocation, plus up-front for the 1–3 skills the
+session's work leans on. (Replaced the read-every-body mandate
+2026-06-09 — that cost ~80k tokens/session, not the "few thousand"
+it claimed.)
 
 At session end run `/offboard` — handoff note, optional cost log, commit.
 

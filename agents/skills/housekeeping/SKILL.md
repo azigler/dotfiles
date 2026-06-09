@@ -1,5 +1,6 @@
 ---
 description: Fleet-wide hygiene pass -- mechanical text work + cross-repo state audit, CLAUDE.md/skill consistency, bead closure, lint fixes
+when_to_use: Weekly / pre-release mechanical hygiene ritual (autonomous-OK), or one-off CLAUDE.md refresh, deprecation markers, orphan closure, lint autofix, skill-drift audit. Pairs with /triage.
 ---
 
 # Housekeeping

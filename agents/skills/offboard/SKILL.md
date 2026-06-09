@@ -1,5 +1,6 @@
 ---
 description: Session exit -- summarize state, write handoff note, optionally compute orchestrator cost from session JSONL, commit. Paired with /onboard.
+when_to_use: Session end, before context compaction, or any natural handoff point. Orchestrator-only (skip inside worktrees). Paired with /onboard, which retroactively honors .offboard-pending.
 ---
 
 # /offboard

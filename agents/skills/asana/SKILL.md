@@ -1,5 +1,6 @@
 ---
 description: Asana rich-text mechanics — how html_notes (task bodies) vs plaintext text (comments) render, the strict-XML tag rules, and the gotchas that trip up every first attempt. The LinearB fleet-proxy workflow is a separate, private reference.
+when_to_use: Working with Asana rich-text fields — load before any html_notes (task body) or text (comment) write so the strict-XML rules are in context. Reference for all Asana API integrations.
 ---
 
 # /asana — Asana rich-text mechanics

@@ -1,5 +1,6 @@
 ---
 description: Orchestrator pattern for delegating implementation to worktree subagents
+when_to_use: Standing pattern for any session that delegates implementation — bead creation, worktree-subagent dispatch, merge, close, cleanup. Read the body before the session's first dispatch.
 ---
 
 # Orchestrator Workflow

@@ -4,7 +4,7 @@
 echo "=== State Before Compaction ==="
 
 # Tell the post-compaction agent to onboard before any action.
-echo "IMPORTANT: Run /onboard before doing anything. It re-reads CLAUDE.md, MEMORY.md, the prior session's handoff note, and skill files in the main session — preventing blind post-compaction execution."
+echo "IMPORTANT: Run /onboard before doing anything. It re-reads CLAUDE.md, MEMORY.md, the prior session's handoff note (refs/session-handoff.md), and the skills TOOLKIT digest in the main session — preventing blind post-compaction execution."
 
 if command -v git &>/dev/null && git rev-parse --is-inside-work-tree &>/dev/null; then
   echo "Branch: $(git branch --show-current 2>/dev/null)"

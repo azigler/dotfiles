@@ -1,6 +1,7 @@
 ---
 description: Test-writing — converts a spec bead's Section 5 cases into executable tests, plus adds ≥5 edge / error tests beyond the spec. Pairs with /spec (input) and /impl (downstream consumer). Test agents NEVER touch implementation source files. Test files live at conventional paths per language (TS __tests__/, Python tests/, Rust tests/+#[cfg(test)], Go *_test.go).
 argument-hint: "<spec-bead-id>"
+when_to_use: Test wave of TDD — orchestrator dispatches test agents BEFORE any impl dispatch. Test agents write only test files, never implementation source.
 ---
 
 # /test — Test Creation

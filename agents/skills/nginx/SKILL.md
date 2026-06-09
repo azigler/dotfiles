@@ -2,6 +2,7 @@
 description: Global nginx reverse proxy — site layout, TLS via certbot, adding a new project vhost, testing + reload discipline. Auto-loads when working with nginx vhost configs, sites-enabled, or ops/nginx project subdirs.
 paths: "**/nginx.conf,**/*.nginx.conf,**/sites-available/**,**/sites-enabled/**,**/ops/nginx/**,**/etc/nginx/**"
 allowed-tools: Bash(sudo nginx -t) Bash(sudo nginx -T) Bash(sudo systemctl reload nginx) Bash(sudo systemctl restart nginx) Bash(sudo systemctl status nginx) Bash(sudo tail*nginx*) Bash(sudo certbot *)
+when_to_use: Auto-loads on nginx config paths (**/nginx.conf, **/sites-available/**, **/ops/nginx/**); otherwise any reverse-proxy, vhost, TLS/certbot task.
 ---
 
 # nginx

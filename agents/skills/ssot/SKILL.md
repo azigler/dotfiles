@@ -1,5 +1,6 @@
 ---
 description: String Seed of Thought -- mandatory protocol for diverse generation. Defeats LLM distribution collapse by forcing real randomness into every discretionary choice. NEVER narrate "committed choices" without running the seed-and-map arithmetic and recording the provenance block -- the provenance block is what makes it SSoT. Without it, you prior-collapsed and called it SSoT.
+when_to_use: Creative generation (copy, image prompts, design choices) where the model would collapse to the modal answer. NOT for single-correct-answer tasks (facts, code, math).
 ---
 
 # SSoT -- String Seed of Thought
