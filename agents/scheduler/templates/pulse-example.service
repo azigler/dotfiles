@@ -1,0 +1,15 @@
+# Template: systemd user SERVICE for a pulse tick (pair with the .timer).
+# Install per project:
+#   cp pulse-example.{service,timer} ~/.config/systemd/user/pulse-<project>.{service,timer}
+#   edit ExecStart (dir + cmd), then:
+#   systemctl --user daemon-reload && systemctl --user enable --now pulse-<project>.timer
+# Inspect runs: journalctl --user -u pulse-<project>.service -n 20
+[Unit]
+Description=Pulse tick: <project> (tmux-injection into the dedicated window)
+
+[Service]
+Type=oneshot
+# The injector ensures the work session + pulse window + interactive
+# Claude session exist, then types the command into it. Interactive
+# session = normal subscription usage, visible + steerable in tmux.
+ExecStart=%h/dotfiles/agents/scheduler/pulse-inject.sh --dir /home/ubuntu/<project-path> --cmd "/pulse tick"

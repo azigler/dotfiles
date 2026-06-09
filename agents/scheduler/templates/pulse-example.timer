@@ -1,0 +1,15 @@
+# Template: systemd user TIMER for a pulse tick (pair with the .service).
+# OnCalendar examples:
+#   Mon 09:00            — weekly (the weekly-report shape)
+#   *-*-* 08:00          — daily
+#   *-*-* 08..18:00/2:00 — every 2h during the workday
+[Unit]
+Description=Pulse timer: <project>
+
+[Timer]
+OnCalendar=Mon 09:00
+# Fire on next boot if the machine slept through the window:
+Persistent=true
+
+[Install]
+WantedBy=timers.target
