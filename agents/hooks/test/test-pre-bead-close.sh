@@ -40,6 +40,7 @@ case "${1:-}" in
     case "${2:-}" in
       *ship*) echo "## Scrutiny — 2026-05-21"; echo "Verdict: SHIP" ;;
       *ovr*)  echo "## Scrutiny — OVERRIDE: trivial mechanical change" ;;
+      *game*) echo "We need scrutiny before we SHIP this" ;;
     esac
     exit 0
     ;;
@@ -160,6 +161,12 @@ run_case "block: impl bead with no scrutiny verdict" 2 \
 # 17. close an -t impl bead with an OVERRIDE verdict → ALLOW
 run_case "allow: impl bead with OVERRIDE verdict" 0 \
   '{"tool_input":{"command":"br close bd-implovr"},"cwd":"/tmp"}'
+
+# 18. prose mentioning scrutiny + SHIP on one line, but NO recorded
+#     verdict → BLOCK (regression guard for the 2026-06-09 grep fix)
+run_case "block: impl bead with gamed scrutiny prose" 2 \
+  '{"tool_input":{"command":"br close bd-implgame"},"cwd":"/tmp"}' \
+  "no recorded scrutiny verdict"
 
 # --- Summary ---
 

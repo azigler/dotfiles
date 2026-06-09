@@ -5,12 +5,20 @@
 # The marker is the retroactive-offboard safety net: the next session's
 # /onboard Step 0 finds it and runs /offboard for the prior session.
 # /offboard removes it (Step 5). "Did /offboard run this session?" is
-# detected by HEAD having committed the session handoff note — /offboard
-# always writes and commits it.
+# detected primarily by .claude/last-offboard-session matching this
+# session's id (/offboard writes that file in Step 5; both it and the
+# marker are in the global gitignore). Fallback: HEAD committed the
+# session handoff note. The HEAD heuristic alone was fragile — any
+# commit AFTER /offboard in the same session (a bead close, a quick
+# fix) made HEAD no longer the handoff commit, dropping the marker
+# spuriously (fixed 2026-06-09).
 #
 # pre-compact.sh deliberately does NOT drop the marker: compaction keeps
 # the same session alive, so that session's own post-compaction /onboard
 # would misread its own marker as a prior session's.
+
+STDIN=$(cat 2>/dev/null || echo '{}')
+SESSION_ID=$(echo "$STDIN" | jq -r '.session_id // empty' 2>/dev/null)
 
 if command -v br &>/dev/null; then
   br sync --flush-only 2>/dev/null
@@ -21,12 +29,15 @@ if command -v git &>/dev/null && git rev-parse --is-inside-work-tree &>/dev/null
   case "$ROOT" in
     ""|*/.claude/worktrees/*) ;;  # outside git, or inside a worktree — skip
     *)
-      if git -C "$ROOT" diff-tree --no-commit-id --name-only -r --root HEAD 2>/dev/null \
+      OFFBOARDED=false
+      if [ -n "$SESSION_ID" ] && [ -f "$ROOT/.claude/last-offboard-session" ] \
+         && [ "$(cat "$ROOT/.claude/last-offboard-session" 2>/dev/null)" = "$SESSION_ID" ]; then
+        OFFBOARDED=true   # /offboard ran this session (primary signal)
+      elif git -C "$ROOT" diff-tree --no-commit-id --name-only -r --root HEAD 2>/dev/null \
            | grep -qE 'session-handoff\.md$'; then
-        : # /offboard ran this session — HEAD committed the handoff note
-      else
-        touch "$ROOT/.offboard-pending"
+        OFFBOARDED=true   # fallback: HEAD is the handoff commit
       fi
+      $OFFBOARDED || touch "$ROOT/.offboard-pending"
       ;;
   esac
 fi

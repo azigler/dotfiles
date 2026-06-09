@@ -4,13 +4,23 @@
 #   - Blocks `git push` from inside a worktree (the orchestrator merges
 #     the worktree branch and pushes; a worktree push leaves stale
 #     worktree-agent-* remote branches).
-#   - On `git commit`: requires a `Bead:` trailer (meta-commits exempt),
-#     syncs bead state, lints staged JS/PY.
+#   - On `git commit`: requires a `Bead:` trailer (beads projects only;
+#     meta-commits exempt), syncs bead state, lints files headed into
+#     the commit.
 # Exit 2 = block the command and feed errors to the agent.
 #
-# Fast checks only — staged-only linting that completes in seconds.
+# Fast checks only — file-scoped linting that completes in seconds.
 # Heavy checks (full-project tsc, cargo clippy, golangci-lint) live in
 # task-completed.sh and CI, NOT here.
+#
+# PreToolUse hooks must not mutate user state: if the call is denied,
+# nothing should have happened. (Changed 2026-06-09: we used to pre-run
+# a chained `git add` here so `--staged` linting could see the files —
+# that staged files before the permission layer approved the command.
+# Now we lint the named files directly, unstaged.) The ONE mutation
+# kept deliberately is `br sync` + auto-staging .beads/issues.jsonl:
+# harness-owned state, idempotent, and required so commits carry
+# current bead state.
 
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
@@ -53,35 +63,38 @@ case "$COMMAND" in
   *) exit 0 ;;
 esac
 
-# If git add is chained before git commit, run it now so staged files are visible.
-if echo "$COMMAND" | grep -qE 'git add .+&&'; then
+# Files named in a chained `git add ... && git commit`: collect them so
+# the lint step below can check them directly. Do NOT run the add —
+# PreToolUse must stay side-effect-free on user state.
+ADD_FILES=""
+if echo "$COMMAND" | grep -qE 'git add .+(&&|;)'; then
   ADD_CMD=$(echo "$COMMAND" | grep -oE 'git add [^&;]+' | head -1)
-  if echo "$ADD_CMD" | grep -qE 'git add\s+(-A|--all|\.\s*$)'; then
-    echo "Blocked: use 'git add <specific-files>', never 'git add .', 'git add -A', or 'git add --all'." >&2
-    exit 2
-  fi
-  /bin/sh -c "$ADD_CMD" 2>/dev/null
+  ADD_FILES=$(echo "$ADD_CMD" | sed 's/^git add //' | tr ' ' '\n' | grep -v '^-' | grep -v '^$')
 fi
 
 set +e
 FAILED=0
+GIT_TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null)
 
-# 1. Sync bead state.
+# 1. Sync bead state (beads projects only).
 # In worktrees, .beads/ is a symlink to the main worktree — skip auto-staging
 # to avoid committing symlinked/out-of-tree files that corrupt the branch.
-if command -v br &>/dev/null; then
+if command -v br &>/dev/null && [ -n "$GIT_TOPLEVEL" ] && [ -e "$GIT_TOPLEVEL/.beads" ]; then
   br sync --flush-only 2>/dev/null || true
-  GIT_TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null)
   case "$GIT_TOPLEVEL" in
     */.claude/worktrees/*) ;;  # in worktree, skip
-    *) git add .beads/issues.jsonl 2>/dev/null || true ;;
+    *) git -C "$GIT_TOPLEVEL" add .beads/issues.jsonl 2>/dev/null || true ;;
   esac
 fi
 
-# 2. Require a `Bead:` trailer — block, not warn. Meta-commits are exempt:
+# 2. Require a `Bead:` trailer — but ONLY in projects that use beads
+#    (.beads exists at the repo root; -e covers the worktree symlink).
+#    Repos without beads (fresh clones, scratch dirs, third-party
+#    checkouts) commit freely — demanding trailers where no beads exist
+#    just trains the agent to fabricate them. Meta-commits are exempt:
 #    bead-state / triage / offboard / cost / distribute commits reference
 #    beads in the subject rather than a trailer and carry a meta gitmoji.
-if ! echo "$COMMAND" | grep -q 'Bead:'; then
+if [ -n "$GIT_TOPLEVEL" ] && [ -e "$GIT_TOPLEVEL/.beads" ] && ! echo "$COMMAND" | grep -q 'Bead:'; then
   if echo "$COMMAND" | grep -qE ':card_file_box:|:broom:|:dollar:|:outbox_tray:'; then
     : # meta-commit (bead-state / triage / offboard / cost / distribute) — trailer not required
   else
@@ -93,39 +106,45 @@ if ! echo "$COMMAND" | grep -q 'Bead:'; then
   fi
 fi
 
-# 3. Lint staged files by language (FAST checks only — staged scope, no full-project)
-STAGED=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null)
+# 3. Lint files headed into this commit: already-staged + chained-add.
+#    (FAST checks only — named-file scope, no full-project runs.)
+CANDIDATES=$(printf '%s\n%s\n' \
+  "$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null)" \
+  "$ADD_FILES" | grep -v '^$' | sort -u)
 
-if [ -n "$STAGED" ]; then
-  HAS_JS=false
-  HAS_PY=false
+if [ -n "$CANDIDATES" ]; then
+  GIT_ROOT=${GIT_TOPLEVEL:-$(pwd)}
+  JS_FILES=""
+  PY_FILES=""
 
   while IFS= read -r file; do
+    # Staged names are repo-root-relative; chained-add names are
+    # cwd-relative — resolve against both, skip what doesn't exist.
+    RESOLVED=""
+    if [ -f "$file" ]; then
+      RESOLVED="$file"
+    elif [ -f "$GIT_ROOT/$file" ]; then
+      RESOLVED="$GIT_ROOT/$file"
+    fi
+    [ -z "$RESOLVED" ] && continue
     case "$file" in
-      *.js|*.ts|*.jsx|*.tsx) HAS_JS=true ;;
-      *.py) HAS_PY=true ;;
+      *.js|*.ts|*.jsx|*.tsx) JS_FILES="$JS_FILES $RESOLVED" ;;
+      *.py) PY_FILES="$PY_FILES $RESOLVED" ;;
     esac
-  done <<< "$STAGED"
+  done <<< "$CANDIDATES"
 
-  GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-
-  # JS/TS: biome --staged is fast (analyzes only the staged subset)
-  if $HAS_JS && command -v biome &>/dev/null; then
-    OUTPUT=$(cd "$GIT_ROOT" && biome check --staged --error-on-warnings 2>&1) || {
+  if [ -n "$JS_FILES" ] && command -v biome &>/dev/null; then
+    OUTPUT=$(biome check --error-on-warnings $JS_FILES 2>&1) || {
       echo "biome: $OUTPUT" >&2
       FAILED=1
     }
   fi
 
-  # Python: ruff on staged .py files only
-  if $HAS_PY && command -v ruff &>/dev/null; then
-    PY_STAGED=$(echo "$STAGED" | grep -E '\.py$' | tr '\n' ' ')
-    if [ -n "$PY_STAGED" ]; then
-      OUTPUT=$(ruff check $PY_STAGED 2>&1) || {
-        echo "ruff: $OUTPUT" >&2
-        FAILED=1
-      }
-    fi
+  if [ -n "$PY_FILES" ] && command -v ruff &>/dev/null; then
+    OUTPUT=$(ruff check $PY_FILES 2>&1) || {
+      echo "ruff: $OUTPUT" >&2
+      FAILED=1
+    }
   fi
 
   # Heavy checks (tsc / cargo clippy / golangci-lint) DELIBERATELY OMITTED.

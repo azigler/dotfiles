@@ -30,15 +30,22 @@ export PATH="$STUB_DIR:$PATH"
 
 # A non-git working dir to run the hook from.
 NONGIT=$(mktemp -d)
-trap 'rm -rf "$STUB_DIR" "$NONGIT"' EXIT
+
+# A git repo WITH .beads/ — the Bead-trailer gate only applies in beads
+# projects (guard added 2026-06-09), so trailer cases run from here.
+BEADSREPO=$(mktemp -d)
+git -C "$BEADSREPO" init -q
+mkdir "$BEADSREPO/.beads"
+
+trap 'rm -rf "$STUB_DIR" "$NONGIT" "$BEADSREPO"' EXIT
 
 WT='/tmp/proj/.claude/worktrees/agent-test'
 
-# Run the hook from the non-git dir; capture exit + stderr.
-run_case() {
-  local name=$1 want_exit=$2 payload=$3 want_stderr=${4:-}
+# Run the hook from a given dir; capture exit + stderr.
+run_case_in() {
+  local dir=$1 name=$2 want_exit=$3 payload=$4 want_stderr=${5:-}
   local stderr_out
-  stderr_out=$( cd "$NONGIT" && echo "$payload" | "$HOOK" 2>&1 >/dev/null )
+  stderr_out=$( cd "$dir" && echo "$payload" | "$HOOK" 2>&1 >/dev/null )
   local got_exit=$?
 
   if [ "$got_exit" -ne "$want_exit" ]; then
@@ -53,6 +60,13 @@ run_case() {
   fi
   PASS=$((PASS + 1))
 }
+
+# Back-compat helper: run from the non-git dir.
+run_case() {
+  local name=$1 want_exit=$2 payload=$3 want_stderr=${4:-}
+  run_case_in "$NONGIT" "$name" "$want_exit" "$payload" "$want_stderr"
+}
+
 
 # --- git add discipline ---
 
@@ -81,32 +95,38 @@ run_case "block: git push from a worktree" 2 \
 run_case "allow: git push from project root" 0 \
   '{"tool_input":{"command":"git push"},"cwd":"/tmp"}'
 
-# --- Bead-trailer block + meta-commit carve-out ---
+# --- Bead-trailer block + meta-commit carve-out (beads repos only) ---
 
 # 6. commit WITH a Bead: trailer → ALLOW
-run_case "allow: commit with Bead trailer" 0 \
+run_case_in "$BEADSREPO" "allow: commit with Bead trailer" 0 \
   '{"tool_input":{"command":"git commit -m \":sparkles: x: y\" -m \"Bead: bd-x\""},"cwd":"/tmp"}'
 
-# 7. commit with NO trailer and a normal gitmoji → BLOCK
-run_case "block: commit with no Bead trailer" 2 \
+# 7. commit with NO trailer and a normal gitmoji, in a beads repo → BLOCK
+run_case_in "$BEADSREPO" "block: commit with no Bead trailer" 2 \
   '{"tool_input":{"command":"git commit -m \":sparkles: x: y\""},"cwd":"/tmp"}' \
   "no 'Bead: <id>' trailer"
 
 # 8. :card_file_box: bead-state meta-commit (no trailer) → ALLOW (exempt)
-run_case "allow: card_file_box meta-commit exempt" 0 \
+run_case_in "$BEADSREPO" "allow: card_file_box meta-commit exempt" 0 \
   '{"tool_input":{"command":"git commit -m \":card_file_box: beads: close bd-x\""},"cwd":"/tmp"}'
 
 # 9. :broom: triage meta-commit (no trailer) → ALLOW (exempt)
-run_case "allow: broom triage meta-commit exempt" 0 \
+run_case_in "$BEADSREPO" "allow: broom triage meta-commit exempt" 0 \
   '{"tool_input":{"command":"git commit -m \":broom: triage: 3 closed\""},"cwd":"/tmp"}'
 
 # 10. :outbox_tray: distribute meta-commit (no trailer) → ALLOW (exempt)
-run_case "allow: outbox_tray distribute meta-commit exempt" 0 \
+run_case_in "$BEADSREPO" "allow: outbox_tray distribute meta-commit exempt" 0 \
   '{"tool_input":{"command":"git commit -m \":outbox_tray: distribute: sync from dotfiles\""},"cwd":"/tmp"}'
 
 # 11. unrelated command → no-op
 run_case "allow: unrelated command" 0 \
   '{"tool_input":{"command":"ls -la"},"cwd":"/tmp"}'
+
+# 12. trailer-less commit in a NON-beads context → ALLOW (guard added
+#     2026-06-09: the gate only applies where .beads/ exists; demanding
+#     trailers in clones/scratch dirs trains the agent to fabricate them)
+run_case "allow: trailer-less commit outside a beads repo" 0 \
+  '{"tool_input":{"command":"git commit -m \":sparkles: x: y\""},"cwd":"/tmp"}'
 
 # --- Summary ---
 

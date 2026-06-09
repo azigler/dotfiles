@@ -50,6 +50,23 @@ if [ -n "$NAME_FIELD" ] && [ "$NAME_FIELD" = "$SKILL_NAME" ]; then
 "
 fi
 
+# 5. when_to_use present? The routing layer fires skills off the
+# description + when_to_use; a skill without trigger guidance is the
+# least discoverable one in the library.
+WTU_LINE=$(awk '/^---$/{c++; next} c==1 && /^when_to_use:/{print; exit}' "$FILE_PATH")
+if [ -z "$WTU_LINE" ]; then
+  WARNINGS="${WARNINGS}- missing 'when_to_use:' frontmatter field (trigger guidance for the routing layer)
+"
+fi
+
+# 6. TOOLKIT.md freshness — the skills-dir digest /onboard reads instead
+# of every body. If you changed a skill's behavior, update its entry.
+TOOLKIT="$(dirname "$(dirname "$FILE_PATH")")/TOOLKIT.md"
+if [ -f "$TOOLKIT" ]; then
+  WARNINGS="${WARNINGS}- if this change altered the skill's job / trigger / anti-pattern, update its digest entry in skills/TOOLKIT.md
+"
+fi
+
 if [ -n "$WARNINGS" ]; then
   printf 'SKILL.md format check (warnings, not blocking):\n%s' "$WARNINGS" >&2
 fi

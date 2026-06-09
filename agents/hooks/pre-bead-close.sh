@@ -83,9 +83,15 @@ for ID in $BEAD_IDS; do
   fi
 
   # Scrutiny gate: an -t impl bead closes only after /scrutinize SHIPs.
+  # Accept either (a) an anchored "Verdict: SHIP|OVERRIDE" line (the
+  # recorded format under a "## Scrutiny" header) or (b) the verdict
+  # directly after the scrutiny marker ("## Scrutiny — OVERRIDE: ...").
+  # Two independent greps over the whole bead used to let prose like
+  # "needs scrutiny before we SHIP" pass the gate with no verdict
+  # recorded (fixed 2026-06-09).
   SHOW=$(br show "$ID" 2>/dev/null)
   if echo "$SHOW" | grep -qE 'Type:[[:space:]]+impl([[:space:]]|$)'; then
-    if ! { echo "$SHOW" | grep -qiE 'scrutin' && echo "$SHOW" | grep -qE 'SHIP|OVERRIDE'; }; then
+    if ! echo "$SHOW" | grep -qE '(^[[:space:]]*Verdict:[[:space:]]*(SHIP|OVERRIDE)|[Ss]crutin[a-z]*[^[:alnum:]]+(SHIP|OVERRIDE))'; then
       echo "Blocked: impl bead $ID has no recorded scrutiny verdict." >&2
       echo "An -t impl bead closes only after /scrutinize returns SHIP." >&2
       echo "Record the verdict in the bead --notes, or an explicit" >&2

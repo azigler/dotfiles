@@ -44,7 +44,9 @@ if [ -n "$RS_FILES" ] && command -v cargo &>/dev/null; then
     RS_ROOT=$(dirname "$RS_ROOT")
   done
   [ -f "$RS_ROOT/Cargo.toml" ] || RS_ROOT="."
-  OUTPUT=$(cd "$RS_ROOT" && cargo clippy -- -W clippy::pedantic -D warnings 2>&1) || ERRORS="${ERRORS}clippy ($RS_ROOT):
+  # -D warnings only — pedantic-as-hard-error blocked task completion on
+  # style nits in crates that never opted into pedantic (changed 2026-06-09).
+  OUTPUT=$(cd "$RS_ROOT" && cargo clippy -- -D warnings 2>&1) || ERRORS="${ERRORS}clippy ($RS_ROOT):
 ${OUTPUT}
 
 "

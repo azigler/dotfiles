@@ -11,6 +11,17 @@ FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
 case "$FILE_PATH" in
   *.js|*.ts|*.jsx|*.tsx|*.json|*.css)
     command -v biome &>/dev/null || exit 0
+    # Respect the project's own formatter: if the repo has no biome
+    # config but DOES have a prettier config, don't impose biome
+    # defaults on a prettier-formatted codebase (third-party clones,
+    # team repos). Our own projects either have biome.json or no
+    # formatter config at all — both still get biome (added 2026-06-09).
+    FILE_ROOT=$(cd "$(dirname "$FILE_PATH")" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)
+    if [ -n "$FILE_ROOT" ] && [ ! -f "$FILE_ROOT/biome.json" ] && [ ! -f "$FILE_ROOT/biome.jsonc" ]; then
+      if ls "$FILE_ROOT"/.prettierrc* "$FILE_ROOT"/prettier.config.* &>/dev/null; then
+        exit 0
+      fi
+    fi
     OUTPUT=$(biome check --write --error-on-warnings "$FILE_PATH" 2>&1) || {
       echo "$OUTPUT" >&2
       exit 2
