@@ -35,8 +35,11 @@ SOCKET=$("$TMUX_BIN" display-message -p -t "$SESSION" '#{socket_path}')
 
 fire() {
   local event=$1
-  printf '{"hook_event_name":"%s"}' "$event" \
-    | TMUX="$SOCKET,0,0" TMUX_PANE="$PANE" "$HOOK"
+  fire_json "$(printf '{"hook_event_name":"%s"}' "$event")"
+}
+
+fire_json() {
+  printf '%s' "$1" | TMUX="$SOCKET,0,0" TMUX_PANE="$PANE" "$HOOK"
 }
 
 assert_name() {
@@ -55,17 +58,35 @@ assert_name() {
 fire SessionStart
 assert_name "SessionStart sets working prefix" "🧠 myproject"
 
-# 2. Stop → ✅ replaces 🦾 (no stacking)
+# 2. Stop → ✅ replaces 🧠 (no stacking)
 fire Stop
 assert_name "Stop swaps to ready prefix" "✅ myproject"
 
-# 3. Notification → 🔔 replaces ✅
-fire Notification
-assert_name "Notification swaps to attention prefix" "🔔 myproject"
+# 3. Permission-type Notification → 🔔 replaces ✅
+fire_json '{"hook_event_name":"Notification","message":"Claude needs your permission to use Bash"}'
+assert_name "permission notification swaps to attention prefix" "🔔 myproject"
 
-# 4. UserPromptSubmit → back to 🦾
+# 3b. Idle "waiting for your input" Notification → IGNORED (the di/prod
+#     false-🔔: every finished window idles; that is what ✅ means)
+fire Stop
+fire_json '{"hook_event_name":"Notification","message":"Claude is waiting for your input"}'
+assert_name "idle notification does not override ready" "✅ myproject"
+
+# 4. UserPromptSubmit → back to 🧠
 fire UserPromptSubmit
 assert_name "UserPromptSubmit swaps to working prefix" "🧠 myproject"
+
+# 4b. PreToolUse AskUserQuestion → 🔔 (agent mid-turn, asking Andrew)
+fire_json '{"hook_event_name":"PreToolUse","tool_name":"AskUserQuestion"}'
+assert_name "AskUserQuestion swaps to attention prefix" "🔔 myproject"
+
+# 4c. PostToolUse (any tool) → 🧠 (work resumed; heals stale 🔔)
+fire_json '{"hook_event_name":"PostToolUse","tool_name":"AskUserQuestion"}'
+assert_name "PostToolUse heals back to working prefix" "🧠 myproject"
+
+# 4d. PreToolUse on an ordinary tool → no change
+fire_json '{"hook_event_name":"PreToolUse","tool_name":"Bash"}'
+assert_name "ordinary PreToolUse is a no-op" "🧠 myproject"
 
 # 5. Manual rename mid-session survives (only prefix is managed)
 "$TMUX_BIN" rename-window -t "$PANE" "renamed-by-hand"
