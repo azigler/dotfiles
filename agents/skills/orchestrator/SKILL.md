@@ -69,7 +69,10 @@ git add .beads/issues.jsonl
 git commit -m ":card_file_box: beads: close <bead-id>"
 
 # 4. Clean up worktree and branches
-git worktree remove --force .claude/worktrees/agent-XXXX
+# Double --force: the subagent's worktree lock can briefly outlive its
+# final reply (single -f overrides modified files but NOT locks). The
+# work is merged by this point, so forcing past the lock is safe.
+git worktree remove --force --force .claude/worktrees/agent-XXXX
 git branch -D worktree-agent-XXXX
 git push origin --delete worktree-agent-XXXX 2>/dev/null || true
 ```
@@ -81,6 +84,19 @@ corrected state. A `cd && cmd` compound runs in a single call where
 the hook layer reads cwd from stdin (pre-cd state) — defensive hooks
 based on stdin.cwd will still trigger on the compound's downstream
 command. Keep them separate.
+
+> **Version-stamp discipline (added 2026-06-09):** this section's
+> claim that the harness *shares shell state across orchestrator and
+> subagent sessions* (observed ~2026-05) and the cross-repo section's
+> claim that the harness *resets Bash cwd to project root between
+> calls* (observed 2026-05-24) describe DIFFERENT Claude Code builds
+> and contradict each other. On the current build (claude-code 2.1.170,
+> checked 2026-06-09) Bash cwd persists between calls within a session.
+> Keep the standalone-cd discipline — it is cheap and correct under
+> every variant — but re-verify either claim before building new logic
+> on it. Convention: stamp every empirical harness-behavior claim with
+> `(observed <date>, claude-code <version>)`; `/housekeeping` re-verifies
+> or prunes stamps older than ~6 weeks.
 
 ### Batching Bead Closures
 
@@ -297,10 +313,10 @@ br close <id-a> && br close <id-b> && br close <id-c>
 git add .beads/issues.jsonl
 git commit -m ":card_file_box: beads: close <id-a>, <id-b>, <id-c>"
 
-# Clean up all worktrees
-git worktree remove --force .claude/worktrees/agent-AAA
-git worktree remove --force .claude/worktrees/agent-BBB
-git worktree remove --force .claude/worktrees/agent-CCC
+# Clean up all worktrees (double --force — locks can outlive agents)
+git worktree remove --force --force .claude/worktrees/agent-AAA
+git worktree remove --force --force .claude/worktrees/agent-BBB
+git worktree remove --force --force .claude/worktrees/agent-CCC
 git branch -D worktree-agent-AAA worktree-agent-BBB worktree-agent-CCC
 ```
 
@@ -391,8 +407,9 @@ base. Cleaning up immediately prevents:
 around between dispatch waves.
 
 ```bash
-# After EVERY successful merge, immediately:
-git worktree remove --force .claude/worktrees/agent-XXXX
+# After EVERY successful merge, immediately (double --force — locks
+# can outlive agents):
+git worktree remove --force --force .claude/worktrees/agent-XXXX
 git branch -D worktree-agent-XXXX
 git push origin --delete worktree-agent-XXXX 2>/dev/null || true
 
@@ -405,6 +422,22 @@ ls .claude/worktrees/  # should be empty or not exist
 from an old base, resolve by taking the worktree's version of files it authored
 (`git checkout --theirs <files>`). This is safe because the worktree had the
 complete implementation; the conflict is only due to the stale base.
+
+## Continuing an agent vs re-dispatching
+
+A returned subagent isn't gone — the harness can continue it with its
+context intact (SendMessage to the agent's name/id). When an agent
+returns with a question, leaves one edge incomplete, or a follow-up
+surfaces minutes later, CONTINUE it instead of composing a fresh
+dispatch: the continuation costs one message; a re-dispatch re-pays
+the whole prompt + worktree setup and loses the agent's working
+memory of the code it just touched.
+
+For long waves, dispatch with `run_in_background: true` — you get a
+notification per completion instead of blocking on the slowest agent,
+and you keep merging / triaging while they run. Don't poll their
+output files; trust the notifications.
+(observed 2026-06-09, claude-code 2.1.170)
 
 ## When NOT to Use Subagents
 

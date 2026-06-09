@@ -20,29 +20,28 @@ forget pieces.
 Skip for built-in agent types (`Explore`, `Plan`) — those don't write
 code and don't have the same risk profile.
 
+## Enforced by structure — don't paste these (changed 2026-06-09)
+
+Two invariants that used to be mandatory prompt blocks are now
+enforced by the harness itself:
+
+- **No nested agents** — the `subagent` agent type's tool list has no
+  Agent tool, and its definition (`claude/agents/subagent.md` Hard
+  Rule 4) states the rule. Spawning is impossible, not just forbidden.
+- **Worktree path discipline** — `pre-tool-use-worktree-guard.sh`
+  blocks main-root writes (bd-n47), and subagent.md Hard Rule 3
+  states the rule.
+
+Paste the old CRITICAL blocks only when dispatching a NON-standard
+agent type to write code (rare — prefer fixing the agent definition
+instead). Every dispatch prompt now carries only task-specific
+content.
+
 ## Mandatory blocks (every dispatch)
 
 ```
 Your bead is `<bead-id>`. Include `Bead: <bead-id>` in your commit trailer.
 Merge target: `<branch>` (NOT main, unless project doesn't use /branch).
-
-## CRITICAL: No Nested Agents
-You are a subagent. Do NOT use the Agent tool to spawn further subagents.
-Do all work directly using Read, Write, Edit, Bash, Grep, Glob.
-Nested agents create exponentially-compounding worktree copies (~796MB each).
-
-## CRITICAL: file paths must stay inside your worktree
-Your working directory is a git worktree under
-`.claude/worktrees/agent-XXXX/`. Any Write/Edit `file_path` parameter
-must be either:
-  - relative to your cwd, OR
-  - an absolute path that starts with your worktree directory (NOT the
-    main project root)
-Writing to the main project absolute path leaks files outside your
-branch and corrupts the orchestrator's view of `git status`. The
-PreToolUse hook will block such writes (see
-`~/.claude/hooks/pre-tool-use-worktree-guard.sh`), but don't rely on
-the hook — get the path right yourself. This is bd-n47.
 
 ## Task
 [1-3 sentences: what to build/fix/test/spec/check, with the bead ID for context]
@@ -229,8 +228,11 @@ After composing the prompt:
 
 ## Anti-patterns
 
-- ❌ **Skipping the No-Nested-Agents block** — subagents WILL spawn
-  more subagents if not told not to. You don't get this back.
+- ❌ **Dispatching code-writing work to built-in agent types**
+  (Explore / general-purpose) — the no-nested-agents and
+  path-discipline protections only exist on
+  `subagent_type: "subagent"`; built-ins lack the definition's Hard
+  Rules and the lint/commit hooks.
 - ❌ **Ambiguous merge target** — "merge into main" when project uses
   `/branch` causes integration nightmares. Always be explicit.
 - ❌ **No acceptance criteria reference** — the subagent doesn't know
