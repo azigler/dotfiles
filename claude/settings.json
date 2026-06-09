@@ -13,6 +13,33 @@
             "type": "command",
             "command": "~/.claude/hooks/session-start.sh",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/tmux-status.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/tmux-status.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/tmux-status.sh",
+            "timeout": 5
           }
         ]
       }
@@ -109,6 +136,11 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/check-status.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/tmux-status.sh",
+            "timeout": 5
           }
         ]
       }
@@ -131,6 +163,11 @@
             "type": "command",
             "command": "~/.claude/hooks/session-end.sh",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/tmux-status.sh",
+            "timeout": 5
           }
         ]
       }
