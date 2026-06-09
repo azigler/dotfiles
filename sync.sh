@@ -141,6 +141,7 @@ sync() {
             ;;
         "git")
             sync_source "$SCRIPT_DIR/git/.gitconfig" "$HOME/.gitconfig"
+            sync_source "$SCRIPT_DIR/git/ignore" "$HOME/.config/git/ignore"
             ;;
         "gnupg")
             sync_source "$SCRIPT_DIR/gnupg/common.conf" "$HOME/.gnupg/common.conf"
