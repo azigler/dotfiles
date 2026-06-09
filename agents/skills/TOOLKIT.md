@@ -151,6 +151,12 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 **Prereqs/side-effects:** Standalone `cd` to project root before merge; double `--force` worktree removal; continue a returned agent via SendMessage instead of re-dispatching.
 **Anti-pattern:** Merging without the /scrutinize gate on impl waves; leaving stale worktrees between waves (nesting risk).
 
+### /pulse
+**Job:** One tick of a self-driving project — scheduled command lands in a durable tmux session, routes against refs/pulse.md, does at most ONE unit of work with full discipline, offboards, ends.
+**Fire when:** "/pulse tick" arrives (timer-injected or typed); "/pulse setup" to opt a project in; "/pulse status" to report. NEVER self-loop — the systemd timer is the loop.
+**Prereqs/side-effects:** refs/pulse.md routing table (Andrew's steering wheel — ticks never edit it); appends refs/pulse-ledger.jsonl; per-project systemd units from agents/scheduler/templates/.
+**Anti-pattern:** Blocking on AskUserQuestion in a tick — unstaffed sessions file a P1 `human:` bead + push notification and end the tick.
+
 ### /research
 **Job:** Autonomous layered research harness — parallel research subagents, empirical verification, fold to canon, layer next questions.
 **Fire when:** "Research X" / "stay autonomous"; proactively on operational blockers, new substrates, doubted findings.
