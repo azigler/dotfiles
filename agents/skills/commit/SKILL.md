@@ -21,11 +21,19 @@ allowed-tools: Bash(git add *) Bash(git commit *) Bash(git status *) Bash(git di
 optional body explaining WHY
 
 Bead: <bead-id>
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+Co-Authored-By: <the trailer your harness specifies>
 ```
 
 Use a scope prefix that matches the area of the codebase you changed. Get the bead
 ID from your task prompt or `br list`. Close the bead BEFORE committing (see `/beads`).
+
+**Co-Authored-By:** your harness states the exact trailer for the
+model you're running as (in the git guidance of your system prompt,
+e.g. `Co-Authored-By: Claude <model> <noreply@anthropic.com>`). Use
+that line verbatim. Do NOT copy a model name from this file or from
+old commits — skills outlive model versions, and a hardcoded name
+misattributes every commit made under a newer model (this file pinned
+"Opus 4.6" until 2026-06-09).
 
 ## Gitmoji Reference
 
@@ -71,7 +79,7 @@ git commit -m "$(cat <<'EOF'
 Prevents session expiry during long-running operations.
 
 Bead: bd-xxx
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+Co-Authored-By: <the trailer your harness specifies>
 EOF
 )"
 ```

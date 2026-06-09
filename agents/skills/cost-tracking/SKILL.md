@@ -14,7 +14,8 @@ token usage. This skill turns those logs into a project-level ledger:
 - **Inference-only cost** (input + output × standard rates). Cache
   infrastructure (cache_creation, cache_read) is tracked as reference
   counters but EXCLUDED from the cost — that's overhead, not inference.
-- Applied pricing (Opus 4.7, Sonnet 4.6, Haiku 4.5)
+- Applied pricing from the script's per-model rate table (verify the
+  table covers the model you actually ran — see Pricing reference)
 - Markdown-row append to `refs/cost-tracking.md`
 
 ## Cost model (revised 2026-05-26)
@@ -109,6 +110,13 @@ The result is the orchestrator's true per-session burn. Subagent costs
 are tracked separately per-bead.
 
 ## Pricing reference
+
+**Staleness warning:** rates below were verified 2026-04-18 and the
+table only covers the models listed. Before trusting a ledger total,
+confirm the script's rate table has a row for the model the session
+actually ran (e.g. a newer model like Fable 5 needs a row added —
+check current rates via /claude-api or the Anthropic pricing page).
+A session priced with the wrong model's rates is silently wrong.
 
 Costs use Anthropic public API rates verified 2026-04-18:
 

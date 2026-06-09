@@ -207,10 +207,13 @@ curl -fsSL "https://openrouter.ai/api/v1/chat/completions" \
   -H "Authorization: Bearer $OPENROUTER_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "anthropic/claude-opus-4.7",
+    "model": "anthropic/<current-claude-model-id>",
     "messages": [{"role": "user", "content": "Hello"}]
   }'
 ```
+
+(Substitute a live model id from the catalog — don't copy a pinned one
+from docs; this example hardcoded an outdated id until 2026-06-09.)
 
 This is rare in practice — Claude Code already gives you direct
 Claude access without OpenRouter overhead. Reach for OpenRouter
