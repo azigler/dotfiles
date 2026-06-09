@@ -3,14 +3,16 @@
 # window name, so Andrew can see at a glance which windows are waiting
 # for him without rotating through all of them.
 #
-# Lexicon (prefix on the window name):
+# Lexicon (prefix on the window name) — exactly three glyphs:
 #   🧠  working          (SessionStart, UserPromptSubmit — agent is busy)
 #   ✅  ready for review (Stop — agent finished its turn)
 #   🔔  needs attention  (Notification — permission prompt / waiting on input)
 #   (no prefix)          (SessionEnd — emoji stripped, name restored)
-# (Working glyph history: 🤖 renders as plain ASCII in Andrew's
-# terminal font; 🦾 renders but reads too dark next to ✅/🔔. 🧠 it is.
-# The strip regex keeps the old glyphs so legacy prefixes upgrade.)
+# (Glyph choice 2026-06-09: 🤖 renders as plain ASCII in Andrew's
+# terminal font and 🦾 reads too dark next to ✅/🔔 — settled on 🧠.
+# All live windows were relabeled in the same pass, so the strip
+# regex handles ONLY the current set; add a glyph here AND in the
+# strip regex if the lexicon ever grows.)
 #
 # Design notes:
 # - STATELESS: we never store the "original" name. On every event we
@@ -53,7 +55,7 @@ CURRENT=$("$TMUX_BIN" display-message -p -t "$TMUX_PANE" '#W' 2>/dev/null)
 [ -z "$CURRENT" ] && exit 0
 
 # Strip any existing lexicon prefix (emoji + optional space).
-BASE=$(printf '%s' "$CURRENT" | sed -E 's/^(🧠|🦾|🤖|✅|🔔) ?//')
+BASE=$(printf '%s' "$CURRENT" | sed -E 's/^(🧠|✅|🔔) ?//')
 [ -z "$BASE" ] && BASE="claude"
 
 NEW="${PREFIX}${BASE}"
