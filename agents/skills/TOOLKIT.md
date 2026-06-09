@@ -160,7 +160,7 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 ### /scrutinize
 **Job:** Adversarial read-only gate after an impl wave — disprove "done": stub bodies, mock-the-unit tests, unverified criteria, composition gaps.
 **Fire when:** After every impl-wave merge, before merge-to-main / bead close. Skip only for atomic mechanical changes.
-**Prereqs/side-effects:** Dispatched as general-purpose/Explore (never worktree); verdict SHIP / FIX-FIRST / REJECT recorded on the impl bead (hook-enforced for close).
+**Prereqs/side-effects:** Panel mode (default for substantial waves): saved workflow scrutinize-panel.workflow.mjs — 5 parallel hunt lenses + per-finding refuters. Single-agent mode for small waves (general-purpose/Explore, never worktree). Verdict SHIP / FIX-FIRST / REJECT recorded on the impl bead (hook-enforced for close).
 **Anti-pattern:** Skipping because the report looked clean — that's exactly when the gate earns its keep; inventing findings ("found nothing" is valid).
 
 ### /spec

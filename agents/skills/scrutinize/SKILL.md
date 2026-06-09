@@ -44,10 +44,36 @@ version bump, a doc edit) — same judgment as "when to use subagents."
 
 ## How to run it
 
-Dispatch a **read-only** subagent — `subagent_type: "general-purpose"`
-or `"Explore"`, NOT a worktree subagent. The reviewer writes nothing;
-it reads and reports. A fresh agent with no context from the impl wave
-is the point — it has no investment in the result.
+Two modes — pick by wave size:
+
+**Panel mode (default for substantial waves — multi-file impl, user-facing
+surfaces, anything the user asked to treat thoroughly).** Run the saved
+workflow (added 2026-06-09):
+
+```
+Workflow({
+  scriptPath: "<absolute home>/.claude/skills/scrutinize/scrutinize-panel.workflow.mjs",
+  args: {
+    scope: "<bead ids + one-line wave summary>",
+    files: ["<primary files>"],          // optional
+    criteria: "<acceptance criteria>"    // optional
+  }
+})
+```
+
+Five read-only hunters run in parallel, one per failure dimension
+(stub-bodies, mock-the-unit, acceptance-criteria, runtime-claims,
+composition), and every finding is then independently adversarially
+refuted before it counts — plausible-but-wrong findings die in the
+Verify phase. Returns `{verdict, confirmed[], refutedCount}`; record
+the verdict on the impl bead as usual. This skill instructing you to
+call Workflow IS the user opt-in for orchestration.
+
+**Single-agent mode (small waves).** Dispatch one **read-only**
+subagent — `subagent_type: "general-purpose"` or `"Explore"`, NOT a
+worktree subagent. The reviewer writes nothing; it reads and reports.
+A fresh agent with no context from the impl wave is the point — it has
+no investment in the result.
 
 Prompt skeleton:
 
