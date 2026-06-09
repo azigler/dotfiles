@@ -4,12 +4,13 @@
 # for him without rotating through all of them.
 #
 # Lexicon (prefix on the window name):
-#   🦾  working          (SessionStart, UserPromptSubmit — agent is busy)
+#   🧠  working          (SessionStart, UserPromptSubmit — agent is busy)
 #   ✅  ready for review (Stop — agent finished its turn)
 #   🔔  needs attention  (Notification — permission prompt / waiting on input)
 #   (no prefix)          (SessionEnd — emoji stripped, name restored)
-# (🦾 not 🤖 — the robot emoji renders as a plain ASCII glyph in
-# Andrew's terminal font; the mechanical arm renders correctly.)
+# (Working glyph history: 🤖 renders as plain ASCII in Andrew's
+# terminal font; 🦾 renders but reads too dark next to ✅/🔔. 🧠 it is.
+# The strip regex keeps the old glyphs so legacy prefixes upgrade.)
 #
 # Design notes:
 # - STATELESS: we never store the "original" name. On every event we
@@ -41,7 +42,7 @@ EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
 [ -z "$EVENT" ] && exit 0
 
 case "$EVENT" in
-  SessionStart|UserPromptSubmit) PREFIX="🦾 " ;;
+  SessionStart|UserPromptSubmit) PREFIX="🧠 " ;;
   Stop)                          PREFIX="✅ " ;;
   Notification)                  PREFIX="🔔 " ;;
   SessionEnd)                    PREFIX="" ;;
@@ -52,7 +53,7 @@ CURRENT=$("$TMUX_BIN" display-message -p -t "$TMUX_PANE" '#W' 2>/dev/null)
 [ -z "$CURRENT" ] && exit 0
 
 # Strip any existing lexicon prefix (emoji + optional space).
-BASE=$(printf '%s' "$CURRENT" | sed -E 's/^(🦾|🤖|✅|🔔) ?//')
+BASE=$(printf '%s' "$CURRENT" | sed -E 's/^(🧠|🦾|🤖|✅|🔔) ?//')
 [ -z "$BASE" ] && BASE="claude"
 
 NEW="${PREFIX}${BASE}"
