@@ -108,9 +108,31 @@ note "[1/4] CLAUDE.md (from agents/AGENTS.md)"
 run "cp '$SRC/agents/AGENTS.md' '$DEST_CLAUDE_MD'"
 
 note "[2/4] skills/ (clean + copy paragon set)"
+# Destination-native skills: a destination may maintain skills of its own
+# that do NOT come from dotfiles (e.g. linearb-positioning in the LinearB
+# team repo). List them one-per-line in <dest>/.claude/skills/.native-manifest
+# and the clean step preserves them across distributes.
+NATIVE_MANIFEST="$DEST_SKILLS_DIR/.native-manifest"
+NATIVE_TMP=""
+if [ -f "$NATIVE_MANIFEST" ]; then
+  NATIVE_TMP="$(mktemp -d)"
+  note "      preserving destination-native skills (.native-manifest):"
+  while IFS= read -r native; do
+    case "$native" in ''|'#'*) continue;; esac
+    if [ -d "$DEST_SKILLS_DIR/$native" ]; then
+      note "        - $native"
+      run "cp -R '$DEST_SKILLS_DIR/$native' '$NATIVE_TMP/$native'"
+    fi
+  done < "$NATIVE_MANIFEST"
+  run "cp '$NATIVE_MANIFEST' '$NATIVE_TMP/.native-manifest'"
+fi
 run "rm -rf '$DEST_SKILLS_DIR'"
 run "mkdir -p '$DEST_SKILLS_DIR'"
 run "cp -R '$SRC/agents/skills/.' '$DEST_SKILLS_DIR/'"
+if [ -n "$NATIVE_TMP" ]; then
+  run "cp -R '$NATIVE_TMP/.' '$DEST_SKILLS_DIR/'"
+  run "rm -rf '$NATIVE_TMP'"
+fi
 # Strip private-reference blocks from the DISTRIBUTED copies only —
 # pointers to machine-local files (~/linearb/refs/..., personal paths)
 # that a coworker's clone can't resolve. Convention: everything between
