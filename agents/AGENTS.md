@@ -171,8 +171,13 @@ Skills built through explorations: generally useful, but not earning a
 global slot. When a task needs a capability the global set lacks,
 **read `~/explore/.claude/skills/INDEX.md`** — a one-line-per-skill
 catalog — and if one fits, load its `SKILL.md` by absolute path. A
-skill graduates from the toybox to the global set only once it proves
-useful across ≥3 projects.
+skill graduates from the toybox to the global set when other umbrellas
+**actually reach for it** — usage-driven, not threshold-driven. The
+tracking is mechanical: the `toybox-usage.sh` hook logs every
+cross-umbrella load of a toybox SKILL.md to
+`~/explore/.claude/skills/USAGE.log` (date, skill, source project);
+`/housekeeping` reviews the log and proposes graduations. (Replaced
+the never-exercised "≥3 projects" heuristic, 2026-06-09.)
 
 Project-scoped skill sets (e.g. LinearB-internal skills under
 `~/linearb/.claude/skills/`) are documented in their own project's
