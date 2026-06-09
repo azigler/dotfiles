@@ -137,8 +137,8 @@ full body; descriptions below are just the prompt-toolkit summary.
 
 ## Skill libraries outside the global set
 
-Not every skill earns a slot in the global paragon set above. Two
-umbrella-scoped skill libraries hold the rest. Neither is auto-loaded
+Not every skill earns a slot in the global paragon set above.
+Umbrella-scoped skill libraries hold the rest. None is auto-loaded
 outside its own directory — Claude Code's skill discovery stops at the
 git-repo root — so treat them as libraries to pull from on demand.
 
@@ -151,12 +151,9 @@ catalog — and if one fits, load its `SKILL.md` by absolute path. A
 skill graduates from the toybox to the global set only once it proves
 useful across ≥3 projects.
 
-### `~/linearb/.claude/skills/` — LinearB-scoped skills
-
-`/apex` (the APEX operating model) and `/linearb-brand` (brand /
-positioning / proof points) live here — LinearB-internal, kept out of
-the public dotfiles repo. Auto-loaded when working at `~/linearb/`;
-pulled by path elsewhere.
+Project-scoped skill sets (e.g. LinearB-internal skills under
+`~/linearb/.claude/skills/`) are documented in their own project's
+`CLAUDE.md`, not here — the global config stays project-agnostic.
 
 ## Reference material conventions
 
