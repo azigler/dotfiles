@@ -51,11 +51,11 @@ assert_name() {
   fi
 }
 
-# 1. SessionStart → 🤖 prefix, manual name preserved
+# 1. SessionStart → 🦾 prefix, manual name preserved
 fire SessionStart
-assert_name "SessionStart sets working prefix" "🤖 myproject"
+assert_name "SessionStart sets working prefix" "🦾 myproject"
 
-# 2. Stop → ✅ replaces 🤖 (no stacking)
+# 2. Stop → ✅ replaces 🦾 (no stacking)
 fire Stop
 assert_name "Stop swaps to ready prefix" "✅ myproject"
 
@@ -63,9 +63,17 @@ assert_name "Stop swaps to ready prefix" "✅ myproject"
 fire Notification
 assert_name "Notification swaps to attention prefix" "🔔 myproject"
 
-# 4. UserPromptSubmit → back to 🤖
+# 4. UserPromptSubmit → back to 🦾
 fire UserPromptSubmit
-assert_name "UserPromptSubmit swaps to working prefix" "🤖 myproject"
+assert_name "UserPromptSubmit swaps to working prefix" "🦾 myproject"
+
+# 4b. Legacy 🤖 prefix (pre-2026-06-09 lexicon) is also stripped
+"$TMUX_BIN" rename-window -t "$PANE" "🤖 myproject"
+fire Stop
+assert_name "legacy robot prefix replaced" "✅ myproject"
+"$TMUX_BIN" rename-window -t "$PANE" "🤖 myproject"
+fire UserPromptSubmit
+assert_name "legacy robot prefix upgraded to arm" "🦾 myproject"
 
 # 5. Manual rename mid-session survives (only prefix is managed)
 "$TMUX_BIN" rename-window -t "$PANE" "renamed-by-hand"
