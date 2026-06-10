@@ -63,9 +63,18 @@
 #   TIMEOUT_SUCCESS artifact-match-after-timeout  wall cap hit, artifacts match
 #   TIMEOUT         artifact-mismatch OR exit-code-only  cap hit, no match
 #   ARTIFACT_FAIL   artifact-mismatch             run finished, no match
+#   INFRA_FAIL      infra-error                   CC itself errored (is_error
+#                                                 true, or non-timeout run
+#                                                 with bad exit/unparseable
+#                                                 JSON) — not a model
+#                                                 measurement; artifact check
+#                                                 skipped so error prose can
+#                                                 never mint a fake match
 #   INVALID_ROUTING routing-mismatch              wrong model served (exit 7)
 #   OK (legacy)     exit-code-only                scenario lacks an Expected
-#                                                 artifacts section
+#                                                 artifacts section AND the
+#                                                 run was clean (exit 0, JSON
+#                                                 parsed, no is_error)
 #
 # Exit codes: 0 = trials ran (per-trial failures live in the result files;
 # the matrix decides), 1 = usage / scenario error, 7 = routing mismatch
@@ -326,12 +335,19 @@ log() {
 # defensively rm -rf them before each trial (OQ-07 — prevents N-trial
 # cross-contamination).
 extract_sandbox_dirs() {
+  # NOTE: the mkdir lines reference $SANDBOX, which the Setup script sets
+  # on a PRECEDING line we don't evaluate here. Without defaulting it, the
+  # expansion yields "/s01", which fails the /tmp/* safety guard and turns
+  # the whole defensive-rm into a no-op (scrutiny fix #5, bead
+  # dotfiles-6go). Default it to the harness sandbox root so the guard
+  # actually operates.
   echo "$SETUP_CODE" \
     | grep -E '^\s*mkdir\s+-p' \
     | sed -E 's/^\s*mkdir\s+-p\s+//' \
     | while IFS= read -r line; do
         line="${line%%#*}"
-        bash -c "printf '%s\n' $line" 2>/dev/null || true
+        SANDBOX="${SANDBOX:-/tmp/claude-local-test}" \
+          bash -c "printf '%s\n' $line" 2>/dev/null || true
       done
 }
 
@@ -488,10 +504,35 @@ PYEOF
     done
   fi
 
+  # --- Infra-error detection (must run BEFORE the artifact check) ---
+  # A trial where CC itself errored is NOT a model measurement. Two real
+  # failure modes this closes (scrutiny round, bead dotfiles-6go):
+  #   - CC's error prose ("API Error: Can't access ...") matches s10's
+  #     honest-failure regex via TRIAL_OUTPUT_FILE and would mint a fake
+  #     artifact-match that single-handedly clears the cohort success
+  #     floor (rw2 reborn).
+  #   - No-spec scenarios minted unconditional OK even when claude
+  #     exited 1 with an API error.
+  # Rules: is_error=true in the CC JSON → infra error (any time);
+  # a NON-timeout run with unparseable JSON or non-zero exit → infra
+  # error. Timeout kills legitimately truncate the JSON — for those the
+  # artifact state remains the deciding evidence (TIMEOUT_SUCCESS path).
+  local INFRA_ERROR=0
+  local _is_err_lc="${CC_IS_ERROR,,}"
+  if [[ "$_is_err_lc" == "true" ]]; then
+    INFRA_ERROR=1
+  elif [[ "$TIMED_OUT" -eq 0 && ( "$CC_PARSE" != "ok" || "$EXIT_CODE" -ne 0 ) ]]; then
+    INFRA_ERROR=1
+  fi
+
   # --- Artifact check (PRIMARY verdict evidence — postmortem #7 / e21) ---
-  # Runs BEFORE Cleanup and BEFORE exit codes are consulted.
+  # Runs BEFORE Cleanup and BEFORE exit codes are consulted — but only on
+  # trials that are real measurements (infra-errored trials are skipped:
+  # their sandbox/output state proves nothing about the model).
   local ARTIFACT_STATUS="no-spec"
-  if [[ -n "$EXPECTED_CODE" ]]; then
+  if [[ "$INFRA_ERROR" -eq 1 ]]; then
+    ARTIFACT_STATUS="infra-error"
+  elif [[ -n "$EXPECTED_CODE" ]]; then
     if SANDBOX="${SANDBOX:-/tmp/claude-local-test}" \
        TRIAL_OUTPUT_FILE="$TMP_RESULT_TEXT" \
        bash -c "$EXPECTED_CODE" >/dev/null 2>&1; then
@@ -506,6 +547,9 @@ PYEOF
   if [[ "$ROUTING_STATUS" == "mismatch" ]]; then
     VERDICT_TAG="INVALID_ROUTING"
     VERDICT_EVIDENCE="routing-mismatch"
+  elif [[ "$INFRA_ERROR" -eq 1 ]]; then
+    VERDICT_TAG="INFRA_FAIL"
+    VERDICT_EVIDENCE="infra-error"
   elif [[ "$ARTIFACT_STATUS" == "match" ]]; then
     if [[ "$TIMED_OUT" -eq 1 ]]; then
       VERDICT_TAG="TIMEOUT_SUCCESS"
@@ -522,7 +566,10 @@ PYEOF
     fi
     VERDICT_EVIDENCE="artifact-mismatch"
   else
-    # Legacy scenario without an Expected artifacts section.
+    # Legacy scenario without an Expected artifacts section. Reaching here
+    # means the run was clean (no timeout, exit 0, JSON parsed, no
+    # is_error) — the infra branch above already swallowed every dirty
+    # combination, so exit-code evidence is honest now.
     if [[ "$TIMED_OUT" -eq 1 ]]; then
       VERDICT_TAG="TIMEOUT"
     else

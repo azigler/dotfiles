@@ -110,14 +110,17 @@ usage: $0 --prereg-bead <id> [options]
 
 Options:
   --prereg-bead ID        preregistration bead id recorded in the run
-                          manifest (REQUIRED for live runs; env
-                          BENCH_PREREG_BEAD also works)
+                          manifest (REQUIRED for live runs, dry-run exempt;
+                          env BENCH_PREREG_BEAD also works)
   --candidates CSV        comma-separated candidate names from serving.conf
                           (default: all active entries, conf order =
                           lightest-first; 'opus' baseline only when named)
   --scenarios CSV         comma-separated scenario prefixes (e.g. "01,02")
-                          or full names (default: all scenarios on disk —
-                          the round-2 pre-registered set is 01,02,04,05,08,10)
+                          or full names. Default: the six pre-registered
+                          artifact-bearing scenarios (01,02,04,05,08,10).
+                          Pass "all" for every scenario on disk (legacy
+                          scenarios lack Expected-artifacts sections and
+                          cannot satisfy the cohort success floor)
   --trials N              trials per cell (default: 5; --smoke forces 1)
   --timeout MIN           per-trial wall cap in MINUTES (default: 45)
   --smoke                 scenario 01 × selected candidates × N=1
@@ -241,6 +244,13 @@ if [[ "${#selected_candidates[@]}" -eq 0 ]]; then
 fi
 
 # --- Build the scenario list ---
+# Default is the SIX PRE-REGISTERED artifact-bearing scenarios
+# (refs/eval-round-2-scenarios.md), NOT every .md on disk: the legacy
+# scenarios (03/06/07/09) have no Expected-artifacts section, so their
+# trials carry only exit-code-only evidence and can never contribute to
+# the cohort success floor (scrutiny fix #2). `--scenarios all` is the
+# explicit escape hatch.
+PREREGISTERED_SCENARIOS="01,02,04,05,08,10"
 selected_scenarios=()
 if [[ ! -d "$SCENARIOS_DIR" ]]; then
   echo "error: scenarios dir not found: $SCENARIOS_DIR" >&2
@@ -261,9 +271,10 @@ if [[ "$SMOKE" -eq 1 ]]; then
     fi
   done
   TRIALS=1
-elif [[ -z "$SCENARIOS_CSV" ]]; then
+elif [[ "$SCENARIOS_CSV" == "all" ]]; then
   selected_scenarios=("${all_scenarios[@]}")
 else
+  [[ -z "$SCENARIOS_CSV" ]] && SCENARIOS_CSV="$PREREGISTERED_SCENARIOS"
   IFS=',' read -ra user_scens <<< "$SCENARIOS_CSV"
   for s in "${user_scens[@]}"; do
     matched=""
@@ -288,10 +299,17 @@ if [[ "${#selected_scenarios[@]}" -eq 0 ]]; then
 fi
 
 # --- Preregistration gate (postmortem #5: provenance, not folklore) ---
+# Dry-run is exempt: it dispatches nothing and writes no run dir, so there
+# is no provenance to record — requiring a bead there would only block
+# flow-validation walks (orchestrator + test suite).
 if [[ -z "$PREREG_BEAD" ]]; then
-  echo "ABORT: --prereg-bead is required (or env BENCH_PREREG_BEAD)." >&2
-  echo "       Every run records which pre-registration it executes." >&2
-  exit 5
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    PREREG_BEAD="<dry-run-unregistered>"
+  else
+    echo "ABORT: --prereg-bead is required (or env BENCH_PREREG_BEAD)." >&2
+    echo "       Every run records which pre-registration it executes." >&2
+    exit 5
+  fi
 fi
 
 # --- Run dir: results land in a per-run dir carrying its manifest ---
@@ -409,6 +427,12 @@ stop_all_serving() {
   # VERIFY absence (safe_pkill_remote retries once then fails loudly).
   # Catches the u3y orphan-runner class too — `ollama runner` children
   # match the 'ollama' pattern.
+  #
+  # safe_remote exit-code contract (fail-CLOSED rewrite, dotfiles-afx):
+  # 0 = verified gone, 1 = survivors, 2 = ssh transport failure (host
+  # state UNKNOWN). Both 1 and 2 propagate through `|| return 1` here —
+  # the caller aborts either way, which is exactly right: an unverifiable
+  # eviction is a failed eviction.
   if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "DRY  stop-all-serving            : safe_pkill_remote $PICO_SSH_HOST llama-server && safe_pkill_remote $PICO_SSH_HOST ollama"
     echo "DRY  eviction-probe              : safe_pgrep_remote $PICO_SSH_HOST 'llama-server|ollama' (must be empty)"
@@ -786,10 +810,23 @@ for cand in "${selected_candidates[@]}"; do
         # matrix, then fails the run at the end (still a blocking gate).
         SMOKE_FAILED=1
         SMOKE_FAILED_CANDIDATES+=("$cand")
-        echo "    [SMOKE] $cand smoke-fail recorded" >&2
+        echo "    [SMOKE] $cand smoke-fail recorded (dispatcher exit $rs_rc)" >&2
       else
         echo "ABORT: dispatcher error is an infra failure, not a model verdict" >&2
         exit 6
+      fi
+    elif [[ "$SMOKE" -eq 1 ]]; then
+      # Smoke gate reads the VERDICT, not the dispatcher exit code —
+      # run-scenario exits 0 on ARTIFACT_FAIL/INFRA_FAIL by design (the
+      # matrix owns gating), so exit-code-only smoke was success-shaped
+      # (scrutiny fix #4). The smoke cell passes only if at least one of
+      # its trials carries a success verdict.
+      smoke_ok="$(grep -lE '^\- \*\*verdict_tag\*\*: (OK|TIMEOUT_SUCCESS)$' \
+        "$RUN_DIR/${scen_base}-${cand}-trial"*.md 2>/dev/null | wc -l)"
+      if [[ "$smoke_ok" -lt 1 ]]; then
+        SMOKE_FAILED=1
+        SMOKE_FAILED_CANDIDATES+=("$cand")
+        echo "    [SMOKE] $cand smoke-fail recorded (no success verdict in ${scen_base} trials)" >&2
       fi
     fi
 
@@ -799,9 +836,9 @@ for cand in "${selected_candidates[@]}"; do
   # --- Cohort-end blocking gates ---
   if [[ "$SMOKE" -eq 1 ]]; then
     # Smoke is the cheap pre-gate: N=1, scenario 01. Floor + variance are
-    # meaningless at N=1; the smoke verdict is the per-candidate result
-    # files + the end-of-run smoke gate.
-    echo "==> smoke cohort $cand done (gates run in full-matrix mode)"
+    # meaningless at N=1; the smoke verdict is the per-cell verdict_tag
+    # check above + the end-of-run smoke gate.
+    echo "==> smoke cohort $cand done (full gates run in full-matrix mode)"
   else
     if ! cohort_success_floor "$cand"; then
       sync_results
