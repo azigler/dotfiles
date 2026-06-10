@@ -54,9 +54,14 @@ assert_name() {
   fi
 }
 
-# 1. SessionStart → 🧠 prefix, manual name preserved
+# 1. SessionStart on a fresh window → bare (a session that just
+#    started isn't thinking — it's waiting for its first prompt)
 fire SessionStart
-assert_name "SessionStart sets working prefix" "🧠 myproject"
+assert_name "SessionStart leaves fresh window bare" "myproject"
+
+# 1b. First prompt → 🧠
+fire UserPromptSubmit
+assert_name "first prompt sets working prefix" "🧠 myproject"
 
 # 2. Stop → ✅ replaces 🧠 (no stacking)
 fire Stop
@@ -93,9 +98,9 @@ fire PreCompact
 assert_name "PreCompact swaps to compacting prefix" "🌀 myproject"
 
 # 4f. SessionStart (fires with source=compact when compaction ends)
-#     heals 🌀 back to 🧠
+#     strips 🌀 — compacted context is fresh, waiting for a prompt
 fire SessionStart
-assert_name "SessionStart heals compacting back to working" "🧠 myproject"
+assert_name "SessionStart strips compacting to bare" "myproject"
 
 # 5. Manual rename mid-session survives (only prefix is managed)
 "$TMUX_BIN" rename-window -t "$PANE" "renamed-by-hand"

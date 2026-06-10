@@ -4,14 +4,19 @@
 # for him without rotating through all of them.
 #
 # Lexicon (prefix on the window name) — exactly four glyphs:
-#   🧠  working          (SessionStart, UserPromptSubmit, PostToolUse)
+#   🧠  working          (UserPromptSubmit, PostToolUse)
 #   ✅  ready for review (Stop — agent finished its turn)
 #   🔔  needs YOU to continue (permission prompt, AskUserQuestion,
 #                              plan approval — blocked on Andrew)
-#   🌀  compacting       (PreCompact — manual or auto; SessionStart
-#                         fires with source=compact when it finishes,
-#                         which heals back to 🧠 automatically)
-#   (no prefix)          (SessionEnd — emoji stripped, name restored)
+#   🌀  compacting       (PreCompact — manual or auto)
+#   (no prefix)          fresh context waiting for its first prompt
+#                        (SessionStart — any source: startup, resume,
+#                        clear, compact — and SessionEnd both strip)
+#
+# The cycle (2026-06-10, Andrew's read): bare → 🧠 on the first prompt
+# → ✅/🔔 → 🌀 while compacting → bare again. A just-started or
+# just-compacted session isn't thinking — it's waiting — so it carries
+# no glyph, same as a window where claude hasn't run yet.
 #
 # Semantics (tightened 2026-06-09 after the di/prod false-🔔):
 # - Notification fires for BOTH "needs your permission to use X" and
@@ -66,9 +71,9 @@ EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
 [ -z "$EVENT" ] && exit 0
 
 case "$EVENT" in
-  SessionStart|UserPromptSubmit|PostToolUse) PREFIX="🧠 " ;;
-  Stop)                                      PREFIX="✅ " ;;
-  PreCompact)                                PREFIX="🌀 " ;;
+  UserPromptSubmit|PostToolUse) PREFIX="🧠 " ;;
+  Stop)                         PREFIX="✅ " ;;
+  PreCompact)                   PREFIX="🌀 " ;;
   Notification)
     # Only permission-type notifications mean "blocked on Andrew".
     # The ~60s-idle "waiting for your input" notification fires for
@@ -85,7 +90,7 @@ case "$EVENT" in
       *) exit 0 ;;
     esac
     ;;
-  SessionEnd) PREFIX="" ;;
+  SessionStart|SessionEnd) PREFIX="" ;;
   *) exit 0 ;;
 esac
 
