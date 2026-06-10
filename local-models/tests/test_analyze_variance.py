@@ -435,16 +435,76 @@ def test_cross_scenario_zero_median_known_gap(va):
     assert flags == []  # should arguably flag; documented gap
 
 
-def test_non_ok_verdict_flagged(va):
+# Round-2 vocabulary (bead dotfiles-6go fix round): individual non-success
+# verdicts are DATA, not per-trial abort flags. Strict-abort is reserved
+# for systemic shapes: zero successes, INVALID_ROUTING, unknown verdicts,
+# SYSTEMIC_FAIL markers. The old any-non-OK behavior (pinned by the
+# previous version of these tests) made --strict abort the matrix on a
+# single honest TIMEOUT — updated deliberately.
+
+
+def test_all_timeout_cohort_flagged_as_zero_successes(va):
+    """A cohort with NO successes is the rw2 uniform-failure shape —
+    one ZERO SUCCESSES flag for the cohort, not one flag per trial."""
     flags = va.detect_verdict_anomalies(
         _trials({"01-trivial-rename": [40, 45]}, verdict="TIMEOUT")
     )
-    assert len(flags) == 2
-    assert all("NON-OK VERDICT" in f and "TIMEOUT" in f for f in flags)
+    assert len(flags) == 1
+    assert "ZERO SUCCESSES" in flags[0]
 
 
 def test_ok_verdict_not_flagged(va):
     assert va.detect_verdict_anomalies(_trials({"01-x": [40, 45]})) == []
+
+
+def test_timeout_success_counts_as_success(va):
+    """TIMEOUT_SUCCESS (e21: artifact matched, DONE ack killed) is a
+    success — a cohort of them must NOT trip the verdict check."""
+    flags = va.detect_verdict_anomalies(
+        _trials({"01-x": [40, 45]}, verdict="TIMEOUT_SUCCESS")
+    )
+    assert flags == []
+
+
+def test_mixed_data_verdicts_with_one_success_not_flagged(va):
+    """Honest failures alongside at least one success are legitimate
+    measurements — no per-trial flags (the gate-composition fix)."""
+    trials = _trials({"01-x": [40, 45, 50]}, verdict="ARTIFACT_FAIL")
+    trials[0]["verdict"] = "OK"
+    trials[1]["verdict"] = "TIMEOUT"
+    assert va.detect_verdict_anomalies(trials) == []
+
+
+def test_invalid_routing_always_flagged(va):
+    """INVALID_ROUTING invalidates attribution for the cohort even when
+    other trials succeeded."""
+    trials = _trials({"01-x": [40, 45]}, verdict="OK")
+    trials[1]["verdict"] = "INVALID_ROUTING"
+    flags = va.detect_verdict_anomalies(trials)
+    assert len(flags) == 1
+    assert "INVALID_ROUTING" in flags[0]
+
+
+def test_unknown_verdict_flagged_as_vocabulary_drift(va):
+    trials = _trials({"01-x": [40, 45]}, verdict="OK")
+    trials[1]["verdict"] = "BANANAS"
+    flags = va.detect_verdict_anomalies(trials)
+    assert len(flags) == 1
+    assert "UNKNOWN VERDICT" in flags[0]
+    assert "BANANAS" in flags[0]
+
+
+def test_systemic_fail_marker_file_flagged(va, tmp_path: Path):
+    """A SYSTEMIC_FAIL-<cohort>-*.txt marker written by bench-matrix must
+    keep flagging on re-analysis of the same dir."""
+    (tmp_path / "SYSTEMIC_FAIL-trinity-mini-20260610T000000Z.txt").write_text(
+        "SYSTEMIC_FAIL: cohort trinity-mini produced ZERO success artifacts."
+    )
+    flags = va.detect_systemic_fail_markers(tmp_path, "trinity-mini")
+    assert len(flags) == 1
+    assert "SYSTEMIC_FAIL MARKER" in flags[0]
+    # other cohorts' markers don't cross-flag
+    assert va.detect_systemic_fail_markers(tmp_path, "qwen3-coder:30b") == []
 
 
 def test_systemic_failure_marker_detected(va, uniform_failure_dir: Path):
@@ -535,8 +595,27 @@ def test_cli_outlier_strict_exit_1(tmp_path: Path):
     assert "WITHIN-SCENARIO OUTLIER" in proc.stderr
 
 
-def test_cli_timeout_verdict_strict_exit_1(tmp_path: Path):
-    for trial, verdict in ((1, "OK"), (2, "TIMEOUT"), (3, "OK")):
+def test_cli_timeout_among_successes_strict_exit_0(tmp_path: Path):
+    """Round-2 vocabulary change (deliberate update of the old
+    test_cli_timeout_verdict_strict_exit_1): one honest TIMEOUT among
+    successes is DATA, not an abort — --strict must exit 0."""
+    for trial, verdict in ((1, "OK"), (2, "TIMEOUT"), (3, "TIMEOUT_SUCCESS")):
+        _write_trial(
+            tmp_path,
+            scenario="01-trivial-rename",
+            candidate="trinity-mini",
+            trial=trial,
+            wall_seconds=45,
+            verdict=verdict,
+        )
+    proc = _run_variance(
+        "--results-dir", str(tmp_path), "--cohort", "trinity-mini", "--strict"
+    )
+    assert proc.returncode == 0, proc.stderr
+
+
+def test_cli_invalid_routing_strict_exit_1(tmp_path: Path):
+    for trial, verdict in ((1, "OK"), (2, "INVALID_ROUTING"), (3, "OK")):
         _write_trial(
             tmp_path,
             scenario="01-trivial-rename",
@@ -549,7 +628,28 @@ def test_cli_timeout_verdict_strict_exit_1(tmp_path: Path):
         "--results-dir", str(tmp_path), "--cohort", "trinity-mini", "--strict"
     )
     assert proc.returncode == 1
-    assert "NON-OK VERDICT" in proc.stderr
+    assert "INVALID_ROUTING" in proc.stderr
+
+
+def test_cli_zero_success_cohort_strict_exit_1(tmp_path: Path):
+    for trial, verdict in (
+        (1, "TIMEOUT"),
+        (2, "ARTIFACT_FAIL"),
+        (3, "TIMEOUT"),
+    ):
+        _write_trial(
+            tmp_path,
+            scenario="01-trivial-rename",
+            candidate="trinity-mini",
+            trial=trial,
+            wall_seconds=45,
+            verdict=verdict,
+        )
+    proc = _run_variance(
+        "--results-dir", str(tmp_path), "--cohort", "trinity-mini", "--strict"
+    )
+    assert proc.returncode == 1
+    assert "ZERO SUCCESSES" in proc.stderr
 
 
 def test_cli_uniform_failure_without_scenarios_dir_passes_strict_known_gap(

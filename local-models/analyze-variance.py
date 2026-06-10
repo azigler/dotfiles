@@ -25,7 +25,7 @@ Exit codes:
         reasons on stderr
     2 = usage error / no results found
 
-Three checks:
+Checks:
   1. Within-scenario trial variance: trials of the same scenario within the
      cohort should cluster. Flag any trial > 2x the median of the same
      (scenario, cohort). Three-trial median is robust to one outlier.
@@ -33,7 +33,15 @@ Three checks:
      usually fall within ~5x. Flag if (max_scenario_median /
      min_scenario_median) > 10x — strong signal that one scenario is being
      starved (memory pressure, network, contention).
-  3. (--scenarios-dir) Absolute PASS rate via Tier 1 grep-runner. Flag the
+  3. Verdict-shape check (round-2 vocabulary, bead dotfiles-6go): flags
+     SYSTEMIC shapes only — INVALID_ROUTING anywhere, zero successes
+     across the cohort (uniform-failure, rw2), unknown verdict strings,
+     and SYSTEMIC_FAIL marker files in the results dir. Individual
+     TIMEOUT / ARTIFACT_FAIL / INFRA_FAIL trials are legitimate
+     measurements on realistic pass rates — they are counted by the
+     pass-rate check, NOT flagged per-trial. TIMEOUT_SUCCESS counts as
+     success (artifact matched; only the DONE ack was killed).
+  4. (--scenarios-dir) Absolute PASS rate via Tier 1 grep-runner. Flag the
      cohort if PASS-rate < min_pass_rate. Variance alone cannot tell uniform
      success from uniform failure; this is the missing fourth habit. The
      v2-garbage case had 0 PASS / 270 trials, all variance-clean.
@@ -184,16 +192,80 @@ def detect_cross_scenario_anomaly(results: list[dict]) -> list[str]:
     return flags
 
 
+# Round-2 verdict vocabulary (run-scenario.sh, bead dotfiles-6go).
+# SUCCESS = the trial carries a success artifact. TIMEOUT_SUCCESS is the
+# e21 case: wall cap killed the run AFTER the work was done — the sandbox
+# matched the scenario's Expected artifacts, only the DONE ack was lost.
+SUCCESS_VERDICTS = {"OK", "TIMEOUT_SUCCESS"}
+# Legitimate non-success measurements: the harness worked, the model (or
+# the wall clock, or the infra for that one trial) didn't. These are DATA
+# on realistic pass rates — never per-trial abort flags. Their aggregate
+# weight is governed by the Tier-1 pass-rate check + bench-matrix's
+# absolute success floor.
+DATA_VERDICTS = {"TIMEOUT", "ARTIFACT_FAIL", "INFRA_FAIL"}
+
+
 def detect_verdict_anomalies(results: list[dict]) -> list[str]:
-    """Flag any non-OK verdict — TIMEOUT, FAIL, etc."""
+    """Flag SYSTEMIC verdict shapes, not individual failed trials.
+
+    Strict-abort is reserved for shapes that invalidate the whole cohort:
+      - INVALID_ROUTING anywhere: the wrong model served a trial; every
+        measurement in the cohort is suspect (postmortem #2).
+      - Zero successes across the cohort: the rw2 uniform-failure shape —
+        nothing produced a success artifact (postmortem #1/#10).
+      - Unknown verdict strings: vocabulary drift between the runner and
+        this analyzer must surface loudly, not pass silently.
+
+    Individual TIMEOUT / ARTIFACT_FAIL / INFRA_FAIL trials are NOT flagged
+    here (they were pre-2026-06-10, which made --strict abort the matrix on
+    any single honest failure — the gate-composition bug this rewrite
+    fixes).
+    """
     flags: list[str] = []
-    for r in results:
-        if r["verdict"] and r["verdict"] != "OK":
+    tagged = [r for r in results if r["verdict"]]
+    if not tagged:
+        return flags
+    successes = [r for r in tagged if r["verdict"] in SUCCESS_VERDICTS]
+    for r in tagged:
+        if r["verdict"] == "INVALID_ROUTING":
             flags.append(
-                f"NON-OK VERDICT: {r['scenario']} trial{r['trial']} "
-                f"= {r['verdict']} (wall={r['wall_seconds']}s). "
-                f"File: {r['path'].name}"
+                f"INVALID_ROUTING: {r['scenario']} trial{r['trial']} was "
+                f"served by the wrong model — the cohort's measurements "
+                f"cannot be attributed. File: {r['path'].name}"
             )
+        elif r["verdict"] not in SUCCESS_VERDICTS | DATA_VERDICTS:
+            flags.append(
+                f"UNKNOWN VERDICT: {r['scenario']} trial{r['trial']} = "
+                f"{r['verdict']} — not in the round-2 vocabulary "
+                f"(runner/analyzer drift?). File: {r['path'].name}"
+            )
+    if not successes:
+        sample = ", ".join(
+            f"{r['scenario']} trial{r['trial']}={r['verdict']}"
+            for r in tagged[:3]
+        )
+        flags.append(
+            f"ZERO SUCCESSES: 0/{len(tagged)} tagged trials carry a success "
+            f"verdict ({'/'.join(sorted(SUCCESS_VERDICTS))}) — the rw2 "
+            f"uniform-failure shape. Sample: {sample}"
+        )
+    return flags
+
+
+def detect_systemic_fail_markers(results_dir: Path, cohort: str) -> list[str]:
+    """Flag SYSTEMIC_FAIL marker files bench-matrix.sh wrote for this cohort.
+
+    bench-matrix writes ``SYSTEMIC_FAIL-<cohort>-<ts>.txt`` when a cohort
+    cleared zero success artifacts; if the analyzer runs over such a dir
+    (e.g. a re-analysis after the abort), the marker must keep flagging.
+    """
+    flags: list[str] = []
+    for marker in sorted(results_dir.glob(f"SYSTEMIC_FAIL-{cohort}-*.txt")):
+        flags.append(
+            f"SYSTEMIC_FAIL MARKER: {marker.name} present in results dir — "
+            f"bench-matrix recorded a zero-success cohort here; do not trust "
+            f"these results without diagnosis."
+        )
     return flags
 
 
@@ -378,6 +450,9 @@ def main(argv: list[str] | None = None) -> int:
     all_flags.extend(detect_within_scenario_outliers(results))
     all_flags.extend(detect_cross_scenario_anomaly(results))
     all_flags.extend(detect_verdict_anomalies(results))
+    all_flags.extend(
+        detect_systemic_fail_markers(args.results_dir, args.cohort)
+    )
     if args.scenarios_dir is not None:
         if not args.scenarios_dir.exists():
             print(

@@ -63,6 +63,18 @@ The test suite at `/tmp/claude-local-test/s04/test_checkout.py` is failing. Run 
 - Tests `test_save10` and `test_save25` both pass
 - Final model output contains the word `DONE`
 
+## Expected artifacts
+```bash
+# Artifact-first verdict (run-scenario.sh runs this BEFORE Cleanup and
+# before consulting exit codes). Exit 0 = expected sandbox state.
+d="${SANDBOX:-/tmp/claude-local-test}/s04"
+[[ -f "$d/src/discount.py" ]] || exit 1
+# The fix must land in discount.py (pct/100, any spacing)
+[[ "$(grep -Ec 'pct ?/ ?100' "$d/src/discount.py")" -ge 1 ]] || exit 1
+(cd "$d" && python3 -m pytest test_checkout.py -q >/dev/null 2>&1) || exit 1
+exit 0
+```
+
 ## Cleanup
 ```bash
 rm -rf "${SANDBOX:-/tmp/claude-local-test}/s04"

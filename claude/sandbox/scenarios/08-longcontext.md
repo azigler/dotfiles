@@ -38,13 +38,25 @@ First read `/tmp/claude-local-test/s08/preamble.md` (it's long context). Then ma
 - Final model output contains `DONE`
 - (Soft check) Wall time should NOT be wildly worse than scenario 01 — if it's 5× slower, the model is choking on context
 
+## Expected artifacts
+```bash
+# Artifact-first verdict (run-scenario.sh runs this BEFORE Cleanup and
+# before consulting exit codes). Exit 0 = expected sandbox state.
+f="${SANDBOX:-/tmp/claude-local-test}/s08/api.py"
+[[ -f "$f" ]] || exit 1
+[[ "$(grep -c 'def handle_request' "$f")" -eq 1 ]] || exit 1
+[[ "$(grep -c 'process_request' "$f")" -eq 0 ]] || exit 1
+exit 0
+```
+
 ## Cleanup
 ```bash
 rm -rf "${SANDBOX:-/tmp/claude-local-test}/s08"
 ```
 
 ## Notes
-- 30K-token preamble exercises CCR's `longContextThreshold: 50000` boundary — at 30K we stay on the `background` route (Qwen3 via llama-swap), not `longContext` (Laguna via Ollama)
+- (Round 1, historical) 30K-token preamble exercised CCR's `longContextThreshold: 50000` boundary. Round 2 is CC-native (no CCR): the preamble now simply exercises prefill + needle-finding on the serving path in serving.conf
+- Round-2 serving runs llama-server at `-c 32768` — a 30K-token preamble plus prompt is NEAR the context cap by design; watch for truncation-shaped failures as a real signal
 - Qwen3-Coder-30B context window is 256K, so 30K is well within capacity
 - Tests: does the model find the right needle in a haystack, does latency degrade gracefully
 - Expected wall time: ~30s Opus, ~3-5min local (prefill cost on 30K tokens is real)

@@ -28,6 +28,18 @@ In `/tmp/claude-local-test/s02/`, add a new function `is_palindrome(s: str) -> b
 - `cd /tmp/claude-local-test/s02 && python -m pytest test_strutil.py -q` exits 0
 - Final model output contains the word `DONE`
 
+## Expected artifacts
+```bash
+# Artifact-first verdict (run-scenario.sh runs this BEFORE Cleanup and
+# before consulting exit codes). Exit 0 = expected sandbox state.
+d="${SANDBOX:-/tmp/claude-local-test}/s02"
+[[ -f "$d/strutil.py" && -f "$d/test_strutil.py" ]] || exit 1
+[[ "$(grep -c 'def is_palindrome' "$d/strutil.py")" -eq 1 ]] || exit 1
+[[ "$(grep -c '^def test_' "$d/test_strutil.py")" -ge 2 ]] || exit 1
+(cd "$d" && python3 -m pytest test_strutil.py -q >/dev/null 2>&1) || exit 1
+exit 0
+```
+
 ## Cleanup
 ```bash
 rm -rf "${SANDBOX:-/tmp/claude-local-test}/s02"

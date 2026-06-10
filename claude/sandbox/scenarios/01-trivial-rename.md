@@ -26,6 +26,18 @@ In `/tmp/claude-local-test/s01/calc.py`, rename the function `add_numbers` to `s
 - File still has the `if __name__ == "__main__":` guard
 - Final model output contains the word `DONE`
 
+## Expected artifacts
+```bash
+# Artifact-first verdict (run-scenario.sh runs this BEFORE Cleanup and
+# before consulting exit codes). Exit 0 = expected sandbox state.
+f="${SANDBOX:-/tmp/claude-local-test}/s01/calc.py"
+[[ -f "$f" ]] || exit 1
+[[ "$(grep -c '^def sum_two' "$f")" -eq 1 ]] || exit 1
+[[ "$(grep -c 'add_numbers' "$f")" -eq 0 ]] || exit 1
+grep -q 'if __name__ == "__main__":' "$f" || exit 1
+exit 0
+```
+
 ## Cleanup
 ```bash
 rm -rf "${SANDBOX:-/tmp/claude-local-test}/s01"
