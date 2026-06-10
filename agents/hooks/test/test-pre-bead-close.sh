@@ -127,6 +127,26 @@ run_case "block: multi-id with one bogus" 2 \
   '{"tool_input":{"command":"br close bd-iq81 bd-bogus bd-w6sd"},"cwd":"/tmp"}' \
   "Blocked: bead bd-bogus"
 
+# --- Reason-string scraping (dotfiles-c7j) ---
+
+# 10a. Hyphenated words in the -r reason are NOT bead IDs → exit 0
+run_case "allow: hyphenated words in close reason" 0 \
+  '{"tool_input":{"command":"br close bd-iq81 -r \"Fixed fleet-wide via merge-jsonl.sh and session-start.sh wiring\""},"cwd":"/tmp"}'
+
+# 10b. Bogus-looking token in the reason doesn't block a valid close
+run_case "allow: bogus-looking token after -r flag" 0 \
+  '{"tool_input":{"command":"br close bd-iq81 -r \"supersedes bd-bogus rationale\""},"cwd":"/tmp"}'
+
+# 10c. Real bogus id BEFORE the flag still blocks
+run_case "block: bogus id before -r flag" 2 \
+  '{"tool_input":{"command":"br close bd-bogus -r \"some fleet-wide reason\""},"cwd":"/tmp"}' \
+  "Blocked: bead bd-bogus"
+
+# 10d. Chained closes with reasons: every segment's ids still linted
+run_case "block: bogus id in second chained close segment" 2 \
+  '{"tool_input":{"command":"br close bd-iq81 -r \"first fleet-wide reason\" && br close bd-bogus -r \"second reason\""},"cwd":"/tmp"}' \
+  "Blocked: bead bd-bogus"
+
 # --- Worktree guard (dotfiles-m33) ---
 
 # 11. br close from inside a worktree → BLOCK

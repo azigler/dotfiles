@@ -54,9 +54,15 @@ esac
 command -v br &>/dev/null || exit 0
 
 # Extract bead IDs from `br close <id> [<id> ...]`, stopping at the first
-# &&, ;, or | so chained commands don't leak in.
-CLOSE_ARGS=$(echo "$COMMAND" | grep -oE 'br close [^&;|]+' | sed 's/^br close //')
-BEAD_IDS=$(echo "$CLOSE_ARGS" | tr ' ' '\n' | grep -E '^[a-z0-9]+-[a-z0-9.]+$')
+# &&, ;, or | so chained commands don't leak in — AND at the first flag
+# (-r/--reason etc.), so hyphenated words or filenames inside the reason
+# string don't get scraped as bead IDs (dotfiles-c7j: "fleet-wide" in a
+# close reason false-positive blocked the close 3x).
+# The awk stops at the first flag PER `br close` segment, so chained
+# closes (`br close a -r "..." && br close b`) still lint every segment.
+BEAD_IDS=$(echo "$COMMAND" | grep -oE 'br close [^&;|]+' | sed 's/^br close //' \
+  | awk '{for(i=1;i<=NF;i++){if($i ~ /^-/) break; print $i}}' \
+  | grep -E '^[a-z0-9]+-[a-z0-9.]+$')
 
 [ -z "$BEAD_IDS" ] && exit 0
 
