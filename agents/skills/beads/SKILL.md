@@ -405,6 +405,34 @@ oversight). Add to any beads-using repo's `.beads/.gitignore`:
 If a beads repo has lingering dirty `git status` with no apparent
 cause, this is almost certainly why.
 
+## Repo hygiene: JSONL merge artifacts (silent duplicate ids)
+
+git auto-merges `.beads/issues.jsonl` across branches "cleanly" (no
+conflict markers) while silently keeping BOTH sides' line for a bead
+that both branches touched — e.g. a feature branch carrying the bead as
+`in_progress` merged with the default branch carrying it `closed`. A
+duplicate id makes the JSONL INVALID to `br` (`ERROR jsonl.parse:
+Duplicate issue id`), bricking bead operations until repaired. Caught
+live 2026-06-09 (dashboard-dev-interrupted PR #9).
+
+Defense in depth, in order:
+
+1. **Don't fork the ledger.** Stage `.beads/issues.jsonl` only on the
+   default branch (see `/commit` "Bead-state exception"). Worktree
+   subagents never stage `.beads/` at all (it's a symlink).
+2. **The `post-bash-beads-merge-check` hook** (PostToolUse:Bash, global)
+   checks for duplicate ids after every successful merge-ish command and
+   feeds remediation back if it finds the artifact.
+3. **Remediation** when it happens anyway:
+   - `git checkout <default-branch> -- .beads/issues.jsonl` (the default
+     branch's ledger usually wins), or
+   - `br sync --merge` — a real three-way merge using the
+     `.beads/beads.base.jsonl` anchor (written by sync flush on current
+     `br` versions); semantic conflicts need `--force-db` /
+     `--force-jsonl` / `--force` (newer timestamp wins)
+   - verify: `jq -r '.id' .beads/issues.jsonl | sort | uniq -d` is empty,
+     then `br doctor` (its `jsonl.duplicate_ids` detector confirms)
+
 ## Visualization & triage analysis with `bv`
 
 `bv` ([beads_viewer](https://github.com/Dicklesworthstone/beads_viewer)) is

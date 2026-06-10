@@ -68,7 +68,8 @@ misattributes every commit made under a newer model (this file pinned
 br close <bead-id>
 br sync --flush-only
 git status && git diff
-git add <specific-files> .beads/issues.jsonl   # NEVER git add -A
+git add <specific-files>                       # NEVER git add -A
+git add .beads/issues.jsonl                    # ONLY on the default branch — see Bead-state exception
 ```
 
 ### 2. Commit with HEREDOC
@@ -95,6 +96,18 @@ git push
 starts with `worktree-agent-`), do NOT push. The orchestrator handles merging
 and pushing after your work is complete. Pushing from a worktree creates stale
 remote branches.
+
+**Bead-state exception:** stage `.beads/issues.jsonl` ONLY when committing on
+the default branch (main). On a feature branch, leave it unstaged — bead-state
+commits on branches fork the ledger, and git later auto-merges the two
+versions "cleanly" while silently keeping BOTH sides' line for the same bead.
+A duplicate id makes the JSONL invalid to `br` (caught live 2026-06-09,
+dashboard-dev-interrupted PR #9: bd-dtz duplicated as in_progress + closed).
+The `post-bash-beads-merge-check` hook flags the artifact after merges;
+remediation is `git checkout <default-branch> -- .beads/issues.jsonl` or
+`br sync --merge`, then `br doctor`. Don't create the artifact in the first
+place. (In worktrees, `.beads/` is a symlink to the main checkout — never
+stage anything under it; see /handoff Step 5.)
 
 ## Safety
 

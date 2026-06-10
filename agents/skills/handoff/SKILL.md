@@ -114,7 +114,6 @@ Step 2 found gaps, fix them, then Step 5.
 
 ```bash
 git add <specific-files>
-git add .beads/issues.jsonl
 git commit -m "<gitmoji> <scope>: <subject>
 
 <body — what changed and why>
@@ -125,6 +124,12 @@ Co-Authored-By: ..."
 
 Do NOT push from a worktree (the orchestrator handles merge + push).
 See `/commit` "Worktree exception."
+
+Do NOT stage anything under `.beads/` from a worktree. Your `.beads/` is
+a symlink to the main checkout (session-start hook); the orchestrator
+commits bead state on the default branch after merging your work. Staging
+bead state on a branch forks the ledger and produces silent duplicate-id
+merge artifacts later — see `/commit` "Bead-state exception."
 
 ## Orchestrator-level handoff (across sessions)
 
