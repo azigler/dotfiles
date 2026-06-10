@@ -36,6 +36,30 @@ The /research arc has a goal at each level:
 - **Iteration goal**: what you'll learn / decide / build THIS round
 - **Per-research-item goal**: the specific question one dispatch answers
 
+## Research vs experiment — know which one you're doing
+
+**Research reads existing sources. An experiment generates new data
+from a live system** (benchmarks, A/B runs, matrix sweeps, probes at
+scale). The dispatch → verify → scrutinize → fold pipeline below is
+sufficient for research. It is NOT sufficient for experiments.
+
+Any item that generates data MUST additionally run the
+**experiment protocol** — `reference/experiment-protocol.md`:
+pre-registration (hypothesis, version manifest, expected ranges,
+success evidence, abort criteria), positive + negative calibration
+controls through the FULL pipeline, mechanical pre-flight invariants,
+a scale ladder with a human checkpoint before any >1h unattended run,
+blocking in-run gates, and raw-data provenance (committed to git).
+
+This is non-negotiable. The local-coding-models arc ran two ~270-trial
+matrix launches under /research discipline alone; both produced
+garbage that passed every check, because the checks validated
+uniformity and error-absence instead of **presence of success
+evidence**. The prime directive for experiments:
+
+> A result is evidence only if the pipeline that produced it has been
+> shown to distinguish success from failure.
+
 You SET each goal explicitly before dispatching. You ITERATE by
 re-setting the iteration goal after each round, based on what the
 previous round surfaced. Goals are the discipline that keeps a
@@ -223,6 +247,14 @@ Run the healthcheck:
 - After any failed probe before retrying
 - Before dispatching benchmarks or long-running experiments
 
+**Healthcheck is necessary, not sufficient, for experiments.** It
+proves the substrate is alive — it does NOT prove the measurement
+pipeline produces valid data. Benchmarks and scaled runs also require
+calibration controls + pre-registration per
+`reference/experiment-protocol.md`. A healthy substrate fed 270
+garbage trials through a pipeline that couldn't tell success from
+failure.
+
 ## Step 2 — Dispatch
 
 Two flavors: you do it yourself, or you dispatch a subagent.
@@ -336,25 +368,35 @@ been doing FOR you — catching things like:
 user to catch it.** The discipline is to model what the user would
 say if they read the report cold.
 
-### When to use the /scrutinize skill
+### Independent scrutiny is the DEFAULT for anything entering canon
 
 The dedicated `/scrutinize` skill exists primarily for impl-wave
-review (after code lands, before merge). For research findings, you
-have two options:
+review (after code lands, before merge). For research findings:
 
-**Option A — Inline scrutiny (default for single research items).**
-Read the report yourself with adversarial intent. Apply the checklist
-in `reference/scrutiny-checklist.md`. Take ~5 min. Capture concerns
-as REVISED notes or open questions for follow-up.
+**Option A — Independent scrutinizer (DEFAULT for any finding that
+will be folded to canon, cited in a verdict, or drive a decision).**
+Dispatch a second general-purpose subagent with the prompt in
+`reference/scrutiny-subagent-prompt.md` — it re-reads the original
+sources independently and looks for what the first agent missed.
+Frame it adversarially: **its job is to REFUTE the finding, and it
+should default to "refuted" when uncertain.** Costs ~5-10 min of
+agent time. Record the verdict (Confirmed / Refined / Reversed) on
+the finding's bead so the gate is inspectable later.
 
-**Option B — Dispatch a scrutinize-style research subagent (for
-high-stakes / load-bearing findings).** When the research is going to
-drive a major decision (e.g., picking a substrate, declaring a
-pivot, closing an epic), dispatch a second general-purpose subagent
-with the prompt in `reference/scrutiny-subagent-prompt.md` — it
-re-reads the original sources independently and looks for what the
-first agent missed. Costs another ~5-10 min of agent time; worth it
-for decisions that lock in weeks of work.
+**Option B — Inline self-scrutiny (low-stakes intermediate notes
+ONLY).** Read the report yourself with adversarial intent using
+`reference/scrutiny-checklist.md`. Acceptable only for findings that
+won't be folded to canon this iteration — working notes, hypotheses
+queued for verification, intermediate state.
+
+Why this polarity: the agent that just spent budget producing a
+finding is structurally motivated to fold it and move on —
+self-scrutiny by the producer is self-sycophancy with a checklist.
+Historically, every major scrutiny catch in the arc that birthed
+this skill was made by the USER, not by inline self-review. You are
+a bad judge of which of your own findings are "high-stakes"; the
+fold-to-canon boundary is the objective trigger, not your assessment
+of stakes.
 
 ### Scrutiny checklist (apply mentally OR via subagent)
 
@@ -503,6 +545,19 @@ If the user said "keep going" / "stay autonomous":
 4. Don't poll background tasks; they notify on completion
 5. Use `SendUserFile` for digestible artifacts (user is away; this is how they catch up)
 
+**Circuit breakers — autonomy is bounded by validity, not budget:**
+- **Anomaly budget:** two consecutive iterations producing
+  out-of-range, garbage, or self-contradictory results → STOP the
+  loop. File a P1 `human:` bead + push notification and end. Do NOT
+  "fix and relaunch" a scaled experiment autonomously more than once.
+- **No layering on an unvalidated foundation:** before dispatching a
+  next-tier wave that depends on experimental results, confirm those
+  results passed the experiment protocol's gates. A layering tree
+  built on a contaminated run is wasted budget AND wrong canon.
+- **Foundation re-check at wave start:** re-verify that the findings
+  this wave builds on are still believed-valid (not superseded, not
+  from a run later found contaminated).
+
 ### 6b. Interactive / between-prompt
 
 If the user is actively at the keyboard:
@@ -558,10 +613,17 @@ become unblocked.
 | New top-level docs | Sprawl; user can't find canonical surface | **Extend existing GUARDRAILS / refs/ files**; reach for new files only when explicitly required |
 | Nested subagents | Subagent spawns subagent → exponential context blowup | **Subagents must NOT spawn subagents** — repeat in every prompt |
 | Token sprawl | 6000-word research reports | **~1500-2000 word cap** for research outputs |
+| Success = no errors | Uniform failure looks identical to uniform success; 270 garbage trials pass every check | **Success = presence of the evidence artifact** (experiment-protocol prime directive) |
+| Scaling without controls | The full run is the first time the pipeline meets reality; failures discovered after 100h, not 20min | **Calibration: positive + negative canary through the FULL pipeline before any scaled run** |
+| Reporting instead of enforcing | Warnings scroll past in a log during an unattended run | **Gates abort/block (non-zero exit halts the run); prose constraints become script assertions** |
+| Self-scrutiny gating canon | Producer reviews own finding → structural self-sycophancy | **Independent scrutinizer is the default at the fold-to-canon boundary** (Step 3.5) |
+| Momentum as progress | Layering new waves on top of unvalidated empirical results; reports-folded becomes the metric | **Circuit breakers (Step 6a); foundation re-check at wave start** |
+| Unversioned raw data | Results live in a default dir on a remote host; one machine reset erases the arc's data | **Commit raw results + version manifest to git before trusting analysis** |
 
 ## Reference material
 
 - [research-prompt-template.md](reference/research-prompt-template.md) — canonical subagent prompt skeleton
+- [experiment-protocol.md](reference/experiment-protocol.md) — MANDATORY protocol for data-generating items: pre-registration, calibration controls, blocking gates, provenance, circuit breakers
 - [healthcheck-pattern.md](reference/healthcheck-pattern.md) — pre-flight probe template
 - [scrutiny-checklist.md](reference/scrutiny-checklist.md) — the 8 adversarial-read questions to apply (Step 3.5)
 - [scrutiny-subagent-prompt.md](reference/scrutiny-subagent-prompt.md) — dispatch shape for high-stakes scrutiny
@@ -596,4 +658,18 @@ Concrete patterns from that arc that informed this skill:
   findings calcified
 
 The arc shipped 11 research reports archived in `~/explore/local-coding-models/refs/research/`
-and ~30 bead state updates. The discipline scaled.
+and ~30 bead state updates.
+
+**And the honest postscript (added 2026-06-10):** the same arc also
+produced two catastrophic benchmark-matrix failures (~270 trials each)
+that this skill's discipline did NOT prevent — garbage data passed
+every check because the harness validated error-absence and
+uniformity, not success evidence; no calibration controls existed; no
+gates blocked; raw data was never committed and was later lost in a
+machine reset. The reading-research half of the discipline scaled.
+The experiment half did not exist — that post-mortem
+(`~/explore/local-coding-models/refs/matrix-postmortem-2026-06.md`)
+is why `reference/experiment-protocol.md`, the independent-scrutiny
+default, and the autonomous-mode circuit breakers are now part of
+this skill. Treat that failure as the skill's most instructive
+example, not a footnote.

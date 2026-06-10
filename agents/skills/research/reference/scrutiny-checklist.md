@@ -88,8 +88,12 @@ This pass takes ~5 minutes for a typical 1500-word report. Worth it
 EVERY TIME. Skipping it is how findings calcify wrong and downstream
 work is built on bad ground.
 
-If the research is high-stakes (driving a major decision like a
-substrate pick, a pivot, or closing an epic), upgrade to **Option B**
-in SKILL.md Step 3.5: dispatch a second research subagent with the
-template in `scrutiny-subagent-prompt.md` to do this read
-independently.
+**Scope limit (2026-06-10 polarity flip):** this inline checklist is
+for LOW-STAKES intermediate notes only. Any finding that will be
+folded to canon, cited in a verdict, or drive a decision gets an
+INDEPENDENT scrutinizer subagent by default (SKILL.md Step 3.5
+Option A, `scrutiny-subagent-prompt.md`) — prompted to refute,
+defaulting to "refuted" when uncertain, verdict recorded on the bead.
+Self-scrutiny by the producer at the canon boundary is
+self-sycophancy with a checklist: every major catch in the original
+arc was made by the user, not by inline self-review.

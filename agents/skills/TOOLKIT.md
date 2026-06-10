@@ -158,10 +158,10 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 **Anti-pattern:** Blocking on AskUserQuestion in a tick — unstaffed sessions file a P1 `human:` bead + push notification and end the tick.
 
 ### /research
-**Job:** Autonomous layered research harness — parallel research subagents, empirical verification, fold to canon, layer next questions.
+**Job:** Autonomous layered research harness — parallel research subagents, empirical verification, independent scrutiny gate, fold to canon, layer next questions. Data-GENERATING items (benchmarks, scaled probes) additionally run reference/experiment-protocol.md: pre-registration, positive+negative calibration controls, blocking gates, raw-data provenance.
 **Fire when:** "Research X" / "stay autonomous"; proactively on operational blockers, new substrates, doubted findings.
-**Prereqs/side-effects:** refs/research/ archive; findings verified empirically before becoming load-bearing; notifications for material results.
-**Anti-pattern:** Letting an agent's unverified claim become a load-bearing assumption; quiet edits on reversed findings (use REVISED callouts).
+**Prereqs/side-effects:** refs/research/ archive; findings verified empirically before becoming load-bearing; independent scrutinizer (refute-framed) is the DEFAULT at the fold-to-canon boundary; autonomous mode has circuit breakers (2 consecutive anomalous iters → stop + P1 human: bead); notifications for material results.
+**Anti-pattern:** Success defined as absence-of-error instead of presence-of-evidence — uniform failure passes uniformity checks; scaling an experiment whose pipeline never classified a known-good AND known-bad canary correctly.
 
 ### /scrutinize
 **Job:** Adversarial read-only gate after an impl wave — disprove "done": stub bodies, mock-the-unit tests, unverified criteria, composition gaps.
