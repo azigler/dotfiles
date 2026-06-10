@@ -11,7 +11,7 @@ durable interactive Claude session in the project's dedicated tmux
 window. Each tick does **at most one unit of work** with the full
 discipline of any orchestrator session, then goes quiet until the next
 tick. Andrew can watch, interrupt, or steer the session at any time —
-it's a normal window in his tmux, labeled by the 🧠/✅/🔔 lexicon.
+it's a normal window in his tmux, labeled by the 🧠/✅/🔔/🌀 lexicon.
 
 Parent pattern: autonovel's `/heartbeat` (routing table, one dispatch
 per tick, rate caps). /pulse generalizes it; after the pilot, autonovel

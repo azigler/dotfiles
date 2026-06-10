@@ -52,11 +52,12 @@ else
 fi
 
 # 3. Lexicon-aware matching: the status hook renamed the window — the
-#    injector must still find it, not create a duplicate.
-"$TMUX_BIN" rename-window -t "$PANE" "✅ pulse"
+#    injector must still find it, not create a duplicate. (🌀 is the
+#    newest glyph; the same strip regex covers 🧠/✅/🔔.)
+"$TMUX_BIN" rename-window -t "$PANE" "🌀 pulse"
 "$INJECT" --session "$SESSION" --window pulse --dir "$DIR" --launch cat --cmd "hello-tick-3" >/dev/null 2>&1
 sleep 1
-WIN_COUNT=$("$TMUX_BIN" list-windows -t "=$SESSION" -F '#{window_name}' | sed -E 's/^(🧠|✅|🔔) ?//' | grep -cx "pulse")
+WIN_COUNT=$("$TMUX_BIN" list-windows -t "=$SESSION" -F '#{window_name}' | sed -E 's/^(🧠|✅|🔔|🌀) ?//' | grep -cx "pulse")
 if [ "$WIN_COUNT" -eq 1 ]; then ok; else bad "no duplicate window under lexicon prefix (count=$WIN_COUNT)"; fi
 if "$TMUX_BIN" capture-pane -p -t "$PANE" 2>/dev/null | grep -q "hello-tick-3"; then
   ok

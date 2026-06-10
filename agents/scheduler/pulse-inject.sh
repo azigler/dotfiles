@@ -11,7 +11,7 @@
 # is invisible — Andrew can't watch or steer. An interactive session in
 # a tmux window uses the normal subscription, is observable by both
 # Andrew and the agent, persists between ticks, and inherits the
-# 🧠/✅/🔔 window lexicon (tmux-status.sh).
+# 🧠/✅/🔔/🌀 window lexicon (tmux-status.sh).
 #
 # Usage:
 #   pulse-inject.sh --dir <project-path> --cmd "<prompt or /skill>" \
@@ -22,7 +22,7 @@
 #   --session  tmux session name (default: work — created detached if absent,
 #              so timers still work after a reboot before Andrew attaches)
 #   --window   dedicated window name (default: pulse). Matching strips any
-#              leading lexicon glyph (🧠/✅/🔔) so the status hook's renames
+#              leading lexicon glyph (🧠/✅/🔔/🌀) so the status hook's renames
 #              don't break window discovery.
 #   --launch   program to start when the window has no live session
 #              (default: claude). Tests override with something inert.
@@ -76,8 +76,8 @@ if ! "$TMUX_BIN" has-session -t "=$SESSION" 2>/dev/null; then
 fi
 
 # 2. Find the dedicated window, lexicon-aware: the tmux-status hook
-#    prefixes 🧠/✅/🔔, so "✅ pulse" must match "pulse".
-strip_lexicon() { printf '%s' "$1" | sed -E 's/^(🧠|✅|🔔) ?//'; }
+#    prefixes 🧠/✅/🔔/🌀, so "✅ pulse" must match "pulse".
+strip_lexicon() { printf '%s' "$1" | sed -E 's/^(🧠|✅|🔔|🌀) ?//'; }
 
 WIN_ID=""
 while IFS=$'\t' read -r id name; do

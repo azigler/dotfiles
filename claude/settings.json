@@ -102,6 +102,11 @@
             "type": "command",
             "command": "~/.claude/hooks/post-gen-fanout-check.sh",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/post-bash-beads-merge-check.sh",
+            "timeout": 10
           }
         ]
       }
@@ -155,6 +160,11 @@
             "type": "command",
             "command": "~/.claude/hooks/pre-compact.sh",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/tmux-status.sh",
+            "timeout": 5
           }
         ]
       }

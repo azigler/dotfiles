@@ -3,11 +3,14 @@
 # window name, so Andrew can see at a glance which windows are waiting
 # for him without rotating through all of them.
 #
-# Lexicon (prefix on the window name) — exactly three glyphs:
+# Lexicon (prefix on the window name) — exactly four glyphs:
 #   🧠  working          (SessionStart, UserPromptSubmit, PostToolUse)
 #   ✅  ready for review (Stop — agent finished its turn)
 #   🔔  needs YOU to continue (permission prompt, AskUserQuestion,
 #                              plan approval — blocked on Andrew)
+#   🌀  compacting       (PreCompact — manual or auto; SessionStart
+#                         fires with source=compact when it finishes,
+#                         which heals back to 🧠 automatically)
 #   (no prefix)          (SessionEnd — emoji stripped, name restored)
 #
 # Semantics (tightened 2026-06-09 after the di/prod false-🔔):
@@ -30,7 +33,8 @@
 # terminal font and 🦾 reads too dark next to ✅/🔔 — settled on 🧠.
 # All live windows were relabeled in the same pass, so the strip
 # regex handles ONLY the current set; add a glyph here AND in the
-# strip regex if the lexicon ever grows.)
+# strip regex if the lexicon ever grows. 🌀 added 2026-06-10 —
+# VS-free, so no 🤖-style ASCII-fallback risk.)
 #
 # Design notes:
 # - STATELESS: we never store the "original" name. On every event we
@@ -41,8 +45,8 @@
 # - Targets the window containing $TMUX_PANE, so split panes (bead
 #   viewer next to the agent) are unaffected.
 # - Wired to main-session events only (SessionStart, UserPromptSubmit,
-#   Stop, Notification, SessionEnd) — NOT SubagentStart/SubagentStop,
-#   so background subagents don't flicker the window.
+#   Stop, Notification, PreCompact, SessionEnd) — NOT SubagentStart/
+#   SubagentStop, so background subagents don't flicker the window.
 # - `tmux` is resolved via command -v with a /usr/bin fallback: the
 #   interactive zsh aliases tmux to a plugin function that doesn't
 #   exist in non-interactive shells (observed 2026-06-09).
@@ -64,6 +68,7 @@ EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
 case "$EVENT" in
   SessionStart|UserPromptSubmit|PostToolUse) PREFIX="🧠 " ;;
   Stop)                                      PREFIX="✅ " ;;
+  PreCompact)                                PREFIX="🌀 " ;;
   Notification)
     # Only permission-type notifications mean "blocked on Andrew".
     # The ~60s-idle "waiting for your input" notification fires for
@@ -88,7 +93,7 @@ CURRENT=$("$TMUX_BIN" display-message -p -t "$TMUX_PANE" '#W' 2>/dev/null)
 [ -z "$CURRENT" ] && exit 0
 
 # Strip any existing lexicon prefix (emoji + optional space).
-BASE=$(printf '%s' "$CURRENT" | sed -E 's/^(🧠|✅|🔔) ?//')
+BASE=$(printf '%s' "$CURRENT" | sed -E 's/^(🧠|✅|🔔|🌀) ?//')
 [ -z "$BASE" ] && BASE="claude"
 
 NEW="${PREFIX}${BASE}"

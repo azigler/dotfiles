@@ -88,6 +88,15 @@ assert_name "PostToolUse heals back to working prefix" "🧠 myproject"
 fire_json '{"hook_event_name":"PreToolUse","tool_name":"Bash"}'
 assert_name "ordinary PreToolUse is a no-op" "🧠 myproject"
 
+# 4e. PreCompact → 🌀 (compaction running — manual or auto)
+fire PreCompact
+assert_name "PreCompact swaps to compacting prefix" "🌀 myproject"
+
+# 4f. SessionStart (fires with source=compact when compaction ends)
+#     heals 🌀 back to 🧠
+fire SessionStart
+assert_name "SessionStart heals compacting back to working" "🧠 myproject"
+
 # 5. Manual rename mid-session survives (only prefix is managed)
 "$TMUX_BIN" rename-window -t "$PANE" "renamed-by-hand"
 fire Stop
@@ -97,8 +106,13 @@ assert_name "manual rename preserved under prefix" "✅ renamed-by-hand"
 fire SessionEnd
 assert_name "SessionEnd strips prefix" "renamed-by-hand"
 
+# 6b. SessionEnd also strips a compacting prefix
+"$TMUX_BIN" rename-window -t "$PANE" "🌀 renamed-by-hand"
+fire SessionEnd
+assert_name "SessionEnd strips compacting prefix" "renamed-by-hand"
+
 # 7. Unknown event → no-op
-fire PreCompact
+fire SubagentStop
 assert_name "unknown event is a no-op" "renamed-by-hand"
 
 # --- Summary ---

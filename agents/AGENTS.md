@@ -37,8 +37,9 @@ work sits.
 
 Target state for every window: 🧠 (thinking) or 🔔 (needs Andrew).
 ✅ means "genuinely idle — nothing to ask, waiting for new delegation."
-If you finished a deliverable and there's an obvious next-step decision,
-that's a 🔔 moment — ask it with the tool.
+🌀 means "compacting" — transient; SessionStart heals it to 🧠 when the
+compact finishes. If you finished a deliverable and there's an obvious
+next-step decision, that's a 🔔 moment — ask it with the tool.
 
 Exception: autonomous loops (/pulse ticks, scheduled runs) never block
 on AskUserQuestion — they file a P1 `human:` bead + push notification
