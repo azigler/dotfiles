@@ -163,6 +163,11 @@
           },
           {
             "type": "command",
+            "command": "~/.claude/hooks/pre-compact-observe.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "~/.claude/hooks/tmux-status.sh",
             "timeout": 5
           }
@@ -176,6 +181,11 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/check-status.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/stop-context-guard.sh",
+            "timeout": 5
           },
           {
             "type": "command",

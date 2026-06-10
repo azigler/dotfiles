@@ -125,11 +125,15 @@ last 5 ledger entries, open `human:` beads, timer state
 ## Session durability and context
 
 The dedicated window's session receives many ticks and its context
-grows. Until the compact-awareness guard ships (spec wave 4: Stop-hook
-context check + PreCompact backstop — see dotfiles-mhn), apply
-judgment: if the session feels heavy, finish the tick, then run
-/offboard and `/clear` deliberately — the next tick re-onboards from
-the handoff note. Never let auto-compaction surprise a tick mid-work.
+grows. The compact-awareness guard (wave 4, shipped 2026-06-10:
+`stop-context-guard.sh`) watches the official context % — statusline
+persists it per-session — and at 85% an exit-2 Stop tells the agent
+to /offboard immediately. When that fires mid-tick: finish nothing
+new, /offboard, and `/clear` deliberately — the next tick re-onboards
+from the handoff note. A PreCompact backstop runs in observe mode
+(logs would-block decisions to /tmp/claude-compact-observe.log) until
+a real auto-compact confirms blockability. Never let auto-compaction
+surprise a tick mid-work.
 
 ## Anti-patterns
 

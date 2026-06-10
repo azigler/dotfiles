@@ -7,6 +7,17 @@ COST=$(echo "$input" | jq -r '.cost.total_cost_usd // 0')
 PCT=$(echo "$input" | jq -r '.context_window.used_percentage // 0' | cut -d. -f1)
 DURATION_MS=$(echo "$input" | jq -r '.cost.total_duration_ms // 0')
 
+# Persist the official context % per session so hooks can read it —
+# hook payloads don't carry context_window; only the statusline gets
+# it. stop-context-guard.sh reads this file on Stop (dotfiles-lb6,
+# pulse wave 4). /tmp is fine: live sessions re-render constantly.
+SESSION_ID=$(echo "$input" | jq -r '.session_id // empty')
+if [ -n "$SESSION_ID" ]; then
+    PCT_DIR="${CONTEXT_GUARD_STATE_DIR:-/tmp/claude-context-pct}"
+    mkdir -p "$PCT_DIR" 2>/dev/null
+    printf '%s\n' "$PCT" > "$PCT_DIR/$SESSION_ID" 2>/dev/null
+fi
+
 CYAN='\033[36m'; GREEN='\033[32m'; YELLOW='\033[33m'; RED='\033[31m'; RESET='\033[0m'
 
 # Pick bar color based on context usage
