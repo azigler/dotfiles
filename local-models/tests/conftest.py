@@ -26,6 +26,7 @@ DOTFILES_ROOT = Path(
     )
 )
 ANALYZE_BIN = DOTFILES_ROOT / "local-models" / "analyze-bench.py"
+VARIANCE_BIN = DOTFILES_ROOT / "local-models" / "analyze-variance.py"
 BENCH_MATRIX = DOTFILES_ROOT / "local-models" / "bench-matrix.sh"
 RUN_SCENARIO = DOTFILES_ROOT / "claude" / "sandbox" / "run-scenario.sh"
 SCENARIOS_DIR = DOTFILES_ROOT / "claude" / "sandbox" / "scenarios"
