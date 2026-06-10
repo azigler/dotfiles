@@ -121,11 +121,32 @@ if command -v br &>/dev/null; then
     fi
   fi
 
-  # Ensure .gitattributes has merge=union for JSONL (needed for worktree merges)
-  # SKIP in worktrees: auto-commits here corrupt worktree branches with unintended changes
-  if ! $IN_WORKTREE && [ -d ".beads" ] && ! grep -q 'merge=union' .gitattributes 2>/dev/null; then
-    echo '.beads/*.jsonl merge=union' >> .gitattributes
-    git add .gitattributes && git commit -q -m ":wrench: config: add gitattributes for JSONL merge" 2>/dev/null
+  # JSONL merge protection for worktree merges (lin-eqh fix, 2026-06-10).
+  # Two layers, BOTH set here because git config never travels with a clone:
+  #   1. git config: merge.jsonl-union.driver -> ~/.claude/hooks/merge-jsonl.sh
+  #      (idempotent, re-set every session — solves the config-doesn't-clone problem)
+  #   2. .gitattributes: .beads/*.jsonl merge=jsonl-union (committed)
+  # The custom driver dedupes by bead ID keeping the newer updated_at.
+  # The previous setup — git's BUILT-IN `merge=union` — was the resurrection
+  # bug itself: union keeps BOTH sides' lines on conflict, so a stale "open"
+  # line from a worktree branch survives next to main's "closed" line and
+  # br's auto-import can flip the bead back open. Any plain union line is
+  # therefore REMOVED (it also overrides jsonl-union when it sorts later,
+  # since last gitattributes match wins).
+  # If the driver script is missing at merge time, git falls back to a
+  # visible conflict — never a silent resurrection.
+  # SKIP in worktrees: auto-commits here corrupt worktree branches.
+  if ! $IN_WORKTREE && [ -d ".beads" ]; then
+    git config merge.jsonl-union.name "JSONL union merge (dedupe by bead ID, keep newer updated_at)" 2>/dev/null
+    git config merge.jsonl-union.driver "$HOME/.claude/hooks/merge-jsonl.sh %O %A %B" 2>/dev/null
+    sed -i -E '/^\.beads\/\*\.jsonl[[:space:]]+merge=union[[:space:]]*$/d' .gitattributes 2>/dev/null
+    grep -q 'merge=jsonl-union' .gitattributes 2>/dev/null \
+      || echo '.beads/*.jsonl merge=jsonl-union' >> .gitattributes
+    if [ -n "$(git status --porcelain -- .gitattributes 2>/dev/null)" ]; then
+      git add .gitattributes 2>/dev/null
+      # Pathspec commit: only .gitattributes, even if other changes are staged.
+      git commit -q -m ":wrench: config: jsonl-union merge driver for .beads JSONL (dedupe by ID, keep newer)" -- .gitattributes 2>/dev/null
+    fi
   fi
 
   # In a worktree with an .envrc, pre-approve direnv so the agent's Bash
