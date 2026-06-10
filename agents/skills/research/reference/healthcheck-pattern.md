@@ -77,7 +77,31 @@ The minimum viable healthcheck is ~30 lines of bash:
 
 You can grow it as failure modes accumulate.
 
-## Anti-pattern: "I'll just try the thing and see"
+## Liveness watchdogs for unattended operations (added 2026-06-10)
+
+Completion notifications fire when a task EXITS. **A hung operation
+never exits, so the notification never comes** — the orchestrator
+waits silently until the user nudges. This happened repeatedly in the
+local-coding-models arc (hung model pulls needing manual RESUME, a
+wedged mlx server idling 4+ hours, CCR dying mid-run unnoticed).
+
+The fix: pair every long-running unattended operation (downloads,
+benchmark cohorts, server warm-ups) with a **stall watchdog whose
+exit IS the alarm**:
+
+- A background loop probes a PROGRESS signal (disk growth for
+  downloads, result-file count for benchmarks, log mtime for servers)
+  at short intervals.
+- N consecutive flat checks while the process is still alive →
+  print STALLED + exit non-zero. The exit fires the harness
+  notification, waking the orchestrator to intervene.
+- Even on the happy path, exit with a HEARTBEAT progress line at the
+  watchdog's time budget and relaunch — bounding the maximum
+  signal-free window (e.g. ~10 min), instead of "until the user asks."
+
+Choose the progress signal carefully: it must move during legitimate
+work and freeze during a hang. Process-aliveness alone is NOT a
+progress signal — hung processes are alive (that's the trap).
 
 If the substrate is in a bad state, the thing you try will fail in a
 way that looks like YOUR fault, not the substrate's. You'll spend

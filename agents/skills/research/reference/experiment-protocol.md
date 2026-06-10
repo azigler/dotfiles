@@ -108,6 +108,13 @@ run is not a check. Every gate ABORTS or BLOCKS:
 - **Transition hygiene** — resource cleanup verified between
   heterogeneous phases (e.g. backend eviction confirmed by probe, not
   assumed), with the post-cleanup state asserted.
+- **Stall watchdogs** — every long-running unattended step (pull,
+  cohort, warm-up) gets a liveness watchdog whose exit is the alarm:
+  probe a true progress signal (disk growth, result count — not
+  process aliveness; hung processes are alive), exit loudly after N
+  flat checks, heartbeat-exit at the time budget so the maximum
+  signal-free window is bounded. Completion notifications only fire
+  on exit; hangs never exit. (See healthcheck-pattern.md §Liveness.)
 
 ## Phase E5 — Provenance (or the data never existed)
 
