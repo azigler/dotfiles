@@ -25,6 +25,19 @@ In `/tmp/claude-local-test/s05/greet.py`, change the greeting from "Hello" to "H
 - Final model output contains the word `DONE`
 - (Bonus) If running with `--output-format=stream-json` we can verify both `tool_use` blocks appeared in the same `assistant` message (parallel emission)
 
+## Expected artifacts
+```bash
+# Artifact-first verdict (run-scenario.sh runs this BEFORE Cleanup and
+# before consulting exit codes). Exit 0 = expected sandbox state.
+# NOTE: the parallel-emission criterion is output-shaped and stays in
+# Pass criteria (Tier-1 scoring); the artifact contract is the edit.
+f="${SANDBOX:-/tmp/claude-local-test}/s05/greet.py"
+[[ -f "$f" ]] || exit 1
+[[ "$(grep -c 'Howdy' "$f")" -eq 1 ]] || exit 1
+[[ "$(grep -c 'Hello' "$f")" -eq 0 ]] || exit 1
+exit 0
+```
+
 ## Cleanup
 ```bash
 rm -rf "${SANDBOX:-/tmp/claude-local-test}/s05"

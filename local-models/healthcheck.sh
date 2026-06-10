@@ -1,20 +1,32 @@
 #!/bin/bash
-# healthcheck.sh — pre-flight health probe for the local-models stack.
+# healthcheck.sh — pre-flight health probe for the local-models stack
+# (round 2 — CC-native serving; the CCR / llama-swap layers are GONE).
 #
-# Run at iter-start and after any failed completion. Catches hung processes,
-# memory bloat, disk pressure, network issues, backend connectivity gaps.
+# Topology this checks (refs/eval-round-2-manifest.md in
+# ~/explore/local-coding-models):
+#   - pico reachable on the tailnet
+#   - pico disk + memory headroom
+#   - serving binaries present (/Users/pico/ollama-0.30.7/{ollama,llama-server})
+#   - serving endpoints REPORTED ONLY (informational): bench-matrix.sh owns
+#     the server lifecycle per cohort, so "nothing running" is a VALID
+#     pre-flight state — a down endpoint here is not a failure.
 #
-# Exits 0 on healthy, 1 on warnings, 2 on critical (hung server / OOM-risk).
+# Exits 0 on healthy, 1 on warnings, 2 on critical (pico unreachable /
+# disk-critical / binaries missing). bench-matrix.sh aborts on ANY
+# non-zero exit, so warnings block a matrix launch too — by design
+# (gates abort, never warn-and-continue).
 #
-# Companion: trinity_shim.py, qwen_sampler.py, GUARDRAILS.md.
+# Companion: bench-matrix.sh, serving.conf, GUARDRAILS.md.
+# Bead: dotfiles-6go
 
 set -u
 
 PICO_HOST="${PICO_HOST:-100.72.47.4}"
-MLX_URL="http://${PICO_HOST}:8081"
+PICO_SSH_HOST="${PICO_SSH_HOST:-pico}"
+OLLAMA_BIN="/Users/pico/ollama-0.30.7/ollama"
+LLAMA_SERVER_BIN="/Users/pico/ollama-0.30.7/llama-server"
 OLLAMA_URL="http://${PICO_HOST}:11434"
-LLAMASWAP_URL="http://${PICO_HOST}:8090"
-CCR_URL="http://127.0.0.1:3456"
+LLAMA_SERVER_URL="http://${PICO_HOST}:8082"
 
 # Exit code accumulator
 WARN=0
@@ -25,7 +37,7 @@ yellow() { printf '\033[33m%s\033[0m\n' "$*"; }
 red()    { printf '\033[31m%s\033[0m\n' "$*"; WARN=1; }
 crit()   { printf '\033[31;1m%s\033[0m\n' "$*"; CRIT=1; }
 
-# Quick HTTP probe with hard timeout; returns: 0=responsive, 1=connect-fail, 2=hung (timeout)
+# Quick HTTP probe with hard timeout; returns: 0=responsive, non-zero otherwise
 probe_endpoint() {
     local url="$1" timeout="${2:-5}"
     local code
@@ -34,19 +46,7 @@ probe_endpoint() {
     return 1
 }
 
-# Check whether a small completion request actually returns content (catches hang-after-handshake)
-probe_completion() {
-    local url="$1" model="$2" timeout="${3:-15}"
-    local response
-    response=$(curl -sS --max-time "$timeout" -X POST "$url/v1/chat/completions" \
-        -H 'Content-Type: application/json' \
-        -d "{\"model\":\"$model\",\"messages\":[{\"role\":\"user\",\"content\":\"PONG?\"}],\"max_tokens\":10,\"temperature\":0,\"stream\":false}" 2>&1)
-    [[ -z "$response" ]] && return 2
-    echo "$response" | grep -q 'content' && return 0
-    return 1
-}
-
-echo "=== local-models healthcheck — $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+echo "=== local-models healthcheck (round 2) — $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
 echo
 
 # ---- 1. Pico reachability ----
@@ -57,102 +57,53 @@ else
     exit 2
 fi
 
-# ---- 2. MLX server (8081) — informational only ----
-# The bench routes pico-mlx candidates through llama-swap on :8090 (see #4
-# below), NOT directly to mlx_lm.server on :8081. llama-swap spawns its own
-# mlx_lm.server children on dynamic ports per loaded model. A bare :8081
-# raw-MLX server is no longer required for the bench. Kept here as a yellow
-# nice-to-have for operators who route direct to MLX for debugging.
-if probe_endpoint "$MLX_URL/v1/models" 5; then
-    green "✓ MLX server :8081 responding (informational; bench uses llama-swap :8090)"
-else
-    yellow "○ MLX :8081 not running (informational only; bench uses llama-swap :8090)"
-fi
-
-# Check MLX-process RSS aggregate (llama-swap's children may show up here).
-# Caps the per-process check at ~25 GB to flag the memory-cliff approach
-# before pico OOMs. >30 GB is a hard warning; bench should never get there
-# with the 4-bit-quantized roster.
-mlx_state=$(ssh -o ConnectTimeout=5 pico 'pid=$(pgrep -f mlx_lm.server | head -1); [[ -n "$pid" ]] && ps -o rss,etime -p $pid 2>/dev/null | tail -1' 2>/dev/null)
-if [[ -n "$mlx_state" ]]; then
-    rss_kb=$(echo "$mlx_state" | awk '{print $1}')
-    etime=$(echo "$mlx_state" | awk '{print $2}')
-    rss_gb=$((rss_kb / 1024 / 1024))
-    if [[ "$rss_gb" -gt 30 ]]; then
-        red "⚠ MLX RSS ${rss_gb} GB (>30) — possible model accumulation; consider kickstart if no active jobs"
+# ---- 2. Serving binaries (official tarball — the brew bottle is BROKEN:
+#         it ships no llama-server runner; verified 2026-06-10) ----
+for bin in "$OLLAMA_BIN" "$LLAMA_SERVER_BIN"; do
+    if ssh -o ConnectTimeout=5 "$PICO_SSH_HOST" "test -x '$bin'" 2>/dev/null; then
+        green "✓ serving binary present: $bin"
     else
-        green "✓ mlx_lm.server (under llama-swap) RSS ${rss_gb} GB, uptime $etime"
+        crit "✗ serving binary MISSING/non-executable on pico: $bin (re-install the official ollama tarball)"
     fi
-fi
+done
 
-# ---- 3. Ollama server (11434) ----
-if probe_endpoint "$OLLAMA_URL/api/tags" 5; then
-    green "✓ Ollama server :11434 responding (/api/tags)"
-else
-    crit "✗ Ollama server :11434 not responding — try: ssh pico '/opt/homebrew/opt/ollama/bin/ollama serve'"
-fi
-
-# ---- 4. llama-swap (8090) — REQUIRED for pico-mlx via CCR ----
-# Bench-matrix routes pico-mlx candidates through CCR -> llama-swap -> MLX. If
-# llama-swap is down, every mlx-via-CCR call returns "fetch failed" (2026-05-31
-# matrix v2 garbage was exactly this: llama-swap dead the entire 21h run).
-# bench-matrix.sh does NOT auto-start llama-swap (only ollama + mlx-raw), so
-# this check is the gate. Manual restart: ssh pico 'nohup /opt/homebrew/bin/
-# llama-swap -config /Users/pico/.config/llama-swap/config.yaml -listen
-# 100.72.47.4:8090 -watch-config >> /tmp/llama-swap.log 2>&1 & disown'
-if probe_endpoint "$LLAMASWAP_URL/v1/models" 5 2>/dev/null; then
-    green "✓ llama-swap :8090 responding (pico-mlx-via-CCR path)"
-else
-    crit "✗ llama-swap :8090 DOWN — every pico-mlx-via-CCR call will 'fetch fail'. Start it on pico."
-fi
-
-# ---- 5. CCR (local 3456) — REQUIRED for the bench ----
-if probe_endpoint "$CCR_URL/" 3 2>/dev/null; then
-    green "✓ CCR :3456 responding"
-else
-    crit "✗ CCR :3456 not running — start with 'ccr start'"
-fi
-
-# ---- 6. Functional completion probe (catches hang-after-handshake) ----
-# Use the smallest fastest model that's likely already warm — qwen3-coder via Ollama (Ollama keeps it warm 24h).
-# Timeout 90s to accommodate cold-load (the 30b model takes ~60-70s to load from disk into Metal on pico
-# after an Ollama restart; subsequent requests return in <2s once warm). Empirically (2026-05-30): the
-# previous 30s timeout was too tight after Ollama restarts, falsely flagging the stack as wedged.
-if probe_completion "$OLLAMA_URL" "qwen3-coder:30b" 90; then
-    green "✓ Qwen3 Ollama completion roundtrip OK (proves stack actually serves, not just handshakes)"
-else
-    crit "✗ Qwen3 Ollama completion hung or failed — stack may be wedged even if handshake works"
-fi
-
-# ---- 6b. CCR end-to-end completion probe (catches CCR-layer wedges that the
-# direct-to-pico probe above misses). Empirically (2026-05-31): matrix v2's
-# 270 trials all returned "API Error: 500 fetch failed" because llama-swap on
-# pico was down. The OLD probe used /v1/chat/completions (OpenAI endpoint) with
-# bare model name 'claude-haiku-4-5' — that hit CCR's openai handler and bypassed
-# Router.background entirely, so it missed the bench's actual failure mode.
-# THIS probe mimics what claude-local actually sends: POST /v1/messages
-# (Anthropic shape) with model=claude-haiku-4-5 which triggers Router.background
-# = pico-mlx,qwen3-coder, exercising the full chain CCR -> llama-swap -> MLX.
-# NEVER AGAIN.
-ccr_completion_response=$(curl -sS --max-time 120 -X POST "$CCR_URL/v1/messages" \
-    -H 'Content-Type: application/json' \
-    -H 'anthropic-version: 2023-06-01' \
-    -H 'Authorization: Bearer ccr' \
-    -d '{"model":"claude-haiku-4-5","messages":[{"role":"user","content":"reply ok"}],"max_tokens":15}' 2>&1)
-if echo "$ccr_completion_response" | grep -q '"content"'; then
-    green "✓ CCR -> Router.background -> pico-mlx -> llama-swap -> MLX roundtrip OK (bench's actual path)"
-else
-    crit "✗ CCR completion failed — bench would receive 500s. THIS IS THE LAYER BENCH USES."
-fi
-
-# ---- 7. Pico disk ----
-disk_pct=$(ssh -o ConnectTimeout=5 pico 'df -h ~ | tail -1 | awk "{print \$5}" | tr -d %' 2>/dev/null)
+# ---- 3. Pico disk ----
+disk_pct=$(ssh -o ConnectTimeout=5 "$PICO_SSH_HOST" 'df -h ~ | tail -1 | awk "{print \$5}" | tr -d %' 2>/dev/null)
 if [[ -n "$disk_pct" ]]; then
-    if [[ "$disk_pct" -gt 80 ]]; then
+    if [[ "$disk_pct" -gt 90 ]]; then
+        crit "✗ pico disk ${disk_pct}% full — CRITICAL, clean up before any model work"
+    elif [[ "$disk_pct" -gt 80 ]]; then
         red "⚠ pico disk ${disk_pct}% full — clean up before next download"
     else
         green "✓ pico disk ${disk_pct}% used"
     fi
+else
+    red "⚠ could not read pico disk usage over ssh"
+fi
+
+# ---- 4. Serving-process inventory (INFORMATIONAL) ----
+# bench-matrix.sh owns server lifecycle: it evicts everything pre-flight and
+# launches per cohort. Residents here are not an error for a standalone
+# healthcheck run, but the count is worth eyeballing (u3y orphan lesson —
+# bench-matrix's own orphan audit is the blocking version of this check).
+resident=$(ssh -o ConnectTimeout=5 "$PICO_SSH_HOST" "pgrep -af 'ollama|llama-server' 2>/dev/null | grep -v pgrep | head -10" 2>/dev/null)
+if [[ -n "$resident" ]]; then
+    yellow "○ serving processes currently resident on pico (bench-matrix evicts these pre-flight):"
+    while IFS= read -r proc_line; do printf '    %s\n' "$proc_line"; done <<< "$resident"
+else
+    green "✓ no serving processes resident on pico (clean slate)"
+fi
+
+# ---- 5. Serving endpoints (INFORMATIONAL — lifecycle belongs to bench-matrix) ----
+if probe_endpoint "$OLLAMA_URL/api/tags" 5; then
+    yellow "○ Ollama :11434 responding (will be evicted/relaunched by bench-matrix as needed)"
+else
+    green "✓ Ollama :11434 not serving (valid pre-flight state)"
+fi
+if probe_endpoint "$LLAMA_SERVER_URL/v1/models" 5; then
+    yellow "○ llama-server :8082 responding (will be evicted/relaunched by bench-matrix as needed)"
+else
+    green "✓ llama-server :8082 not serving (valid pre-flight state)"
 fi
 
 echo
@@ -160,7 +111,7 @@ if [[ "$CRIT" -eq 1 ]]; then
     crit "RESULT: CRITICAL issues — fix before continuing local-model work"
     exit 2
 elif [[ "$WARN" -eq 1 ]]; then
-    yellow "RESULT: warnings (non-blocking, but worth attention)"
+    yellow "RESULT: warnings (bench-matrix treats any non-zero exit as blocking)"
     exit 1
 else
     green "RESULT: healthy"

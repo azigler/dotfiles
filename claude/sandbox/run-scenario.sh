@@ -1,131 +1,119 @@
 #!/usr/bin/env bash
 #
-# run-scenario.sh — execute one sandbox scenario against opus or local.
+# run-scenario.sh — execute one sandbox scenario against a serving.conf
+# candidate via Claude Code NATIVE serving (round 2 — CCR chain dropped).
 #
 # Usage:
-#   ./run-scenario.sh <scenario-file> <opus|local> [options]
+#   ./run-scenario.sh <scenario-file> <candidate> [options]
 #   ./run-scenario.sh <scenario-file> --candidate <name> [options]
 #
 # Options:
-#   --candidate NAME     Wave 2 dispatch flag: select a roster candidate by
-#                        name (e.g., qwen3-coder, trinity-mini, kimi-linear).
-#                        Resolves to a CCR routing tag + HF model path via the
-#                        CANDIDATE_DISPATCH table below. Use this OR the
-#                        legacy positional <opus|local> arg, not both.
-#   --dry-run-routing    Print the resolved CCR route + HF model path for the
-#                        chosen candidate and exit 0. Does NOT run Setup /
-#                        claude / Cleanup. Use to audit dispatch before going
-#                        live. Requires --candidate (or accepts the positional
-#                        opus|local form).
+#   --candidate NAME     Candidate name — must match a `model` field in
+#                        serving.conf (env SERVING_CONF overrides path;
+#                        default ../../local-models/serving.conf).
+#   --dry-run-routing    Print the resolved serving entry + the FULL claude
+#                        invocation (env pins + flags) and exit 0. No Setup,
+#                        no claude run, no Cleanup, no ssh.
 #   --trials N           Run the scenario N times (default 1). One result
 #                        file is written per trial.
-#   --timeout SECONDS    Per-trial wall cap (in SECONDS). If a trial does
-#                        not finish in time, it is killed with SIGTERM and
-#                        the result file is tagged TIMEOUT. No cap by
-#                        default. NOTE: bench-matrix.sh exposes --timeout
-#                        in MINUTES and converts to seconds on passthrough.
+#   --timeout SECONDS    Per-trial wall cap (SECONDS). On cap fire the trial
+#                        is killed; verdict is decided by ARTIFACT state
+#                        (TIMEOUT_SUCCESS if the sandbox matches the
+#                        scenario's Expected artifacts; TIMEOUT otherwise).
+#                        NOTE: bench-matrix.sh exposes --timeout in MINUTES
+#                        and converts on passthrough.
 #   --quiet              Suppress live progress chatter on stderr; only
 #                        print the result-file path on stdout per trial.
 #   --results-dir DIR    Override the default results dir
 #                        (claude/sandbox/results/).
 #
-# Parses the scenario file (5-section markdown — see scenarios/01-*.md for
-# the schema). For each trial: defensive `rm -rf` of any sandbox subdirs
-# referenced in Setup (OQ-07 — prevents N-trial cross-contamination), then
-# runs Setup → captures `claude -p < prompt` for the chosen backend →
-# captures sandbox state INCLUDING file contents (FILECONTENTS:<path>:<body>,
-# cap 50KB/file) → runs Cleanup → writes results markdown to results/.
+# Invocation shape (verified live 2026-06-10, refs/eval-round-2-manifest.md
+# in ~/explore/local-coding-models):
 #
-# Backends:
-#   opus  = the real Anthropic Opus model (uses normal claude CLI)
-#   local = pico-mlx,qwen3-coder via CCR + llama-swap (uses ./claude-local)
+#   env -u ANTHROPIC_API_KEY \
+#       ANTHROPIC_BASE_URL=<serving.conf base_url> \
+#       ANTHROPIC_AUTH_TOKEN=bench-local \
+#       ANTHROPIC_MODEL=<candidate> \
+#       ANTHROPIC_DEFAULT_HAIKU_MODEL=<candidate> \
+#       CLAUDE_CODE_SUBAGENT_MODEL=<candidate> \
+#       claude -p --model <candidate> --output-format json --bare \
+#              --allowedTools "<scenario tools>"
 #
-# Spec: dotfiles-ukx.13 §4.1
-# Refs:
-#   - Sibling: ./claude-local (wrapper that injects CCR routing tag)
-#   - Bead: dotfiles-ukx.3 (original), dotfiles-ukx.13.3 (Wave 1), dotfiles-ukx.13.4.2 (Wave 2)
+#   - --bare is MANDATORY: default system prompt is ~25.9k tokens → 184s
+#     prefill/turn on a 30b local model; --bare cuts it to ~1.2k tokens.
+#   - --allowedTools filters PERMISSION, not the offered roster.
+#   - The JSON output's modelUsage keys verify which model actually served
+#     (per-trial routing check — postmortem failure mode #2). A mismatch
+#     tags the trial INVALID_ROUTING and exits 7 so bench-matrix aborts the
+#     cohort.
+#
+# Scenario file schema (5 sections + 2 optional):
+#   ## Setup / ## Prompt / ## Pass criteria / ## Cleanup / ## Notes
+#   ## Expected artifacts (OPTIONAL, bash block) — assertions on sandbox
+#      state run AFTER the claude run and BEFORE Cleanup. Exit 0 = the
+#      expected artifacts exist. Gets $SANDBOX and $TRIAL_OUTPUT_FILE (path
+#      to the model's extracted result text) in its env. THE PRIMARY
+#      VERDICT EVIDENCE (postmortem #7 / bead e21): artifacts are compared
+#      BEFORE exit codes are consulted.
+#   ## Tools (OPTIONAL) — first non-empty line is the --allowedTools value.
+#      Default: Bash,Edit,Read,Write
+#
+# Verdicts (verdict_tag / verdict_evidence in the result file):
+#   OK              artifact-match                artifacts match, no timeout
+#   TIMEOUT_SUCCESS artifact-match-after-timeout  wall cap hit, artifacts match
+#   TIMEOUT         artifact-mismatch OR exit-code-only  cap hit, no match
+#   ARTIFACT_FAIL   artifact-mismatch             run finished, no match
+#   INVALID_ROUTING routing-mismatch              wrong model served (exit 7)
+#   OK (legacy)     exit-code-only                scenario lacks an Expected
+#                                                 artifacts section
+#
+# Exit codes: 0 = trials ran (per-trial failures live in the result files;
+# the matrix decides), 1 = usage / scenario error, 7 = routing mismatch
+# (cohort must abort).
+#
+# Smoke run (no pico needed):
+#   ./run-scenario.sh scenarios/01-trivial-rename.md opus --dry-run-routing
+#
+# Spec: local-coding-models-517; Bead: dotfiles-6go
 #
 set -uo pipefail
-# NOTE: we deliberately drop -e from `set -euo` so that a single failed
-# trial inside the loop doesn't abort subsequent trials.
+# NOTE: we deliberately drop -e so a single failed trial inside the loop
+# doesn't abort subsequent trials.
 
-# --- Candidate dispatch table (Wave 2: candidate→model-tag + CCR route) ---
-#
-# Format: "<candidate-name>|<model-tag>|<ccr-route>|<hf-model-or-ollama-tag>"
-#
-# - model-tag is what the inner run uses to pick the claude binary
-#   (opus|local). Local candidates all use 'local'; opus baseline uses 'opus'.
-# - ccr-route is the value CCR's <CCR-SUBAGENT-MODEL> tag should carry
-#   (provider,model — per G12). Empty for opus baseline (uses Anthropic
-#   directly via the normal claude CLI).
-# - hf-model is the canonical HuggingFace model path (mlx) OR Ollama tag,
-#   surfaced in --dry-run-routing so the operator can audit which weights
-#   would actually load.
-#
-# Names cover BOTH naming styles in active use:
-#   - the canonical-roster style (run-scenario.sh's 8-roster test contract)
-#   - the bench-matrix.sh ROSTER style (with -ollama suffixes / shorter tags)
-# Both resolve to the same CCR routes — synonyms, not duplicates.
-CANDIDATE_DISPATCH=(
-  # Baseline
-  "opus|opus||anthropic/claude-opus-4-7"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-  # MLX-backed candidates (via pico-mlx provider → llama-swap :8090 per G16)
-  "qwen3-coder|local|pico-mlx,qwen3-coder|mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit"
-  "trinity-mini|local|pico-mlx,trinity-mini|mlx-community/Trinity-Mini-4bit"
-  "devstral|local|pico-mlx,devstral|mlx-community/Devstral-Small-2507-5bit"
-  "glm-4.5-air|local|pico-mlx,glm-4.5-air|mlx-community/GLM-4.5-Air-3bit"
-  "glm-4.5-air-3bit|local|pico-mlx,glm-4.5-air|mlx-community/GLM-4.5-Air-3bit"
-  "kimi-linear|local|pico-mlx,kimi-linear|mlx-community/Kimi-Linear-REAP-35B-4bit"
-  "kimi-linear-reap-35b|local|pico-mlx,kimi-linear|mlx-community/Kimi-Linear-REAP-35B-4bit"
+# --- Serving registry (single source of truth: serving.conf) ---
+SERVING_CONF="${SERVING_CONF:-$SCRIPT_DIR/../../local-models/serving.conf}"
 
-  # Ollama-backed candidates (via pico-ollama provider on :11434)
-  "qwen3-coder-ollama|local|pico-ollama,qwen3-coder:30b|qwen3-coder:30b"
-  "deepseek-coder-v2-lite|local|pico-ollama,deepseek-coder-v2:16b-lite-instruct-q4_K_M|deepseek-coder-v2:16b-lite-instruct-q4_K_M"
-  "deepseek-coder-v2-lite-ollama|local|pico-ollama,deepseek-coder-v2:16b-lite-instruct-q4_K_M|deepseek-coder-v2:16b-lite-instruct-q4_K_M"
-  "laguna-xs.2|local|pico-ollama,laguna-xs.2:latest|laguna-xs.2:latest"
-  "laguna-xs2|local|pico-ollama,laguna-xs.2:latest|laguna-xs.2:latest"
-  "deepseek-r1-14b|local|pico-ollama,deepseek-r1:14b|deepseek-r1:14b"
-)
-
-# Canonical 8-roster (the names the spec calls out as "the 8 candidates").
-# Used in error messages so the operator sees the official names, not every
-# alias. Order is intentional (lightest-first, kimi last per OQ-04).
-CANONICAL_ROSTER_NAMES=(
-  "opus"
-  "trinity-mini"
-  "qwen3-coder"
-  "devstral"
-  "deepseek-coder-v2-lite"
-  "laguna-xs.2"
-  "glm-4.5-air-3bit"
-  "kimi-linear-reap-35b"
-)
-
-# resolve_candidate <name> → echoes "<model-tag>|<ccr-route>|<hf-model>"
-# Returns 0 on hit, 1 on unknown.
-resolve_candidate() {
-  local name="$1" entry
-  for entry in "${CANDIDATE_DISPATCH[@]}"; do
-    if [[ "${entry%%|*}" == "$name" ]]; then
-      # Drop the leading "<name>|" and print the rest.
-      echo "${entry#*|}"
+# resolve_serving <name> — echoes the full conf line for the candidate.
+# Returns 0 on hit, 1 on miss.
+resolve_serving() {
+  local name="$1" line
+  [[ -f "$SERVING_CONF" ]] || return 1
+  while IFS= read -r line; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "${line//[[:space:]]/}" ]] && continue
+    if [[ "${line%%|*}" == "$name" ]]; then
+      echo "$line"
       return 0
     fi
-  done
+  done < "$SERVING_CONF"
   return 1
 }
 
 print_unknown_candidate_help() {
-  local name="$1"
+  local name="$1" line
   echo "error: unknown candidate: $name" >&2
-  echo "       known candidates (canonical 8-roster):" >&2
-  local c
-  for c in "${CANONICAL_ROSTER_NAMES[@]}"; do
-    echo "         - $c" >&2
-  done
-  echo "       (additional aliases: qwen3-coder-ollama, deepseek-coder-v2-lite-ollama," >&2
-  echo "        laguna-xs2, deepseek-r1-14b, glm-4.5-air, kimi-linear)" >&2
+  echo "       active candidates in $SERVING_CONF:" >&2
+  if [[ -f "$SERVING_CONF" ]]; then
+    while IFS= read -r line; do
+      [[ "$line" =~ ^[[:space:]]*# ]] && continue
+      [[ -z "${line//[[:space:]]/}" ]] && continue
+      echo "         - ${line%%|*}" >&2
+    done < "$SERVING_CONF"
+  else
+    echo "         (serving.conf not found at $SERVING_CONF)" >&2
+  fi
 }
 
 # --- Arg parsing ---
@@ -135,21 +123,18 @@ QUIET=0
 RESULTS_DIR_OVERRIDE=""
 CANDIDATE_NAME=""
 DRY_RUN_ROUTING=0
-# Per-file FILECONTENTS size cap (bytes). Files larger than this get
-# truncated with a "<<truncated:NN-bytes-exceeded-50KB-cap>>" marker per
-# T-W2-F-3 contract.
+# Per-file FILECONTENTS size cap (bytes) — see emit_filecontents.
 FILECONTENTS_CAP_BYTES=${FILECONTENTS_CAP_BYTES:-51200}
 
 usage() {
   cat >&2 <<USAGE
 usage:
-  $0 <scenario-file> <opus|local> [options]
+  $0 <scenario-file> <candidate> [options]
   $0 <scenario-file> --candidate <name> [options]
 
 Options:
-  --candidate NAME        Roster candidate name (Wave 2 dispatch form).
-                          See CANDIDATE_DISPATCH for the full list.
-  --dry-run-routing       Print resolved CCR route + HF model + exit 0.
+  --candidate NAME        Candidate name from serving.conf.
+  --dry-run-routing       Print resolved serving entry + claude invocation, exit 0.
   --trials N              Run scenario N times (default 1).
   --timeout SECONDS       Per-trial wall cap in SECONDS (default: unbounded).
   --quiet                 Suppress live stderr chatter.
@@ -157,9 +142,7 @@ Options:
 USAGE
 }
 
-# Early help-check: -h / --help must fire BEFORE arg-count validation so
-# `run-scenario.sh --help` works without the operator first passing a
-# scenario-file just to discover usage. (/scrutiny finding #5.)
+# Early help-check: -h / --help must fire BEFORE arg-count validation.
 for arg in "$@"; do
   case "$arg" in
     -h|--help)
@@ -177,11 +160,11 @@ fi
 SCENARIO_FILE="$1"
 shift
 
-# The second positional arg may be the legacy model-tag (opus|local) OR the
-# first --flag of the Wave 2 dispatch form. Sniff.
-MODEL_TAG=""
-if [[ $# -gt 0 && "$1" != --* && "$1" != -* ]]; then
-  MODEL_TAG="$1"
+# The second positional arg may be a candidate name (bench-matrix sends it
+# positionally for stub-compat AND as --candidate).
+POSITIONAL_CAND=""
+if [[ $# -gt 0 && "$1" != -* ]]; then
+  POSITIONAL_CAND="$1"
   shift
 fi
 
@@ -223,111 +206,24 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# --- Resolve dispatch: --candidate takes precedence over positional ---
-# When BOTH are supplied (e.g., bench-matrix.sh dispatch which sends both
-# the positional candidate for stub-compat AND --candidate for the W2
-# contract): the --candidate flag wins. We warn if they DIFFER — that
-# would indicate an operator typo. Same value is the common case
-# (bench-matrix sends both for compat) and stays silent.
-CCR_ROUTE=""
-HF_MODEL=""
-
+# --candidate wins over positional; warn if they differ (operator typo).
 if [[ -n "$CANDIDATE_NAME" ]]; then
-  if [[ -n "$MODEL_TAG" && "$MODEL_TAG" != "$CANDIDATE_NAME" \
-        && "$MODEL_TAG" != "opus" && "$MODEL_TAG" != "local" ]]; then
-    echo "warning: positional '$MODEL_TAG' differs from --candidate '$CANDIDATE_NAME'; --candidate wins" >&2
+  if [[ -n "$POSITIONAL_CAND" && "$POSITIONAL_CAND" != "$CANDIDATE_NAME" ]]; then
+    echo "warning: positional '$POSITIONAL_CAND' differs from --candidate '$CANDIDATE_NAME'; --candidate wins" >&2
   fi
-  if ! dispatch="$(resolve_candidate "$CANDIDATE_NAME")"; then
-    print_unknown_candidate_help "$CANDIDATE_NAME"
-    exit 1
-  fi
-  MODEL_TAG="${dispatch%%|*}"
-  rest="${dispatch#*|}"
-  CCR_ROUTE="${rest%%|*}"
-  HF_MODEL="${rest#*|}"
+elif [[ -n "$POSITIONAL_CAND" ]]; then
+  CANDIDATE_NAME="$POSITIONAL_CAND"
 else
-  if [[ -z "$MODEL_TAG" ]]; then
-    echo "error: missing model-tag — pass <opus|local> positionally or use --candidate <name>" >&2
-    usage
-    exit 1
-  fi
-  # The positional arg may be:
-  #   - opus|local (legacy form — validate + look up dispatch metadata)
-  #   - a candidate name from CANDIDATE_DISPATCH (Wave 2 — treat as if
-  #     --candidate was supplied; this lets bench-matrix.sh's stubs pass
-  #     candidate-as-positional without breaking T-02's bogus-candidate
-  #     gate)
-  #   - anything else (bogus — T-02: fail fast with the roster listed)
-  if [[ "$MODEL_TAG" == "opus" || "$MODEL_TAG" == "local" ]]; then
-    # Legacy form — fill in dispatch metadata so --dry-run-routing works.
-    if dispatch="$(resolve_candidate "$MODEL_TAG")"; then
-      rest="${dispatch#*|}"
-      CCR_ROUTE="${rest%%|*}"
-      HF_MODEL="${rest#*|}"
-    fi
-  elif dispatch="$(resolve_candidate "$MODEL_TAG")"; then
-    # Wave 2: positional candidate-name form (synonym for --candidate).
-    CANDIDATE_NAME="$MODEL_TAG"
-    MODEL_TAG="${dispatch%%|*}"
-    rest="${dispatch#*|}"
-    CCR_ROUTE="${rest%%|*}"
-    HF_MODEL="${rest#*|}"
-  else
-    print_unknown_candidate_help "$MODEL_TAG"
-    exit 1
-  fi
+  echo "error: missing candidate — pass it positionally or via --candidate <name>" >&2
+  usage
+  exit 1
 fi
 
-# --- --dry-run-routing: print the resolved route + HF model, exit 0 ---
-if [[ "$DRY_RUN_ROUTING" -eq 1 ]]; then
-  # Use the requested name in the audit line (so the test can find it via
-  # grep on the original input). Fall back to MODEL_TAG if --candidate wasn't
-  # specified.
-  AUDIT_NAME="${CANDIDATE_NAME:-$MODEL_TAG}"
-  PROVIDER_LABEL="anthropic"
-  if [[ "$CCR_ROUTE" == pico-mlx* ]]; then
-    PROVIDER_LABEL="pico-mlx (llama-swap :8090)"
-  elif [[ "$CCR_ROUTE" == pico-ollama* ]]; then
-    PROVIDER_LABEL="pico-ollama (:11434)"
-  fi
-  echo "candidate: $AUDIT_NAME"
-  echo "model-tag: $MODEL_TAG"
-  echo "ccr-route: ${CCR_ROUTE:-<none — opus uses Anthropic directly>}"
-  echo "hf-model:  $HF_MODEL"
-  echo "provider:  $PROVIDER_LABEL"
-
-  # Per /scrutiny finding #3 (belt-and-suspenders): cross-check that the
-  # resolved CCR route is actually registered in the project's
-  # claude-code-router/config.json. Pre-Wave-2.1, this script printed
-  # routes for glm-4.5-air + kimi-linear that didn't exist in CCR config,
-  # so a live run would 404. The Wave 2.1 commit adds them to config —
-  # this check guards against future drift.
-  RS_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-  CCR_CONFIG="$RS_SCRIPT_DIR/../../claude-code-router/config.json"
-  if [[ -n "$CCR_ROUTE" && -f "$CCR_CONFIG" ]]; then
-    PROVIDER_NAME="${CCR_ROUTE%%,*}"
-    MODEL_NAME="${CCR_ROUTE#*,}"
-    if python3 -c "
-import json, sys
-with open('$CCR_CONFIG') as f:
-    cfg = json.load(f)
-for p in cfg.get('Providers', []):
-    if p.get('name') == '$PROVIDER_NAME':
-        sys.exit(0 if '$MODEL_NAME' in p.get('models', []) else 2)
-sys.exit(1)
-" 2>/dev/null; then
-      echo "config-check: OK (provider=$PROVIDER_NAME has model=$MODEL_NAME)"
-    else
-      rc=$?
-      case "$rc" in
-        1) echo "config-check: WARN provider '$PROVIDER_NAME' not in $CCR_CONFIG" ;;
-        2) echo "config-check: WARN model '$MODEL_NAME' not registered under '$PROVIDER_NAME' in $CCR_CONFIG" ;;
-        *) echo "config-check: WARN unexpected validator exit ($rc)" ;;
-      esac
-    fi
-  fi
-  exit 0
+if ! serving_line="$(resolve_serving "$CANDIDATE_NAME")"; then
+  print_unknown_candidate_help "$CANDIDATE_NAME"
+  exit 1
 fi
+IFS='|' read -r _ SERVER BASE_URL _LAUNCH _STOP BLOB <<< "$serving_line"
 
 # --- Validate scenario file ---
 if [[ ! -f "$SCENARIO_FILE" ]]; then
@@ -340,8 +236,76 @@ if ! [[ "$TRIALS" =~ ^[0-9]+$ ]] || [[ "$TRIALS" -lt 1 ]]; then
   exit 1
 fi
 
+# --- Parse scenario sections ---
+# A scenario file has ## Setup / ## Prompt / ## Pass criteria / ## Cleanup
+# / ## Notes (+ optional ## Expected artifacts / ## Tools). Each section
+# runs to the next ## or EOF.
+extract_section() {
+  local file="$1"
+  local section="$2"
+  awk -v section="## $section" '
+    $0 == section { capture = 1; next }
+    /^## / && capture { capture = 0 }
+    capture { print }
+  ' "$file"
+}
+
+# Setup / Cleanup / Expected artifacts are wrapped in ```bash fences.
+extract_bash_block() {
+  awk '
+    /^```bash/ { capture = 1; next }
+    /^```/ && capture { capture = 0 }
+    capture { print }
+  '
+}
+
+SETUP_CODE="$(extract_section "$SCENARIO_FILE" "Setup" | extract_bash_block)"
+PROMPT_TEXT="$(extract_section "$SCENARIO_FILE" "Prompt")"
+CLEANUP_CODE="$(extract_section "$SCENARIO_FILE" "Cleanup" | extract_bash_block)"
+EXPECTED_CODE="$(extract_section "$SCENARIO_FILE" "Expected artifacts" | extract_bash_block)"
+DEFAULT_ALLOWED_TOOLS="Bash,Edit,Read,Write"
+ALLOWED_TOOLS="$(extract_section "$SCENARIO_FILE" "Tools" | grep -v '^[[:space:]]*$' | head -1 || true)"
+ALLOWED_TOOLS="${ALLOWED_TOOLS:-$DEFAULT_ALLOWED_TOOLS}"
+
+if [[ -z "$PROMPT_TEXT" ]]; then
+  echo "error: could not extract Prompt section from $SCENARIO_FILE" >&2
+  exit 1
+fi
+
+# --- Build the claude command (CC-native serving; no CCR anywhere) ---
+# Array form so --dry-run-routing prints EXACTLY what would exec.
+if [[ "$SERVER" == "anthropic" ]]; then
+  # Baseline: real Anthropic API, normal credentials, opus model.
+  CLAUDE_CMD=(claude -p --model claude-opus-4-7 --output-format json --bare
+              --allowedTools "$ALLOWED_TOOLS")
+  EXPECTED_MODEL_SUBSTR="opus"   # modelUsage keys carry versioned ids
+else
+  CLAUDE_CMD=(env -u ANTHROPIC_API_KEY
+              "ANTHROPIC_BASE_URL=$BASE_URL"
+              "ANTHROPIC_AUTH_TOKEN=bench-local"
+              "ANTHROPIC_MODEL=$CANDIDATE_NAME"
+              "ANTHROPIC_DEFAULT_HAIKU_MODEL=$CANDIDATE_NAME"
+              "CLAUDE_CODE_SUBAGENT_MODEL=$CANDIDATE_NAME"
+              claude -p --model "$CANDIDATE_NAME" --output-format json --bare
+              --allowedTools "$ALLOWED_TOOLS")
+  EXPECTED_MODEL_SUBSTR="$CANDIDATE_NAME"   # exact-match for local serving
+fi
+
+# --- --dry-run-routing: print serving entry + invocation, exit 0 ---
+if [[ "$DRY_RUN_ROUTING" -eq 1 ]]; then
+  echo "candidate:     $CANDIDATE_NAME"
+  echo "server:        $SERVER"
+  echo "base-url:      ${BASE_URL:-<anthropic default>}"
+  echo "blob:          ${BLOB:-<n/a>}"
+  echo "allowed-tools: $ALLOWED_TOOLS"
+  echo "serving-conf:  $SERVING_CONF"
+  printf 'claude-cmd:   '
+  printf ' %q' "${CLAUDE_CMD[@]}"
+  printf '\n'
+  exit 0
+fi
+
 # --- Paths ---
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [[ -n "$RESULTS_DIR_OVERRIDE" ]]; then
   RESULTS_DIR="$RESULTS_DIR_OVERRIDE"
 else
@@ -358,91 +322,27 @@ log() {
   fi
 }
 
-# --- Parse scenario sections ---
-# A scenario file has ## Setup / ## Prompt / ## Pass criteria / ## Cleanup
-# / ## Notes. Each section runs to the next ## or EOF.
-extract_section() {
-  local file="$1"
-  local section="$2"
-  awk -v section="## $section" '
-    $0 == section { capture = 1; next }
-    /^## / && capture { capture = 0 }
-    capture { print }
-  ' "$file"
-}
-
-# Setup / Cleanup are wrapped in ```bash fences — strip them to get the code.
-extract_bash_block() {
-  awk '
-    /^```bash/ { capture = 1; next }
-    /^```/ && capture { capture = 0 }
-    capture { print }
-  '
-}
-
-SETUP_CODE="$(extract_section "$SCENARIO_FILE" "Setup" | extract_bash_block)"
-PROMPT_TEXT="$(extract_section "$SCENARIO_FILE" "Prompt")"
-CLEANUP_CODE="$(extract_section "$SCENARIO_FILE" "Cleanup" | extract_bash_block)"
-
-if [[ -z "$PROMPT_TEXT" ]]; then
-  echo "error: could not extract Prompt section from $SCENARIO_FILE" >&2
-  exit 1
-fi
-
 # Extract sandbox subdirs from Setup's `mkdir -p ...` lines so we can
 # defensively rm -rf them before each trial (OQ-07 — prevents N-trial
-# cross-contamination from prior-trial state, even when a previous trial's
-# Cleanup crashed or left residue outside SANDBOX_ROOT).
-#
-# Captures both quoted and unquoted paths from `mkdir -p` invocations.
-# Variable references like "$SANDBOX/s01" are expanded by piping through
-# `bash -c` with a benign no-op env.
+# cross-contamination).
 extract_sandbox_dirs() {
-  # Find all `mkdir -p <path>` invocations; each path becomes a candidate
-  # for the defensive rm. We use a subshell to expand any variables (e.g.
-  # ${SANDBOX:-/tmp/claude-local-test}/s01) using the same env the Setup
-  # itself would see.
   echo "$SETUP_CODE" \
     | grep -E '^\s*mkdir\s+-p' \
     | sed -E 's/^\s*mkdir\s+-p\s+//' \
     | while IFS= read -r line; do
-        # Strip trailing comments
         line="${line%%#*}"
-        # Expand variables via bash printf %s (single arg form)
         bash -c "printf '%s\n' $line" 2>/dev/null || true
       done
 }
 
-# --- Pick the claude command ---
-case "$MODEL_TAG" in
-  opus)
-    CLAUDE_CMD=(claude --model claude-opus-4-7 -p --permission-mode bypassPermissions)
-    ;;
-  local)
-    CLAUDE_CMD=("$SCRIPT_DIR/claude-local" -p --permission-mode bypassPermissions)
-    ;;
-esac
-
-# --- FILECONTENTS emission helper (Wave 2 / T-W2-F-1, T-W2-F-3) ---
-#
+# --- FILECONTENTS emission helper ---
 # Emits `FILECONTENTS:<path>:<body>` lines for each file under the given
-# dirs. Skips:
-#   - binary files (heuristic: NUL byte in first 8KB)
-#   - files larger than FILECONTENTS_CAP_BYTES (emits a truncation marker)
-#
-# The marker format includes the byte count + cap so analyze-bench can
-# surface the truncation reason. Per T-W2-F-3, the marker substring
-# "truncated" MUST appear.
-#
-# NOTE: uses `declare -A` (associative array), which requires bash 4+.
-# macOS ships bash 3.2 at /bin/bash; this script's shebang is
-# `#!/usr/bin/env bash` so it picks up Homebrew/MacPorts bash 5+ on
-# typical dev macs. If a future deployment needs bash 3 portability,
-# replace the assoc array with a sorted-paths sentinel list.
+# dirs (analyze-bench contract). Skips binaries (NUL in first 8KB) and
+# emits truncation markers for files over FILECONTENTS_CAP_BYTES.
+# NOTE: uses `declare -A` (bash 4+); shebang is env-bash so Homebrew bash
+# is picked up on macOS.
 emit_filecontents() {
   local d f size
-  # Collect all files across all candidate dirs (single pass, dedup by
-  # file path to avoid double-emission if dirs overlap).
   local -A seen=()
   for d in "$@"; do
     [[ -z "$d" ]] && continue
@@ -451,16 +351,7 @@ emit_filecontents() {
       [[ -z "$f" ]] && continue
       [[ -n "${seen[$f]:-}" ]] && continue
       seen[$f]=1
-      # Skip non-regular files (symlinks-to-dirs, sockets, fifos).
       [[ ! -f "$f" ]] && continue
-      # 8KB heuristic for binary detection: if the first 8KB contains a
-      # NUL byte, treat the file as binary and skip the body (analyzers
-      # don't grep binary blobs). NOT a definitive binary-vs-text classifier
-      # (won't catch e.g. UTF-16 BOMs without NULs early); good enough to
-      # filter the common .o/.so/.png/.zip cases that bench scenarios may
-      # produce. grep can't reliably search for NUL bytes across variants
-      # (treats $'\0' as empty pattern); python3 (already a dep for
-      # routing-evidence parsing) does it correctly.
       if python3 -c 'import sys
 sys.exit(0 if b"\x00" in open(sys.argv[1], "rb").read(8192) else 1)' \
           "$f" 2>/dev/null; then
@@ -472,13 +363,6 @@ sys.exit(0 if b"\x00" in open(sys.argv[1], "rb").read(8192) else 1)' \
         echo "FILECONTENTS:$f:<<truncated:${size}-bytes-exceeded-50KB-cap>>"
         continue
       fi
-      # Emit content as ONE line: literal newlines collapsed to \n so the
-      # FILECONTENTS regex `^FILECONTENTS:<path>:<body>$` matches one line
-      # per file. analyze-bench's _check_grep_count splits the body on
-      # `\n` for grep -c line semantics.
-      # NOTE: awk does NOT honor `--` arg separator like coreutils; pass
-      # the filename directly (the find loop is safe — paths come from
-      # `find -type f` and won't contain shell-meta surprises).
       local body
       body="$(awk 'BEGIN{ORS=""} {if (NR>1) printf("\\n"); printf("%s",$0)}' "$f" 2>/dev/null || true)"
       echo "FILECONTENTS:$f:$body"
@@ -491,69 +375,48 @@ run_one_trial() {
   local trial_num="$1"
   local is_cold_load="$2"   # "true" or "false"
 
-  local TIMESTAMP RESULT_FILE FILENAME_CAND
+  local TIMESTAMP RESULT_FILE
   TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-  # Use the candidate name (not just MODEL_TAG which is always "local"
-  # for the 7 non-opus candidates) so different cohorts produce distinct
-  # result filenames. /scrutiny #2 fix: pre-Wave-2.1 the filename used
-  # ${MODEL_TAG} alone, collapsing qwen3-coder + trinity-mini + ... into
-  # a single namespace, breaking rebuild_state_from_results_dir AND
-  # making same-second cells overwrite each other.
-  FILENAME_CAND="${CANDIDATE_NAME:-$MODEL_TAG}"
-  RESULT_FILE="$RESULTS_DIR/${SCENARIO_BASENAME}-${FILENAME_CAND}-trial${trial_num}-${TIMESTAMP}.md"
+  RESULT_FILE="$RESULTS_DIR/${SCENARIO_BASENAME}-${CANDIDATE_NAME}-trial${trial_num}-${TIMESTAMP}.md"
 
   # --- Defensive pre-Setup rm -rf (OQ-07) ---
-  # Wipe any sandbox subdirs referenced by Setup's mkdir lines before
-  # running Setup. This guarantees a clean slate even when prior-trial
-  # Cleanup didn't fire (crashed, killed, etc).
-  local dirs
+  local dirs d
   dirs="$(extract_sandbox_dirs)"
   if [[ -n "$dirs" ]]; then
     while IFS= read -r d; do
-      # Refuse to nuke root, $HOME, or other suspicious paths.
       [[ -z "$d" ]] && continue
       [[ "$d" == "/" || "$d" == "$HOME" || "$d" == "$HOME/" ]] && continue
-      # Only rm under /tmp/ or other safely-disposable parents to avoid
-      # catastrophic mistakes. The spec calls for rm of the scenario
-      # subdir specifically; we lean conservative.
       case "$d" in
         /tmp/*|/var/tmp/*|/private/tmp/*)
           rm -rf -- "$d" 2>/dev/null || true
           ;;
         *)
-          # Outside /tmp — skip to be safe; caller's Setup should ensure
-          # a clean baseline themselves for non-tmp sandboxes.
+          # Outside /tmp — skip to be safe.
           ;;
       esac
     done <<< "$dirs"
   fi
 
   # --- Run Setup ---
-  log "==> [$SCENARIO_BASENAME / $MODEL_TAG / trial $trial_num] running Setup..."
+  log "==> [$SCENARIO_BASENAME / $CANDIDATE_NAME / trial $trial_num] running Setup..."
   if [[ -n "$SETUP_CODE" ]]; then
     bash -c "$SETUP_CODE" || true
   fi
 
-  # --- Run the prompt against the chosen backend ---
-  log "==> [$SCENARIO_BASENAME / $MODEL_TAG / trial $trial_num] invoking claude..."
+  # --- Run the prompt against the candidate (CC-native) ---
+  log "==> [$SCENARIO_BASENAME / $CANDIDATE_NAME / trial $trial_num] invoking claude ($SERVER @ ${BASE_URL:-anthropic})..."
   local START_TS START_ISO END_TS WALL_SECONDS EXIT_CODE CLAUDE_OUTPUT TIMED_OUT
   START_TS="$(date +%s)"
   START_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   TIMED_OUT=0
 
-  # Wrap in `timeout` if a cap was given. exit code 124 = SIGTERM,
-  # 137 = SIGKILL (`timeout --kill-after`); both indicate timeout fire.
   if [[ -n "$TIMEOUT_SECONDS" ]]; then
-    # `timeout` (no --preserve-status) returns 124 on wall-cap fire and
-    # 137 if it then had to SIGKILL after --kill-after. Either way we
-    # tag the trial TIMEOUT and let analyze-bench mark the cell incomplete.
     CLAUDE_OUTPUT="$(printf '%s\n' "$PROMPT_TEXT" \
       | timeout --kill-after=5s "${TIMEOUT_SECONDS}s" \
         "${CLAUDE_CMD[@]}" 2>&1)"
     EXIT_CODE=$?
-    # GNU coreutils timeout: 124 on TERM, 137 if KILL escalated.
-    # uutils coreutils timeout (Ubuntu 26.04+): emits 125 when --kill-after is set.
-    # 143 = 128+SIGTERM, can leak through pipe in some shells.
+    # GNU timeout: 124 TERM / 137 KILL-escalated; uutils: 125 with
+    # --kill-after; 143 = 128+SIGTERM can leak through pipes.
     if [[ "$EXIT_CODE" -eq 124 || "$EXIT_CODE" -eq 125 || "$EXIT_CODE" -eq 137 || "$EXIT_CODE" -eq 143 ]]; then
       TIMED_OUT=1
     fi
@@ -565,53 +428,113 @@ run_one_trial() {
   END_TS="$(date +%s)"
   WALL_SECONDS=$((END_TS - START_TS))
 
-  # --- Extract model identity from output (best-effort) ---
-  local MODEL_FIELD
-  MODEL_FIELD="(not extracted from -p text output)"
-  if [[ "$MODEL_TAG" == "local" ]]; then
-    local CCR_LOG=""
-    if compgen -G "${HOME}/.claude-code-router/logs/ccr-*.log" > /dev/null; then
-      CCR_LOG="$(find "${HOME}/.claude-code-router/logs/" -maxdepth 1 -name 'ccr-*.log' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-)"
-    elif [[ -f "${HOME}/.claude-code-router/claude-code-router.log" ]]; then
-      CCR_LOG="${HOME}/.claude-code-router/claude-code-router.log"
-    fi
+  # --- Parse the CC JSON envelope (result text, turns, modelUsage) ---
+  local TMP_JSON TMP_RESULT_TEXT CC_PARSE CC_NUM_TURNS CC_DURATION_MS CC_MODELS CC_IS_ERROR
+  TMP_JSON="$(mktemp /tmp/bench-rs-json.XXXXXX)"
+  TMP_RESULT_TEXT="$(mktemp /tmp/bench-rs-result.XXXXXX)"
+  printf '%s' "$CLAUDE_OUTPUT" > "$TMP_JSON"
+  CC_PARSE="fail"; CC_NUM_TURNS=""; CC_DURATION_MS=""; CC_MODELS=""; CC_IS_ERROR=""
+  local k v
+  while IFS='=' read -r k v; do
+    case "$k" in
+      PARSE)       CC_PARSE="$v" ;;
+      NUM_TURNS)   CC_NUM_TURNS="$v" ;;
+      DURATION_MS) CC_DURATION_MS="$v" ;;
+      MODELS)      CC_MODELS="$v" ;;
+      IS_ERROR)    CC_IS_ERROR="$v" ;;
+    esac
+  done < <(python3 - "$TMP_JSON" "$TMP_RESULT_TEXT" <<'PYEOF'
+import json
+import sys
 
-    if [[ -n "$CCR_LOG" && -f "$CCR_LOG" ]]; then
-      local EVIDENCE
-      EVIDENCE="$( { tail -500 "$CCR_LOG" 2>/dev/null \
-        | grep -iE 'Using.*model|qwen3-coder|pico-mlx|pico-ollama|mlx-community|provider_response_error' \
-        | tail -5 \
-        | python3 -c '
-import json, sys
-for line in sys.stdin:
-    try:
-        obj = json.loads(line)
-        msg = obj.get("msg", "").replace("\n", " ").strip()
-        if msg:
-            print(f"    {msg[:300]}")
-    except json.JSONDecodeError:
-        print(f"    {line.strip()[:300]}")
-' 2>/dev/null; } || true)"
-      if [[ -n "$EVIDENCE" ]]; then
-        MODEL_FIELD="(CCR log: $CCR_LOG)
-$EVIDENCE"
+p_json, p_out = sys.argv[1], sys.argv[2]
+try:
+    with open(p_json) as fh:
+        d = json.load(fh)
+except Exception:
+    print("PARSE=fail")
+    sys.exit(0)
+result = d.get("result") or ""
+with open(p_out, "w") as fh:
+    fh.write(result)
+models = ",".join((d.get("modelUsage") or {}).keys())
+print("PARSE=ok")
+print(f"NUM_TURNS={d.get('num_turns', '')}")
+print(f"DURATION_MS={d.get('duration_ms', '')}")
+print(f"MODELS={models}")
+print(f"IS_ERROR={d.get('is_error', '')}")
+PYEOF
+)
+  # On parse failure (timeout kill mid-stream, hard CLI error) the raw
+  # output IS the best "result text" we have for output-dependent checks.
+  if [[ "$CC_PARSE" != "ok" ]]; then
+    printf '%s' "$CLAUDE_OUTPUT" > "$TMP_RESULT_TEXT"
+  fi
+
+  # --- Routing verification (postmortem #2; mismatch = INVALID + abort) ---
+  # modelUsage keys must name the intended candidate. Unverifiable (no JSON,
+  # e.g. timeout kill) is NOT a mismatch — the artifact verdict decides.
+  local ROUTING_STATUS="unverifiable"
+  if [[ "$CC_PARSE" == "ok" && -n "$CC_MODELS" ]]; then
+    ROUTING_STATUS="mismatch"
+    local m
+    IFS=',' read -ra _mu <<< "$CC_MODELS"
+    for m in "${_mu[@]}"; do
+      if [[ "$SERVER" == "anthropic" ]]; then
+        [[ "$m" == *"$EXPECTED_MODEL_SUBSTR"* ]] && ROUTING_STATUS="ok"
       else
-        MODEL_FIELD="(no recent routing entries in $CCR_LOG — check manually)"
+        [[ "$m" == "$EXPECTED_MODEL_SUBSTR" ]] && ROUTING_STATUS="ok"
       fi
+    done
+  fi
+
+  # --- Artifact check (PRIMARY verdict evidence — postmortem #7 / e21) ---
+  # Runs BEFORE Cleanup and BEFORE exit codes are consulted.
+  local ARTIFACT_STATUS="no-spec"
+  if [[ -n "$EXPECTED_CODE" ]]; then
+    if SANDBOX="${SANDBOX:-/tmp/claude-local-test}" \
+       TRIAL_OUTPUT_FILE="$TMP_RESULT_TEXT" \
+       bash -c "$EXPECTED_CODE" >/dev/null 2>&1; then
+      ARTIFACT_STATUS="match"
     else
-      MODEL_FIELD="(CCR log not found under ${HOME}/.claude-code-router/)"
+      ARTIFACT_STATUS="mismatch"
     fi
   fi
 
-  # --- Capture final sandbox state ---
-  # Wave 2: emits BOTH the path list (legacy) AND FILECONTENTS:<path>:<body>
-  # lines so analyze-bench's grep_runner can resolve `grep -c PAT PATH`
-  # assertions even after Cleanup nukes the sandbox dir (T-W2-F-1, T-W2-F-2).
+  # --- Verdict (artifact-first; exit code is secondary evidence) ---
+  local VERDICT_TAG VERDICT_EVIDENCE
+  if [[ "$ROUTING_STATUS" == "mismatch" ]]; then
+    VERDICT_TAG="INVALID_ROUTING"
+    VERDICT_EVIDENCE="routing-mismatch"
+  elif [[ "$ARTIFACT_STATUS" == "match" ]]; then
+    if [[ "$TIMED_OUT" -eq 1 ]]; then
+      VERDICT_TAG="TIMEOUT_SUCCESS"
+      VERDICT_EVIDENCE="artifact-match-after-timeout"
+    else
+      VERDICT_TAG="OK"
+      VERDICT_EVIDENCE="artifact-match"
+    fi
+  elif [[ "$ARTIFACT_STATUS" == "mismatch" ]]; then
+    if [[ "$TIMED_OUT" -eq 1 ]]; then
+      VERDICT_TAG="TIMEOUT"
+    else
+      VERDICT_TAG="ARTIFACT_FAIL"
+    fi
+    VERDICT_EVIDENCE="artifact-mismatch"
+  else
+    # Legacy scenario without an Expected artifacts section.
+    if [[ "$TIMED_OUT" -eq 1 ]]; then
+      VERDICT_TAG="TIMEOUT"
+    else
+      VERDICT_TAG="OK"
+    fi
+    VERDICT_EVIDENCE="exit-code-only"
+  fi
+
+  # --- Capture final sandbox state (path list + FILECONTENTS) ---
   local SANDBOX_ROOT SANDBOX_STATE
   SANDBOX_ROOT="${SANDBOX:-/tmp/claude-local-test}"
   SANDBOX_STATE="(no sandbox dir found at $SANDBOX_ROOT)"
-  # Also collect from any scenario-specific dirs (test fixture uses
-  # /tmp/bench-rs-test/fix; real scenarios use $SANDBOX/s01).
   local -a snapshot_dirs=()
   if [[ -d "$SANDBOX_ROOT" ]]; then
     snapshot_dirs+=("$SANDBOX_ROOT")
@@ -622,11 +545,8 @@ $EVIDENCE"
   done <<< "$(extract_sandbox_dirs)"
 
   if [[ "${#snapshot_dirs[@]}" -gt 0 ]]; then
-    # Path list (legacy compatibility for analyze-bench's path-only path).
-    local path_listing
+    local path_listing fc_listing
     path_listing="$(find "${snapshot_dirs[@]}" -type f 2>/dev/null | awk 'NR<=20 {print "    "$0}' || true)"
-    # FILECONTENTS (Wave 2 — content survives sandbox-nuke Cleanup).
-    local fc_listing
     fc_listing="$(emit_filecontents "${snapshot_dirs[@]}" 2>/dev/null || true)"
     if [[ -z "$path_listing" && -z "$fc_listing" ]]; then
       SANDBOX_STATE="    (no files found under sandbox dirs)"
@@ -642,31 +562,25 @@ $EVIDENCE"
     fi
   fi
 
-  # --- Determine TIMEOUT verdict / scoring tier placeholder ---
-  local VERDICT_TAG="OK"
-  if [[ "$TIMED_OUT" -eq 1 ]]; then
-    VERDICT_TAG="TIMEOUT"
-  fi
-
   # --- Run Cleanup ---
-  # IMPORTANT: snapshot above happens BEFORE this Cleanup — FILECONTENTS
-  # is captured into a variable while the files still exist on disk. After
-  # this point the sandbox dir may be `rm -rf`'d.
-  log "==> [$SCENARIO_BASENAME / $MODEL_TAG / trial $trial_num] running Cleanup..."
+  # Snapshot + artifact check above happen BEFORE this — evidence is
+  # captured while the files still exist on disk.
+  log "==> [$SCENARIO_BASENAME / $CANDIDATE_NAME / trial $trial_num] running Cleanup..."
   if [[ -n "$CLEANUP_CODE" ]]; then
     bash -c "$CLEANUP_CODE" || true
   fi
 
-  # --- Write result (§3.4 extended schema) ---
+  # --- Write result ---
+  local RESULT_TEXT
+  RESULT_TEXT="$(cat "$TMP_RESULT_TEXT" 2>/dev/null || true)"
   {
-    echo "# Scenario result: $SCENARIO_BASENAME ($MODEL_TAG) trial $trial_num"
+    echo "# Scenario result: $SCENARIO_BASENAME ($CANDIDATE_NAME) trial $trial_num"
     echo
     echo "- **Scenario file**: \`$SCENARIO_FILE\`"
-    echo "- **Model tag**: \`$MODEL_TAG\`"
-    # Use the candidate name if --candidate was given; falls back to model-tag.
-    echo "- **Candidate**: \`${CANDIDATE_NAME:-$MODEL_TAG}\`"
-    echo "- **CCR route**: \`${CCR_ROUTE:-<anthropic>}\`"
-    echo "- **HF model**: \`${HF_MODEL:-<unknown>}\`"
+    echo "- **Candidate**: \`$CANDIDATE_NAME\`"
+    echo "- **Server**: \`$SERVER\`"
+    echo "- **Base URL**: \`${BASE_URL:-<anthropic default>}\`"
+    echo "- **Allowed tools**: \`$ALLOWED_TOOLS\`"
     echo "- **Trial**: $trial_num"
     echo "- **Started**: $START_ISO"
     echo "- **Wall time**: ${WALL_SECONDS}s"
@@ -674,16 +588,24 @@ $EVIDENCE"
     echo "- **cold_load_trial**: $is_cold_load"
     echo "- **scoring_tier**: 1"
     echo "- **claude exit code**: $EXIT_CODE"
+    echo "- **num_turns**: ${CC_NUM_TURNS:-n/a}"
+    echo "- **duration_ms**: ${CC_DURATION_MS:-n/a}"
+    echo "- **is_error**: ${CC_IS_ERROR:-n/a}"
+    echo "- **routing_status**: $ROUTING_STATUS"
+    echo "- **artifact_status**: $ARTIFACT_STATUS"
     echo "- **verdict_tag**: $VERDICT_TAG"
+    echo "- **verdict_evidence**: $VERDICT_EVIDENCE"
     echo "- **Result file**: \`$RESULT_FILE\`"
     echo
     if [[ "$TIMED_OUT" -eq 1 ]]; then
-      echo "> NOTE: trial killed by --timeout (TIMEOUT — exceeded wall cap of ${TIMEOUT_SECONDS}s)."
+      echo "> NOTE: trial killed by --timeout (exceeded wall cap of ${TIMEOUT_SECONDS}s); verdict decided by artifact state, not the kill."
       echo
     fi
     echo "## Model routing evidence"
     echo
-    echo "$MODEL_FIELD"
+    echo "- expected: \`$EXPECTED_MODEL_SUBSTR\` ($SERVER)"
+    echo "- modelUsage keys: \`${CC_MODELS:-<none — CC JSON unparseable>}\`"
+    echo "- routing_status: $ROUTING_STATUS"
     echo
     echo "## Sandbox state after run (pre-cleanup snapshot)"
     echo
@@ -700,37 +622,45 @@ $EVIDENCE"
     echo "## Claude output"
     echo
     echo '```'
+    echo "$RESULT_TEXT"
+    echo '```'
+    echo
+    echo "## Raw CC JSON"
+    echo
+    echo '```'
     echo "$CLAUDE_OUTPUT"
-    echo '```'
-    echo
-    echo "## flagged_log_excerpt"
-    echo
-    echo '```'
-    # Wave 1: empty placeholder; Wave 4 (Tier 3 escalation) fills this
-    # with the last 50 lines of the CCR log on human-flagged trials
-    # per OQ-09.
     echo '```'
   } > "$RESULT_FILE"
 
-  log "==> result written: $RESULT_FILE"
-  # Always print result file path on stdout (machine-readable handoff to
-  # bench-matrix.sh + ad-hoc shell pipelines).
+  rm -f "$TMP_JSON" "$TMP_RESULT_TEXT"
+
+  log "==> result written: $RESULT_FILE (verdict=$VERDICT_TAG, evidence=$VERDICT_EVIDENCE)"
+  # Always print result file path on stdout (machine-readable handoff).
   echo "$RESULT_FILE"
+
+  if [[ "$VERDICT_TAG" == "INVALID_ROUTING" ]]; then
+    echo "error: routing mismatch — expected '$EXPECTED_MODEL_SUBSTR', modelUsage was '${CC_MODELS}'. Trial INVALID; cohort must abort." >&2
+    return 7
+  fi
+  return 0
 }
 
-# Iterate trials. Trial 1 is cold-load (per OQ-05); trials 2..N are warm.
-TRIAL_FAILURES=0
+# Iterate trials. Trial 1 is cold-load; trials 2..N are warm.
 for t in $(seq 1 "$TRIALS"); do
   if [[ "$t" -eq 1 ]]; then
     cold="true"
   else
     cold="false"
   fi
-  if ! run_one_trial "$t" "$cold"; then
-    TRIAL_FAILURES=$((TRIAL_FAILURES + 1))
+  run_one_trial "$t" "$cold"
+  rc=$?
+  if [[ "$rc" -eq 7 ]]; then
+    # Routing mismatch: every subsequent trial would hit the same misroute.
+    # Stop immediately and propagate so bench-matrix aborts the cohort.
+    exit 7
   fi
 done
 
-# Exit 0 even on per-trial failures — result files document the failure;
-# the matrix driver decides whether to abort.
+# Exit 0 — per-trial verdicts live in the result files; the matrix's
+# cohort gates (success floor + analyze-variance --strict) decide.
 exit 0
