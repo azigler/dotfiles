@@ -14,12 +14,15 @@
 #     bench-matrix instances must never silently overlap)
 #   - allow same-owner-SAME-PID refresh
 #
-# Tests marked "KNOWN GAP" pin current behavior; see tests/KNOWN-GAPS.md.
+# KNOWN-GAPS #7 (release ignored the PID) and #8 (CLI acquire recorded the
+# transient wrapper PID) are FIXED — their former "KNOWN GAP" pins now
+# assert the fixed behavior. See tests/KNOWN-GAPS.md.
 #
 # Everything runs offline against a lock file in $BATS_TEST_TMPDIR via the
 # PICO_LOCK_FILE override. Run: bats local-models/tests/test_pico_lock.bats
 #
 # Bead: dotfiles-t4k (implements local-coding-models-wkw).
+# Bead: dotfiles-afx (release pid check + CLI PPID flips).
 
 setup() {
   DOTFILES_ROOT="${DOTFILES_ROOT:-$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)}"
@@ -201,15 +204,17 @@ lock_field() {
   [[ "$output" == *"no lock to release"* ]]
 }
 
-@test "release: same-owner-DIFFERENT-PID succeeds (KNOWN GAP — asymmetric)" {
-  # Acquire refuses same-owner-different-PID, but release does NOT check
-  # the PID: a refused second instance's cleanup trap can still release
-  # the RUNNING holder's lock. Pins current behavior — see KNOWN-GAPS.md.
+@test "release: same-owner-DIFFERENT-PID is REFUSED (FIXED: KNOWN-GAPS #7)" {
+  # Release is now symmetric with acquire: owner AND pid must match, so a
+  # refused second instance's cleanup trap can no longer release the
+  # RUNNING holder's lock out from under it.
   spawn_live_holder
   write_lock bench-matrix "$HELPER_PID" 600
   run plock "pico_release bench-matrix"
-  [ "$status" -eq 0 ]
-  [ ! -f "$PICO_LOCK_FILE" ]
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"REFUSED"* ]]
+  [ -f "$PICO_LOCK_FILE" ]
+  [ "$(lock_field pid)" = "$HELPER_PID" ]
 }
 
 # ---- CLI mode ----
@@ -226,18 +231,31 @@ lock_field() {
   [[ "$output" == *"FREE"* ]]
 }
 
-@test "CLI: acquire records a transient PID — instantly STALE (KNOWN GAP)" {
-  # CLI-mode acquire records $$ of the short-lived wrapper process. By the
-  # next command that PID is dead, so the lock is immediately stealable —
-  # the script's own usage example (`acquire bench-matrix-phase3 108000 ...`)
-  # produces a lock that protects nothing. Sourced usage (bench-matrix.sh)
-  # is unaffected. Pins current behavior — see KNOWN-GAPS.md.
-  run bash "$PICO_LOCK" acquire bench-cli 60 cli smoke
-  [ "$status" -eq 0 ]
+@test "CLI: acquire records the invoking shell's PID — lock holds (FIXED: KNOWN-GAPS #8)" {
+  # CLI mode now acts as $PPID (the invoking shell), not the short-lived
+  # wrapper's $$, so the usage example produces a lock that actually
+  # protects. Invoked directly (no `run`) so each wrapper's parent is THIS
+  # bats test process, which stays alive across the three commands.
+  bash "$PICO_LOCK" acquire bench-cli 60 cli smoke
+  [ "$(lock_field pid)" = "$BASHPID" ]
   run bash "$PICO_LOCK" check
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"STALE"* ]]
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"BUSY"* ]]
+  bash "$PICO_LOCK" release bench-cli
+  [ ! -f "$PICO_LOCK_FILE" ]
+}
+
+@test "CLI: PICO_LOCK_SELF_PID override wins over PPID (supervisor pattern)" {
+  # A long-lived supervisor can acquire on behalf of another process; the
+  # same override must be presented to release.
+  spawn_live_holder
+  PICO_LOCK_SELF_PID="$HELPER_PID" bash "$PICO_LOCK" acquire bench-cli 600 on behalf
+  [ "$(lock_field pid)" = "$HELPER_PID" ]
+  # Without the override (PPID = this test process) release is refused...
   run bash "$PICO_LOCK" release bench-cli
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"REFUSED"* ]]
+  # ...and with it, release succeeds.
+  PICO_LOCK_SELF_PID="$HELPER_PID" bash "$PICO_LOCK" release bench-cli
   [ ! -f "$PICO_LOCK_FILE" ]
 }

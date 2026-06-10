@@ -15,9 +15,12 @@
 # every invocation and serves scripted pgrep responses from a queue, so
 # the whole suite runs offline. Run: bats local-models/tests/test_safe_remote.bats
 #
-# Tests marked "KNOWN GAP" pin current behavior; see tests/KNOWN-GAPS.md.
+# KNOWN-GAPS #1/#2 (fail-open on transport failure) are FIXED — the tests
+# that used to pin the fail-open behavior now assert fail-CLOSED (exit 2).
+# See tests/KNOWN-GAPS.md.
 #
 # Bead: dotfiles-t4k (implements local-coding-models-wkw).
+# Bead: dotfiles-afx (fail-closed flip).
 
 setup() {
   DOTFILES_ROOT="${DOTFILES_ROOT:-$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)}"
@@ -34,7 +37,11 @@ setup() {
 
   # Fake ssh: append the full invocation to SSH_LOG; if the remote command
   # is a pgrep, emit the Nth scripted response (response-1, response-2, ...
-  # missing file = no survivors). SSH_FAKE_EXIT simulates transport failure.
+  # missing file = no survivors). When the transport "works" (SSH_FAKE_EXIT
+  # unset/0) and the remote command asks for the run-proof sentinel, echo it
+  # back like a real remote shell would; SSH_FAKE_DROP_SENTINEL=1 simulates
+  # a connection that returns exit 0 but never ran the command to completion.
+  # SSH_FAKE_EXIT simulates transport failure.
   cat > "$FAKE_BIN/ssh" <<'FAKE'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$SSH_LOG"
@@ -46,6 +53,10 @@ if [[ "$remote_cmd" == *pgrep* ]]; then
   if [[ -f "$resp" && "${SSH_FAKE_EXIT:-0}" -eq 0 ]]; then
     cat "$resp"
   fi
+fi
+if [[ "${SSH_FAKE_EXIT:-0}" -eq 0 && "${SSH_FAKE_DROP_SENTINEL:-0}" -eq 0 \
+      && "$remote_cmd" == *__SAFE_REMOTE_RAN__* ]]; then
+  echo "__SAFE_REMOTE_RAN__"
 fi
 exit "${SSH_FAKE_EXIT:-0}"
 FAKE
@@ -90,14 +101,24 @@ ssh_call_count() { wc -l < "$SSH_LOG"; }
   [[ "$output" == *"1234 ollama runner --model qwen3"* ]]
 }
 
-@test "pgrep: unreachable host reports 'all clear' (KNOWN GAP — fails open)" {
-  # ssh transport failure (exit 255, no output) is indistinguishable from
-  # "zero matches": the `|| true` + empty-capture path returns success, so
-  # verify-the-negation passes while the host was never checked at all.
-  # Pins current behavior — see KNOWN-GAPS.md.
+@test "pgrep: unreachable host fails CLOSED with exit 2 (FIXED: KNOWN-GAPS #1)" {
+  # ssh transport failure (exit 255, no output) must NOT read as "zero
+  # matches": the host was never checked at all, so the guard refuses to
+  # report all-clear — distinct exit code 2 + loud stderr.
   export SSH_FAKE_EXIT=255
   run sremote "safe_pgrep_remote pico 'ollama'"
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"VERIFY IMPOSSIBLE"* ]]
+}
+
+@test "pgrep: exit-0 transport without the run-proof sentinel fails CLOSED too" {
+  # Belt-and-suspenders for KNOWN-GAPS #1: even if ssh exits 0, an empty
+  # capture that lacks the sentinel means the remote command never provably
+  # ran (dropped mid-stream) — still exit 2, never all-clear.
+  export SSH_FAKE_DROP_SENTINEL=1
+  run sremote "safe_pgrep_remote pico 'ollama'"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"VERIFY IMPOSSIBLE"* ]]
 }
 
 # ---- safe_pkill_remote ----
@@ -140,12 +161,13 @@ ssh_call_count() { wc -l < "$SSH_LOG"; }
   sed -n '3p' "$SSH_LOG" | grep -q "sleep 14"
 }
 
-@test "pkill: unreachable host reports success (KNOWN GAP — fails open)" {
-  # Both the kill AND the verification ride the same dead transport; the
-  # verification's empty capture reads as "no survivors" and the function
-  # returns 0 having killed nothing. Pins current behavior — see
-  # KNOWN-GAPS.md.
+@test "pkill: unreachable host fails CLOSED with exit 2 (FIXED: KNOWN-GAPS #2)" {
+  # The kill rides a dead transport: nothing was provably killed, so the
+  # function must stop right there — exit 2 after the single failed kill
+  # attempt, no bogus verification pass.
   export SSH_FAKE_EXIT=255
   run sremote "safe_pkill_remote pico 'ollama' 0"
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"KILL UNVERIFIABLE"* ]]
+  [ "$(ssh_call_count)" -eq 1 ]
 }

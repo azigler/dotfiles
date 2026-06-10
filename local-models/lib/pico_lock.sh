@@ -23,7 +23,17 @@
 # acquire steals the lock with a warning. This handles matrix crashes / SIGKILL
 # without requiring manual cleanup.
 #
+# PID semantics: the lock records the holder's PID for liveness checks and
+# for release authorization (release requires owner AND pid to match — a
+# refused second instance's cleanup trap must never release the running
+# holder's lock, KNOWN-GAPS #7). Sourced usage records $$. CLI usage records
+# $PPID (the invoking shell) because the wrapper process dies immediately —
+# recording its $$ produced an instantly-stale lock (KNOWN-GAPS #8). Either
+# mode can override via PICO_LOCK_SELF_PID for long-lived supervisors that
+# acquire on behalf of another process.
+#
 # Bead: local-coding-models-3p4 (the pico-exclusive-access study).
+# Bead: dotfiles-afx (release pid check + CLI PPID, KNOWN-GAPS #7/#8).
 # MEMORY: feedback-silent-success-pattern habit #3 (enforce in code, not docs).
 
 PICO_LOCK_FILE="${PICO_LOCK_FILE:-/tmp/pico-busy.lock}"
@@ -31,6 +41,13 @@ PICO_LOCK_FILE="${PICO_LOCK_FILE:-/tmp/pico-busy.lock}"
 # ---- helpers ----
 _pico_lock_now_iso() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 _pico_lock_now_epoch() { date -u +%s; }
+
+_pico_lock_self_pid() {
+    # The PID this process acts as for acquire/release identity. Defaults to
+    # $$; the CLI dispatcher (and any supervisor) overrides via
+    # PICO_LOCK_SELF_PID — see "PID semantics" in the header.
+    echo "${PICO_LOCK_SELF_PID:-$$}"
+}
 
 _pico_lock_parse_field() {
     # _pico_lock_parse_field <field> — extract a top-level string/number field
@@ -81,7 +98,8 @@ pico_acquire() {
     local owner="$1" duration="$2"
     shift 2
     local reason="${*:-no reason given}"
-    local pid=$$
+    local pid
+    pid=$(_pico_lock_self_pid)
     local now_epoch now_iso expires_epoch expires_iso
 
     if [[ -z "$owner" || -z "$duration" ]]; then
@@ -159,8 +177,12 @@ os.rename('$PICO_LOCK_FILE.tmp', '$PICO_LOCK_FILE')
 }
 
 # ---- pico_release OWNER ----
-# Drops the lock IFF the caller is the recorded owner. Refuses to release
-# someone else's lock — that requires manual `rm -f $PICO_LOCK_FILE`.
+# Drops the lock IFF the caller is the recorded owner AND the recorded PID.
+# Owner name alone is not enough: acquire refuses same-owner-different-PID
+# (two matrix instances must not overlap), so release must be symmetric —
+# otherwise a refused second instance's cleanup trap releases the RUNNING
+# holder's lock (KNOWN-GAPS #7). Stale locks are handled by the acquire-side
+# steal path; genuinely manual cleanup is `rm -f $PICO_LOCK_FILE`.
 pico_release() {
     local owner="$1"
     [[ -n "$owner" ]] || { echo "pico_release: usage: pico_release OWNER" >&2; return 2; }
@@ -168,10 +190,16 @@ pico_release() {
         echo "pico_release: no lock to release at $PICO_LOCK_FILE" >&2
         return 0
     }
-    local hold_owner
+    local hold_owner hold_pid self_pid
     hold_owner=$(_pico_lock_parse_field owner)
+    hold_pid=$(_pico_lock_parse_field pid)
+    self_pid=$(_pico_lock_self_pid)
     if [[ "$hold_owner" != "$owner" ]]; then
         echo "pico_release: REFUSED — caller ($owner) is not the current holder ($hold_owner)" >&2
+        return 1
+    fi
+    if [[ "$hold_pid" != "$self_pid" ]]; then
+        echo "pico_release: REFUSED — caller pid $self_pid is not the holder pid $hold_pid (owner=$owner). A second instance must not release the running holder's lock; if the holder is truly gone, the next pico_acquire steals the stale lock, or clean up manually: rm -f $PICO_LOCK_FILE" >&2
         return 1
     fi
     rm -f "$PICO_LOCK_FILE"
@@ -211,6 +239,11 @@ EOF
 
 # ---- CLI if invoked directly (not sourced) ----
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    # CLI mode: this wrapper process exits immediately, so recording its $$
+    # would write an instantly-stale lock (KNOWN-GAPS #8). Act as the
+    # invoking process ($PPID) instead, unless the caller already set
+    # PICO_LOCK_SELF_PID explicitly.
+    PICO_LOCK_SELF_PID="${PICO_LOCK_SELF_PID:-$PPID}"
     case "${1:-}" in
         acquire) shift; pico_acquire "$@" ;;
         release) shift; pico_release "$@" ;;

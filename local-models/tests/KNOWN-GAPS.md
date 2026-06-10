@@ -6,9 +6,17 @@ test were NOT modified; each gap below is pinned by a test marked
 "KNOWN GAP" so a future fix flips a deliberately-failing pin instead of
 landing silently. Severity is relative to the guard's own purpose.
 
+Entries marked **FIXED** have been repaired and their pins flipped to
+assert the fixed behavior (the test names cited below are the original
+pin names; the flipped tests carry a `FIXED: KNOWN-GAPS #n` marker).
+
 ## safe_remote.sh
 
-### 1. `safe_pgrep_remote` fails OPEN on an unreachable host (HIGH)
+### 1. `safe_pgrep_remote` fails OPEN on an unreachable host (HIGH) — FIXED
+
+**FIXED 2026-06-10 (`dotfiles-afx`):** transport failure (nonzero ssh exit
+OR missing remote run-proof sentinel) now fails CLOSED with exit 2 and a
+`VERIFY IMPOSSIBLE` stderr message — never reported as all-clear.
 
 `ssh` transport failure (exit 255, e.g. host down, tailnet drop) produces
 empty captured output — indistinguishable from "zero matches". The
@@ -22,7 +30,11 @@ during exactly the infra failures it should be loudest about.
   failure as a third outcome (exit 2, "VERIFY IMPOSSIBLE"), never as
   success.
 
-### 2. `safe_pkill_remote` inherits the fail-open (HIGH)
+### 2. `safe_pkill_remote` inherits the fail-open (HIGH) — FIXED
+
+**FIXED 2026-06-10 (`dotfiles-afx`):** both the kill (`KILL UNVERIFIABLE`)
+and each verification (`VERIFY IMPOSSIBLE`) detect transport failure and
+propagate exit 2 instead of 0.
 
 Kill and verification ride the same dead transport: the function returns
 0 having killed nothing and verified nothing.
@@ -84,7 +96,11 @@ wired into `main()` at all.
 
 ## pico_lock.sh
 
-### 7. Release does not check the PID — acquire/release asymmetry (MEDIUM)
+### 7. Release does not check the PID — acquire/release asymmetry (MEDIUM) — FIXED
+
+**FIXED 2026-06-10 (`dotfiles-afx`):** `pico_release` now requires owner
+AND pid to match; non-holder release is REFUSED (stale locks: acquire-side
+steal path; manual cleanup: `rm -f`).
 
 `pico_acquire` refuses same-owner-different-PID (two matrix instances
 must not overlap), but `pico_release` checks only the owner *name*. The
@@ -96,7 +112,11 @@ the overlap the acquire-side check exists to prevent.
 - Fix sketch: release requires owner AND pid match (stale locks already
   have the steal path; manual cleanup already has `rm -f`).
 
-### 8. CLI-mode `acquire` writes an instantly-stale lock (LOW)
+### 8. CLI-mode `acquire` writes an instantly-stale lock (LOW) — FIXED
+
+**FIXED 2026-06-10 (`dotfiles-afx`):** CLI mode now acts as `$PPID` (the
+invoking shell), overridable via `PICO_LOCK_SELF_PID` for the
+supervisor-acquires-on-behalf pattern; sourced usage still records `$$`.
 
 The CLI wrapper records `$$` of the short-lived `pico_lock.sh` process;
 by the next command that PID is dead, so the lock is immediately
