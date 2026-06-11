@@ -83,7 +83,7 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 **Job:** Google Docs read/write/format from CLI — gdoc.sh shim, Tabs API, service-account auth, styling contract (Arial 11pt, 20/16/13pt headings).
 **Fire when:** Any Google Docs collaboration task.
 **Prereqs/side-effects:** Service-account key; target doc shared with the SA email; styling contract is non-negotiable.
-**Anti-pattern:** Per-tab write with tabId (known-incomplete — use full-doc write via Drive HTML importer).
+**Anti-pattern:** Using the Drive HTML importer to target a tab (whole-doc only — per-tab writes go through the native-requests path, fixed bd-3w8a 2026-06-11).
 
 ### /grok
 **Job:** Read-only walk of unfamiliar code BEFORE editing; ends with optional -t study bead so the next agent doesn't repeat the read.

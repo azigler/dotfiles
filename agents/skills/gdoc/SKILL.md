@@ -140,13 +140,12 @@ all common operations:
 # Write markdown to a document (full replacement of doc content)
 ./scripts/gdoc.sh write <docId> /path/to/content.md
 
-# ⚠️ DO NOT pass <tabId> to write. The connector's per-tab path is
-# known-incomplete and inserts the HTML as literal text — your headings
-# render as `<h1>...</h1>` strings instead of styled headings. The
-# default (no tabId) uses Drive's HTML importer and produces correct
-# rich text. For single-tab docs, omitting tabId is the right call;
-# for multi-tab docs that need targeted writes, see "Per-tab writes
-# (use bun inline)" below.
+# Write markdown to a specific tab (fixed 2026-06-11, bd-3w8a): the
+# connector's per-tab path now renders native Docs rich text (real
+# headings/links/bullets per the styling contract) via
+# markdownToStyledRequests. The no-tabId form still uses Drive's HTML
+# importer (whole-doc replacement) — right call for single-tab docs.
+./scripts/gdoc.sh write <docId> /path/to/content.md <tabId>
 
 # Read comments on a document
 ./scripts/gdoc.sh comments <docId>
@@ -170,21 +169,20 @@ The doc ID is: `1wfhHghZ0hXs_6Pk_UiBN-hHoPMHVINuExgQVV9rHlOg`.
 
 ---
 
-### Per-tab writes (use bun inline, not the shim)
+### Per-tab writes
 
-The shim's `gdoc.sh write` with a `tabId` arg routes to the connector's
-legacy `insertText` path, which inserts the markdown→HTML output as a
-literal text blob — readers see `<h1>...</h1>` and `<p>...</p>` as
-visible characters, no styling at all. This is documented as
-known-incomplete in `connectors/google/docs/write.ts`.
+Fixed 2026-06-11 (bd-3w8a): `gdoc.sh write` with a `tabId` arg now
+replaces the tab's content with native Docs rich text — the connector
+parses markdown into `insertText` + `updateParagraphStyle` /
+`updateTextStyle` / `createParagraphBullets` requests scoped via
+per-request `location.tabId` / `range.tabId`, honoring the styling
+contract (Arial, 20/16/13pt headings, 11pt body, styled links). The
+underlying API is `markdownToStyledRequests(markdown, insertionIndex,
+tabId)` + `updateDoc(..., { tabId })` in `connectors/google/docs/`.
 
-Use the no-tabId form whenever the doc has a single tab (the common
-case for blog drafts, briefs, and single-page deliverables). For
-genuine multi-tab docs that need targeted writes, drop down to bun
-inline and either (a) parse markdown into native Docs `insertText` /
-`updateParagraphStyle` requests with `tabId` on the location, or (b)
-pre-create the doc via Drive HTML import (which writes to tab one),
-then move/restructure the tabs.
+Use the no-tabId form for single-tab docs (the common case for blog
+drafts, briefs, and single-page deliverables) — it routes through
+Drive's HTML importer and replaces the whole document.
 
 ## Advanced Operations (inline bun)
 
