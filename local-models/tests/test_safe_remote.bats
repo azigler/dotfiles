@@ -90,7 +90,7 @@ ssh_call_count() { wc -l < "$SSH_LOG"; }
   [ "$status" -eq 0 ]
   [ "$(ssh_call_count)" -eq 1 ]
   grep -q "ConnectTimeout=5 pico" "$SSH_LOG"
-  grep -q "pgrep -af 'ollama'" "$SSH_LOG"
+  grep -q "pgrep -af '\[o\]llama'" "$SSH_LOG"
 }
 
 @test "pgrep: survivors return 1 and are printed for the operator" {
@@ -128,8 +128,8 @@ ssh_call_count() { wc -l < "$SSH_LOG"; }
   [ "$status" -eq 0 ]
   [ "$(ssh_call_count)" -eq 2 ]
   # Call 1 is the kill, call 2 the verification pgrep.
-  head -1 "$SSH_LOG" | grep -q "pkill -9 -f 'ollama'"
-  tail -1 "$SSH_LOG" | grep -q "pgrep -af 'ollama'"
+  head -1 "$SSH_LOG" | grep -q "pkill -9 -f '\[o\]llama'"
+  tail -1 "$SSH_LOG" | grep -q "pgrep -af '\[o\]llama'"
 }
 
 @test "pkill: survivors on first verify, clean on retry returns 0 (4 ssh calls)" {
@@ -170,4 +170,38 @@ ssh_call_count() { wc -l < "$SSH_LOG"; }
   [ "$status" -eq 2 ]
   [[ "$output" == *"KILL UNVERIFIABLE"* ]]
   [ "$(ssh_call_count)" -eq 1 ]
+}
+
+@test "neutralize: embedded pattern is bracket-neutralized against self-match (bead dotfiles-7ou)" {
+  # macOS pgrep/pkill -a includes ANCESTORS: the remote zsh -c wrapper whose
+  # cmdline contains the literal pattern matched itself, so every eviction
+  # probe found a fresh "survivor" and pre-flight aborted (first live firing
+  # 2026-06-11). The pattern embedded in the ssh command must carry a
+  # bracketed first char so it cannot match its own literal occurrence.
+  run sremote "safe_pgrep_remote pico 'llama-server'"
+  [ "$status" -eq 0 ]
+  grep -q "pgrep -af '\[l\]lama-server'" "$SSH_LOG"
+}
+
+@test "neutralize: EACH alternation branch is bracketed, not just the head" {
+  # 'llama-server|ollama' with only the head bracketed leaves the 'ollama'
+  # branch self-matchable — the eviction probe uses exactly this pattern.
+  run sremote "safe_pgrep_remote pico 'llama-server|ollama'"
+  [ "$status" -eq 0 ]
+  grep -q "pgrep -af '\[l\]lama-server|\[o\]llama'" "$SSH_LOG"
+}
+
+@test "neutralize: pkill path is neutralized too" {
+  run sremote "safe_pkill_remote pico 'ollama serve' 0"
+  [ "$status" -eq 0 ]
+  sed -n '1p' "$SSH_LOG" | grep -q "pkill -9 -f '\[o\]llama serve'"
+}
+
+@test "neutralize: real survivors are still detected through the bracketed pattern" {
+  # The neutralized regex must keep matching REAL processes — scripted
+  # response simulates one.
+  pgrep_response 1 "4321 llama-server --jinja"
+  run sremote "safe_pgrep_remote pico 'llama-server'"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"4321 llama-server"* ]]
 }

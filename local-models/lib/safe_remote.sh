@@ -33,15 +33,40 @@
 # an empty result.
 SAFE_REMOTE_SENTINEL="__SAFE_REMOTE_RAN__"
 
+# ---- _safe_remote_neutralize PATTERN ----
+# Make the pattern unable to match its own literal occurrence in the remote
+# wrapper's command line. The ssh remote side runs as `zsh -c "pgrep -af
+# 'PATTERN' ..."` — on macOS/BSD, pgrep/pkill `-a` INCLUDES ANCESTORS in the
+# candidate set (on Linux `-a` merely prints cmdlines), so the wrapper shell
+# whose cmdline contains the literal pattern matches itself: every probe
+# "finds" a fresh survivor PID and eviction aborts (bead dotfiles-7ou; first
+# live pre-flight 2026-06-11). Fix: bracket the first alphanumeric char of
+# EACH |-branch ("llama-server|ollama" → "[l]lama-server|[o]llama") — the
+# regex still matches real processes, but not its own bracketed literal.
+# Branch-wise is load-bearing: bracketing only the pattern head leaves later
+# alternation branches self-matchable.
+_safe_remote_neutralize() {
+    local pattern="$1" out="" branch
+    local IFS='|'
+    for branch in $pattern; do
+        if [[ "$branch" =~ ^[a-zA-Z0-9] ]]; then
+            branch="[${branch:0:1}]${branch:1}"
+        fi
+        out="${out}${out:+|}${branch}"
+    done
+    printf '%s' "$out"
+}
+
 # ---- safe_pgrep_remote HOST PATTERN ----
 # Returns 0 if NO processes match (exclusive of pgrep itself + ssh wrapper).
 # Returns 1 if any matches found; prints matches to stderr.
 # Returns 2 if the host could not be verified (transport failure) — fail CLOSED.
 safe_pgrep_remote() {
     local host="$1" pattern="$2"
-    local raw rc matches
+    local raw rc matches npattern
+    npattern=$(_safe_remote_neutralize "$pattern")
     raw=$(ssh -o ConnectTimeout=5 "$host" \
-        "pgrep -af '$pattern' 2>/dev/null | grep -v 'grep' | head -20; echo $SAFE_REMOTE_SENTINEL" \
+        "pgrep -af '$npattern' 2>/dev/null | grep -v 'grep' | head -20; echo $SAFE_REMOTE_SENTINEL" \
         2>/dev/null) && rc=0 || rc=$?
     if [[ $rc -ne 0 || "$raw" != *"$SAFE_REMOTE_SENTINEL"* ]]; then
         printf 'ERROR: safe_pgrep_remote(%s,%s): VERIFY IMPOSSIBLE — ssh transport failure (exit %s, sentinel %s). Host state is UNKNOWN; refusing to report all-clear.\n' \
@@ -64,9 +89,10 @@ safe_pgrep_remote() {
 # (reported to stderr).
 _safe_remote_kill() {
     local host="$1" pattern="$2" wait="$3"
-    local raw rc
+    local raw rc npattern
+    npattern=$(_safe_remote_neutralize "$pattern")
     raw=$(ssh -o ConnectTimeout=5 "$host" \
-        "pkill -9 -f '$pattern' 2>/dev/null; sleep $wait; echo $SAFE_REMOTE_SENTINEL" \
+        "pkill -9 -f '$npattern' 2>/dev/null; sleep $wait; echo $SAFE_REMOTE_SENTINEL" \
         2>/dev/null) && rc=0 || rc=$?
     if [[ $rc -ne 0 || "$raw" != *"$SAFE_REMOTE_SENTINEL"* ]]; then
         printf 'ERROR: safe_pkill_remote(%s,%s): KILL UNVERIFIABLE — ssh transport failure (exit %s). Nothing was provably killed; failing CLOSED.\n' \
