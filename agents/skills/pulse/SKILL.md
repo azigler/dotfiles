@@ -51,10 +51,26 @@ Append one line per tick:
 {"ts":"2026-06-17T09:00:09Z","row":null,"outcome":"quiet","note":"no row satisfied"}
 ```
 
-Caps are enforced by counting ledger entries for the row in the
-current day/week. Working ticks commit the ledger with their work;
-quiet ticks leave it uncommitted until the next working tick sweeps it
-in (don't generate a commit per no-op).
+`ts` is UTC (`date -u +%FT%TZ`). Caps count **only `outcome:"done"`**
+entries for the row in the current day/week — a blocked or quiet tick
+did no work and must NOT consume a research slot. And because `ts` is
+UTC while caps are reckoned in the project's local day, **convert each
+ts to the project timezone before matching the day** — a naive
+`grep "$(date +%F)"` against UTC stamps mis-buckets ticks near the day
+boundary. Canonical count (PT project, today's done-fires):
+
+```bash
+TODAY=$(TZ=America/Los_Angeles date +%F)
+COUNT=$(jq -r 'select(.outcome=="done" and .row=="<row>") | .ts' refs/pulse-ledger.jsonl 2>/dev/null \
+  | while read -r ts; do TZ=America/Los_Angeles date -d "$ts" +%F; done \
+  | grep -cx "$TODAY")
+# fire only if COUNT < cap
+```
+
+Working ticks commit the ledger with their work; blocked ticks commit
+it alongside the `human:` bead (audit trail); quiet ticks leave it
+uncommitted until the next working tick sweeps it in (don't generate a
+commit per no-op).
 
 ## Tick procedure (`/pulse tick`)
 
