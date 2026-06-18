@@ -4,6 +4,16 @@ if [[ "$__CFBundleIdentifier" = *"VSCode"* || "$OVERRIDE_TMUX" = "true" ]]; then
   return
 fi
 
+# Only autostart/attach from a REAL interactive terminal. Non-interactive,
+# sandboxed, or dispatched shells (e.g. the MUD servitor loop spawning Claude
+# Code sessions) must NEVER reach the new-session/attach below: without a
+# controlling TTY the tmux client blocks in poll forever, orphans to systemd,
+# and leaks ~5MB each. ~93 of these accumulated in one day and filled VPS RAM
+# until the box locked up (2026-06-17). A login terminal is an interactive
+# shell ($- contains 'i') with stdin+stdout on a tty; anything else bails.
+case "$-" in *i*) ;; *) return ;; esac
+{ [ -t 0 ] && [ -t 1 ]; } || return
+
 TMUX_PLUGIN_MANAGER_PATH="$HOME/.tmux/plugins/"
 
 if [[ "$OSTYPE" == "darwin"* ]]; then
