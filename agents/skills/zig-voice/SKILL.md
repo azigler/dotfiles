@@ -232,6 +232,32 @@ choice, not grind." Acknowledges before reframing.
 
 ---
 
+## Pre-output self-audit (run before showing ANY draft)
+
+The anti-patterns below are not a passive reference — scan every draft against
+them and FIX before showing Andrew. These five survive into drafts most often;
+check them by name every time:
+
+1. **Negative parallelism** — "it's not X, it's Y" / "isn't X, it's Y" / "X was
+   never A, it's B". The single most common AI tell, and the one that keeps
+   slipping through (it survived four straight draft rounds on 2026-06-19:
+   *"the lesson isn't panic, it's routing"*, *"the bottleneck was never coding
+   speed, it's domain expertise"*). ZERO tolerance. Fix: split into two plain
+   declaratives.
+2. **False-significance openers** — "X is real", "X is here", "the X era is
+   here". Open with a concrete fact instead.
+3. **Magic adverbs** — quietly, deeply, fundamentally, remarkably, arguably.
+4. **Em-dash density** — soft cap ~1 per 200 words; use `--` not `—`.
+5. **Banned vocab** — delve, utilize, leverage(verb), robust, streamline,
+   tapestry, landscape, paradigm. (Note: "harness" is a legitimate concrete
+   noun in agentic-engineering content — Andrew's actual domain term — banned
+   only in the filler-verb sense "harness these frameworks.")
+
+State a one-line PASS before showing the draft. For Dev Interrupted LinkedIn
+posts specifically, the project's `prompts/references/di-linkedin-playbook.md`
+carries the full mandatory gate + posted-shape calibration + 2026 reach
+mechanics; run it.
+
 ## Anti-Patterns (Hard Rules)
 
 These patterns are explicitly forbidden. They make content sound like AI or
