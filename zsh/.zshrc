@@ -48,6 +48,15 @@ antigen bundle zsh-users/zsh-syntax-highlighting
 
 antigen apply
 
+# Reclaim `tmux` for the real binary. The oh-my-zsh `tmux` bundle aliases
+# `tmux` -> _zsh_tmux_plugin_run, which names a session after the $PWD
+# basename and auto-attaches/creates it (ZSH_TMUX_AUTOCONNECT=true). A bare
+# `tmux` from the wrong directory then silently spins up a session (e.g. a
+# `hermes` dispatch session the broker immediately populates with servitors
+# -> runaway session/RAM leak). Anything wanting the wrapper calls `tmuxa`.
+unalias tmux 2>/dev/null
+alias tmuxa='_zsh_tmux_plugin_run'
+
 [[ ! -f "$HOME/.p10k.zsh" ]] || source "$HOME/.p10k.zsh"
 
 unsetopt correct_all
@@ -68,3 +77,6 @@ case ":$PATH:" in
   *) export PATH="$PNPM_HOME:$PATH" ;;
 esac
 # pnpm end
+
+# Hermes Agent — ensure ~/.local/bin is on PATH
+export PATH="$HOME/.local/bin:$PATH"
