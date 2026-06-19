@@ -67,6 +67,12 @@ note() { echo "$(date -u +%FT%TZ) $*" >> "$LOG"; }
 [ -x "$TMUX_BIN" ] || { echo "pulse-inject: tmux not found" >&2; exit 69; }
 
 note "tick: session=$SESSION window=$WINDOW dir=$DIR cmd=$CMD"
+# Caller provenance (diagnostic): who invoked this injector? A systemd unit
+# leaves a journal trail; a self-scheduling loop (the /pulse anti-pattern) does
+# not, so log the parent + grandparent so a ghost cadence can be traced.
+_pcmd() { tr '\0' ' ' < "/proc/$1/cmdline" 2>/dev/null | cut -c1-160; }
+_gpid=$(awk '{print $4}' "/proc/$PPID/stat" 2>/dev/null)
+note "  caller: ppid=$PPID ($(ps -o comm= -p "$PPID" 2>/dev/null)) [$(_pcmd "$PPID")] gpid=${_gpid:-?} ($(ps -o comm= -p "${_gpid:-0}" 2>/dev/null)) [$(_pcmd "${_gpid:-0}")]"
 
 # 1. Ensure the session exists (detached creation survives reboots —
 #    the window is there when Andrew attaches).
