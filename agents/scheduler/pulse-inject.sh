@@ -66,6 +66,17 @@ note() { echo "$(date -u +%FT%TZ) $*" >> "$LOG"; }
 [ -d "$DIR" ] || { echo "pulse-inject: --dir $DIR does not exist" >&2; note "FAIL: dir missing: $DIR"; exit 66; }
 [ -x "$TMUX_BIN" ] || { echo "pulse-inject: tmux not found" >&2; exit 69; }
 
+# Hand the tick an ABSOLUTE project anchor. A long-lived pulse session's
+# shell cwd can drift (a stray `cd` in one tick persists), so a bare
+# relative `refs/pulse-ledger.jsonl` in the next tick silently resolves
+# against another project — crossing ledgers. Only this injector knows the
+# canonical --dir, so append it to every /pulse command; the /pulse skill
+# anchors refs/pulse.md + refs/pulse-ledger.jsonl to this absolute path.
+ABS_DIR=$(cd "$DIR" 2>/dev/null && pwd -P) || ABS_DIR="$DIR"
+case "$CMD" in
+  /pulse|/pulse\ *) CMD="$CMD $ABS_DIR" ;;
+esac
+
 note "tick: session=$SESSION window=$WINDOW dir=$DIR cmd=$CMD"
 # Caller provenance (diagnostic): who invoked this injector? A systemd unit
 # leaves a journal trail; a self-scheduling loop (the /pulse anti-pattern) does

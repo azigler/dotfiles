@@ -60,8 +60,9 @@ ts to the project timezone before matching the day** — a naive
 boundary. Canonical count (PT project, today's done-fires):
 
 ```bash
+# $PULSE_DIR = the absolute project dir pulse-inject passed (see Tick procedure).
 TODAY=$(TZ=America/Los_Angeles date +%F)
-COUNT=$(jq -r 'select(.outcome=="done" and .row=="<row>") | .ts' refs/pulse-ledger.jsonl 2>/dev/null \
+COUNT=$(jq -r 'select(.outcome=="done" and .row=="<row>") | .ts' "$PULSE_DIR/refs/pulse-ledger.jsonl" 2>/dev/null \
   | while read -r ts; do TZ=America/Los_Angeles date -d "$ts" +%F; done \
   | grep -cx "$TODAY")
 # fire only if COUNT < cap
@@ -72,7 +73,19 @@ it alongside the `human:` bead (audit trail); quiet ticks leave it
 uncommitted until the next working tick sweeps it in (don't generate a
 commit per no-op).
 
-## Tick procedure (`/pulse tick`)
+## Tick procedure (`/pulse tick <project-dir>`)
+
+pulse-inject passes the project's **absolute** directory as the argument
+(you'll see e.g. `ARGUMENTS: tick /home/ubuntu/explore`). Take that path as
+`PULSE_DIR` and **anchor every ledger/table read and write to it** —
+`$PULSE_DIR/refs/pulse.md`, `$PULSE_DIR/refs/pulse-ledger.jsonl`, absolute,
+throughout the tick. (If no dir was passed, fall back to the current
+directory.) **Never use a bare relative `refs/...` path:** a long-lived
+pulse session's shell cwd drifts — a stray `cd` in one tick persists into
+the next — so a relative ledger path silently resolves against another
+project and crosses ledgers. (Observed 2026-06-19: an explore tick whose
+cwd had drifted read the local-coding-models ledger and nearly double-fired
+the daily cap.)
 
 0. **Honor `.offboard-pending`** if present (retroactive /offboard,
    as /onboard Step 0).
@@ -166,6 +179,11 @@ surprise a tick mid-work.
   needs MORE audit trail, not less.
 - ❌ **Treating quiet ticks as failure** — quiet is the system working;
   log it and stand down.
+- ❌ **Bare relative ledger/table paths** — anchor to the absolute
+  `$PULSE_DIR` pulse-inject passes. A durable session's cwd drifts, so
+  `refs/pulse-ledger.jsonl` can resolve to another project's ledger
+  (observed 2026-06-19: an explore tick read the local-coding-models
+  ledger and nearly double-fired the daily cap).
 
 ## See also
 

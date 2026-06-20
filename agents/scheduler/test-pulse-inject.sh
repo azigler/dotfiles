@@ -72,6 +72,18 @@ else
   ok
 fi
 
+# 5. /pulse commands get the absolute project dir appended, so a tick
+#    anchors its ledger absolutely and never crosses ledgers on cwd drift.
+#    (Non-/pulse cmds in cases 1-3 are deliberately left untouched.)
+ABS_DIR=$(cd "$DIR" 2>/dev/null && pwd -P)
+"$INJECT" --session "$SESSION" --window pulse --dir "$DIR" --launch cat --cmd "/pulse tick" >/dev/null 2>&1
+sleep 1
+if "$TMUX_BIN" capture-pane -p -t "$PANE" 2>/dev/null | grep -qF "/pulse tick $ABS_DIR"; then
+  ok
+else
+  bad "/pulse cmd gets absolute dir appended"
+fi
+
 # --- Summary ---
 TOTAL=$((PASS + FAIL))
 if [ "$FAIL" -eq 0 ]; then
