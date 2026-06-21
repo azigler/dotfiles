@@ -22,6 +22,15 @@ case "$FILE_PATH" in
         exit 0
       fi
     fi
+    # bd-no31: with root:false (needed for agent worktrees), bare biome walks up
+    # and resolves the user-level ~/.config/biome instead of the repo config —
+    # reformatting repo files to the wrong style. Pin biome at the repo config
+    # when one exists so it stops fighting the project's own settings.
+    if [ -f "$FILE_ROOT/biome.jsonc" ]; then
+      export BIOME_CONFIG_PATH="$FILE_ROOT/biome.jsonc"
+    elif [ -f "$FILE_ROOT/biome.json" ]; then
+      export BIOME_CONFIG_PATH="$FILE_ROOT/biome.json"
+    fi
     OUTPUT=$(biome check --write --error-on-warnings "$FILE_PATH" 2>&1) || {
       echo "$OUTPUT" >&2
       exit 2

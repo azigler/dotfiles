@@ -134,6 +134,13 @@ if [ -n "$CANDIDATES" ]; then
   done <<< "$CANDIDATES"
 
   if [ -n "$JS_FILES" ] && command -v biome &>/dev/null; then
+    # bd-no31: pin biome at the repo config (root:false makes bare biome resolve
+    # the user-level ~/.config/biome instead, flagging the project's own style).
+    if [ -f "$GIT_ROOT/biome.jsonc" ]; then
+      export BIOME_CONFIG_PATH="$GIT_ROOT/biome.jsonc"
+    elif [ -f "$GIT_ROOT/biome.json" ]; then
+      export BIOME_CONFIG_PATH="$GIT_ROOT/biome.json"
+    fi
     OUTPUT=$(biome check --error-on-warnings $JS_FILES 2>&1) || {
       echo "biome: $OUTPUT" >&2
       FAILED=1
