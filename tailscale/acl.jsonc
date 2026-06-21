@@ -89,7 +89,8 @@
   // syntax for tag-src → user-owned-dst — see alt-port macOS sshd
   // pattern on pico (Port 2222 bypasses tailscaled's intercept).
   "hosts": {
-    "pico": "100.72.47.4"
+    "pico": "100.72.47.4",
+    "metis": "100.106.120.98"
   },
 
   "acls": [
@@ -121,6 +122,19 @@
       "action": "accept",
       "src": ["tag:server"],
       "dst": ["pico:*"]
+    },
+    // 5. server-to-metis (zig-computer SSHes to metis to run the
+    // zettelkasten backup script before the andrewzigler.com build pulls
+    // from github.com/azigler/zettelkasten). metis is user-owned/untagged,
+    // so — like pico (rule 4) — it can't be a tag dst and is referenced via
+    // the hosts alias. Port 22 only (least privilege). metis runs native
+    // macOS OpenSSH (the GUI Tailscale build has no Tailscale-SSH server,
+    // so tailscaled does not intercept :22) — plain key-auth SSH works, no
+    // alt-port needed. Added 2026-06-21 (build: trigger metis zk-backup).
+    {
+      "action": "accept",
+      "src": ["tag:server"],
+      "dst": ["metis:22"]
     }
   ],
 
