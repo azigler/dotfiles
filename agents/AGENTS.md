@@ -25,6 +25,51 @@ it claimed.)
 
 At session end run `/offboard` — handoff note, optional cost log, commit.
 
+## Effort — the intelligence dial (pick it consciously)
+
+Effort (`low → medium → high(default) → xhigh → max`) is a behavioral
+signal that affects **all tokens** — thinking, prose, AND tool calls.
+This is load-bearing and usually invisible: at low/medium the model
+*"scopes its work to what was asked rather than going above and beyond"*
+and makes **fewer tool calls** — i.e. it greps the average instead of
+thinking exhaustively. Riding the default `high` through divergent /
+exploratory work silently settles for baseline intelligence. Don't.
+
+**The policy (Opus 4.8 / Fable 5 grounded):**
+- **xhigh** — the DEFAULT for exploration, research, divergent ideation,
+  and multi-tool agentic work (Anthropic's own "start with xhigh for
+  agentic + exploratory tasks").
+- **max** — RESERVE for genuinely frontier / generative moments: the
+  exhaustive upfront brainstorm, cross-cutting synthesis, novel-
+  opportunity hunts, foundational design/spec. Real headroom, real
+  payoff. Do NOT spray it — `max` overthinks structured/mechanical tasks
+  and costs a lot for small gains there.
+- **high** — solid for most single-answer intelligence-sensitive work.
+- **medium / low** — mechanical/convergent drains: bead bookkeeping,
+  cataloguing, queue-draining ticks, well-specified edits. Spending less
+  here *funds* the moments that deserve max. It's a thermostat, not a
+  furnace.
+
+**The levers (and their limits):**
+- The **interactive session** effort is Andrew's effort-menu setting,
+  surfaced as `$CLAUDE_EFFORT`. The orchestrator **cannot change its own
+  session effort** — but `/onboard` reads it, and you must **proactively
+  ask Andrew to bump it** (via AskUserQuestion) when the session's work
+  is divergent/exploratory and effort is below `xhigh`. (`ultracode` =
+  `xhigh` + standing multi-agent-workflow permission.)
+- **Subagent effort:** the plain `Agent` tool does NOT expose effort — a
+  dispatched agent **inherits the session level**. True `xhigh`/`max` on
+  a subagent only comes through a **Workflow** `agent(…, {effort:'max'})`.
+  So when a delegated step needs more intelligence than the session is set
+  to (e.g. a fresh-eyes max-effort brainstorm), use a Workflow agent with
+  explicit effort, not a bare Agent dispatch.
+
+**The naming norm:** when effort matters, **name it and why** ("running
+this brainstorm at max — it's divergent/novel"), and **flag crank-it-up
+moments** to Andrew rather than silently proceeding at `high`. Effort is a
+decision, not a default to forget. See `/elevate` for the max-effort
+fresh-eyes re-examination pattern.
+
 ## Surfacing to Andrew — AskUserQuestion, not trailing prose
 
 When you end a turn needing Andrew's input — a decision, feedback on a
@@ -132,6 +177,7 @@ full body; descriptions below are just the prompt-toolkit summary.
 - `/handoff` — pre-commit handoff verification (subagent → orchestrator)
 - `/grok` — read-only walk of an unfamiliar area before editing
 - `/fix` — fix-and-guard for any identified bug (creates `-t bug` bead + regression test; orchestrators fire autonomously)
+- `/elevate` — max-effort, fresh-eyes re-examination of finished work (the *generative* twin of `/scrutinize`'s critical gate): hunts the novel opportunity / non-obvious connection a baseline-effort pass missed. Runs unpolluted subagents via Workflow `effort:'max'`. Also the biweekly compendium-sweep (`pulse-elevate.timer`).
 - `/triage` — bead-state hygiene (orphans / stale / epic close-eligible)
 - `/housekeeping` — mechanical doc + cross-repo state hygiene (includes a triage sub-pass)
 - `/explore` — multi-source research → Asana compile → optional Zig-voice LinkedIn post + SSoT-driven image deliverable. Bridges `/zig-voice` + `/ssot` + `/openrouter` + the Asana fleet proxy in one flow.

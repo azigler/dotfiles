@@ -66,6 +66,22 @@ Merge target: `<branch>` (NOT main, unless project doesn't use /branch).
 [Reference /handoff Step 4 — the message the orchestrator parses on return]
 ```
 
+## Effort — choose it per dispatch (don't inherit by accident)
+
+Pick the subagent's effort consciously every time (see AGENTS.md "Effort —
+the intelligence dial"). Default reasoning: **xhigh** for research /
+exploration / divergent or multi-tool work; **max** for genuinely
+frontier/generative tasks (exhaustive brainstorm, novel-opportunity hunt,
+foundational design); **medium/low** for mechanical, well-specified edits.
+
+Mechanism gotcha: the plain **`Agent` tool has no effort param** — a bare
+dispatch **inherits the session level** (`$CLAUDE_EFFORT`). To actually run
+a subagent at `xhigh`/`max` you must use a **Workflow** `agent(prompt,
+{effort:'max'})`. So if the dispatch needs more intelligence than the
+session is set to, route it through a Workflow agent, not a bare Agent
+call — and **name why** ("max effort: divergent ideation"). State the
+intended effort in the dispatch note so it's a recorded decision.
+
 ## Type-specific additions
 
 ### For test agents

@@ -46,6 +46,27 @@ See `/zig-voice` SKILL.md "SCOPE" section for the broader rule.
 
 Default to **report-only** unless the user explicitly asks for an archive or a post. The three modes can compose (an archival run can also produce a post if the topic warrants), but most invocations are one of them.
 
+## Effort — run exploration HOT, and brainstorm HOTTER
+
+Exploration is the canonical case for high effort (Anthropic: "start with
+xhigh for exploratory tasks like repeated tool calling and detailed
+search"). At baseline `high` the model scopes to what was asked and greps
+the average — the opposite of what exploration is for.
+
+- **Run the research at `xhigh`.** If `$CLAUDE_EFFORT` is below `xhigh`
+  when an exploration starts, ask Andrew to bump the session (or route the
+  research agents through Workflow `effort:'xhigh'`).
+- **Add a divergent `max`-effort ideation pass.** Beyond cataloguing "what
+  is this," every archival exploration gets a fresh, **max**-effort
+  brainstorm — *"what's the novel opportunity here, the non-obvious
+  connection to Andrew's work, the thing worth building?"* — as a Workflow
+  `agent(…, {effort:'max'})`, ideally a fresh unpolluted agent so it isn't
+  anchored to the convergent writeup. Fold its best ideas into FINDINGS
+  under a "Novel opportunities" heading. This is where the exhaustive
+  upfront brainstorm Andrew wants actually lives — don't skip it for
+  researchable topics. (For re-examining ALREADY-finished explorations,
+  use `/elevate`.)
+
 ## Archival mode — the umbrella-folder pattern
 
 When the task is "research this topic and keep it as a personal archive" (recent examples: `~/explore/zero/`, `~/explore/tolaria/`), the canonical output shape is:

@@ -183,6 +183,31 @@ Some projects also use:
 
 If the project uses a different pipeline, follow its `CLAUDE.md`.
 
+## Step 5.5: Read the effort level — and ask to bump it if the work is divergent
+
+Every session must start *conscious of its effort*, because the default
+silently settles for baseline intelligence on exactly the work that most
+needs more (see AGENTS.md "Effort — the intelligence dial").
+
+```bash
+echo "${CLAUDE_EFFORT:-high}"   # the interactive session's effort level
+```
+
+Match it against the work you classified in Step 5:
+- **Divergent / exploratory / research / brainstorming / foundational
+  design** wants **xhigh** (or **max** for a genuinely frontier session).
+  If `$CLAUDE_EFFORT` is below that, **ask Andrew to bump it** via
+  AskUserQuestion before diving in — you cannot change your own session
+  effort, only he can (effort menu / `ultracode`). Name why.
+- **Mechanical / well-specified / convergent** work is fine at the default
+  `high` (or lower); no need to ask.
+- For delegated steps that need more intelligence than the session is set
+  to, remember the lever is a **Workflow `agent(effort:'max')`** — the
+  bare `Agent` tool inherits the session level.
+
+Don't silently proceed at a too-low effort through exploratory work — that
+is the single most common way a session quietly underperforms.
+
 ## Step 6: Check blockers
 
 Before routing, verify nothing is blocking:
@@ -206,6 +231,7 @@ Show a concise orientation report:
 **Version**: vN.M.R
 **Active branch**: <name or main>
 **Toolkit**: digest loaded (N skills; full bodies: <list or none>)
+**Effort**: <$CLAUDE_EFFORT> (<ok for this work / recommend bump to xhigh|max>)
 **Position**: <where in the plan>
 **Active plan**: <plan file path, if any>
 **Open beads**: <count, with priorities>

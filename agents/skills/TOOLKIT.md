@@ -61,6 +61,12 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 **Prereqs/side-effects:** Runs zig-computer.distribute.sh; touches destination .claude/ + CLAUDE.md only; skips settings.json.
 **Anti-pattern:** Adding destination-specific overrides to the dotfiles paragons; running from a subagent worktree.
 
+### /elevate
+**Job:** Max-effort, fresh-eyes re-examination of FINISHED work — the generative twin of /scrutinize (hunts MISSED opportunity, not what's WRONG). Targeted (one project/exploration) or sweep (biweekly compendium-wide, pulse-elevate.timer).
+**Fire when:** A baseline-effort pass under-thought something; "elevate X" / "fresh eyes on max"; or the biweekly sweep fires.
+**Prereqs/side-effects:** Runs subagents at effort:'max' via **Workflow** (bare Agent has no effort param). Sweep → push-notify + beads (prefix `elevate:`), NOT Asana.
+**Anti-pattern:** Running it at baseline effort, or reusing the original/anchored agent — defeats the whole point. Correctness review is /scrutinize, not this.
+
 ### /explore
 **Job:** Multi-source URL research → structured plaintext report into an Asana task; archival (~/explore/<topic>/) or publishing (Zig-voice post + SSoT image) shapes.
 **Fire when:** Explicit-invoke; user hands over URLs + an Asana destination.
