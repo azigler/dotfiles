@@ -16,6 +16,7 @@ fact with a live command before depending on it.** Last verified 2026-06-27.
 | pico | `100.72.47.4` | macOS | **where most user-facing production runs** (home, no systemd) |
 | metis | `100.106.120.98` | macOS | — |
 | iphone-15-pro | `100.102.6.100` | iOS | — |
+| homeassistant | `100.83.136.26` | HAOS rpi5, **tag:server** | "948 Palm" HA install (`ssh hassio@homeassistant`, key `~/.ssh/id_ha`); managed from `~/explore/shell-home-assistant` (joined 2026-06-27) |
 
 ## The production norm (and its exception)
 Andrew's default: *production runs on **pico** over tailscale, forwarded from
