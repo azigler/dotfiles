@@ -1,5 +1,5 @@
 ---
-description: Session exit -- summarize state, write handoff note, optionally compute orchestrator cost from session JSONL, commit. Paired with /onboard.
+description: Session exit -- summarize state, write handoff note, commit. Paired with /onboard.
 when_to_use: Session end, before context compaction, or any natural handoff point. Orchestrator-only (skip inside worktrees). Paired with /onboard, which retroactively honors .offboard-pending.
 ---
 
@@ -33,9 +33,10 @@ case "$branch" in
 esac
 ```
 
-## Step 2: Identify session ID (optional)
+## Step 2: Identify the session ID
 
-If the project tracks per-session cost (see Step 4), find the live JSONL:
+Find the live session JSONL — its id stamps the handoff note title and the
+`.claude/last-offboard-session` marker (Step 4):
 
 ```bash
 PROJECT_SLUG=$(pwd | sed 's|/|-|g')                 # e.g. -home-ubuntu-myproj
@@ -44,7 +45,8 @@ SESSION_ID=$(basename "$SESSION_JSONL" .jsonl 2>/dev/null)
 echo "Session: ${SESSION_ID:-(none found)}"
 ```
 
-If the file doesn't exist, the project doesn't track cost — skip Step 4.
+If no JSONL is found, use the date alone in the handoff title; the marker
+step just skips.
 
 ## Step 3: Write the session handoff note
 
@@ -81,31 +83,7 @@ mkdir -p refs
 - <anything unusual the next session needs to know>
 ```
 
-## Step 4 (optional): Compute orchestrator cost
-
-If the project has `refs/cost-tracking.md` (legacy:
-`.claude/plans/cost-tracking.md` — migrate via `git mv` on first
-touch), log this session's tokens via the global `/cost-tracking`
-skill's compute script:
-
-```bash
-if [ -f refs/cost-tracking.md ]; then
-  ROW=$(python3 ~/.claude/skills/cost-tracking/compute-cost.py --format row)
-  echo "$ROW"
-  # Then append $ROW to the "Orchestrator consumption (per-session)" table
-  # in refs/cost-tracking.md (just above the running-total line).
-fi
-```
-
-The script auto-discovers the session JSONL via cwd slug, filters out
-subagent sidechains (those have their own per-bead rows from
-task-notification `<usage>` blocks), applies pricing, and emits a
-single markdown-table row. See [`/cost-tracking`](../cost-tracking/SKILL.md)
-for full options (`--model`, `--format`, etc.).
-
-After appending the row, update the running-total row below it.
-
-## Step 5: Clear markers and commit
+## Step 4: Clear markers and commit
 
 ```bash
 rm -f .offboard-pending
@@ -119,10 +97,8 @@ SESSION_ID=$(basename "$(ls -t "$HOME/.claude/projects/${PROJECT_SLUG}/"*.jsonl 
 [ -n "$SESSION_ID" ] && echo "$SESSION_ID" > .claude/last-offboard-session
 
 git add refs/session-handoff.md
-[ -f refs/cost-tracking.md ] && git add refs/cost-tracking.md
-
 git commit -m "$(cat <<'EOF'
-:dollar: cost: log orchestrator session <session-id-short>
+:card_file_box: offboard: handoff note (<session-id-short>)
 
 <one-line summary of what shipped this session>
 
@@ -131,15 +107,11 @@ EOF
 git push
 ```
 
-Use `:card_file_box:` instead of `:dollar:` if cost-tracking isn't part
-of this project — the commit is just the handoff note.
-
-## Step 6: Brief the user
+## Step 5: Brief the user
 
 One short paragraph:
 
 - What shipped this session (1–2 bullets)
-- Token cost (if computed) and running total
 - What `/onboard` should pick up on next time
 
 This is the last orchestrator action before context compaction or
@@ -147,19 +119,11 @@ session close.
 
 ## Edge cases
 
-- **Session JSONL missing** — skip cost computation; still write the
-  handoff note and clear markers. Cost can be reconstructed later from
-  the JSONL if it appears.
+- **Session JSONL missing** — use the date alone in the handoff title and
+  skip the `.claude/last-offboard-session` marker; still write the note
+  and clear markers.
 - **Multiple sessions in one day** — each gets its own handoff note,
   overwriting the prior one. The git history preserves the chain.
-- **Compute-cost script errors** — fall back to a `jq` token-total:
-
-  ```bash
-  jq -s '[.[] | select(.isSidechain != true) | .message.usage // empty]
-         | map((.input_tokens // 0) + (.output_tokens // 0) +
-               (.cache_creation_input_tokens // 0) +
-               (.cache_read_input_tokens // 0)) | add' "$SESSION_JSONL"
-  ```
 
 ## Don't skip
 
@@ -171,7 +135,7 @@ action" is honest and useful — better than no note at all.
 `session-end.sh` (the `SessionEnd` hook) drops a `.offboard-pending`
 file at the repo root when a session ends **without** `/offboard`
 having run — detected primarily by `.claude/last-offboard-session`
-matching the ending session's id (Step 5 writes it), with
+matching the ending session's id (Step 4 writes it), with
 HEAD-committed-the-handoff-note as fallback. The next session's
 `/onboard` Step 0 finds the marker, runs `/offboard` retroactively,
 then clears it.

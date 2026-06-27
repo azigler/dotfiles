@@ -43,12 +43,6 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 **Prereqs/side-effects:** `br close` BEFORE commit; stage specific files only; push (except worktrees); Co-Authored-By trailer comes from the harness, never hardcoded.
 **Anti-pattern:** Batching multiple beads into one commit; copying a model name from examples into the trailer.
 
-### /cost-tracking
-**Job:** Per-session inference-only cost ledger from session JSONL (sidechains filtered).
-**Fire when:** User asks about spend; auto via /offboard if refs/cost-tracking.md exists (legacy .claude/plans path honored).
-**Prereqs/side-effects:** Bootstrap ledger once; rows appended by /offboard; verify the script's rate table covers the model actually run.
-**Anti-pattern:** Trusting totals priced with a stale per-model rate table; counting cache infra in the headline cost.
-
 ### /dispatch
 **Job:** Canonical subagent prompt template (bead ID, merge target, wave position, verification gates).
 **Fire when:** Before every worktree-subagent dispatch; skip for built-in read-only types.

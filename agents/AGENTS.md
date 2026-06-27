@@ -23,7 +23,7 @@ session's work leans on. (Replaced the read-every-body mandate
 2026-06-09 — that cost ~80k tokens/session, not the "few thousand"
 it claimed.)
 
-At session end run `/offboard` — handoff note, optional cost log, commit.
+At session end run `/offboard` — handoff note, commit.
 
 ## Effort — the intelligence dial (pick it consciously)
 
@@ -167,7 +167,7 @@ full body; descriptions below are just the prompt-toolkit summary.
 
 **Workflow / orchestration:**
 - `/onboard` — session entry: state discovery, routing
-- `/offboard` — session exit: handoff note, optional cost log
+- `/offboard` — session exit: handoff note, commit
 - `/orchestrator` — worktree-subagent dispatch pattern
 - `/dispatch` — canonical subagent prompt template (use before each dispatch)
 - `/spec` — formal specification (bead-typed `spec`)
@@ -188,7 +188,6 @@ full body; descriptions below are just the prompt-toolkit summary.
 - `/commit` — gitmoji conventions + bead trailer (autonomous-OK)
 - `/lint` — code quality policy + linter reference
 - `/bd-to-br-migration` — convert old bd-style docs
-- `/cost-tracking` — per-session token-cost ledger (compute script + ledger template); `/offboard` auto-appends rows when the ledger exists
 
 **Infra / tools:**
 - `/nginx` — global reverse proxy (auto-loads on `**/nginx.conf`, `**/sites-available/**`, `**/ops/nginx/**`)
@@ -235,8 +234,8 @@ Project-scoped skill sets (e.g. LinearB-internal skills under
 
 - **`refs/`** at project root — active reference material the agent
   loads to do its work (API guides, research papers, design briefs),
-  plus **session artifacts**: `refs/session-handoff.md` (written by
-  `/offboard`) and `refs/cost-tracking.md` (opt-in ledger). Plural
+  plus the **session artifact** `refs/session-handoff.md` (written by
+  `/offboard`). Plural
   form. Lives at the **project root**, not under `.claude/` — visible
   to git/IDE/coworkers and consistent fleet-wide. (Note: permission
   treatment is identical for both locations per Claude Code docs,
@@ -255,7 +254,7 @@ Project-scoped skill sets (e.g. LinearB-internal skills under
 - **`.claude/refs/`**, **`.claude/ref/`**, **`.claude/plans/`**,
   root-level `PLAN.md` are all **deprecated** — beads cover plans /
   decisions / notes (typed); `refs/` covers reference material AND
-  session artifacts (handoff note, cost ledger — migrated out of
+  the session handoff note (migrated out of
   `.claude/plans/` 2026-06-09); `specs/` covers legacy file-based
   specs only.
 

@@ -57,10 +57,6 @@ If FIRST_SESSION:
    - **beads** — task tracking. `br init` creates `.beads/` so the
      orchestrator + subagents have a shared task store.
      [/beads](../beads/SKILL.md)
-   - **cost-tracking** — per-session token-cost ledger.
-     `cp ~/.claude/skills/cost-tracking/reference/ledger-template.md refs/cost-tracking.md`
-     then `/offboard` will auto-log each session.
-     [/cost-tracking](../cost-tracking/SKILL.md)
 
    Then choose a starting move:
 
@@ -74,10 +70,9 @@ If FIRST_SESSION:
    What's the goal for this project?
    ```
 
-4. **Don't auto-run** any of `br init`, the cost-tracking copy, or
-   `/init` — ASK the user which they want. They may want all three,
-   none, or a subset depending on the project's nature (research,
-   personal site, infra, throwaway prototype, etc.).
+4. **Don't auto-run** `br init` or `/init` — ASK the user which they
+   want. They may want both, neither, or one depending on the project's
+   nature (research, personal site, infra, throwaway prototype, etc.).
 
 Otherwise (the normal case), continue to Step 1.
 
@@ -216,8 +211,6 @@ Before routing, verify nothing is blocking:
 2. **Prior branch unmerged?** → resolve before starting dependent work
 3. **Dirty git state?** → clean it up first (commit or stash)
 4. **In-progress beads from a prior session?** → resume or close them
-5. **`.cost-pending` from a subagent stop?** → run that project's
-   cost-tracking skill (if any) to clear it
 
 If blockers exist, surface them to the user before proceeding.
 
@@ -266,14 +259,7 @@ offboard retroactively.
 
 ## Project-specific extensions
 
-Some projects extend `/onboard` with their own steps (cost-tracking
-ledgers, custom registries, etc.). Look for:
-
-- `refs/cost-tracking.md` (legacy: `.claude/plans/cost-tracking.md`) —
-  if present, the project tracks per-session token cost. `/offboard`
-  updates it.
-- `refs/models-manifest.md` (legacy: `.claude/plans/models-manifest.md`)
-  — model pricing reference for cost-tracking computations.
-
-If those files don't exist, skip those steps. The core onboard /
-offboard cycle works without them.
+Some projects extend `/onboard` with their own steps (custom registries,
+project-specific state files). Check the project's CLAUDE.md for any
+onboarding extensions; if none, the core onboard / offboard cycle is all
+that's needed.

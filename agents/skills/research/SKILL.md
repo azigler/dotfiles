@@ -176,18 +176,7 @@ yourself based on the framing):
 1. **What's the arc goal?** ("Pick a substrate for X" / "Find a fix
    for Y" / "Understand the lay of the land for Z" — capture it
    verbatim if they said it; reframe in your own words if not.)
-2. **Cost-tracking?** If the arc is going to span more than ~1 hour of
-   compute, ask: "Want cost-tracking on this? Adds a ledger row per
-   session via /offboard." If yes, fire `/cost-tracking` setup:
-   ```bash
-   cp ~/.claude/skills/cost-tracking/reference/ledger-template.md \
-      refs/cost-tracking.md
-   git add refs/cost-tracking.md
-   git commit -m ":dollar: cost: bootstrap cost-tracking ledger for /research arc"
-   ```
-   Then `/offboard` auto-appends a row each session. See the
-   [/cost-tracking skill](../cost-tracking/SKILL.md) for full details.
-3. **Autonomous or interactive mode?** If autonomous: confirm wakeup
+2. **Autonomous or interactive mode?** If autonomous: confirm wakeup
    cadence (default 30 min via ScheduleWakeup) and notification
    tolerance ("push for material findings, silence for routine
    progress" is the default).
