@@ -56,6 +56,16 @@ plugin). List them one-per-line in `<skills>/.native-manifest` and the clean
 step preserves them — distribute overlays the paragon set around them
 without clobbering.
 
+## Excluding personal-only skills from team destinations
+
+Some paragon skills are Andrew's personal harness (pulse, cfp, talk,
+zig-voice, gamma, nginx, orchestrator, …) and should NOT ship to teammates.
+List them one-per-line in **`agents/skills/.distribute-exclude`** (in the
+dotfiles SOURCE; `#` comments allowed). After copying the paragon set, the
+script removes those skills from the distributed copy — they stay in Andrew's
+local `~/.claude/skills/`, the team gets the curated subset. Applies in both
+plugin and tree modes. The exclude file itself is never shipped.
+
 ## Private-reference blocks (stripped on distribute)
 
 Skill content that only makes sense on this machine — pointers to

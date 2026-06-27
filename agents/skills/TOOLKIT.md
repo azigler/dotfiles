@@ -58,7 +58,7 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 ### /distribute
 **Job:** Mirror the dotfiles paragon skill set to the team. DEFAULT = plugin mode → the lb-marketing plugin marketplace (`~/linearb/plugins/linearb-marketing/skills`, served over MCP). `--tree` = legacy coworker-`.claude/` layout.
 **Fire when:** After editing any paragon skill (so the team's MCP plugin stays current).
-**Prereqs/side-effects:** Runs zig-computer.distribute.sh; plugin mode copies ONLY skills (no hooks/CLAUDE.md/settings), preserves `skills/.native-manifest` natives, strips private blocks; ship via the marketplace PR flow (CI validates manifests) + bump plugin.json version.
+**Prereqs/side-effects:** Runs zig-computer.distribute.sh; plugin mode copies ONLY skills (no hooks/CLAUDE.md/settings), preserves `skills/.native-manifest` natives, removes `.distribute-exclude` personal-only skills (pulse/cfp/talk/…), strips private blocks; ship via the marketplace PR flow (CI validates manifests) + bump plugin.json version.
 **Anti-pattern:** Pushing skill syncs straight to plugins `main` (CONTRIBUTING mandates a PR); adding destination-specific overrides to dotfiles paragons; running from a subagent worktree.
 
 ### /elevate

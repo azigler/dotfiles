@@ -1,0 +1,35 @@
+# Personal-only paragon skills — NOT distributed to team destinations.
+# Andrew keeps all of these locally (~/.claude/skills is symlinked to this
+# dir); the exclude only applies at /distribute time (plugin + tree modes).
+# One skill name per line; # comments allowed. Keep in sync with the team
+# subset shipped to the lb-marketing/plugins marketplace.
+#
+# Dropped 2026-06-27 (prune-to-team-subset, Andrew's call):
+
+# Andrew's personal automation / voice
+pulse
+cfp
+talk
+zig-voice
+ssot
+elevate
+research
+
+# Cost- / API- / infra-gated (per-machine secrets, deducts credits)
+gamma
+openrouter
+nginx
+cost-tracking
+
+# Meta-tooling teammates don't run themselves
+distribute
+explore
+
+# Worktree-subagent delegation apparatus (Zig-specific orchestration)
+orchestrator
+dispatch
+handoff
+
+# Andrew's orchestrator-session digest (lists the full local set, not the
+# team subset) — not a team-plugin artifact
+TOOLKIT.md

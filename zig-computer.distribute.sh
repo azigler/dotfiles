@@ -159,6 +159,22 @@ if [ -n "$NATIVE_TMP" ]; then
   run "cp -R '$NATIVE_TMP/.' '$DEST_SKILLS_DIR/'"
   run "rm -rf '$NATIVE_TMP'"
 fi
+# Personal-only skills: NOT for team destinations. Listed one-per-line in
+# the SOURCE at agents/skills/.distribute-exclude. Removed from the
+# distributed copy after the paragon copy — Andrew keeps all of them
+# locally (his ~/.claude/skills is the source), the team gets the subset.
+EXCLUDE_LIST="$SRC/agents/skills/.distribute-exclude"
+if [ -f "$EXCLUDE_LIST" ]; then
+  note "      removing personal-only skills (.distribute-exclude):"
+  while IFS= read -r excl; do
+    case "$excl" in ''|'#'*) continue;; esac
+    if [ -e "$DEST_SKILLS_DIR/$excl" ]; then
+      note "        - $excl"
+      run "rm -rf '$DEST_SKILLS_DIR/$excl'"
+    fi
+  done < "$EXCLUDE_LIST"
+fi
+run "rm -f '$DEST_SKILLS_DIR/.distribute-exclude'"
 # Strip private-reference blocks from the DISTRIBUTED copies only —
 # pointers to machine-local files (~/linearb/refs/..., personal paths)
 # that a teammate's clone can't resolve. Convention: everything between
