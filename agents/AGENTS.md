@@ -23,6 +23,10 @@ session's work leans on. (Replaced the read-every-body mandate
 2026-06-09 — that cost ~80k tokens/session, not the "few thousand"
 it claimed.)
 
+For infra / ports / deploy / networking work, also read `agents/infra.md` — the
+machine baseline (hostname, public IP, tailnet peers, nginx vhosts, free ports,
+installed runtimes, secrets, and sibling projects that consume shared keys).
+
 At session end run `/offboard` — handoff note, commit.
 
 ## Effort — the intelligence dial (pick it consciously)
@@ -169,6 +173,7 @@ full body; descriptions below are just the prompt-toolkit summary.
 - `/onboard` — session entry: state discovery, routing
 - `/offboard` — session exit: handoff note, commit
 - `/orchestrator` — worktree-subagent dispatch pattern
+- `/daemon` — bootstrap a daemon+agent hybrid project (thin LLM-free ingress + the agent harness); the hevyd shape — refs templates, the 4 decision forks, go-live sequence
 - `/dispatch` — canonical subagent prompt template (use before each dispatch)
 - `/spec` — formal specification (bead-typed `spec`)
 - `/check` — walk OQs / cross-spec conflicts / dependencies (NOT the built-in `/review`)

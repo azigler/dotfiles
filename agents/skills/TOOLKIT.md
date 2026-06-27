@@ -43,6 +43,12 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 **Prereqs/side-effects:** `br close` BEFORE commit; stage specific files only; push (except worktrees); Co-Authored-By trailer comes from the harness, never hardcoded.
 **Anti-pattern:** Batching multiple beads into one commit; copying a model name from examples into the trailer.
 
+### /daemon
+**Job:** Bootstrap a daemon+agent hybrid — a thin, LLM-free ingress (webhook/poller/sensor) + the Claude Code harness holding all intelligence. Scaffolds the refs set, the 4 decision forks, the bead roadmap, the go-live sequence.
+**Fire when:** First-session scaffold for "an always-on capture/trigger thing + an agent on top" (the hevyd shape).
+**Prereqs/side-effects:** Creates refs/ + CLAUDE.md + beads (`br init`); templates in reference/templates/; default stack Go pure-static + SQLite(WAL) + DuckDB analytics lens; pairs with `agents/infra.md`.
+**Anti-pattern:** Putting the LLM in the daemon's hot path; matching the store to data-SIZE not workload-SHAPE; skipping the live premise-check + topology discovery before designing.
+
 ### /dispatch
 **Job:** Canonical subagent prompt template (bead ID, merge target, wave position, verification gates).
 **Fire when:** Before every worktree-subagent dispatch; skip for built-in read-only types.
