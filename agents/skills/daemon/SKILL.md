@@ -125,7 +125,12 @@ close the bead with the verdict recorded, clean up the worktree.
 ## Go-live sequence (what gates the human step)
 
 1. Daemon built + running (systemd user unit, `EnvironmentFile` for secrets,
-   `Restart=always`, non-privileged port).
+   `Restart=always`). **Bind a high fixed port — the 10000–32767 band:** above the
+   dev/service cluster (3000/5000/8000/8080/9000…), below the Linux ephemeral floor
+   (32768; `/proc/sys/net/ipv4/ip_local_port_range`). It lives behind nginx, so the
+   number is internal/arbitrary — pick high + uncommon so the daemon never collides
+   with a dev loop or an outbound ephemeral allocation. **Never a dev-default like
+   8080/3000** (that's what every ad-hoc loop grabs).
 2. nginx vhost `<name>` → `127.0.0.1:<port>` + certbot TLS, reloaded & reachable.
 3. **Only then** the human points the upstream at `https://<name>/<path>` (+ any
    auth header/secret). Don't repoint earlier — events would 404-and-retry.

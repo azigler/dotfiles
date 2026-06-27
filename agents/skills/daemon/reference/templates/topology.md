@@ -20,7 +20,10 @@ should be co-located with the agent harness even if prod usually runs elsewhere,
 because the daemon IS part of the harness. Name the deviation; track as a bead.>
 
 ## Ports
-In use: <list>. **Free for the daemon: `<port>`.**
+In use: <list>. **Daemon fixed port: `<port>` — pick high (10000–32767 band):
+above dev/service defaults (3000/8000/8080/9000…), below the OS ephemeral floor
+(`cat /proc/sys/net/ipv4/ip_local_port_range`). Behind nginx, so it's
+internal/arbitrary; never a dev-default. Verify free with `ss -tlnH`.**
 
 ## nginx plan (not yet built)
 `<name>.conf`: server_name `<name>`, certbot TLS, `location /<path> { proxy_pass

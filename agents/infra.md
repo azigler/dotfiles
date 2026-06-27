@@ -31,7 +31,11 @@ reload. Use the `/nginx` skill.
 
 ## Ports
 In use (public): 22, 80, 443, 7575 (reef). Localhost-only: 7100, 7102, 8642, 53.
-hevyd daemon: 8080. Pick a free high port for new daemons; verify with `ss -tlnH`.
+hevyd daemon: **14389**. Fixed daemon ports belong in the **10000–32767 band** —
+above the dev/service cluster (3000/5000/8000/8080/9000…), below the Linux
+ephemeral floor (32768; `/proc/sys/net/ipv4/ip_local_port_range`). They sit behind
+nginx, so the number is internal — pick high + uncommon so a daemon never collides
+with a dev loop or an outbound ephemeral allocation; verify free with `ss -tlnH`.
 
 ## Installed runtimes (verify versions with `--version`)
 node 22, bun 1.3, python3 3.13 + uv, go (1.25 toolchain), cargo 1.96,
