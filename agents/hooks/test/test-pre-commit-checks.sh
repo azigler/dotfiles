@@ -128,6 +128,55 @@ run_case "allow: unrelated command" 0 \
 run_case "allow: trailer-less commit outside a beads repo" 0 \
   '{"tool_input":{"command":"git commit -m \":sparkles: x: y\""},"cwd":"/tmp"}'
 
+# --- pulse-ledger 'done' proof gate (dotfiles-aek) ---
+# A git repo (no .beads, so the trailer gate stays out of the way) with a
+# committed ledger that already holds a legacy proofless `done` line — which
+# must NOT be re-validated (only NEW lines vs HEAD are checked).
+PROOFREPO=$(mktemp -d)
+git -C "$PROOFREPO" init -q
+git -C "$PROOFREPO" config user.email t@t; git -C "$PROOFREPO" config user.name t
+mkdir "$PROOFREPO/refs"
+printf '%s\n' '{"ts":"2026-01-01T00:00:00Z","row":"r","outcome":"done","note":"legacy no proof"}' > "$PROOFREPO/refs/pulse-ledger.jsonl"
+echo "deliverable" > "$PROOFREPO/refs/real.md"
+git -C "$PROOFREPO" add refs/pulse-ledger.jsonl refs/real.md
+git -C "$PROOFREPO" commit -qm seed
+PROOF_CMD='{"tool_input":{"command":"git commit refs/pulse-ledger.jsonl -m \":card_file_box: tick\""},"cwd":"/tmp"}'
+
+# helper: append a ledger line, run the hook from PROOFREPO, reset the ledger
+proof_case() {
+  local name=$1 want_exit=$2 line=$3 want_stderr=${4:-}
+  printf '%s\n' "$line" >> "$PROOFREPO/refs/pulse-ledger.jsonl"
+  run_case_in "$PROOFREPO" "$name" "$want_exit" "$PROOF_CMD" "$want_stderr"
+  git -C "$PROOFREPO" checkout -q refs/pulse-ledger.jsonl
+}
+
+# 13. done with NO proof → BLOCK
+proof_case "block: done without proof" 2 \
+  '{"ts":"2026-06-28T01:00:00Z","row":"r","outcome":"done","note":"x"}' \
+  "no verifiable proof token"
+# 14. done with valid artifact proof → ALLOW
+proof_case "allow: done with valid artifact proof" 0 \
+  '{"ts":"2026-06-28T02:00:00Z","row":"r","outcome":"done","proof":{"kind":"artifact","path":"refs/real.md"},"note":"x"}'
+# 15. done with bogus artifact path → BLOCK
+proof_case "block: done with missing artifact" 2 \
+  '{"ts":"2026-06-28T03:00:00Z","row":"r","outcome":"done","proof":{"kind":"artifact","path":"refs/nope.md"},"note":"x"}' \
+  "proof artifact missing"
+# 16. done with cmd proof that passes → ALLOW (the hook re-runs it)
+proof_case "allow: done with passing cmd proof" 0 \
+  '{"ts":"2026-06-28T04:00:00Z","row":"r","outcome":"done","proof":{"kind":"cmd","cmd":"test -e refs/real.md"},"note":"x"}'
+# 17. done with cmd proof that fails → BLOCK
+proof_case "block: done with failing cmd proof" 2 \
+  '{"ts":"2026-06-28T05:00:00Z","row":"r","outcome":"done","proof":{"kind":"cmd","cmd":"test -e refs/nope.md"},"note":"x"}' \
+  "proof cmd failed"
+# 18. quiet line with no proof → ALLOW (exempt)
+proof_case "allow: quiet line exempt from proof" 0 \
+  '{"ts":"2026-06-28T06:00:00Z","row":null,"outcome":"quiet","note":"x"}'
+# 19. a commit NOT touching a pulse-ledger is unaffected by the gate
+run_case_in "$PROOFREPO" "allow: non-ledger commit unaffected" 0 \
+  '{"tool_input":{"command":"git commit refs/real.md -m \":card_file_box: x\""},"cwd":"/tmp"}'
+
+rm -rf "$PROOFREPO"
+
 # --- Summary ---
 
 TOTAL=$((PASS + FAIL))

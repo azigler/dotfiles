@@ -106,6 +106,53 @@ if [ -n "$GIT_TOPLEVEL" ] && [ -e "$GIT_TOPLEVEL/.beads" ] && ! echo "$COMMAND" 
   fi
 fi
 
+# 2.5. pulse-ledger 'done' PROOF GATE (loop-engineering nodding-loop guard).
+#   A pulse tick is the generator AND writes its own outcome:"done" — that's
+#   the nodding loop (the doer grading its own homework). When a *pulse-ledger
+#   .jsonl is part of this commit, every NEW `done` line must carry a
+#   machine-verifiable `proof` token, and the proof must actually check out,
+#   or the commit is blocked. quiet/blocked entries are exempt (they claim no
+#   work); existing history (already in HEAD) is never re-validated. Proof
+#   kinds: artifact (file exists) | commit (sha resolves) | scrutinize (bead
+#   has SHIP) | cmd (hook RE-RUNS it, must exit 0 — the acting proof).
+if command -v jq &>/dev/null && [ -n "$GIT_TOPLEVEL" ]; then
+  LEDGERS=$(git -C "$GIT_TOPLEVEL" diff --cached --name-only --diff-filter=ACM 2>/dev/null | grep -E 'pulse-ledger\.jsonl$')
+  # commit-by-pathspec / chained-add cases: file may not be staged yet at PreToolUse
+  if [ -z "$LEDGERS" ] && echo "$COMMAND" | grep -q 'pulse-ledger\.jsonl'; then
+    LEDGERS=$(git -C "$GIT_TOPLEVEL" ls-files '*pulse-ledger.jsonl' 2>/dev/null)
+  fi
+  for L in $LEDGERS; do
+    while IFS= read -r line; do
+      [ -z "$line" ] && continue
+      echo "$line" | jq -e '.' &>/dev/null || continue        # skip non-JSON
+      [ "$(echo "$line" | jq -r '.outcome // empty')" = "done" ] || continue
+      KIND=$(echo "$line" | jq -r '.proof.kind // empty')
+      case "$KIND" in
+        artifact)
+          P=$(echo "$line" | jq -r '.proof.path // empty')
+          if [ -z "$P" ] || { [ ! -e "$GIT_TOPLEVEL/$P" ] && [ ! -e "$P" ]; }; then
+            echo "Blocked: pulse 'done' proof artifact missing: '$P' (in $L)." >&2; FAILED=1; fi ;;
+        commit)
+          S=$(echo "$line" | jq -r '.proof.sha // empty')
+          git -C "$GIT_TOPLEVEL" rev-parse --verify --quiet "${S}^{commit}" &>/dev/null || {
+            echo "Blocked: pulse 'done' proof commit unresolvable: '$S' (in $L)." >&2; FAILED=1; } ;;
+        scrutinize)
+          B=$(echo "$line" | jq -r '.proof.bead // empty')
+          if [ -z "$B" ] || ! { command -v br &>/dev/null && br show "$B" 2>/dev/null | grep -q 'SHIP'; }; then
+            echo "Blocked: pulse 'done' proof scrutinize verdict not SHIP for bead '$B' (in $L)." >&2; FAILED=1; fi ;;
+        cmd)
+          C=$(echo "$line" | jq -r '.proof.cmd // empty')
+          if [ -z "$C" ] || ! ( cd "$GIT_TOPLEVEL" && timeout 60 bash -c "$C" &>/dev/null ); then
+            echo "Blocked: pulse 'done' proof cmd failed or empty: '$C' (in $L)." >&2; FAILED=1; fi ;;
+        *)
+          echo "Blocked: pulse 'done' entry has no verifiable proof token (kind: artifact|commit|scrutinize|cmd). See /pulse step 4.5 — log blocked/quiet if you can't prove it. Offending entry in $L:" >&2
+          echo "  $(echo "$line" | jq -c '{ts,row,outcome,bead}' 2>/dev/null)" >&2
+          FAILED=1 ;;
+      esac
+    done < <(git -C "$GIT_TOPLEVEL" diff HEAD -- "$L" 2>/dev/null | grep '^+' | grep -v '^+++' | sed 's/^+//')
+  done
+fi
+
 # 3. Lint files headed into this commit: already-staged + chained-add.
 #    (FAST checks only — named-file scope, no full-project runs.)
 CANDIDATES=$(printf '%s\n%s\n' \

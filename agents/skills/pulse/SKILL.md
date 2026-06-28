@@ -47,9 +47,18 @@ caps, and priorities; ticks never edit the table themselves.
 Append one line per tick:
 
 ```json
-{"ts":"2026-06-16T09:00:12Z","row":"weekly-report","outcome":"done","bead":"wr-abc","note":"report drafted + pushed"}
+{"ts":"2026-06-16T09:00:12Z","row":"weekly-report","outcome":"done","bead":"wr-abc","proof":{"kind":"artifact","path":"reports/2026-06-16.md"},"note":"report drafted + pushed"}
 {"ts":"2026-06-17T09:00:09Z","row":null,"outcome":"quiet","note":"no row satisfied"}
 ```
+
+Every `done` line MUST carry a **`proof`** token — a machine-verifiable
+claim that the work actually landed, enforced at commit by
+`pre-commit-checks.sh` (a `done` line without a checkable proof is
+**blocked**; `quiet`/`blocked` are exempt). Four kinds (escalating):
+- `{"kind":"artifact","path":"<repo-rel path>"}` — the deliverable file exists.
+- `{"kind":"commit","sha":"<sha>"}` — a commit holding the work resolves.
+- `{"kind":"scrutinize","bead":"<id>"}` — the bead carries a `SHIP` verdict (code work).
+- `{"kind":"cmd","cmd":"<shell>"}` — the hook **re-runs** it; must exit 0 (the *acting* proof — a test, a grep, an assertion). Strongest; prefer it when cheap.
 
 `ts` is UTC (`date -u +%FT%TZ`). Caps count **only `outcome:"done"`**
 entries for the row in the current day/week — a blocked or quiet tick
@@ -109,11 +118,15 @@ the daily cap.)
      is green (re-run it), the artifact exists, the card/bead state
      actually changed — assert it, don't assume it.
    - for **substantive/code** work, the proof is the **/scrutinize**
-     verdict (an independent fresh-context reviewer) — that IS the
-     independent check; gate `done` on its SHIP.
-   - for **research/curation** ticks, the proof is the deliverable landing
-     (archive committed+pushed, report posted, card 📬'd).
-   If you cannot produce the proof, log `blocked` or `quiet`, not `done`.
+     verdict (an independent fresh-context reviewer) — gate `done` on its
+     SHIP and record `"proof":{"kind":"scrutinize","bead":"<id>"}`.
+   - for **research/curation** ticks, the proof is the deliverable landing:
+     `"proof":{"kind":"artifact","path":"<the FINDINGS/report file>"}` or a
+     `cmd` the hook can re-run.
+   **This is not advisory — it's enforced.** Write the `proof` token (see
+   the ledger spec above) on the `done` line; `pre-commit-checks.sh` blocks
+   a `done` commit whose proof doesn't verify. If you cannot produce a
+   real proof, log `blocked` or `quiet`, not `done`.
 5. **Wrap**: append the ledger entry (only `done` once 4.5's proof holds);
    write `refs/session-handoff.md` (/offboard Steps 3+5 — the handoff is
    per-tick; the session persists for the next tick, so don't exit/clear).
