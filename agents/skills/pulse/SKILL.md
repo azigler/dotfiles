@@ -100,9 +100,30 @@ the daily cap.)
    worktree subagents for code, /scrutinize gate on impl, commit AND
    push (always-push), exactly as an interactive session would. ONE
    row per tick, no matter how tempting the backlog looks.
-5. **Wrap**: append the ledger entry; write `refs/session-handoff.md`
-   (/offboard Steps 3+5 — the handoff is per-tick; the session itself
-   persists for the next tick, so don't exit or /clear).
+4.5. **Verify before you log `done` (don't self-declare).** A tick is the
+   generator AND, by default, the thing that writes its own
+   `outcome:"done"` — that is the **nodding loop** (Loop Engineering §VI):
+   the doer grading its own homework. Before writing `done`, produce a
+   **concrete, checkable proof**, not a self-report:
+   - the commit is actually pushed (`git log/status` confirms), the test
+     is green (re-run it), the artifact exists, the card/bead state
+     actually changed — assert it, don't assume it.
+   - for **substantive/code** work, the proof is the **/scrutinize**
+     verdict (an independent fresh-context reviewer) — that IS the
+     independent check; gate `done` on its SHIP.
+   - for **research/curation** ticks, the proof is the deliverable landing
+     (archive committed+pushed, report posted, card 📬'd).
+   If you cannot produce the proof, log `blocked` or `quiet`, not `done`.
+5. **Wrap**: append the ledger entry (only `done` once 4.5's proof holds);
+   write `refs/session-handoff.md` (/offboard Steps 3+5 — the handoff is
+   per-tick; the session persists for the next tick, so don't exit/clear).
+   **Structural review cadence:** every **5th** `done` tick for a row,
+   surface a lightweight review nudge to Andrew (a `human:` review bead +
+   push, or — interactive — an AskUserQuestion) listing the last 5 outputs
+   for him to sample. Human review is a *permanent* loop feature, not only
+   the blocked-tick exception (Loop Engineering §XI.C: "keep one door
+   open"). It keeps Andrew capable of saying "no" before comprehension rot
+   sets in.
 6. **End with a one-line state report** ("tick: weekly-report fired,
    wr-abc closed, pushed; next eligible rows: inbox").
 

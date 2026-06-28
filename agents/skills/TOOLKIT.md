@@ -161,7 +161,7 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 **Job:** One tick of a self-driving project — scheduled command lands in a durable tmux session, routes against refs/pulse.md, does at most ONE unit of work with full discipline, offboards, ends.
 **Fire when:** "/pulse tick" arrives (timer-injected or typed); "/pulse setup" to opt a project in; "/pulse status" to report. NEVER self-loop — the systemd timer is the loop.
 **Prereqs/side-effects:** refs/pulse.md routing table (Andrew's steering wheel — ticks never edit it); appends refs/pulse-ledger.jsonl; per-project systemd units from agents/scheduler/templates/.
-**Anti-pattern:** Blocking on AskUserQuestion in a tick — unstaffed sessions file a P1 `human:` bead + push notification and end the tick.
+**Anti-pattern:** Blocking on AskUserQuestion in a tick — unstaffed sessions file a P1 `human:` bead + push notification and end the tick. Also: self-declaring `outcome:"done"` without proof — step 4.5 gates `done` on a concrete check (commit pushed / test green / /scrutinize SHIP), else log blocked/quiet (the nodding loop). Structural review nudge every 5th done tick.
 
 ### /research
 **Job:** Autonomous layered research harness — parallel research subagents, empirical verification, independent scrutiny gate, fold to canon, layer next questions. Data-GENERATING items (benchmarks, scaled probes) additionally run reference/experiment-protocol.md: pre-registration, positive+negative calibration controls, blocking gates, raw-data provenance.
@@ -172,8 +172,8 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 ### /scrutinize
 **Job:** Adversarial read-only gate after an impl wave — disprove "done": stub bodies, mock-the-unit tests, unverified criteria, composition gaps.
 **Fire when:** After every impl-wave merge, before merge-to-main / bead close. Skip only for atomic mechanical changes.
-**Prereqs/side-effects:** Panel mode (default for substantial waves): saved workflow scrutinize-panel.workflow.mjs — 5 parallel hunt lenses + per-finding refuters. Single-agent mode for small waves (general-purpose/Explore, never worktree). Verdict SHIP / FIX-FIRST / REJECT recorded on the impl bead (hook-enforced for close).
-**Anti-pattern:** Skipping because the report looked clean — that's exactly when the gate earns its keep; inventing findings ("found nothing" is valid).
+**Prereqs/side-effects:** Panel mode (default for substantial waves): saved workflow scrutinize-panel.workflow.mjs — 5 parallel hunt lenses + per-finding refuters. Single-agent mode for small waves (general-purpose/Explore, never worktree). Verdict SHIP / FIX-FIRST / REJECT recorded on the impl bead (hook-enforced for close). For user-facing surfaces: EXECUTE & OBSERVE (run/Playwright-click/inspect real output), don't certify by reading. Structural separation (fresh agent) is the primary mechanism; different-model is a supplementary lever.
+**Anti-pattern:** Skipping because the report looked clean — that's exactly when the gate earns its keep; inventing findings ("found nothing" is valid). Certifying a user-facing change by reading code instead of running it.
 
 ### /spec
 **Job:** Formal specification as a typed `spec` BEAD (not a file) — Overview/Baseline/Changes/Formal Spec/Test Cases/OQs/Future in --description.

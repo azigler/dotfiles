@@ -74,6 +74,29 @@ moments** to Andrew rather than silently proceeding at `high`. Effort is a
 decision, not a default to forget. See `/elevate` for the max-effort
 fresh-eyes re-examination pattern.
 
+## The four loop costs (the silent debts a self-running loop accrues)
+
+Any loop that runs itself — `/pulse`, scheduled sweeps, the daemon fleet —
+accrues four costs that never trip an alarm and **reinforce each other**
+(Loop Engineering §VIII). Know them by name and which guard covers each:
+
+| Cost | What it is | Guard in the harness |
+|---|---|---|
+| **Verification debt** | unverified output piling up between "ran" and "right" | `/scrutinize` + the pulse `done`-gate (proof, not self-report) |
+| **Comprehension rot** | the loop ships faster than Andrew reads; his mental map lags | the **📬-not-complete** review pattern + the structural review cadence |
+| **Cognitive surrender** | "no time" → "no longer want to bother" → stop having an opinion | ⚠️ **the least-guarded** — see the ritual below |
+| **Token blowout** | an idle bug runs all night | pulse **caps** + the budget directive + the effort dial |
+
+**The cognitive-surrender guard (the one mechanism the harness lacked).**
+The defense the paper insists on is staying *capable of saying "no."*
+Practice: **periodically explain, in your own words, 2–3 recent loop
+outputs** — and surface that to Andrew, not just to yourself. If a loop
+output can't be explained, that's the signal the map has fallen behind, and
+it's far cheaper to find on a quiet morning than via a production incident.
+"Build the loop like someone who intends to stay the engineer." Keep one
+checkpoint where a human can still walk in — not because they always will,
+but because the door being open is what keeps the loop trustworthy.
+
 ## Surfacing to Andrew — AskUserQuestion, not trailing prose
 
 When you end a turn needing Andrew's input — a decision, feedback on a

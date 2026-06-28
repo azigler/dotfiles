@@ -75,6 +75,14 @@ worktree subagent. The reviewer writes nothing; it reads and reports.
 A fresh agent with no context from the impl wave is the point — it has
 no investment in the result.
 
+> The PRIMARY mechanism is this **structural separation** (a fresh agent,
+> no investment, skeptical-by-default) — not model choice. A **different
+> model** is a *supplementary* lever worth reaching for on high-stakes or
+> repeatedly-passed work (it breaks shared blind spots the same model
+> keeps); run it via a Workflow `agent(…, {model:'sonnet'|…})`. Don't
+> treat model-swap as the headline — fresh-context adversarial separation
+> is (Loop Engineering §V.B: model-swap "too helps," it isn't the core).
+
 Prompt skeleton:
 
 > You are an adversarial reviewer. Assume the implementation's
@@ -95,6 +103,14 @@ Prompt skeleton:
 >   box, find the proof. No proof = not done.
 > - **Unreproducible runtime claims** — if the handoff claims a runtime
 >   verification, re-run it. If you cannot, the claim is unverified.
+> - **Execute & observe (don't just read) for any user-facing surface** —
+>   for a web/CLI/output-producing change, do NOT certify by reading the
+>   code. RUN it: execute the command and inspect the real output, click
+>   the UI via Playwright MCP and screenshot/inspect the DOM, hit the
+>   endpoint. Judge "does it run right," not "does it look right." A
+>   reviewer that only reads is one self-persuasion step from the nodding
+>   loop (Loop Engineering §V.C). Reading-only is acceptable ONLY for
+>   pure-logic changes with no observable surface.
 > - **Missing error paths** — spec error cases with no handling.
 > - **Composition gaps** — for a user-facing surface, confirm every
 >   required component / subcommand / endpoint is actually wired into
