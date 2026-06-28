@@ -8,6 +8,15 @@ FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
 [ -z "$FILE_PATH" ] && exit 0
 [ ! -f "$FILE_PATH" ] && exit 0
 
+# Exempt throwaway / scratch paths from the style gate. One-off compute
+# scripts shouldn't be hard-blocked on non-auto-fixable style nits (e.g.
+# SIM115) mid-flow. Escape hatch: put throwaways under /tmp, a scratch/
+# sandbox dir, or name them *.scratch.<ext>. Real committed source still
+# gets the full gate.
+case "$FILE_PATH" in
+  /tmp/*|/var/tmp/*|*/scratch/*|*/.scratch/*|*/sandbox/*|*.scratch.*) exit 0 ;;
+esac
+
 case "$FILE_PATH" in
   *.js|*.ts|*.jsx|*.tsx|*.json|*.css)
     command -v biome &>/dev/null || exit 0

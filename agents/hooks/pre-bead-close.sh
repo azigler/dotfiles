@@ -60,7 +60,14 @@ command -v br &>/dev/null || exit 0
 # close reason false-positive blocked the close 3x).
 # The awk stops at the first flag PER `br close` segment, so chained
 # closes (`br close a -r "..." && br close b`) still lint every segment.
-BEAD_IDS=$(echo "$COMMAND" | grep -oE 'br close [^&;|]+' | sed 's/^br close //' \
+# Scrape `br close` IDs only from the part of the command BEFORE any
+# `git commit` — a commit message can legitimately contain the literal
+# text "br close <x>" (e.g. describing this very hook), and that prose
+# must not be mis-scraped as bead IDs (it false-blocked a commit whose
+# message described the && fix — caught live, dotfiles-ocy). Convention
+# is close-before-commit, so the real `br close` precedes `git commit`.
+SCAN="${COMMAND%%git commit*}"
+BEAD_IDS=$(echo "$SCAN" | grep -oE 'br close [^&;|]+' | sed 's/^br close //' \
   | awk '{for(i=1;i<=NF;i++){if($i ~ /^-/) break; print $i}}' \
   | grep -E '^[a-z0-9]+-[a-z0-9.]+$')
 
@@ -77,15 +84,28 @@ fi
 set +e
 FAILED=0
 for ID in $BEAD_IDS; do
-  # Lint gate: template sections must be present.
-  OUTPUT=$(br lint "$ID" 2>&1)
-  if [ $? -ne 0 ] && [ -n "$OUTPUT" ]; then
+  # The && trap: when the SAME command chains `br update <ID> --description
+  # /--acceptance-criteria/--design` before `br close <ID>`, the template is
+  # being set in this very command — but PreToolUse fires BEFORE the update
+  # runs, so `br lint` sees the pre-update state and false-blocks. Skip the
+  # lint gate for a bead whose template is set by a chained update here, so
+  # `br update X --description "...## Acceptance Criteria..." && br close X`
+  # works without splitting into two commands (dotfiles-90s clunk audit).
+  # Lint gate: template sections must be present — UNLESS a chained update
+  # in this same command is setting them (skip avoids the false-block).
+  if echo "$COMMAND" | grep -qE "br update +$ID[[:space:]].*(--description|--acceptance-criteria|--design)"; then
+    : # chained `br update <ID> --description/...` sets the template; skip lint
+  else
+    OUTPUT=$(br lint "$ID" 2>&1)
+    LINT_RC=$?
+    if [ $LINT_RC -ne 0 ] && [ -n "$OUTPUT" ]; then
     echo "Blocked: bead $ID has incomplete template sections." >&2
     echo "$OUTPUT" >&2
     echo "" >&2
     echo "Fix the bead via 'br update $ID --description ...' (or --acceptance-criteria, --design)" >&2
     echo "before closing. See /beads SKILL." >&2
     FAILED=1
+    fi
   fi
 
   # Scrutiny gate: an -t impl bead closes only after /scrutinize SHIPs.
