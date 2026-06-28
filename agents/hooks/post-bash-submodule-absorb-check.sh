@@ -26,9 +26,11 @@
 INPUT=$(cat 2>/dev/null || echo '{}')
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
 [ -z "$COMMAND" ] && exit 0
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/hook-helpers.sh" 2>/dev/null
+SKEL=$(command_skeleton "$COMMAND" 2>/dev/null); [ -z "$SKEL" ] && SKEL="$COMMAND"
 
 # Only fire on `git submodule add` operations
-if ! echo "$COMMAND" | grep -qE 'git[[:space:]]+submodule[[:space:]]+add\b'; then
+if ! echo "$SKEL" | grep -qE 'git[[:space:]]+submodule[[:space:]]+add\b'; then
   exit 0
 fi
 

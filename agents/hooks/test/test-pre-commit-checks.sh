@@ -128,6 +128,14 @@ run_case "allow: unrelated command" 0 \
 run_case "allow: trailer-less commit outside a beads repo" 0 \
   '{"tool_input":{"command":"git commit -m \":sparkles: x: y\""},"cwd":"/tmp"}'
 
+# --- command-skeleton: verbs inside quoted args are not real commands (dotfiles-anm) ---
+# A 'git commit' appearing inside a quoted argument/echo payload must NOT be
+# treated as a real commit (it would hit the trailer gate and false-block).
+# Run from BEADSREPO so the trailer gate is live: without the skeleton this
+# matches the commit-case and blocks; with it, it's not a commit → exit 0.
+run_case_in "$BEADSREPO" "allow: quoted 'git commit' in an arg is not a commit" 0 \
+  '{"tool_input":{"command":"echo \"remember to && git commit later\" | cat"},"cwd":"/tmp"}'
+
 # --- pulse-ledger 'done' proof gate (dotfiles-aek) ---
 # A git repo (no .beads, so the trailer gate stays out of the way) with a
 # committed ledger that already holds a legacy proofless `done` line — which

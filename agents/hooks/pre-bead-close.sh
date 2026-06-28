@@ -17,8 +17,15 @@
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
+# Match against the skeleton (quoted-arg contents blanked) so `br close`/
+# `br update` appearing inside a commit message, a -r reason, or a quoted
+# test payload is not mistaken for a real command (recurring false-block).
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/hook-helpers.sh" 2>/dev/null
+SKEL=$(command_skeleton "$COMMAND" 2>/dev/null)
+[ -z "$SKEL" ] && SKEL="$COMMAND"
+
 # --- 1. Worktree guard ---------------------------------------------------
-if echo "$COMMAND" | grep -qE '(^|[;&|[:space:]])br[[:space:]]+(close|update)([[:space:]]|$)'; then
+if echo "$SKEL" | grep -qE '(^|[;&|[:space:]])br[[:space:]]+(close|update)([[:space:]]|$)'; then
   JSON_CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
   if [ -n "$JSON_CWD" ]; then
     CWD=$(cd "$JSON_CWD" 2>/dev/null && pwd -P)
@@ -28,8 +35,8 @@ if echo "$COMMAND" | grep -qE '(^|[;&|[:space:]])br[[:space:]]+(close|update)([[
   fi
   case "$CWD" in
     */.claude/worktrees/agent-*)
-      if echo "$COMMAND" | grep -qE '(^|[;&|[:space:]])br[[:space:]]+close([[:space:]]|$)' \
-         || echo "$COMMAND" | grep -qE '(^|[;&|[:space:]])br[[:space:]]+update[[:space:]].*--status'; then
+      if echo "$SKEL" | grep -qE '(^|[;&|[:space:]])br[[:space:]]+close([[:space:]]|$)' \
+         || echo "$SKEL" | grep -qE '(^|[;&|[:space:]])br[[:space:]]+update[[:space:]].*--status'; then
         cat >&2 <<'EOF'
 Blocked: `br close` / `br update --status` from inside a worktree.
 
@@ -46,28 +53,19 @@ EOF
 fi
 
 # --- 2 + 3. br close: lint gate + scrutiny gate --------------------------
-case "$COMMAND" in
+case "$SKEL" in
   br\ close*|*"&& br close"*|*"; br close"*) ;;
   *) exit 0 ;;
 esac
 
 command -v br &>/dev/null || exit 0
 
-# Extract bead IDs from `br close <id> [<id> ...]`, stopping at the first
-# &&, ;, or | so chained commands don't leak in — AND at the first flag
-# (-r/--reason etc.), so hyphenated words or filenames inside the reason
-# string don't get scraped as bead IDs (dotfiles-c7j: "fleet-wide" in a
-# close reason false-positive blocked the close 3x).
-# The awk stops at the first flag PER `br close` segment, so chained
-# closes (`br close a -r "..." && br close b`) still lint every segment.
-# Scrape `br close` IDs only from the part of the command BEFORE any
-# `git commit` — a commit message can legitimately contain the literal
-# text "br close <x>" (e.g. describing this very hook), and that prose
-# must not be mis-scraped as bead IDs (it false-blocked a commit whose
-# message described the && fix — caught live, dotfiles-ocy). Convention
-# is close-before-commit, so the real `br close` precedes `git commit`.
-SCAN="${COMMAND%%git commit*}"
-BEAD_IDS=$(echo "$SCAN" | grep -oE 'br close [^&;|]+' | sed 's/^br close //' \
+# Extract bead IDs from `br close <id> [<id> ...]` off the SKELETON (quoted
+# args already blanked), stopping at the first &&/;/| (chained commands)
+# and the first flag (-r/--reason), so neither a reason string nor a
+# `br close <x>` inside a commit message is mis-scraped as a bead ID
+# (dotfiles-c7j "fleet-wide" + the live commit-message false-block).
+BEAD_IDS=$(echo "$SKEL" | grep -oE 'br close [^&;|]+' | sed 's/^br close //' \
   | awk '{for(i=1;i<=NF;i++){if($i ~ /^-/) break; print $i}}' \
   | grep -E '^[a-z0-9]+-[a-z0-9.]+$')
 
@@ -93,7 +91,7 @@ for ID in $BEAD_IDS; do
   # works without splitting into two commands (dotfiles-90s clunk audit).
   # Lint gate: template sections must be present — UNLESS a chained update
   # in this same command is setting them (skip avoids the false-block).
-  if echo "$COMMAND" | grep -qE "br update +$ID[[:space:]].*(--description|--acceptance-criteria|--design)"; then
+  if echo "$SKEL" | grep -qE "br update +$ID[[:space:]].*(--description|--acceptance-criteria|--design)"; then
     : # chained `br update <ID> --description/...` sets the template; skip lint
   else
     OUTPUT=$(br lint "$ID" 2>&1)

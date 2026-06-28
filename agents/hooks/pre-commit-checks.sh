@@ -25,8 +25,16 @@
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
+# Match command STRUCTURE against the skeleton (quoted-arg contents blanked)
+# so verbs inside commit messages / quoted payloads don't false-trigger.
+# Keep RAW $COMMAND only where we inspect argument CONTENT (the Bead: trailer
+# and the gitmoji, which live inside the -m message).
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/hook-helpers.sh" 2>/dev/null
+SKEL=$(command_skeleton "$COMMAND" 2>/dev/null)
+[ -z "$SKEL" ] && SKEL="$COMMAND"
+
 # Block overly-broad git add at ANY time, not just when chained with commit.
-if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])git add[[:space:]]+(-A([[:space:]]|$)|--all([[:space:]]|$)|\.([[:space:]]|$|[;&|]))'; then
+if echo "$SKEL" | grep -qE '(^|[[:space:];&|])git add[[:space:]]+(-A([[:space:]]|$)|--all([[:space:]]|$)|\.([[:space:]]|$|[;&|]))'; then
   echo "Blocked: use 'git add <specific-files>', never 'git add .', 'git add -A', or 'git add --all'." >&2
   echo "Reason: selective staging prevents accidentally committing secrets, WIP, or gitignored state." >&2
   exit 2
@@ -34,7 +42,7 @@ fi
 
 # Block `git push` from inside a worktree. Worktree subagents do not
 # push — the orchestrator merges the worktree branch and pushes.
-if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])git[[:space:]]+push([[:space:]]|$)'; then
+if echo "$SKEL" | grep -qE '(^|[[:space:];&|])git[[:space:]]+push([[:space:]]|$)'; then
   JSON_CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
   if [ -n "$JSON_CWD" ]; then
     CWD=$(cd "$JSON_CWD" 2>/dev/null && pwd -P)
@@ -58,7 +66,8 @@ EOF
 fi
 
 # Only intercept git commit commands for the rest of the checks below
-case "$COMMAND" in
+# (skeleton: a "git commit" inside a quoted arg/message is not a real commit)
+case "$SKEL" in
   git\ commit*|*"&& git commit"*|*"; git commit"*) ;;
   *) exit 0 ;;
 esac
@@ -67,8 +76,8 @@ esac
 # the lint step below can check them directly. Do NOT run the add —
 # PreToolUse must stay side-effect-free on user state.
 ADD_FILES=""
-if echo "$COMMAND" | grep -qE 'git add .+(&&|;)'; then
-  ADD_CMD=$(echo "$COMMAND" | grep -oE 'git add [^&;]+' | head -1)
+if echo "$SKEL" | grep -qE 'git add .+(&&|;)'; then
+  ADD_CMD=$(echo "$SKEL" | grep -oE 'git add [^&;]+' | head -1)
   ADD_FILES=$(echo "$ADD_CMD" | sed 's/^git add //' | tr ' ' '\n' | grep -v '^-' | grep -v '^$')
 fi
 
@@ -118,7 +127,7 @@ fi
 if command -v jq &>/dev/null && [ -n "$GIT_TOPLEVEL" ]; then
   LEDGERS=$(git -C "$GIT_TOPLEVEL" diff --cached --name-only --diff-filter=ACM 2>/dev/null | grep -E 'pulse-ledger\.jsonl$')
   # commit-by-pathspec / chained-add cases: file may not be staged yet at PreToolUse
-  if [ -z "$LEDGERS" ] && echo "$COMMAND" | grep -q 'pulse-ledger\.jsonl'; then
+  if [ -z "$LEDGERS" ] && echo "$SKEL" | grep -q 'pulse-ledger\.jsonl'; then
     LEDGERS=$(git -C "$GIT_TOPLEVEL" ls-files '*pulse-ledger.jsonl' 2>/dev/null)
   fi
   for L in $LEDGERS; do

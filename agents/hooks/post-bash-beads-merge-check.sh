@@ -21,12 +21,14 @@
 INPUT=$(cat 2>/dev/null || echo '{}')
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
 [ -z "$COMMAND" ] && exit 0
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/hook-helpers.sh" 2>/dev/null
+SKEL=$(command_skeleton "$COMMAND" 2>/dev/null); [ -z "$SKEL" ] && SKEL="$COMMAND"
 
 # Only fire on merge-ish operations: git merge / pull / rebase /
 # cherry-pick, gh pr merge. `merge(\s|$|[^-])` deliberately excludes
 # `git merge-base` (read-only ancestry check, fires constantly in the
 # orchestrator merge flow).
-if ! echo "$COMMAND" | grep -qE '(git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+(merge([[:space:]]|$)|pull([[:space:]]|$)|rebase([[:space:]]|$)|cherry-pick([[:space:]]|$))|gh[[:space:]]+pr[[:space:]]+merge)'; then
+if ! echo "$SKEL" | grep -qE '(git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+(merge([[:space:]]|$)|pull([[:space:]]|$)|rebase([[:space:]]|$)|cherry-pick([[:space:]]|$))|gh[[:space:]]+pr[[:space:]]+merge)'; then
   exit 0
 fi
 

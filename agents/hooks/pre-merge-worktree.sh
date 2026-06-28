@@ -7,12 +7,14 @@
 
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/hook-helpers.sh" 2>/dev/null
+SKEL=$(command_skeleton "$COMMAND" 2>/dev/null); [ -z "$SKEL" ] && SKEL="$COMMAND"
 
 # Only intercept git merge of worktree-agent-* branches
-echo "$COMMAND" | grep -qE 'git merge[[:space:]]+worktree-agent-' || exit 0
+echo "$SKEL" | grep -qE 'git merge[[:space:]]+worktree-agent-' || exit 0
 
 # Extract the worktree branch name
-BRANCH=$(echo "$COMMAND" | grep -oE 'worktree-agent-[a-zA-Z0-9_-]+' | head -1)
+BRANCH=$(echo "$SKEL" | grep -oE 'worktree-agent-[a-zA-Z0-9_-]+' | head -1)
 [ -z "$BRANCH" ] && exit 0
 
 # Verify the branch exists locally
