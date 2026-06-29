@@ -36,6 +36,33 @@ It is the **generative twin of `/scrutinize`**:
    original conclusions framed as settled. Divergent lenses (2+ different
    angles) beat one.
 
+## Where to apply the upside — bias to what Andrew works on now (by recency)
+
+`/elevate` hunts upside so it can be *acted on*. Point that upside at the
+projects Andrew actually cares about **now** — and decide which those are
+**empirically, by recency**, never from a frozen list that rots (the
+"empirical over aspirational" rule, applied to the harness itself).
+
+**Each run, re-derive the active set from timestamps** — recent git activity
+and file mtimes across `~/`, `~/explore`, `~/linearb`, and `~/explore/aaif`.
+As of 2026-06-29 the hot arcs are: **LinearB** (content / GEO /
+Dev-Interrupted thought-leadership — his job), **`~/explore/aaif`** (the
+monthly AGENTS.md / public-agents Ambassador cadence), **the harness itself**
+(`~/.claude` + `~/dotfiles` — pulse / elevate / scrutinize / beads), and
+whatever in `~/explore` he has touched in the last week or two. Prefer a
+*concrete move in one of these* over an abstract one.
+
+**The mud / golem / local-coding-models / Hermes-local arc is TABLED
+(2026-06-29).** Do **not** frame opportunities as integrating findings into
+it, advancing it, or "when the arc resumes" work. When a finding's natural
+home is that arc, do one of three things instead: **(a) lift it to a general
+harness move** (the orchestrator's own memory / loops, not the golem's),
+**(b) apply it to an active arc** (LinearB, AAIF, a `~/` project, the
+harness), or **(c) drop it and say so**. The golem/MUD stays a useful
+*source* of evidence (incidents, prototypes) to reason *from* — just never the
+*destination* the work lands in. A finding that can only land in the tabled
+arc is not an opportunity. (Re-read when the tabling lifts.)
+
 ## Mode A — targeted elevate (`/elevate <target>`)
 
 Re-examine one thing: an exploration folder, a project, a finding, a
