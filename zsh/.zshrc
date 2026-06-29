@@ -78,5 +78,5 @@ case ":$PATH:" in
 esac
 # pnpm end
 
-# Hermes Agent — ensure ~/.local/bin is on PATH
+# ensure ~/.local/bin is on PATH (user tools: mlx, the hermes CLI, etc.)
 export PATH="$HOME/.local/bin:$PATH"
