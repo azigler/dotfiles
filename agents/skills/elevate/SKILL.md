@@ -69,8 +69,21 @@ The compendium-wide opportunity-finder. Fires on `pulse-elevate.timer`
    opportunity, prefix the title `elevate:`), in the explore umbrella's
    `.beads/`. **Do NOT put them on Asana** — beads are the durable store;
    Asana is for the Vibes research queue, not elevate output.
-5. Append a one-line record to the explore handoff/ledger and commit +
-   push the beads.
+5. **Write the opportunities back into the FINDINGS files** (the brain, not
+   just the bead store). For each exploration the sweep examined, append (or
+   refresh) a section in its `FINDINGS.md`:
+   ```
+   ## Novel opportunities (elevate sweep YYYY-MM-DD)
+   - <opportunity> — <harness move> — <effort> — <risk>
+   ```
+   This is the BACKFILL mechanism: the ~40 pre-2026-06-29 explorations were
+   created before `Novel opportunities` was a required `/explore` section, so
+   the sweep completes them over time, cross-cuttingly (one section per file
+   it touches), rather than a one-shot per-folder blast (which is the weaker,
+   non-remixing mode). Don't rewrite existing content — append the dated
+   section; multiple sweeps stack dated sections so the history is legible.
+6. Append a one-line record to the explore handoff/ledger and commit +
+   push the beads AND the touched FINDINGS files.
 
 The sweep is autonomous (scheduled): it never blocks on AskUserQuestion —
 it notifies + files beads + ends, exactly like a `/pulse` tick.

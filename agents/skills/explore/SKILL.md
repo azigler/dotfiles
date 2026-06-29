@@ -205,9 +205,9 @@ Use the canonical section headers in [reference/report-template.md](reference/re
 == What each is ==        (per-source detail)
 == Pattern across them == (cross-cuts)
 == Yes/no answer ==        (if user asked a specific question)
-== Models/projects u missed ==
+== Models/projects you missed ==
 == Related explorations ==  (REQUIRED in archival mode — the Step 3.5 siblings + the connection)
-== What u should learn ==
+== What you should learn ==
 == Novel opportunities ==   (REQUIRED in archival mode — the max-effort ideation output, see Effort §)
 == Possible social-post angles ==
 == Sources ==
