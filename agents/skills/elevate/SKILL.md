@@ -75,6 +75,39 @@ The compendium-wide opportunity-finder. Fires on `pulse-elevate.timer`
 The sweep is autonomous (scheduled): it never blocks on AskUserQuestion —
 it notifies + files beads + ends, exactly like a `/pulse` tick.
 
+## The loop seam — opportunities re-enter the research queue
+
+The point of the explore+elevate double loop is that it's a LOOP: explore
+compresses sources into the brain, elevate (and explore's own `Novel
+opportunities` pass) extracts "you should build/explore X" — and those Xs
+should become FUTURE explorations, not just beads that gather dust. The
+audit (2026-06-28, `explore-doj`) found the seam open: opportunities landed
+in beads but never returned to the Vibes queue, so the two loops ran
+parallel and never fed each other.
+
+Closing it (the seam):
+
+1. **Always file the bead** (as today — typed `note`/`task`, prefix
+   `elevate:`). The bead is the durable record.
+2. **Mark genuine "go research/build this" opportunities as Vibes
+   candidates.** Add a `📌 candidate Vibes card: <crisp card title>` line to
+   the bead so it's a one-step promotion, not a re-derivation.
+3. **Promotion is HUMAN-GATED — never auto-write the Vibes board.**
+   - In an **interactive** session, offer (AskUserQuestion) to add the card,
+     then add it on a yes.
+   - In the **autonomous sweep**, do NOT create cards — list the candidates
+     in the push notification ("3 candidate Vibes cards: …") and let Andrew
+     promote. Auto-spawning research cards from a scheduled loop is exactly
+     the token-blowout / comprehension-rot debt the four loop costs warn
+     about; the steering wheel stays in Andrew's hands.
+   - Mechanical note: the fleet proxy has **no section-add route**, so a
+     card can't be dropped straight into the Vibes section programmatically
+     anyway — promotion goes through Andrew (or a future proxy route). Until
+     then, the candidate list in the notification IS the promotion UI.
+
+This makes the loop close without ceding the queue: opportunities surface,
+Andrew chooses which become the next explorations, and the brain compounds.
+
 ## Anti-patterns
 
 - ❌ **Running it at baseline effort** — the entire value is the `max` lift;

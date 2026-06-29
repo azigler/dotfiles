@@ -201,6 +201,18 @@ Every housekeeping pass should end with a documentation and memory audit:
 - **Missing memories** -- anything learned this session worth persisting?
 - **MEMORY.md index** -- does it match the actual files?
 
+### `~/explore/INDEX.md` (explore umbrella only)
+The theme-clustered concept-map of the compendium (the connective tissue
+the flat `CLAUDE.md` children table lacks; audit `explore-doj`). When
+housekeeping runs in `~/explore`:
+- **New explorations** -- is every folder/submodule in INDEX.md, in the
+  right cluster? (cross-check against the CLAUDE.md children table.)
+- **Cross-cluster connections** -- still accurate after new additions?
+- **Biggest-unconnected-opportunities** -- regenerate; these seed the
+  next `/elevate` sweep. Stale-but-still-valid clusters are fine to keep.
+- Regenerate by re-reading `*/FINDINGS.md` essences; verify relative links
+  resolve (`grep -oE '\]\([^)]+\)' INDEX.md` then test each path).
+
 Audit each, fix what's stale, and commit as a final `:memo:` commit in the pass.
 
 ## 9. Fleet-Wide Hygiene Pass

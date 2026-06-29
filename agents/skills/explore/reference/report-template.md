@@ -48,6 +48,17 @@ adjacent N more that belong in the picture. Name them, link them,
 say briefly why each belongs. This is /explore's signature value-add
 — it's the section that proves u went past the brief.]
 
+== Related explorations ==
+
+[REQUIRED in archival mode (the Step 3.5 output). The prior
+~/explore/<sibling>/ explorations this topic connects to. One bullet
+each: the sibling (relative link in the FINDINGS.md copy) + the
+CONNECTION in one line — agrees / extends / contradicts / remixes.
+This is the connective tissue; "see also" with no stated connection
+does NOT count. If the grep genuinely found no siblings, say so
+explicitly ("no adjacent prior explorations — this opens a new
+cluster") rather than omitting the section.]
+
 == What u should learn ==
 
 [Numbered, 4-7 takeaways tied to the user's broader work — their
@@ -55,6 +66,16 @@ harness, their content lineage, their LinkedIn cadence, their LinearB
 context, their research interests. Be specific about applicability:
 "u can map this to /grok writing -t note beads", not "this is
 relevant to ur work".]
+
+== Novel opportunities ==
+
+[REQUIRED in archival mode. The max-effort ideation output (see
+/explore Effort §: a fresh Workflow agent at effort:'max', unpolluted
+by the convergent writeup). Each opportunity: the non-obvious idea /
+connection, the concrete harness move it implies, rough effort
+(weekend/week/month/research-arc), and the main risk / reason-not-to.
+This is where the loop EXTRACTS opportunity instead of just cataloguing
+"what is this." Historically skipped 100% of the time — do not skip it.]
 
 == Possible social-post angles ==
 
@@ -77,6 +98,9 @@ Adjacent / additional:
 [Background / infrastructure if relevant:]
 - url
 - ...
+
+[Archival mode only — the final line:]
+Archived: ~/explore/<topic>/ (FINDINGS.md)
 ```
 
 ## Tone in the report

@@ -65,13 +65,13 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 **Job:** Max-effort, fresh-eyes re-examination of FINISHED work — the generative twin of /scrutinize (hunts MISSED opportunity, not what's WRONG). Targeted (one project/exploration) or sweep (biweekly compendium-wide, pulse-elevate.timer).
 **Fire when:** A baseline-effort pass under-thought something; "elevate X" / "fresh eyes on max"; or the biweekly sweep fires.
 **Prereqs/side-effects:** Runs subagents at effort:'max' via **Workflow** (bare Agent has no effort param). Sweep → push-notify + beads (prefix `elevate:`), NOT Asana.
-**Anti-pattern:** Running it at baseline effort, or reusing the original/anchored agent — defeats the whole point. Correctness review is /scrutinize, not this.
+**Anti-pattern:** Running it at baseline effort, or reusing the original/anchored agent — defeats the whole point. Correctness review is /scrutinize, not this. Closes the loop seam: opportunities become `📌 candidate Vibes card` lines on beads → HUMAN-GATED promotion (interactive: offer + add; autonomous sweep: list in the push, never auto-write the board — proxy has no section-add route anyway).
 
 ### /explore
 **Job:** Multi-source URL research → structured plaintext report into an Asana task; archival (~/explore/<topic>/) or publishing (Zig-voice post + SSoT image) shapes.
 **Fire when:** Explicit-invoke; user hands over URLs + an Asana destination.
 **Prereqs/side-effects:** Asana task GID; plaintext-only notes field; POST /update (PUT returns 405).
-**Anti-pattern:** HTML in Asana fields; abstract image subjects (force specificity via SSoT).
+**Anti-pattern:** HTML in Asana fields; abstract image subjects (force specificity via SSoT). Archival mode: skipping Step 3.5 (consult the compendium — INDEX.md + grep prior FINDINGS) or omitting the now-REQUIRED `Related explorations` + `Novel opportunities` sections — the two that make the double loop compound (both were skipped historically; audit explore-doj). End the Asana report with the `Archived: ~/explore/<topic>/` back-pointer.
 
 ### /fix
 **Job:** Fix-and-guard — typed `bug` bead, subagent fixes it, regression test makes it un-regressable.
@@ -107,7 +107,7 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 **Job:** Fleet-wide mechanical hygiene — doc refresh, cross-repo state audit, CLAUDE.md/skill consistency, bead closure, lint fixes.
 **Fire when:** Weekly ritual or pre-release; pairs with /triage.
 **Prereqs/side-effects:** Dependency-check before deletions; deprecation markers; also re-verify/prune version-stamped harness-behavior claims older than ~6 weeks.
-**Anti-pattern:** Deleting code without grepping for importers; doing design work under the housekeeping banner (mechanical-only).
+**Anti-pattern:** Deleting code without grepping for importers; doing design work under the housekeeping banner (mechanical-only). In ~/explore, regenerate `INDEX.md` (the theme-clustered concept-map) as part of the doc-refresh — new explorations placed in clusters, cross-cluster connections + unconnected-opportunities refreshed (seeds the next /elevate sweep).
 
 ### /impeccable
 **Job:** Frontend craft library — 7 design foundations + 14 refinement operations for production-grade interfaces.
