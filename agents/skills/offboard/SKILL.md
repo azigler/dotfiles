@@ -50,16 +50,30 @@ step just skips.
 
 ## Step 3: Write the session handoff note
 
-Write `refs/session-handoff.md` (overwrite, don't append — it's
-a snapshot, not a log; history lives in git). Session artifacts live
-in `refs/` at the project root (standardized 2026-06-09). If the
-project still has a legacy `.claude/plans/session-handoff.md`, migrate
-it first — one-time, then this note lives in refs/:
+Write the handoff note (overwrite, don't append — it's a snapshot, not a
+log; history lives in git). Session artifacts live in `refs/` at the
+project root (standardized 2026-06-09).
+
+**Per-window scoping (multi-session projects).** A project that runs more
+than one durable session — the pulse model: e.g. `~/explore` has a pulse
+window AND an elevate window — opts in via `refs/.handoff-per-window`, and
+the note is then `refs/session-handoff--<window>.md` so the parallel
+sessions don't clobber each other's resume doc. Single-session projects
+keep plain `refs/session-handoff.md`. The shared `handoff-path.sh` helper
+resolves the right path (keyed by the tmux window name); always go through
+it, never hardcode the filename:
 
 ```bash
 mkdir -p refs
-[ -f .claude/plans/session-handoff.md ] && git mv .claude/plans/session-handoff.md refs/session-handoff.md
+_HP="$HOME/dotfiles/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
+type handoff_path >/dev/null 2>&1 || handoff_path() { printf '%s/refs/session-handoff.md' "${1:-.}"; }
+HANDOFF=$(handoff_path .)            # refs/session-handoff.md  OR  refs/session-handoff--<window>.md
+# one-time legacy migration (pre-2026-06-09 location):
+[ -f .claude/plans/session-handoff.md ] && git mv .claude/plans/session-handoff.md "$HANDOFF"
+echo "handoff -> $HANDOFF"
 ```
+
+Write the markdown below to `$HANDOFF`:
 
 ```markdown
 # Session handoff — YYYY-MM-DD <session-id-short>
@@ -86,17 +100,24 @@ mkdir -p refs
 ## Step 4: Clear markers and commit
 
 ```bash
-rm -f .offboard-pending
+# Markers are window-scoped too (handoff-path.sh), so two durable sessions
+# in one project don't trip each other's safety net. Falls back to legacy
+# single-file when not opted in / not in tmux. (Both markers are gitignored.)
+_HP="$HOME/dotfiles/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
+type handoff_path          >/dev/null 2>&1 || handoff_path()          { printf '%s/refs/session-handoff.md' "${1:-.}"; }
+type offboard_pending_path >/dev/null 2>&1 || offboard_pending_path() { printf '%s/.offboard-pending' "${1:-.}"; }
+type last_offboard_path    >/dev/null 2>&1 || last_offboard_path()    { printf '%s/.claude/last-offboard-session' "${1:-.}"; }
+HANDOFF=$(handoff_path .)
+rm -f "$(offboard_pending_path .)"
 
 # Record this session as offboarded — session-end.sh compares this to
-# its own session_id and skips dropping .offboard-pending on a match.
-# (Both files are in the global gitignore.)
+# its own session_id and skips dropping the pending marker on a match.
 mkdir -p .claude
 PROJECT_SLUG=$(pwd | sed 's|/|-|g')
 SESSION_ID=$(basename "$(ls -t "$HOME/.claude/projects/${PROJECT_SLUG}/"*.jsonl 2>/dev/null | head -1)" .jsonl)
-[ -n "$SESSION_ID" ] && echo "$SESSION_ID" > .claude/last-offboard-session
+[ -n "$SESSION_ID" ] && echo "$SESSION_ID" > "$(last_offboard_path .)"
 
-git add refs/session-handoff.md
+git add "$HANDOFF"
 git commit -m "$(cat <<'EOF'
 :card_file_box: offboard: handoff note (<session-id-short>)
 

@@ -14,11 +14,18 @@ Together they bracket every orchestrator session.
 
 ## Step 0: Honor any pending offboard
 
-Before doing anything else, check for the offboard-pending marker:
+Before doing anything else, check for the offboard-pending marker. In a
+multi-session project (`refs/.handoff-per-window` present) the marker is
+window-scoped via `handoff-path.sh` so each session honors only its OWN
+pending marker; the check honors the scoped marker AND a legacy one (for the
+transition / non-opted-in projects):
 
 ```bash
-if [ -f .offboard-pending ]; then
-  echo "Prior session ended without /offboard — running it retroactively first."
+_HP="$HOME/dotfiles/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
+type offboard_pending_path >/dev/null 2>&1 || offboard_pending_path() { printf '%s/.offboard-pending' "${1:-.}"; }
+PENDING=$(offboard_pending_path .)
+if [ -f "$PENDING" ] || [ -f .offboard-pending ]; then
+  echo "Prior session ended without /offboard — running it retroactively first ($PENDING)."
   # Stop and run /offboard with the prior session's ID, then come back.
 fi
 ```
@@ -84,9 +91,18 @@ continuing:
 1. **`CLAUDE.md`** at the repo root — project definition, file layout,
    conventions, architecture decisions
 2. **`MEMORY.md`** if present — user preferences, operational lessons
-3. **`refs/session-handoff.md`** (legacy: `.claude/plans/session-handoff.md`
-   — migrate via `git mv` on first touch) if present — the prior
-   session's handoff note. Pick up from where we left off
+3. **The session handoff note** — the prior session's resume doc; pick up
+   from where we left off. Resolve the path through `handoff-path.sh`
+   (window-scoped in a multi-session project, else `refs/session-handoff.md`;
+   legacy `.claude/plans/session-handoff.md` migrates via `git mv` on first
+   touch). `handoff_read_path` prefers this session's window-scoped note and
+   falls back to the legacy single file:
+
+   ```bash
+   _HP="$HOME/dotfiles/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
+   type handoff_read_path >/dev/null 2>&1 || handoff_read_path() { printf '%s/refs/session-handoff.md' "${1:-.}"; }
+   HANDOFF=$(handoff_read_path .); echo "handoff <- $HANDOFF"; [ -f "$HANDOFF" ] && cat "$HANDOFF"
+   ```
 
 ## Step 2: Load the toolkit digest — in the main session
 

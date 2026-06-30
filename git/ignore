@@ -1,3 +1,5 @@
 **/.claude/settings.local.json
 .offboard-pending
+.offboard-pending--*
 .claude/last-offboard-session
+.claude/last-offboard-session--*

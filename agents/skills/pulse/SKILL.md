@@ -128,8 +128,14 @@ the daily cap.)
    a `done` commit whose proof doesn't verify. If you cannot produce a
    real proof, log `blocked` or `quiet`, not `done`.
 5. **Wrap**: append the ledger entry (only `done` once 4.5's proof holds);
-   write `refs/session-handoff.md` (/offboard Steps 3+5 — the handoff is
-   per-tick; the session persists for the next tick, so don't exit/clear).
+   write the handoff note (/offboard Steps 3+5 — the handoff is per-tick; the
+   session persists for the next tick, so don't exit/clear). Resolve the path
+   via `handoff-path.sh` (`handoff_path "$PULSE_DIR"`), NOT a hardcoded
+   `refs/session-handoff.md`: a pulse project that also runs another durable
+   session (e.g. `~/explore` has the pulse window AND the elevate window) opts
+   in with `refs/.handoff-per-window`, and the handoff is then
+   `refs/session-handoff--<window>.md` so the two sessions don't clobber each
+   other's resume doc. Anchor it to `$PULSE_DIR`, like the ledger.
    **Structural review cadence:** every **5th** `done` tick for a row,
    surface a lightweight review nudge to Andrew (a `human:` review bead +
    push, or — interactive — an AskUserQuestion) listing the last 5 outputs
