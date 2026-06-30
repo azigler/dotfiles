@@ -97,6 +97,24 @@ it's far cheaper to find on a quiet morning than via a production incident.
 checkpoint where a human can still walk in — not because they always will,
 but because the door being open is what keeps the loop trustworthy.
 
+## Don't blanket-suppress stderr
+
+`2>/dev/null` on a command whose **output or errors you need to read** hides
+real failures: a broken query/command then reads as an *empty result* ("no
+data") instead of the error it actually was. (Bit hevyd twice in one session —
+a wrong-column query and a reserved-word alias both errored silently and read
+as "no data," which became false claims to Andrew.) Instead:
+
+- **Filter the specific known-noise line, keep the rest:**
+  `cmd 2> >(grep -vF 'KNOWN NOISE' >&2)` — keeps stdout, exit code, *and* real
+  errors. Quick form when you're just reading: `cmd 2>&1 | grep -vF 'KNOWN NOISE'`.
+- **`2>/dev/null` is still fine for pure existence / best-effort checks** where
+  only the exit code matters: `command -v x 2>/dev/null`,
+  `tmux has-session 2>/dev/null`.
+- **Debug habit:** when a command returns empty or surprising output, **re-run
+  with stderr visible before concluding** — empty is very often a swallowed
+  error, not absent data.
+
 ## Surfacing to Andrew — AskUserQuestion, not trailing prose
 
 When you end a turn needing Andrew's input — a decision, feedback on a
