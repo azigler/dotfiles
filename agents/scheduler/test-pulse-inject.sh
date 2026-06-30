@@ -84,6 +84,24 @@ else
   bad "/pulse cmd gets absolute dir appended"
 fi
 
+# 6. Modal-safety guard: a window blocked on Andrew (🔔, set by the status
+#    hook on AskUserQuestion / permission prompts) must NOT receive the
+#    command — injecting would feed the modal dialog and the Enter would
+#    mis-answer it. The window is still FOUND (lexicon-aware), just not
+#    injected into. (Case 3 proves a NON-🔔 glyph 🌀 still injects, so this
+#    confirms the guard is 🔔-specific, not a blanket "any prefix" skip.)
+"$TMUX_BIN" rename-window -t "$PANE" "🔔 pulse"
+"$INJECT" --session "$SESSION" --window pulse --dir "$DIR" --launch cat --cmd "should-not-appear-tick-6" >/dev/null 2>&1
+sleep 1
+if "$TMUX_BIN" capture-pane -p -t "$PANE" 2>/dev/null | grep -q "should-not-appear-tick-6"; then
+  bad "injection skipped when window is 🔔 (blocked on Andrew)"
+else
+  ok
+fi
+# …and the window was not duplicated by the deferred run.
+WIN_COUNT6=$("$TMUX_BIN" list-windows -t "=$SESSION" -F '#{window_name}' | sed -E 's/^(🧠|✅|🔔|🌀) ?//' | grep -cx "pulse")
+if [ "$WIN_COUNT6" -eq 1 ]; then ok; else bad "no duplicate window on deferred 🔔 run (count=$WIN_COUNT6)"; fi
+
 # --- Summary ---
 TOTAL=$((PASS + FAIL))
 if [ "$FAIL" -eq 0 ]; then

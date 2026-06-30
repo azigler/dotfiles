@@ -138,6 +138,25 @@ if [ "$CURRENT_CMD" != "$LAUNCH_BASE" ]; then
   fi
 fi
 
+# 3.5 Modal-safety guard. Do NOT inject into a window that's blocked on
+#    Andrew. The tmux-status hook prefixes "🔔 " when the session is
+#    waiting on an AskUserQuestion / ExitPlanMode / permission prompt
+#    (PreToolUse + permission Notification), and clears it only when work
+#    resumes (PostToolUse -> 🧠 / Stop -> ✅) — so "🔔 " is present for
+#    exactly the blocked-modal duration. send-keys here would feed the
+#    command into the MODAL DIALOG (not the message composer): the text is
+#    eaten and the trailing Enter resolves the dialog with the wrong/default
+#    answer — losing the tick AND mis-answering Andrew's open question. The
+#    text is NOT queued (queuing only happens at the composer). So defer:
+#    log and exit 0; the next timer retries once Andrew has answered. This
+#    is 🔔-specific — 🧠 (mid-turn, the composer cleanly queues), ✅, 🌀, and
+#    a bare/fresh window all still inject.
+WIN_NAME=$("$TMUX_BIN" display-message -p -t "$PANE" '#{window_name}' 2>/dev/null)
+if [ "$WIN_NAME" != "${WIN_NAME#🔔}" ]; then
+  note "deferred: window '$WIN_NAME' is blocked on Andrew (🔔) — not injecting '$CMD'; next timer retries"
+  exit 0
+fi
+
 # 4. Inject the command. Text first, Enter separately — some TUIs
 #    mis-handle a combined burst.
 "$TMUX_BIN" send-keys -t "$PANE" -- "$CMD"
