@@ -58,14 +58,64 @@ the average — the opposite of what exploration is for.
   research agents through Workflow `effort:'xhigh'`).
 - **Add a divergent `max`-effort ideation pass.** Beyond cataloguing "what
   is this," every archival exploration gets a fresh, **max**-effort
-  brainstorm — *"what's the novel opportunity here, the non-obvious
-  connection to Andrew's work, the thing worth building?"* — as a Workflow
-  `agent(…, {effort:'max'})`, ideally a fresh unpolluted agent so it isn't
-  anchored to the convergent writeup. Fold its best ideas into FINDINGS
-  under a "Novel opportunities" heading. This is where the exhaustive
-  upfront brainstorm Andrew wants actually lives — don't skip it for
-  researchable topics. (For re-examining ALREADY-finished explorations,
-  use `/elevate`.)
+  brainstorm — *"what's the novel opportunity here — the non-obvious
+  connection to an arc Andrew works on now, the thing worth building, OR
+  simply why this is genuinely interesting on its own terms?"* — as a
+  Workflow `agent(…, {effort:'max'})`, ideally a fresh unpolluted agent so
+  it isn't anchored to the convergent writeup. Fold its best ideas into
+  FINDINGS under a "Novel opportunities" heading. This is where the
+  exhaustive upfront brainstorm Andrew wants actually lives — don't skip it
+  for researchable topics. **Where that upside should land (and the freedom
+  to let it land nowhere) is governed by the next section — read it before
+  prompting the ideation agent.** (For re-examining ALREADY-finished
+  explorations, use `/elevate`.)
+
+## Where the opportunity should land — active arcs, intrinsic interest, the tabled arc
+
+The `Novel opportunities` pass exists so findings can be *acted on* — but two
+failure modes rot it, and both were live in mid-2026: (1) it kept aiming
+opportunities at a project Andrew has **moved on from**, and (2) it assumed
+every finding **must** tie back to something on this machine at all. This
+section fixes both. It mirrors the same steer in `/elevate` ("Where to apply
+the upside"); keep the two in sync.
+
+**1. Bias the actionable upside to what Andrew works on NOW — decided by
+recency, not a frozen list.** Each run, re-derive the active set empirically
+from timestamps — recent git activity + file mtimes across `~/`, `~/explore`,
+`~/linearb`, `~/explore/aaif`. As of 2026-06-29 the hot arcs are **LinearB**
+(content / GEO / Dev-Interrupted — his job), **`~/explore/aaif`** (the monthly
+Ambassador cadence), **the harness itself** (`~/.claude` + `~/dotfiles` —
+pulse / elevate / scrutinize / beads / memory), and whatever in `~/explore` he
+has touched in the last week or two. Prefer a concrete move in one of these
+over an abstract one. (This is the "empirical over aspirational" rule applied
+to the harness itself — don't trust this paragraph's dated list over a live
+`ls -lt` / `git log`.)
+
+**2. The mud / golem / local-coding-models / Hermes-local arc is TABLED
+(2026-06-29).** Do **not** frame opportunities as integrating findings into it,
+advancing it, or "when the arc resumes" work. The golem/MUD stays a useful
+**source** of evidence (incidents, prototypes, a testbed to reason *from*) —
+just never the **destination** the work lands in. When a finding's natural home
+is that arc, do one of three things: **(a)** lift it to a *general* harness move
+(the orchestrator's own memory / loops, not the golem's), **(b)** aim it at an
+active arc, or **(c)** drop it and say so. A finding that can only land in the
+tabled arc is not an opportunity. (Re-read when the tabling lifts.)
+
+**3. "Interesting for its own sake" is a valid verdict.** An exploration does
+**not** have to cash out in a harness build. If a topic is cool, beautiful,
+clarifying, or just worth understanding on its own terms, say *that* — a
+`Novel opportunities` section may legitimately read "no build here; the value
+is comprehension" plus one or two genuinely-curious threads. **Do not
+manufacture a strained tie-back** to LinearB / the harness / a `~/` project to
+justify the writeup — a forced connection is worse than an honest "this is here
+because it's interesting." Comprehension is the deliverable (see
+`~/explore/CLAUDE.md`); the opportunity harvest is a bonus, not a tax.
+
+The net: connect to the brain's *siblings* always (Step 3.5 / `Related
+explorations` — that's intra-compendium and always on), but connect to
+Andrew's *active machine work* only when it's real, aimed at a live arc, and
+never at the tabled one — and feel free to let an exploration simply be
+interesting.
 
 ## Archival mode — the umbrella-folder pattern
 

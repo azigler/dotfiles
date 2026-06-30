@@ -72,10 +72,17 @@ relevant to your work".]
 [REQUIRED in archival mode. The max-effort ideation output (see
 /explore Effort §: a fresh Workflow agent at effort:'max', unpolluted
 by the convergent writeup). Each opportunity: the non-obvious idea /
-connection, the concrete harness move it implies, rough effort
+connection, the concrete move it implies, rough effort
 (weekend/week/month/research-arc), and the main risk / reason-not-to.
 This is where the loop EXTRACTS opportunity instead of just cataloguing
-"what is this." Historically skipped 100% of the time — do not skip it.]
+"what is this." Historically skipped 100% of the time — do not skip it.
+AIM the actionable upside per the "Where the opportunity should land"
+section: at an ACTIVE arc (LinearB / AAIF / the harness / a recently-
+touched ~/explore folder, decided by recency), as a GENERAL harness move,
+or NOT AT ALL — the mud/golem/local-coding-models/Hermes-local arc is
+TABLED (a source to reason from, never a destination). And "interesting
+for its own sake — no build here, the value is comprehension" is a valid,
+honest entry; never manufacture a strained tie-back to justify the run.]
 
 == Possible social-post angles ==
 

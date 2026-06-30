@@ -63,6 +63,14 @@ harness), or **(c) drop it and say so**. The golem/MUD stays a useful
 *destination* the work lands in. A finding that can only land in the tabled
 arc is not an opportunity. (Re-read when the tabling lifts.)
 
+**"Interesting for its own sake" is a valid verdict.** Upside does not have to
+cash out in a build. If the re-examined work is valuable simply because it's
+clarifying, beautiful, or worth understanding on its own terms, say *that* —
+and **do not manufacture a strained tie-back** to LinearB / the harness / a
+`~/` project to justify it. A forced connection is worse than an honest "this
+stands on its own." (Mirrors `/explore`'s "Where the opportunity should land"
+§3; keep the two in sync.)
+
 ## Mode A — targeted elevate (`/elevate <target>`)
 
 Re-examine one thing: an exploration folder, a project, a finding, a
