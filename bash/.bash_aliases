@@ -134,3 +134,38 @@ fi
 # Fallback to bare hostname if tailscale isn't installed or the lookup fails.
 alias ssh-zig='ssh ubuntu@$(tailscale ip -4 zig-computer 2>/dev/null || echo zig-computer)'
 alias ssh-pico='ssh pico@$(tailscale ip -4 pico 2>/dev/null || echo pico)'
+
+# --- Claude Code <-> agentgateway routing toggle (the kill switch) ---
+# Routes Claude Code through the pico agentgateway o11y/gov plane, or back to
+# direct-to-Anthropic. Claude Code reads ANTHROPIC_BASE_URL at LAUNCH, so RESTART
+# your CC session after toggling for it to take effect.
+#   cc-gw     -> route CC through the pico gateway (observe/govern the traffic)
+#   cc-direct -> restore direct-to-Anthropic (KILL SWITCH: use if pico/gateway is down)
+#   cc-route  -> show current routing without changing it
+# Each toggle prints the resulting settings.json .env block to prove the change.
+CC_SETTINGS="$HOME/.claude/settings.json"
+CC_GW_URL="http://100.72.47.4:17017/claude"
+
+cc-gw ()
+{
+	[ -f "$CC_SETTINGS" ] || echo '{}' > "$CC_SETTINGS"
+	local tmp; tmp=$(mktemp)
+	jq --arg u "$CC_GW_URL" '.env = ((.env // {}) + {ANTHROPIC_BASE_URL: $u})' "$CC_SETTINGS" > "$tmp" && mv "$tmp" "$CC_SETTINGS"
+	echo "→ Claude Code routed through pico agentgateway ($CC_GW_URL). RESTART CC to apply."
+	jq '.env' "$CC_SETTINGS"
+}
+
+cc-direct ()
+{
+	[ -f "$CC_SETTINGS" ] || { echo "no $CC_SETTINGS — already direct"; return; }
+	local tmp; tmp=$(mktemp)
+	jq 'del(.env.ANTHROPIC_BASE_URL)' "$CC_SETTINGS" > "$tmp" && mv "$tmp" "$CC_SETTINGS"
+	echo "→ Claude Code restored to direct-to-Anthropic (kill switch). RESTART CC to apply."
+	jq '.env' "$CC_SETTINGS"
+}
+
+cc-route ()
+{
+	jq -r '.env.ANTHROPIC_BASE_URL // "direct (no ANTHROPIC_BASE_URL set)"' "$CC_SETTINGS" 2>/dev/null \
+		| sed 's/^/Claude Code routing: /'
+}
