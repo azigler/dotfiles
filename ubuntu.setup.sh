@@ -82,6 +82,11 @@ if [ "$(hostname -s)" != "zig-computer" ]; then
     uv tool install ruff
     curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b "$HOME/.local/bin"
 
+    # --- agentgateway (AI-native gateway) + agctl CLI ---
+    curl -fsSL -o "$HOME/.local/bin/agentgateway" https://github.com/agentgateway/agentgateway/releases/latest/download/agentgateway-linux-amd64
+    curl -fsSL -o "$HOME/.local/bin/agctl" https://github.com/agentgateway/agentgateway/releases/latest/download/agctl-linux-amd64
+    chmod +x "$HOME/.local/bin/agentgateway" "$HOME/.local/bin/agctl"
+
     exec sudo --login --user $USER
 
     nix --extra-experimental-features nix-command --extra-experimental-features flakes profile add 'nixpkgs#nix-direnv'
