@@ -137,37 +137,68 @@ alias ssh-pico='ssh pico@$(tailscale ip -4 pico 2>/dev/null || echo pico)'
 
 # --- Claude Code <-> agentgateway routing toggle (the kill switch) ---
 # Routes Claude Code through the pico agentgateway o11y/gov plane, or back to
-# direct-to-Anthropic. Claude Code reads ANTHROPIC_BASE_URL at LAUNCH, so RESTART
-# your CC session after toggling for it to take effect.
-#   cc-gw     -> route CC through the pico gateway (observe/govern the traffic)
-#   cc-direct -> restore direct-to-Anthropic (KILL SWITCH: use if pico/gateway is down)
-#   cc-route  -> show current routing without changing it
-# Each toggle prints the resulting settings.json .env block to prove the change.
+# direct-to-Anthropic. This is a TRUE toggle: it swaps BOTH the LLM base URL AND
+# the gateway's omni MCP server, so on-gateway CC presents its scoped virtual key
+# (and gets its governed tools) while off-gateway leaves no dangling MCP entry.
+# CC reads both at LAUNCH, so RESTART your CC session after toggling to apply.
+#   cc-gw     -> route CC LLM through the pico gateway + add the scoped omni MCP server
+#   cc-direct -> restore direct-to-Anthropic + remove the omni MCP server (KILL SWITCH)
+#   cc-route  -> show current LLM routing + MCP state without changing it
+# Caveat (why cc-direct is an ESCAPE HATCH, not only a "pico is down" kill switch):
+# the gateway parses every LLM request for token o11y, and that path has a max body
+# size. A big request -- notably CONTEXT COMPACTION, the largest request CC makes --
+# can exceed it and fail with a 503 "request was too large" that retries can't clear.
+# If compaction or a huge turn starts failing, run cc-direct. Instrument your FLEET
+# through the gateway freely; routing your PRIMARY daily-driver CC through it is the
+# bigger commitment -- keep this toggle one command away.
 CC_SETTINGS="$HOME/.claude/settings.json"
 CC_GW_URL="http://100.72.47.4:17017/claude"
+CC_GW_MCP_NAME="omni-gw"
+CC_GW_MCP_URL="http://100.72.47.4:15001/mcp"
 
 cc-gw ()
 {
 	[ -f "$CC_SETTINGS" ] || echo '{}' > "$CC_SETTINGS"
 	local tmp; tmp=$(mktemp)
 	jq --arg u "$CC_GW_URL" '.env = ((.env // {}) + {ANTHROPIC_BASE_URL: $u})' "$CC_SETTINGS" > "$tmp" && command mv "$tmp" "$CC_SETTINGS"
+	# add the gateway's omni MCP server, scoped by CC's virtual key (idempotent: remove-then-add)
+	if [ -n "$GATEWAY_CC_KEY" ]; then
+		command claude mcp remove --scope user "$CC_GW_MCP_NAME" >/dev/null 2>&1
+		if command claude mcp add --transport http --scope user "$CC_GW_MCP_NAME" "$CC_GW_MCP_URL" \
+			--header "Authorization: Bearer $GATEWAY_CC_KEY" >/dev/null 2>&1; then
+			echo "→ added MCP server '$CC_GW_MCP_NAME' ($CC_GW_MCP_URL, scoped by CC key)"
+		else
+			echo "⚠ could not add MCP server '$CC_GW_MCP_NAME' (is the claude CLI on PATH?)"
+		fi
+	else
+		echo "⚠ GATEWAY_CC_KEY not set (~/.secrets) — skipping MCP server; LLM routing still applied"
+	fi
 	echo "→ Claude Code routed through pico agentgateway ($CC_GW_URL). RESTART CC to apply."
 	jq '.env' "$CC_SETTINGS"
 }
 
 cc-direct ()
 {
-	[ -f "$CC_SETTINGS" ] || { echo "no $CC_SETTINGS — already direct"; return; }
-	local tmp; tmp=$(mktemp)
-	jq 'del(.env.ANTHROPIC_BASE_URL)' "$CC_SETTINGS" > "$tmp" && command mv "$tmp" "$CC_SETTINGS"
+	# remove the gateway MCP server so nothing dangles when off-gateway (no clutter)
+	command claude mcp remove --scope user "$CC_GW_MCP_NAME" >/dev/null 2>&1 \
+		&& echo "→ removed MCP server '$CC_GW_MCP_NAME'"
+	if [ -f "$CC_SETTINGS" ]; then
+		local tmp; tmp=$(mktemp)
+		jq 'del(.env.ANTHROPIC_BASE_URL)' "$CC_SETTINGS" > "$tmp" && command mv "$tmp" "$CC_SETTINGS"
+	fi
 	echo "→ Claude Code restored to direct-to-Anthropic (kill switch). RESTART CC to apply."
-	jq '.env' "$CC_SETTINGS"
+	jq '.env' "$CC_SETTINGS" 2>/dev/null || echo '(no settings.json — already direct)'
 }
 
 cc-route ()
 {
 	jq -r '.env.ANTHROPIC_BASE_URL // "direct (no ANTHROPIC_BASE_URL set)"' "$CC_SETTINGS" 2>/dev/null \
-		| sed 's/^/Claude Code routing: /'
+		| sed 's/^/Claude Code LLM routing: /'
+	if jq -e --arg n "$CC_GW_MCP_NAME" '.mcpServers[$n]' "$HOME/.claude.json" >/dev/null 2>&1; then
+		echo "Gateway MCP server:      present ($CC_GW_MCP_NAME)"
+	else
+		echo "Gateway MCP server:      absent"
+	fi
 }
 
 # --- goose through the pico agentgateway (local model + omni MCP) ---
