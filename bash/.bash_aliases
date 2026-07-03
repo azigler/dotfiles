@@ -150,7 +150,7 @@ cc-gw ()
 {
 	[ -f "$CC_SETTINGS" ] || echo '{}' > "$CC_SETTINGS"
 	local tmp; tmp=$(mktemp)
-	jq --arg u "$CC_GW_URL" '.env = ((.env // {}) + {ANTHROPIC_BASE_URL: $u})' "$CC_SETTINGS" > "$tmp" && mv "$tmp" "$CC_SETTINGS"
+	jq --arg u "$CC_GW_URL" '.env = ((.env // {}) + {ANTHROPIC_BASE_URL: $u})' "$CC_SETTINGS" > "$tmp" && command mv "$tmp" "$CC_SETTINGS"
 	echo "→ Claude Code routed through pico agentgateway ($CC_GW_URL). RESTART CC to apply."
 	jq '.env' "$CC_SETTINGS"
 }
@@ -159,7 +159,7 @@ cc-direct ()
 {
 	[ -f "$CC_SETTINGS" ] || { echo "no $CC_SETTINGS — already direct"; return; }
 	local tmp; tmp=$(mktemp)
-	jq 'del(.env.ANTHROPIC_BASE_URL)' "$CC_SETTINGS" > "$tmp" && mv "$tmp" "$CC_SETTINGS"
+	jq 'del(.env.ANTHROPIC_BASE_URL)' "$CC_SETTINGS" > "$tmp" && command mv "$tmp" "$CC_SETTINGS"
 	echo "→ Claude Code restored to direct-to-Anthropic (kill switch). RESTART CC to apply."
 	jq '.env' "$CC_SETTINGS"
 }
