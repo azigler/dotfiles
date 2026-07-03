@@ -68,10 +68,10 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 **Anti-pattern:** Running it at baseline effort, or reusing the original/anchored agent — defeats the whole point. Correctness review is /scrutinize, not this. Closes the loop seam: opportunities become `📌 candidate Vibes card` lines on beads → HUMAN-GATED promotion (interactive: offer + add; autonomous sweep: list in the push, never auto-write the board — proxy has no section-add route anyway). Sweep also writes a dated `Novel opportunities (elevate sweep <date>)` section back into each FINDINGS it examines — the BACKFILL for the ~40 pre-2026-06-29 explorations that predate the required-section rule.
 
 ### /explore
-**Job:** Multi-source URL research → structured plaintext report into an Asana task; archival (~/explore/<topic>/) or publishing (Zig-voice post + SSoT image) shapes.
+**Job:** Multi-source URL research → structured plaintext report into an Asana task; archival (~/explore/<topic>/) or publishing (Zig-voice post + randomize image) shapes.
 **Fire when:** Explicit-invoke; user hands over URLs + an Asana destination.
 **Prereqs/side-effects:** Asana task GID; plaintext-only notes field; POST /update (PUT returns 405).
-**Anti-pattern:** HTML in Asana fields; abstract image subjects (force specificity via SSoT). Archival mode: skipping Step 3.5 (consult the compendium — INDEX.md + grep prior FINDINGS) or omitting the now-REQUIRED `Related explorations` + `Novel opportunities` sections — the two that make the double loop compound (both were skipped historically; audit explore-doj). End the Asana report with the `Archived: ~/explore/<topic>/` back-pointer. AIM the Novel-opportunities upside by recency at an ACTIVE arc (LinearB / AAIF / harness / recently-touched explore folder) or a general harness move — the mud/golem/local-coding-models/Hermes-local arc is TABLED (source to reason from, never a destination), and "interesting for its own sake, no build" is a valid honest entry (don't manufacture a tie-back). Mirrors /elevate's "Where to apply the upside"; keep in sync.
+**Anti-pattern:** HTML in Asana fields; abstract image subjects (force specificity via the randomize roll). Archival mode: skipping Step 3.5 (consult the compendium — INDEX.md + grep prior FINDINGS) or omitting the now-REQUIRED `Related explorations` + `Novel opportunities` sections — the two that make the double loop compound (both were skipped historically; audit explore-doj). End the Asana report with the `Archived: ~/explore/<topic>/` back-pointer. AIM the Novel-opportunities upside by recency at an ACTIVE arc (LinearB / AAIF / harness / recently-touched explore folder) or a general harness move — the mud/golem/local-coding-models/Hermes-local arc is TABLED (source to reason from, never a destination), and "interesting for its own sake, no build" is a valid honest entry (don't manufacture a tie-back). Mirrors /elevate's "Where to apply the upside"; keep in sync.
 
 ### /fix
 **Job:** Fix-and-guard — typed `bug` bead, subagent fixes it, regression test makes it un-regressable.
@@ -163,6 +163,12 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 **Prereqs/side-effects:** refs/pulse.md routing table (Andrew's steering wheel — ticks never edit it); appends refs/pulse-ledger.jsonl; per-project systemd units from agents/scheduler/templates/.
 **Anti-pattern:** Blocking on AskUserQuestion in a tick — unstaffed sessions file a P1 `human:` bead + push notification and end the tick. Also: self-declaring `outcome:"done"` without proof — every `done` line needs a `proof` token (artifact|commit|scrutinize|cmd), **hook-enforced by pre-commit-checks.sh** (a done commit whose proof doesn't verify is blocked); else log blocked/quiet (the nodding loop). Structural review nudge every 5th done tick.
 
+### /randomize
+**Job:** Force real-entropy diversity — real randomness (seed → modulo → choice) for every discretionary creative decision, with a provenance block.
+**Fire when:** Creative generation where the model would collapse to the modal answer. NOT for single-correct-answer tasks.
+**Prereqs/side-effects:** openssl rand seed; arithmetic must be re-runnable by a reviewer; provenance block written BEFORE prose.
+**Anti-pattern:** Narrating "committed choices" without running the arithmetic — no provenance block means it wasn't a real randomize.
+
 ### /research
 **Job:** Autonomous layered research harness — parallel research subagents, empirical verification, independent scrutiny gate, fold to canon, layer next questions. Data-GENERATING items (benchmarks, scaled probes) additionally run reference/experiment-protocol.md: pre-registration, positive+negative calibration controls, blocking gates, raw-data provenance.
 **Fire when:** "Research X" / "stay autonomous"; proactively on operational blockers, new substrates, doubted findings.
@@ -180,12 +186,6 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 **Fire when:** Defined work needs a spec before /check → /test → /impl.
 **Prereqs/side-effects:** Creates -t spec bead; ≥10 test cases; optional Interrogator pass to surface OQs outside the author's blind spot.
 **Anti-pattern:** Writing Section 6 without the Interrogator pass; creating spec FILES (specs/ folders are legacy-only).
-
-### /ssot
-**Job:** String Seed of Thought — real randomness (seed → modulo → choice) for every discretionary creative decision, with a provenance block.
-**Fire when:** Creative generation where the model would collapse to the modal answer. NOT for single-correct-answer tasks.
-**Prereqs/side-effects:** openssl rand seed; arithmetic must be re-runnable by a reviewer; provenance block written BEFORE prose.
-**Anti-pattern:** Narrating "committed choices" without running the arithmetic — no provenance block means it wasn't SSoT.
 
 ### /talk
 **Job:** Talk-prep orchestrator from acceptance to ready-to-deliver — spec → critic → slide-plan → visual-arc → image-narrative → script → aesthetic iteration → dry-runs.

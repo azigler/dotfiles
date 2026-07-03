@@ -298,7 +298,7 @@ corporate LinkedIn, which Zig's voice actively rejects.
   it. Readers decide "is this interesting?" before "is this person
   interesting?" Example fix: "It's called String Seed of Thought and it's
   a novel way to inject randomness in any prompt" lands before "So I
-  turned the paper into an /ssot skill."
+  turned the paper into a /randomize skill."
 - ❌ Spoiler-summarizing link content in the body of the post. Pre-sell
   the click instead. "Sakana writeup with interactive charts" beats a
   paragraph paraphrasing the charts. Trust the link.
@@ -333,7 +333,7 @@ corporate LinkedIn, which Zig's voice actively rejects.
   ownership ("Same shape, our vocabulary" / "Our version of the loop")
   replaces apology.
 - ❌ Negative-framed payoff lines when positive framing lands better.
-  "Removes the temptation to vibe-pick and call it SSoT" is the
+  "Removes the temptation to vibe-pick and call it randomized" is the
   avoid-framing. "It's on-demand randomness, temperature, empathy, and
   reproducibility via a seed -- all in one" is the get-framing. Ship
   the get-framing.
@@ -594,8 +594,8 @@ not arced.
    labels ("Grab the skill" > "Writeup link"). Thematic emojis where
    they add meaning (see below). Pre-sell what's at the link, don't
    summarize it in the body.
-6. **Optional meta-flip closer.** If you used /ssot to write the post
-   itself, share the forced choices. "For example: I used /ssot to
+6. **Optional meta-flip closer.** If you used /randomize to write the post
+   itself, share the forced choices. "For example: I used /randomize to
    write this post. Forced flips include: opening=contradiction,
    voice=new-tool-in-kit..." Signals "try this yourself" without
    saying it. Use "For example:" as the inline self-reference tag,
@@ -679,7 +679,7 @@ this skill. When you're not sure where a rule came from, check here.
   TDX 2026 (v3 -> v7 iterations). Accompanying LinkedIn narrative-story
   posts for Jayesh Govindarajan, Alexander Waddell, Andrew Comstock.
   LinearB brand newsletter-promo post. Build vs. Buy event-swap graft
-  into the article. Separate SSoT-skill devlog post. Voice calibration
+  into the article. Separate randomize-skill devlog post. Voice calibration
   arc: v4 teacher-frame collapse -> v5 conspiratorial-whisper fix ->
   v6 headless+loop title (rejected as grim) -> v7 practitioner POV
   locked. Published Alex and Comstock posts became exemplars for the
