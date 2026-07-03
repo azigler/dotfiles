@@ -226,7 +226,7 @@ full body; descriptions below are just the prompt-toolkit summary.
 - `/elevate` — max-effort, fresh-eyes re-examination of finished work (the *generative* twin of `/scrutinize`'s critical gate): hunts the novel opportunity / non-obvious connection a baseline-effort pass missed. Runs unpolluted subagents via Workflow `effort:'max'`. Also the biweekly compendium-sweep (`pulse-elevate.timer`).
 - `/triage` — bead-state hygiene (orphans / stale / epic close-eligible)
 - `/housekeeping` — mechanical doc + cross-repo state hygiene (includes a triage sub-pass)
-- `/explore` — multi-source research → Asana compile → optional Zig-voice LinkedIn post + SSoT-driven image deliverable. Bridges `/zig-voice` + `/ssot` + `/openrouter` + the Asana fleet proxy in one flow.
+- `/explore` — multi-source research → Asana compile → optional Zig-voice LinkedIn post + randomize-driven image deliverable. Bridges `/zig-voice` + `/randomize` + `/openrouter` + the Asana fleet proxy in one flow.
 - `/cfp` — conference proposal & paper-submission orchestrator. Bootstraps `~/cfp/<slug>/` with full discipline (beads, CLAUDE.md, refs/, research/), runs the interview-research-draft-critic-submit loop, shepherds post-acceptance (revisions / camera-ready / artifact bundle / arXiv / registration). Includes a peer-reviewed-paper sub-arc for academic venues. Hands off to `/talk` on acceptance.
 
 **Code quality / git:**
@@ -249,7 +249,7 @@ full body; descriptions below are just the prompt-toolkit summary.
 
 **Knowledge / voice:**
 - `/zig-voice` — Andrew Zigler's writing voice + anti-patterns
-- `/ssot` — String Seed of Thought (force diversity in creative gen)
+- `/randomize` — force real-entropy diversity in creative generation (seed → modulo → choice, with a provenance block)
 
 ## Skill libraries outside the global set
 

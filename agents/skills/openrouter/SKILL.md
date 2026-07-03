@@ -291,7 +291,7 @@ If you want to FORCE a single output format, decode the response yourself with `
   with image gen for brand work (run `/impeccable colorize` or
   `/impeccable typeset` to refine palettes / type before feeding
   prompts to nano-banana)
-- [/ssot](../ssot/SKILL.md) — force diversity in creative gen;
+- [/randomize](../randomize/SKILL.md) — force diversity in creative gen;
   apply axes-and-arithmetic to brand prompts BEFORE feeding to
   nano-banana so we don't collapse to AI-default aesthetics
 - [/zig-voice](../zig-voice/SKILL.md) — written voice for any

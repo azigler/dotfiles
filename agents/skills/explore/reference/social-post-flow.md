@@ -5,11 +5,11 @@ it", "do the same treatment", "put this on a subtask"), this is the
 4-step pipeline.
 
 The deliverable is a Zig-voice LinkedIn-ready post AS A PLAINTEXT COMMENT
-on a new SUBTASK under the parent /explore task, with an SSoT-driven
+on a new SUBTASK under the parent /explore task, with a randomize-driven
 SPECIFIC-SUBJECT image as an ATTACHMENT.
 
 "Surprise me" is the underpinning. The user should not be able to predict
-the image subject before the SSoT roll. Neither should the agent.
+the image subject before the randomize roll. Neither should the agent.
 
 ## CRITICAL: voice scope
 
@@ -21,7 +21,7 @@ Every other artifact in this pipeline uses clean professional prose:
 - The subtask name (Step 1)
 - The subtask `html_notes` description (Step 1) — this is metadata for
   future agents to read, not content
-- The SSoT provenance block (Step 3) — this is technical record-keeping
+- The randomize provenance block (Step 3) — this is technical record-keeping
 - The image prompt (Step 3) — this is a generation prompt, not content
 - The chat-side narration to the user as the pipeline runs
 
@@ -36,7 +36,7 @@ should read like a professional handoff.
 
 1. Create subtask (POST `/api/asana/tasks` w/ `parent` = parent /explore task GID)
 2. Draft the post in /zig-voice (builder devlog or interview field notes typically)
-3. SSoT-roll the image axes, generate image via /openrouter
+3. randomize-roll the image axes, generate image via /openrouter
 4. Attach image (multipart) + post the post as a plaintext comment
 
 Each step has a section below.
@@ -50,7 +50,7 @@ cat > /tmp/subtask.json <<EOF
   "parent": "<parent-explore-task-gid>",
   "assignee": "1208749853950521",
   "due_on": "$(TZ=America/Los_Angeles date +%Y-%m-%d)",
-  "html_notes": "<body>Brief context for what this subtask is. SSoT provenance for the image goes here. Plain-by-design post is in the comment below — paste straight to LinkedIn.</body>"
+  "html_notes": "<body>Brief context for what this subtask is. randomize provenance for the image goes here. Plain-by-design post is in the comment below — paste straight to LinkedIn.</body>"
 }
 EOF
 
@@ -123,13 +123,13 @@ who reads them in order. Concrete example:
 - Mycroft post: opens w/ "Watch this council website..."
 - Open Models post: opens w/ "Mycroft is one example. The wave under it is bigger."
 
-## Step 3: SSoT-roll the image axes, generate via /openrouter
+## Step 3: randomize-roll the image axes, generate via /openrouter
 
 THIS IS THE LOAD-BEARING STEP. Past /explore-style sessions have produced
 abstract/simple images (neural networks, glowing brains, text bubbles)
 which is exactly the AI-slop imagery the user rejects.
 
-### The canonical SSoT axes for /explore images
+### The canonical randomize axes for /explore images
 
 Always roll these 6 axes. Generate `openssl rand -hex 12` (24 hex chars
 = 6 distinct 4-char slices = 6 axes). Compute integer + modulo for each
@@ -204,7 +204,7 @@ Avoid abstract: "neural network", "glowing brain", "data city".
 ### Provenance block format
 
 ```
-SSoT provenance — <subject summary>, <date>
+randomize provenance — <subject summary>, <date>
   seed: 0d645737bd1e4eb7978b1b78  [openssl rand -hex 12]
   axis 1 (subject, n=8): int(0d64,16)=3428, 3428 % 8 = 4 → workshop pegboard w/ tools + one circuit board
   axis 2 (medium, n=10): int(5737,16)=22327, 22327 % 10 = 7 → pencil-and-watercolor field journal
@@ -247,7 +247,7 @@ Mitigations:
   exact safe text in the prompt: "a leather book spine reading 'FIELD
   NOTES' in gold lettering."
 - Avoid abstract noun nouns that match drug names, slurs, or political
-  slogans even on accident: salvia, kratom, blue, etc. If the SSoT roll
+  slogans even on accident: salvia, kratom, blue, etc. If the randomize roll
   picks an "anchoring detail" that involves text-bearing objects,
   override it w/ a non-text variant of the same motif.
 - After generation, audit the image for any text that did slip through
@@ -281,7 +281,7 @@ Always state the real cost in ur acknowledgment:
 > ~$0.10-0.14 total. Confirming before I fire?"
 
 NEVER generate variants without explicit confirmation. If a generation
-comes back unsatisfactory, regenerate the SSoT seed once and try again
+comes back unsatisfactory, regenerate the randomize seed once and try again
 ONLY w/ user confirmation. Never silently iterate on prompts.
 
 ## Step 4: Attach image + post comment
@@ -313,9 +313,9 @@ curl -sS -X POST "$FLEET_URL/api/asana/tasks/<subtask-gid>/comment" \
 
 - ❌ **Abstract image subject.** "Neural network with text bubbles."
   "Glowing brain over a city." "Futuristic data flow." All AI-slop.
-  SSoT-roll a SPECIFIC subject every time.
-- ❌ **Skipping the SSoT provenance block.** Without the block, u've
-  prior-collapsed and called it SSoT. The arithmetic IS the discipline.
+  randomize-roll a SPECIFIC subject every time.
+- ❌ **Skipping the randomize provenance block.** Without the block, u've
+  prior-collapsed and only pretended to randomize. The arithmetic IS the discipline.
 - ❌ **Generating image variants without asking.** Cost adds up. One
   generation per post unless user confirms more.
 - ❌ **Posting the post as a comment w/ html_text.** Plaintext only —
@@ -345,12 +345,12 @@ Images generated:
 - Mycroft: oil painting, cool monochrome blue, 1990s newsroom desk, urgent investigation mood. Specific props: leather notebook, fountain pen, brass magnifying glass, rotary phone, manila file folder, beige desktop computer.
 - Open Models: pencil-and-watercolor field journal, botanical forest greens, craftsman's workshop pegboard, table-edge composition. Anchoring detail: apothecary jar w/ hand-lettered label.
 
-Both SSoT seeds + arithmetic preserved in the subtask descriptions for
+Both randomize seeds + arithmetic preserved in the subtask descriptions for
 provenance.
 
 ## See also
 
 - [/zig-voice](../../zig-voice/SKILL.md) — full voice rules + genre matrix
-- [/ssot](../../ssot/SKILL.md) — the protocol this references
+- [/randomize](../../randomize/SKILL.md) — the protocol this references
 - [/openrouter](../../openrouter/SKILL.md) — image-gen mechanics
 - [reference/asana-fleet-cheatsheet.md](asana-fleet-cheatsheet.md) — fleet endpoint reference

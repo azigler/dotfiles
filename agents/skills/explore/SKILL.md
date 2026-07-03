@@ -1,5 +1,5 @@
 ---
-description: Multi-source research-and-compile workflow. Given a list of URLs and an Asana task, fetches everything in parallel, synthesizes a structured plaintext report into the task description. Two output shapes — **archival** (creates a `~/explore/<topic>/` folder under the explore umbrella for the compendium) or **publishing** (creates a subtask with a Zig-voice LinkedIn-ready post + SSoT-driven image attachment). Bridges /zig-voice + /ssot + /openrouter + the Asana fleet proxy in one canonical flow. Distinct from /grok (in-repo code reading) — /explore is for external-topic research.
+description: Multi-source research-and-compile workflow. Given a list of URLs and an Asana task, fetches everything in parallel, synthesizes a structured plaintext report into the task description. Two output shapes — **archival** (creates a `~/explore/<topic>/` folder under the explore umbrella for the compendium) or **publishing** (creates a subtask with a Zig-voice LinkedIn-ready post + randomize-driven image attachment). Bridges /zig-voice + /randomize + /openrouter + the Asana fleet proxy in one canonical flow. Distinct from /grok (in-repo code reading) — /explore is for external-topic research.
 when_to_use: User says "explore [topic / list of URLs]", "research these and put it on Asana", "look into [N URLs] and tell me what to learn", "do the same treatment for [task]". Anytime the user hands over multiple sources and an Asana destination.
 argument-hint: "<asana-task-gid> <url> [<url> ...]"
 allowed-tools: Bash(curl *) Bash(jq *) Bash(python3 *) Bash(openssl rand *) Bash(file *) Bash(/home/ubuntu/dotfiles/agents/skills/openrouter/*) WebFetch
@@ -10,7 +10,7 @@ allowed-tools: Bash(curl *) Bash(jq *) Bash(python3 *) Bash(openssl rand *) Bash
 The pattern this session has been running. Codifies it so future sessions
 don't drift, especially around the Asana plaintext discipline, the image
 generation that has to stay specific (not abstract), and the cross-skill
-bridges to /zig-voice + /ssot + /openrouter.
+bridges to /zig-voice + /randomize + /openrouter.
 
 ## CRITICAL: voice scope per output
 
@@ -42,7 +42,7 @@ See `/zig-voice` SKILL.md "SCOPE" section for the broader rule.
 |---|---|---|
 | **Report-only** | User wants compiled findings, no follow-on artifact, no archive | Asana task description updated w/ structured plaintext report |
 | **Archival (umbrella-folder)** | User says "explore X and put it in a folder", or the Asana task is on the personal "Vibes" board pointing at a specific topic worth archiving (e.g. Zero Native, Tolaria) | Asana task description updated **AND** a `~/explore/<topic>/` folder created with CLAUDE.md + FINDINGS.md + refs/ |
-| **Report + post deliverable** | User says "do the same treatment", "make a post about it", or "put a post on a subtask" | Report on parent task + a subtask w/ LinkedIn-ready Zig-voice post (as comment) + SSoT-driven specific-subject image (as attachment) |
+| **Report + post deliverable** | User says "do the same treatment", "make a post about it", or "put a post on a subtask" | Report on parent task + a subtask w/ LinkedIn-ready Zig-voice post (as comment) + randomize-driven specific-subject image (as attachment) |
 
 Default to **report-only** unless the user explicitly asks for an archive or a post. The three modes can compose (an archival run can also produce a post if the topic warrants), but most invocations are one of them.
 
@@ -345,20 +345,20 @@ When the post is part of a series (this session: Mycroft post → Open
 Models post building on it), the SECOND post should reference the first
 in its opener so the narrative thread is visible.
 
-### 6c. Generate the image via /openrouter w/ SSoT-driven prompt
+### 6c. Generate the image via /openrouter w/ randomize-driven prompt
 
 **The image must depict a SPECIFIC SUBJECT, never an abstract concept.**
 Past sessions have drifted toward abstract/simple imagery (neural
 networks, text bubbles, glowing brains) which is exactly the AI-slop
-imagery the user rejects. Force specificity through SSoT.
+imagery the user rejects. Force specificity through the randomize roll.
 
-Always run the canonical SSoT axes in [reference/social-post-flow.md](reference/social-post-flow.md). Generate a real seed via
+Always run the canonical randomize axes in [reference/social-post-flow.md](reference/social-post-flow.md). Generate a real seed via
 `openssl rand -hex 12`, do the modulo arithmetic, and write the
 provenance block before composing the prompt. NEVER skip this — the
-provenance block IS what makes it SSoT.
+provenance block IS what makes it a real randomize.
 
 The "Surprise me" baseline: u (the agent) and the user should not
-predict what subject the SSoT roll will produce. The roll forces the
+predict what subject the randomize roll will produce. The roll forces the
 subject to be specific AND surprising. If the rolled subject feels too
 on-the-nose, regenerate the seed (max once).
 
@@ -417,10 +417,10 @@ The chat summary is the index.
   "Couldn't fetch X, here's what I tried" beats "Likely contains X."
 - ❌ **Abstract image subjects.** Skip "neural network with text bubbles",
   "glowing brain", "futuristic city of data". Force a specific subject
-  via SSoT — a 1990s newsroom desk, a craftsman's pegboard, a brass
-  apothecary jar w/ a hand-lettered label.
-- ❌ **Skipping the SSoT provenance block.** No block = no SSoT. The
-  arithmetic is what defeats prior collapse.
+  via the randomize roll — a 1990s newsroom desk, a craftsman's pegboard,
+  a brass apothecary jar w/ a hand-lettered label.
+- ❌ **Skipping the randomize provenance block.** No block = no randomize.
+  The arithmetic is what defeats prior collapse.
 - ❌ **Generic emojis on bullets.** Use thematic emojis (📓 for journalism,
   🌳 for Gemma, 🪶 for Bonsai, 🤖 for agentic, 🧠 for reasoning, ⚓ for
   Water Town). Not generic ✨🚀💡.
@@ -442,9 +442,9 @@ The chat summary is the index.
 - [/zig-voice](../zig-voice/SKILL.md) — voice rules + format-specific
   guidance for whatever genre the post is (builder devlog / interview
   field notes / narrative-story / whimsical thesis).
-- [/ssot](../ssot/SKILL.md) — mandatory protocol for the image prompt.
-  Real seed, real arithmetic, real provenance block. Skip and u've
-  prior-collapsed.
+- [/randomize](../randomize/SKILL.md) — mandatory protocol for the image
+  prompt. Real seed, real arithmetic, real provenance block. Skip and
+  u've prior-collapsed.
 - [/openrouter](../openrouter/SKILL.md) — image generation via
   nano-banana 2. Cost-aware. Save outputs. Note: stated $0.004/image
   cost is stale; current ~$0.05-0.07/image. Confirm w/ user before
@@ -459,4 +459,4 @@ The chat summary is the index.
 
 - [reference/asana-fleet-cheatsheet.md](reference/asana-fleet-cheatsheet.md) — fleet endpoints, route paths, the PUT-vs-POST gotcha, plaintext discipline, multipart attachments.
 - [reference/report-template.md](reference/report-template.md) — canonical section structure for the Asana description.
-- [reference/social-post-flow.md](reference/social-post-flow.md) — the deliverable pipeline w/ SSoT image axes baked in.
+- [reference/social-post-flow.md](reference/social-post-flow.md) — the deliverable pipeline w/ randomize image axes baked in.

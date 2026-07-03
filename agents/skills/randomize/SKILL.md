@@ -1,30 +1,37 @@
 ---
-description: String Seed of Thought -- mandatory protocol for diverse generation. Defeats LLM distribution collapse by forcing real randomness into every discretionary choice. NEVER narrate "committed choices" without running the seed-and-map arithmetic and recording the provenance block -- the provenance block is what makes it SSoT. Without it, you prior-collapsed and called it SSoT.
+description: /randomize -- mandatory protocol for diverse generation. Forces real entropy (seed -> modulo -> choice) into every discretionary creative decision so generation doesn't collapse to the modal default. NEVER narrate "committed choices" without running the seed-and-map arithmetic and recording the provenance block -- the provenance block is what makes it a real randomize. Without it, you prior-collapsed and only pretended to randomize.
 when_to_use: Creative generation (copy, image prompts, design choices) where the model would collapse to the modal answer. NOT for single-correct-answer tasks (facts, code, math).
 ---
 
-# SSoT -- String Seed of Thought
+# /randomize -- forced real-entropy diversity for creative generation
 
 Mandatory protocol for creative generation where the LLM would otherwise
-collapse to its modal response.
+collapse to its modal response. It forces real randomness (seed -> modulo
+-> choice) into every discretionary decision, with a mandatory provenance
+block recording the arithmetic.
+
+> Renamed from the `ssot` skill (String Seed of Thought) on 2026-07-03 --
+> "randomize" is the accurate name, and it frees "SSOT" for "single source
+> of truth."
 
 **Source:** Misaki & Akiba (2025), *String Seed of Thought: Prompting LLMs
 for Distribution-Faithful and Diverse Generation*, arxiv 2510.21150.
 
 **If you cannot point to a hex seed and the arithmetic that derived your
-choices from it, you did not do SSoT.** Listing axes and narrating
-"committed choices" while actually reaching for the obvious option is
-*ceremonial SSoT* -- the exact failure mode §7.3 of the paper calls out and
-that this skill exists to prevent.
+choices from it, you did not randomize.** Listing axes and narrating
+"committed choices" while actually reaching for the obvious option is a
+*ceremonial randomize* -- the exact failure mode §7.3 of the paper calls out
+and that this skill exists to prevent.
 
 ## The failure mode this catches
 
 You pick an opener because it "feels right for this piece." You reach for a
 metaphor because "it's the natural fit." You keep a structure because "it
-worked last time." That is prior collapse, not choice. SSoT makes the
-choice derive from randomness that has no relationship to the prior.
+worked last time." That is prior collapse, not choice. The randomize
+protocol makes the choice derive from randomness that has no relationship to
+the prior.
 
-Red flags you're doing ceremonial SSoT:
+Red flags you're doing a ceremonial randomize:
 
 - You describe the seed as "hash of source material + user feedback phrase"
   without running an actual hash.
@@ -46,7 +53,7 @@ openssl rand -hex 8
 No approximations. No "hash of the topic" hand-waving. Run the command.
 Paste the output into the provenance block. If you are offline, use
 `head -c 8 /dev/urandom | xxd -p` or any other real entropy source. If you
-don't have a shell, you don't have SSoT.
+don't have a shell, you can't randomize.
 
 ### Step 2 -- Enumerate the axes, 0-indexed, write them down
 
@@ -116,7 +123,7 @@ file, in the bead comment, in the doc comment, or in the commit trailer --
 somewhere versionable. Format:
 
 ```
-SSoT provenance -- <piece>, <version>, <date>
+randomize provenance -- <piece>, <version>, <date>
   seed: edc165f706616610  [openssl rand -hex 8]
   axis 1 (opener archetype, n=8): int(edc1,16)=60865, 60865 % 8 = 1 -> specific-noticing
   axis 2 (metaphor domain, n=6): int(65f7,16)=26103, 26103 % 6 = 3 -> medicine
@@ -124,9 +131,9 @@ SSoT provenance -- <piece>, <version>, <date>
   axis 4 (rhythm, n=6): int(6610,16)=26128, 26128 % 6 = 4 -> rhythm-cascade
 ```
 
-If the block isn't written before the prose, you haven't done SSoT. If the
-arithmetic doesn't match the stated choices, you committed SSoT fraud --
-discard the draft and restart.
+If the block isn't written before the prose, you haven't randomized. If the
+arithmetic doesn't match the stated choices, you committed randomize fraud
+-- discard the draft and restart.
 
 ### Step 5 -- Write against the forced choices
 
@@ -152,7 +159,7 @@ Every revision pass gets its own seed. The provenance stacks
 chronologically:
 
 ```
-SSoT provenance history
+randomize provenance history
   v1: seed=a1b2c3d4...  (opener=scene-setter, metaphor=cartography, ...)
   v2: seed=e5f67890...  (opener=overheard-line, metaphor=medicine, ...)
   v3: LOCK prior choices, re-roll only axis 4 (rhythm) + axis 6 (climax)
@@ -165,26 +172,27 @@ stipulated a choice or a prior pick tested well in review.
 
 ## Provenance block is load-bearing
 
-- **No provenance block -> not SSoT.** Regardless of what the author
-  claims. Reviewers reject "SSoT-generated" content without the block.
+- **No provenance block -> you didn't randomize.** Regardless of what the
+  author claims. Reviewers reject "randomize-generated" content without the
+  block.
 - **Provenance is verifiable.** A reviewer can re-run `echo $((16#edc1 % 8))`
   and confirm it equals 1. If it doesn't match the stated choice, the author
-  committed SSoT fraud. Regenerate.
+  committed randomize fraud. Regenerate.
 - **Stale provenance is a bug.** If the block says axis 2 = cartography but
   the draft's central metaphor is clearly teaching, the block is lying or
   the draft drifted mid-write. Either way, restart.
 
-## When NOT to apply SSoT
+## When NOT to randomize
 
 - Single-correct-answer tasks (facts, code, math, structured data
-  extraction). Paper §7 explicitly warns SSoT distracts on these.
+  extraction). Paper §7 explicitly warns the technique distracts on these.
 - When the user has stipulated an exact opener, title, metaphor, or
-  structure. Don't randomize over user choices -- that's not SSoT, that's
-  ignoring the brief.
+  structure. Don't randomize over user choices -- that's not randomizing,
+  that's ignoring the brief.
 - Signature voice-markers that are load-bearing by design (e.g., Zig's
   frog emoji stamp on LinkedIn). These are prior by intent.
 
-## Minimum viable SSoT (for quick revisions)
+## Minimum viable randomize (for quick revisions)
 
 When the full six-axis protocol is overkill (one paragraph rewrite, a
 subject line, a title pass), use the compressed form. **Arithmetic is still
@@ -206,7 +214,7 @@ has to actually run.
 ## Paper's §7 failure modes (worth re-reading)
 
 1. **Reasoning dependency.** Small models (<8B params) fail to execute
-   seed-to-choice mapping at all. Don't expect SSoT to work on weak models.
+   seed-to-choice mapping at all. Don't expect this to work on weak models.
 2. **Positional bias propagation.** If a model only attends to the first
    few chars of a long random string, bias leaks. Use short uniform hex
    seeds and distinct non-overlapping slices per axis.
@@ -219,7 +227,7 @@ has to actually run.
 From the TDX recap revision, v7 -> v8 handoff:
 
 ```
-SSoT provenance -- TDX recap, v8, 2026-04-21
+randomize provenance -- TDX recap, v8, 2026-04-21
   seed: edc165f706616610  [openssl rand -hex 8]
   axis 1 (Jayesh action framing, n=8):
     int(edc1,16)=60865, 60865 % 8 = 1
@@ -240,4 +248,4 @@ SSoT provenance -- TDX recap, v8, 2026-04-21
 
 Anyone reading can verify:
 `python3 -c 'print(int("edc1", 16) % 8)'` -> `1`. If the stated choice
-matches the arithmetic, it is real SSoT. If not, it's ceremony.
+matches the arithmetic, it is a real randomize. If not, it's ceremony.
