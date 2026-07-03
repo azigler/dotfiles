@@ -18,6 +18,25 @@ if [ -n "$SESSION_ID" ]; then
     printf '%s\n' "$PCT" > "$PCT_DIR/$SESSION_ID" 2>/dev/null
 fi
 
+# Reader #2 for the tmux lexicon SSoT (written by agents/hooks/tmux-status.sh
+# to /tmp/claude-lexicon/<session_id>): surface the working/ready/needs-you
+# glyph here too. Degrade silently to nothing when the file is absent (fresh
+# session, non-tmux, or before the first hook event) — never error.
+LEXICON=""
+if [ -n "$SESSION_ID" ]; then
+    LEX_DIR="${CLAUDE_LEXICON_STATE_DIR:-/tmp/claude-lexicon}"
+    LEX_FILE="$LEX_DIR/$SESSION_ID"
+    if [ -f "$LEX_FILE" ]; then
+        LEX_TOKEN=$(cat "$LEX_FILE" 2>/dev/null)
+        LEX_LIB="$(dirname "$(readlink -f "${BASH_SOURCE[0]:-$0}")")/../agents/hooks/lib/lexicon-map.sh"
+        if [ -n "$LEX_TOKEN" ] && [ -f "$LEX_LIB" ]; then
+            # shellcheck source=../agents/hooks/lib/lexicon-map.sh
+            . "$LEX_LIB"
+            LEXICON=$(lexicon_glyph "$LEX_TOKEN")
+        fi
+    fi
+fi
+
 CYAN='\033[36m'; GREEN='\033[32m'; YELLOW='\033[33m'; RED='\033[31m'; RESET='\033[0m'
 
 # Pick bar color based on context usage
@@ -53,8 +72,8 @@ fi
 
 COST_FMT=$(printf '$%.2f' "$COST")
 
-# Line 1: Model, directory, git branch, repo link
-printf '%b' "${CYAN}[$MODEL]${RESET} 📁 ${DIR##*/}${GIT_INFO}${REPO_LINK}\n"
+# Line 1: Lexicon state, model, directory, git branch, repo link
+printf '%b' "${LEXICON}${CYAN}[$MODEL]${RESET} 📁 ${DIR##*/}${GIT_INFO}${REPO_LINK}\n"
 
 # Line 2: Context bar, cost, duration
 printf '%b' "${BAR_COLOR}${BAR}${RESET} ${PCT}% | ${YELLOW}${COST_FMT}${RESET} | 🕰️  ${MINS}m ${SECS}s\n"

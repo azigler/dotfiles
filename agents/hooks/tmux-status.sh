@@ -1,7 +1,16 @@
 #!/bin/bash
-# Multi-event hook: surface this Claude session's state in its tmux
-# window name, so Andrew can see at a glance which windows are waiting
-# for him without rotating through all of them.
+# Multi-event hook: surface this Claude session's state in its tmux window
+# name (reader #1) AND persist it to a per-session state file (the SSoT) so
+# other surfaces — the statusline, a future menu-bar/robot/page renderer —
+# can read the same hard-won event->glyph mapping without re-deriving it.
+#
+# The event->state/glyph mapping (and its false-🔔 guards) lives in the
+# shared lib agents/hooks/lib/lexicon-map.sh; this hook is the place that
+# COMPUTES state (via lexicon_resolve), then does three things with it:
+#   1. writes the semantic token to /tmp/claude-lexicon/<session_id>  (SSoT)
+#   2. on a state CHANGE, appends a transition line to
+#      ~/.claude/lexicon-log/<YYYY-MM-DD>.jsonl                       (log)
+#   3. renames the tmux window token->glyph                       (reader #1)
 #
 # Lexicon (prefix on the window name) — exactly four glyphs:
 #   🧠  working          (UserPromptSubmit, PostToolUse)
@@ -18,35 +27,20 @@
 # just-compacted session isn't thinking — it's waiting — so it carries
 # no glyph, same as a window where claude hasn't run yet.
 #
-# Semantics (tightened 2026-06-09 after the di/prod false-🔔):
-# - Notification fires for BOTH "needs your permission to use X" and
-#   the ~60s-idle "Claude is waiting for your input". The idle one is
-#   true of every finished window, so mapping it to 🔔 falsely flips
-#   done windows. We map ONLY permission-type messages to 🔔 and
-#   ignore idle notifications (Stop's ✅ already covers "done").
-# - PreToolUse on AskUserQuestion / ExitPlanMode -> 🔔: the agent is
-#   mid-turn but literally asking Andrew something. This closes the
-#   "has a checkmark but is actually waiting for an answer" gap for
-#   structured questions. (A free-text question at end-of-turn still
-#   reads ✅ — undetectable deterministically; agents should prefer
-#   AskUserQuestion for blocking questions partly for this reason.)
-# - PostToolUse (any tool) -> 🧠: work is visibly happening. This also
-#   self-heals a stale 🔔 right after a permission is granted, since
-#   the approved tool's PostToolUse fires immediately.
-#
-# (Glyph choice 2026-06-09: 🤖 renders as plain ASCII in Andrew's
-# terminal font and 🦾 reads too dark next to ✅/🔔 — settled on 🧠.
-# All live windows were relabeled in the same pass, so the strip
-# regex handles ONLY the current set; add a glyph here AND in the
-# strip regex if the lexicon ever grows. 🌀 added 2026-06-10 —
-# VS-free, so no 🤖-style ASCII-fallback risk.)
+# The semantics of the mapping (permission-only 🔔, AskUserQuestion/
+# ExitPlanMode special-case, idle-notification suppression, PostToolUse
+# self-heal of a stale 🔔) now live — with their full rationale — in
+# lib/lexicon-map.sh. See there before touching the mapping.
 #
 # Design notes:
-# - STATELESS: we never store the "original" name. On every event we
-#   read the current window name, strip any leading lexicon emoji, and
-#   prepend the new one. Manual renames at any time are preserved —
+# - STATELESS window name: we never store the "original" name. On every
+#   event we read the current window name, strip any leading lexicon emoji,
+#   and prepend the new one. Manual renames at any time are preserved —
 #   only the prefix changes. (Andrew names windows by hand: fast-lane,
 #   weeklies, imc-, ... — those names must survive.)
+# - Per-session state IS stored (the SSoT the readers consume), keyed by
+#   session_id under $CLAUDE_LEXICON_STATE_DIR, cleaned on SessionEnd by
+#   session-end.sh (mirrors statusline's /tmp/claude-context-pct file).
 # - Targets the window containing $TMUX_PANE, so split panes (bead
 #   viewer next to the agent) are unaffected.
 # - Wired to main-session events only (SessionStart, UserPromptSubmit,
@@ -56,51 +50,85 @@
 #   interactive zsh aliases tmux to a plugin function that doesn't
 #   exist in non-interactive shells (observed 2026-06-09).
 # - Always exits 0; a missing tmux or dead pane must never break a
-#   session.
+#   session. The SSoT write is best-effort and only happens when the
+#   payload carries a session_id (it always does for main-session events).
 
 INPUT=$(cat 2>/dev/null || echo '{}')
 
-# Only act inside tmux with a known pane.
-[ -n "$TMUX" ] && [ -n "$TMUX_PANE" ] || exit 0
-
-TMUX_BIN=$(command -v tmux 2>/dev/null)
-[ -x "$TMUX_BIN" ] || TMUX_BIN=/usr/bin/tmux
-[ -x "$TMUX_BIN" ] || exit 0
+# Shared event->state/glyph mapping (single source of truth). If the lib is
+# somehow absent, degrade to a no-op rather than break the session.
+LIB="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/lexicon-map.sh"
+# shellcheck source=lib/lexicon-map.sh
+[ -f "$LIB" ] && . "$LIB"
+command -v lexicon_resolve >/dev/null 2>&1 || exit 0
 
 EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
 [ -z "$EVENT" ] && exit 0
 
-case "$EVENT" in
-  UserPromptSubmit|PostToolUse) PREFIX="🧠 " ;;
-  Stop)                         PREFIX="✅ " ;;
-  PreCompact)                   PREFIX="🌀 " ;;
-  Notification)
-    # Only permission-type notifications mean "blocked on Andrew".
-    # The ~60s-idle "waiting for your input" notification fires for
-    # every finished window — ignore it (Stop's ✅ already covers it).
-    MSG=$(echo "$INPUT" | jq -r '.message // empty' 2>/dev/null)
-    echo "$MSG" | grep -qi 'permission' || exit 0
-    PREFIX="🔔 "
-    ;;
-  PreToolUse)
-    # The agent is mid-turn but explicitly asking Andrew something.
-    TOOL=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
-    case "$TOOL" in
-      AskUserQuestion|ExitPlanMode) PREFIX="🔔 " ;;
-      *) exit 0 ;;
-    esac
-    ;;
-  SessionStart|SessionEnd) PREFIX="" ;;
-  *) exit 0 ;;
-esac
+MSG=$(echo "$INPUT" | jq -r '.message // empty' 2>/dev/null)
+TOOL=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
 
-CURRENT=$("$TMUX_BIN" display-message -p -t "$TMUX_PANE" '#W' 2>/dev/null)
-[ -z "$CURRENT" ] && exit 0
+# Compute the semantic state. A non-zero return means "this event does not
+# map — leave state alone" (idle notification, ordinary PreToolUse tool,
+# unknown event), exactly the old inline `exit 0` no-op paths.
+lexicon_resolve "$EVENT" "$MSG" "$TOOL" || exit 0
+TOKEN="$LEXICON_TOKEN"
+PREFIX="$LEXICON_GLYPH"
 
-# Strip any existing lexicon prefix (emoji + optional space).
-BASE=$(printf '%s' "$CURRENT" | sed -E 's/^(🧠|✅|🔔|🌀) ?//')
-[ -z "$BASE" ] && BASE="claude"
+# Resolve tmux + the current window name once. CURRENT stays empty when we
+# are not in a usable tmux pane — the window rename below then no-ops
+# exactly as the original did, while the SSoT write still happens.
+TMUX_BIN=$(command -v tmux 2>/dev/null)
+[ -x "$TMUX_BIN" ] || TMUX_BIN=/usr/bin/tmux
+CURRENT=""
+if [ -n "$TMUX" ] && [ -n "$TMUX_PANE" ] && [ -x "$TMUX_BIN" ]; then
+  CURRENT=$("$TMUX_BIN" display-message -p -t "$TMUX_PANE" '#W' 2>/dev/null)
+fi
 
+# Strip any existing lexicon prefix to recover the manual base name.
+BASE=""
+if [ -n "$CURRENT" ]; then
+  BASE=$(printf '%s' "$CURRENT" | sed -E "s/${LEXICON_STRIP_RE}//")
+  [ -z "$BASE" ] && BASE="claude"
+fi
+
+# --- The SSoT: per-session state token + transition log ---------------------
+# Only when the payload carries a session_id (main-session events always do).
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
+if [ -n "$SESSION_ID" ]; then
+  STATE_DIR="${CLAUDE_LEXICON_STATE_DIR:-/tmp/claude-lexicon}"
+  mkdir -p "$STATE_DIR" 2>/dev/null
+  STATE_FILE="$STATE_DIR/$SESSION_ID"
+
+  # The state file itself carries the prior token — read it before we
+  # overwrite, so we can detect (and log) a genuine state transition.
+  PREV=""
+  [ -f "$STATE_FILE" ] && PREV=$(cat "$STATE_FILE" 2>/dev/null)
+
+  if [ "$PREV" != "$TOKEN" ]; then
+    # Raw exhaust stream: one JSON line per transition. A DuckDB view over
+    # this is a follow-on (depends on the `est` bead) — this only writes
+    # the log. jq builds the object so window names with quotes/unicode
+    # can't corrupt the JSONL.
+    LOG_DIR="${CLAUDE_LEXICON_LOG_DIR:-$HOME/.claude/lexicon-log}"
+    mkdir -p "$LOG_DIR" 2>/dev/null
+    LOG_FILE="$LOG_DIR/$(date -u +%F).jsonl"
+    TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    jq -cn \
+      --arg ts "$TS" \
+      --arg session "$SESSION_ID" \
+      --arg window "$BASE" \
+      --arg from "$PREV" \
+      --arg to "$TOKEN" \
+      '{ts:$ts, session:$session, window:$window, from_state:$from, to_state:$to}' \
+      >> "$LOG_FILE" 2>/dev/null
+  fi
+
+  printf '%s\n' "$TOKEN" > "$STATE_FILE" 2>/dev/null
+fi
+
+# --- Reader #1: the tmux window name (behavior IDENTICAL to pre-SSoT) --------
+[ -n "$CURRENT" ] || exit 0
 NEW="${PREFIX}${BASE}"
 [ "$NEW" = "$CURRENT" ] && exit 0
 

@@ -20,6 +20,17 @@
 STDIN=$(cat 2>/dev/null || echo '{}')
 SESSION_ID=$(echo "$STDIN" | jq -r '.session_id // empty' 2>/dev/null)
 
+# Clean up this session's tmux-lexicon state file — the per-session SSoT
+# written by tmux-status.sh to /tmp/claude-lexicon/<session_id> (mirrors the
+# per-session /tmp teardown for statusline's context-pct file). Done early so
+# even servitor sessions (which return before the offboard logic below) don't
+# leave a stale token behind. The transition log under ~/.claude/lexicon-log/
+# is durable exhaust and is deliberately NOT touched.
+if [ -n "$SESSION_ID" ]; then
+  LEX_DIR="${CLAUDE_LEXICON_STATE_DIR:-/tmp/claude-lexicon}"
+  rm -f "$LEX_DIR/$SESSION_ID" 2>/dev/null
+fi
+
 # Per-window scoping of the offboard markers (handoff-path.sh): in a project
 # that opts in (refs/.handoff-per-window) and runs >1 durable session, the
 # .offboard-pending / last-offboard-session markers are window-scoped so two
