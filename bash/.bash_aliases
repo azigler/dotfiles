@@ -175,5 +175,8 @@ cc-route ()
 # (:15003 -> pico ollama). The omni MCP endpoint (:15001) is wired in goose's
 # ~/.config/goose/config.yaml. Scoped to the goose invocation only (doesn't touch
 # global OPENAI_* for other tools). Pick the model with GOOSE_MODEL (qwen3-coder:30b
-# does tool-calling well; small models fumble it). Usage: goose-gw run -t "..."
-alias goose-gw='OPENAI_API_KEY=ollama OPENAI_HOST=http://100.72.47.4:15003 goose'
+# does tool-calling well; small models fumble it). goose presents its virtual key
+# (sk-goose, from ~/.secrets) as OPENAI_API_KEY so its LLM calls are attributed to
+# "goose"; the omni MCP header (~/.config/goose/config.yaml) carries the same key for
+# tool scoping. Usage: goose-gw run -t "..."
+alias goose-gw='OPENAI_API_KEY="$GATEWAY_GOOSE_KEY" OPENAI_HOST=http://100.72.47.4:15003 goose'
