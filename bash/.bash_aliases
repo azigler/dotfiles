@@ -169,3 +169,11 @@ cc-route ()
 	jq -r '.env.ANTHROPIC_BASE_URL // "direct (no ANTHROPIC_BASE_URL set)"' "$CC_SETTINGS" 2>/dev/null \
 		| sed 's/^/Claude Code routing: /'
 }
+
+# --- goose through the pico agentgateway (local model + omni MCP) ---
+# Runs goose with its OpenAI provider pointed at the gateway's local-model route
+# (:15003 -> pico ollama). The omni MCP endpoint (:15001) is wired in goose's
+# ~/.config/goose/config.yaml. Scoped to the goose invocation only (doesn't touch
+# global OPENAI_* for other tools). Pick the model with GOOSE_MODEL (qwen3-coder:30b
+# does tool-calling well; small models fumble it). Usage: goose-gw run -t "..."
+alias goose-gw='OPENAI_API_KEY=ollama OPENAI_HOST=http://100.72.47.4:15003 goose'
