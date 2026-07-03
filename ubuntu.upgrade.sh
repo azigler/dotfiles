@@ -131,6 +131,16 @@ else
     curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b "$HOME/.local/bin"
 fi
 
+# --- agentgateway + agctl ---
+section "Upgrading agentgateway + agctl"
+curl -fsSL -o "$HOME/.local/bin/agentgateway" https://github.com/agentgateway/agentgateway/releases/latest/download/agentgateway-linux-amd64
+curl -fsSL -o "$HOME/.local/bin/agctl" https://github.com/agentgateway/agentgateway/releases/latest/download/agctl-linux-amd64
+chmod +x "$HOME/.local/bin/agentgateway" "$HOME/.local/bin/agctl"
+
+# --- goose (Block's open agent, AAIF project) ---
+section "Upgrading goose"
+curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash
+
 # rustfmt + clippy upgraded automatically by `rustup update` (already in script)
 
 # --- Bun global packages ---

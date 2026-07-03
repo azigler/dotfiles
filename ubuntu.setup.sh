@@ -87,6 +87,9 @@ if [ "$(hostname -s)" != "zig-computer" ]; then
     curl -fsSL -o "$HOME/.local/bin/agctl" https://github.com/agentgateway/agentgateway/releases/latest/download/agctl-linux-amd64
     chmod +x "$HOME/.local/bin/agentgateway" "$HOME/.local/bin/agctl"
 
+    # --- goose (Block's open-source AI agent, an AAIF project) ---
+    curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash
+
     exec sudo --login --user $USER
 
     nix --extra-experimental-features nix-command --extra-experimental-features flakes profile add 'nixpkgs#nix-direnv'
