@@ -52,6 +52,10 @@ sqlite3 3.46, **duckdb v1.5.4** (`~/.local/bin/duckdb`, installed 2026-06-27).
   `HEVY_API_KEY`** (03:00). Tested TS Hevy transforms (`tests/hevy-transforms.spec.ts`).
 - `~/hevyd` — Hevy webhook daemon + coaching agent (the `/daemon` reference instance).
 - `~/explore` — exploration compendium (DuckDB, agent-memory, honcho research, etc.).
+- `~/harnessd` — harness observability daemon + PWA dashboard (state-bus SSOT).
+  Graduated from `~/explore` 2026-07-04; co-located on this box (NOT pico) per
+  `~/harnessd/refs/topology.md`. Live now via `state-bus.timer` →
+  `~/harnessd/bin/harness-refresh`; Go daemon binds the tailnet IP at Phase 1.
 - `~/linearb`, `~/reef`, ss14 game server, `~/hermes` (VPS agent, archived).
 
 ## Secrets — `~/.secrets` (mode 600, `source` to load)
