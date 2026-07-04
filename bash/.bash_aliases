@@ -153,40 +153,46 @@ alias ssh-pico='ssh pico@$(tailscale ip -4 pico 2>/dev/null || echo pico)'
 # bigger commitment -- keep this toggle one command away.
 CC_SETTINGS="$HOME/.claude/settings.json"
 CC_GW_URL="http://100.72.47.4:17017/claude"
-CC_GW_MCP_NAME="omni-gw"
+# Force the 1M-context model while routed: behind a custom ANTHROPIC_BASE_URL, CC drops the
+# context-1m beta header and budgets 200k unless ANTHROPIC_MODEL carries the [1m] suffix (a saved
+# /model picker choice does NOT survive a custom base URL). This is the CLIENT half; it only yields
+# real 1M if the pico agentgateway FORWARDS the `anthropic-beta: context-1m-2025-08-07` header
+# upstream. Verify with /context after relaunch: /1M = pico forwards it, /200k = it's being stripped.
+CC_GW_MODEL="claude-opus-4-8[1m]"
+CC_GW_MCP_NAME="honk"
 CC_GW_MCP_URL="http://100.72.47.4:15001/mcp"
 
 cc-gw ()
 {
 	[ -f "$CC_SETTINGS" ] || echo '{}' > "$CC_SETTINGS"
 	local tmp; tmp=$(mktemp)
-	jq --arg u "$CC_GW_URL" '.env = ((.env // {}) + {ANTHROPIC_BASE_URL: $u})' "$CC_SETTINGS" > "$tmp" && command mv "$tmp" "$CC_SETTINGS"
-	# add the gateway's omni MCP server, scoped by CC's virtual key (idempotent: remove-then-add)
-	if [ -n "$GATEWAY_CC_KEY" ]; then
-		command claude mcp remove --scope user "$CC_GW_MCP_NAME" >/dev/null 2>&1
-		if command claude mcp add --transport http --scope user "$CC_GW_MCP_NAME" "$CC_GW_MCP_URL" \
-			--header "Authorization: Bearer $GATEWAY_CC_KEY" >/dev/null 2>&1; then
-			echo "→ added MCP server '$CC_GW_MCP_NAME' ($CC_GW_MCP_URL, scoped by CC key)"
-		else
-			echo "⚠ could not add MCP server '$CC_GW_MCP_NAME' (is the claude CLI on PATH?)"
-		fi
-	else
-		echo "⚠ GATEWAY_CC_KEY not set (~/.secrets) — skipping MCP server; LLM routing still applied"
-	fi
-	echo "→ Claude Code routed through pico agentgateway ($CC_GW_URL). RESTART CC to apply."
+	jq --arg u "$CC_GW_URL" --arg m "$CC_GW_MODEL" '.env = ((.env // {}) + {ANTHROPIC_BASE_URL: $u, ANTHROPIC_MODEL: $m})' "$CC_SETTINGS" > "$tmp" && command mv "$tmp" "$CC_SETTINGS"
+	# CC routes only its MODEL through the gateway (token/cost/prompt o11y). It takes NO MCP tools
+	# from the gateway; CC uses its own built-in tools. goose gets the curated honk MCP; CC gets
+	# nothing. TRADEOFF (re-corrected 2026-07-04): as of Claude Code v2.1.196 Anthropic DISABLES
+	# Remote Control whenever proxying is on, so cc-gw and Remote Control are mutually exclusive.
+	# An earlier "they coexist" reading was a version middle-ground (older CC build, gate not yet
+	# enforced) — do NOT re-flip this. Zig keeps CC on cc-direct to retain Remote Control; use
+	# cc-gw only for a session where you're fine losing it.
+	echo "→ Claude Code MODEL routed through pico agentgateway ($CC_GW_URL) as $CC_GW_MODEL (1M pinned), no MCP. RESTART CC to apply, then check /context: /1M means pico forwards the context-1m beta, /200k means it's stripped. Remote Control is OFF while routed."
 	jq '.env' "$CC_SETTINGS"
 }
 
 cc-direct ()
 {
-	# remove the gateway MCP server so nothing dangles when off-gateway (no clutter)
-	command claude mcp remove --scope user "$CC_GW_MCP_NAME" >/dev/null 2>&1 \
-		&& echo "→ removed MCP server '$CC_GW_MCP_NAME'"
 	if [ -f "$CC_SETTINGS" ]; then
 		local tmp; tmp=$(mktemp)
-		jq 'del(.env.ANTHROPIC_BASE_URL)' "$CC_SETTINGS" > "$tmp" && command mv "$tmp" "$CC_SETTINGS"
+		jq 'del(.env.ANTHROPIC_BASE_URL, .env.ANTHROPIC_MODEL)' "$CC_SETTINGS" > "$tmp" && command mv "$tmp" "$CC_SETTINGS"
 	fi
-	echo "→ Claude Code restored to direct-to-Anthropic (kill switch). RESTART CC to apply."
+	# The kill switch must scrub BOTH sources of truth: settings.json .env (above) AND any
+	# ANTHROPIC_BASE_URL already EXPORTED into this shell / the tmux session. An exported var wins
+	# at launch, so cleaning only settings.json leaves CC silently routed — which (verified on CC
+	# v2.1.201, 2026-07-04) means a 200k context ceiling AND Remote Control disabled, even though
+	# settings.json reads "direct." A function runs in the CURRENT shell, so this unset takes effect
+	# for the next CC you launch from HERE; the tmux scrub stops new panes re-inheriting it.
+	unset ANTHROPIC_BASE_URL
+	[ -n "$TMUX" ] && tmux setenv -u ANTHROPIC_BASE_URL 2>/dev/null
+	echo "→ Claude Code restored to direct-to-Anthropic (kill switch): settings.json cleaned + ANTHROPIC_BASE_URL unset in this shell${TMUX:+ + tmux env}. RESTART CC from THIS shell to apply — Remote Control returns."
 	jq '.env' "$CC_SETTINGS" 2>/dev/null || echo '(no settings.json — already direct)'
 }
 
