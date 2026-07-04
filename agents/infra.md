@@ -44,7 +44,7 @@ sqlite3 3.46, **duckdb v1.5.4** (`~/.local/bin/duckdb`, installed 2026-06-27).
 
 ## systemd USER timers (the `/pulse` fleet + builds)
 `pulse-explore`, `pulse-daily-digest`, `pulse-di-{tuesday,thursday,friday}`,
-`pulse-weeklies`, `pulse-elevate`, `hermes-watchdog`, `andrewzigler3-build`
+`pulse-weekly-report`, `pulse-elevate`, `hermes-watchdog`, `andrewzigler3-build`
 (daily 03:00). `systemctl --user list-timers`.
 
 ## Projects on this box (selected)
