@@ -38,6 +38,9 @@ case "${1:-}" in
       *)      echo "Owner: t · Type: task" ;;
     esac
     case "${2:-}" in
+      *reqlbl*) echo "Labels: scrutinize-required" ;;
+    esac
+    case "${2:-}" in
       *ship*) echo "## Scrutiny — 2026-05-21"; echo "Verdict: SHIP" ;;
       *ovr*)  echo "## Scrutiny — OVERRIDE: trivial mechanical change" ;;
       *game*) echo "We need scrutiny before we SHIP this" ;;
@@ -187,6 +190,25 @@ run_case "allow: impl bead with OVERRIDE verdict" 0 \
 run_case "block: impl bead with gamed scrutiny prose" 2 \
   '{"tool_input":{"command":"br close bd-implgame"},"cwd":"/tmp"}' \
   "no recorded scrutiny verdict"
+
+# --- scrutinize-required label gate (explore finding-beads opt in) ---
+
+# 19. scrutinize-required label + SHIP verdict → ALLOW
+run_case "allow: scrutinize-required bead with SHIP verdict" 0 \
+  '{"tool_input":{"command":"br close bd-reqlblship"},"cwd":"/tmp"}'
+
+# 20. scrutinize-required label + NO verdict → BLOCK (the new gate)
+run_case "block: scrutinize-required bead with no verdict" 2 \
+  '{"tool_input":{"command":"br close bd-reqlblbad"},"cwd":"/tmp"}' \
+  "no recorded scrutiny verdict"
+
+# 21. scrutinize-required label + OVERRIDE verdict → ALLOW
+run_case "allow: scrutinize-required bead with OVERRIDE verdict" 0 \
+  '{"tool_input":{"command":"br close bd-reqlblovr"},"cwd":"/tmp"}'
+
+# 22. plain task, no label, no verdict → ALLOW (regression: unlabeled closes stay free)
+run_case "allow: plain task without label or verdict" 0 \
+  '{"tool_input":{"command":"br close bd-plainok"},"cwd":"/tmp"}'
 
 # --- Summary ---
 
