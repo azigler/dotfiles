@@ -76,3 +76,6 @@ export PROMPT_COMMAND="history -n;history -w;history -c;history -r;$PROMPT_COMMA
 . "$HOME/.cargo/env"
 
 . "$HOME/.local/bin/env"
+
+# Hermes Agent — ensure ~/.local/bin is on PATH
+export PATH="$HOME/.local/bin:$PATH"
