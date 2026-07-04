@@ -153,7 +153,7 @@ cmd_up() {
     case "$1" in
       --review)  review=1 ;;
       --dry-run) dry_run=1 ;;
-      --key)     shift; key_override="${1:?--key requires a value}" ;;
+      --key)     shift; [ $# -gt 0 ] || { echo "ERROR: --key requires a value" >&2; exit 2; }; key_override="$1" ;;
       --) shift; while [ $# -gt 0 ]; do files+=("$1"); shift; done; break ;;
       -*) echo "ERROR: unknown flag: $1" >&2; exit 2 ;;
       *)  files+=("$1") ;;
@@ -178,7 +178,10 @@ cmd_up() {
   local overall_rc=0 file ext ct key url bin
   bin="$(rclone_bin)" || { [ "$dry_run" -eq 1 ] || { echo "ERROR: rclone not found." >&2; exit 2; }; }
   for file in "${files[@]}"; do
-    if [ "$dry_run" -eq 0 ] && [ ! -f "$file" ]; then
+    # The file is required when actually uploading, AND when the key is
+    # content-addressed (default/--review must hash it — even in --dry-run).
+    # Only --key --dry-run can skip an existing file (no hashing needed).
+    if [ ! -f "$file" ] && { [ "$dry_run" -eq 0 ] || [ -z "$key_override" ]; }; then
       echo "ERROR: no such file: $file" >&2; overall_rc=1; continue
     fi
     ext="$(ext_of "$file")"; ct="$(content_type_of "$ext")"
@@ -212,7 +215,8 @@ cmd_up() {
 
 # get: download an object from R2 to a local file ("load" it back).
 cmd_get() {
-  local key="${1:?usage: cdn.sh get <key> [dest]}" dest="${2:-}"
+  [ $# -gt 0 ] || { echo "usage: cdn.sh get <key> [dest]" >&2; exit 2; }
+  local key="$1" dest="${2:-}"
   [ -z "$dest" ] && dest="${key##*/}"
   local bin; load_secrets; require_secrets; r2_env
   bin="$(rclone_bin)" || { echo "ERROR: rclone not found." >&2; exit 2; }
@@ -248,7 +252,8 @@ cmd_rm() {
 # purge: bust the Cloudflare edge cache for a url/key. OPTIONAL — needs a
 # cache-purge token; without one, content-addressed keys make purge unnecessary.
 cmd_purge() {
-  local target="${1:?usage: cdn.sh purge <url-or-key>}"
+  [ $# -gt 0 ] || { echo "usage: cdn.sh purge <url-or-key>" >&2; exit 2; }
+  local target="$1"
   load_secrets; require_secrets
   local url; case "$target" in http*://*) url="$target" ;; *) url="$(strip_trailing_slash "$CDN_BASE_URL")/${target}" ;; esac
   if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CF_ZONE_ID:-}" ]; then
@@ -263,8 +268,13 @@ cmd_purge() {
     exit 3
   fi
   echo "purging edge cache for: $url" >&2
+  # Pass the token via a mode-600 header file (curl -H @file), NOT argv — keeps
+  # it out of `ps`, consistent with the R2 env-var backend discipline.
+  local hdr; hdr="$(mktemp)"; chmod 600 "$hdr"
+  trap 'rm -f "$hdr"' RETURN
+  printf 'Authorization: Bearer %s\n' "$CLOUDFLARE_API_TOKEN" > "$hdr"
   curl -fsS -X POST "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/purge_cache" \
-    -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" \
+    -H "@$hdr" -H "Content-Type: application/json" \
     --data "{\"files\":[\"${url}\"]}" >&2 && echo "✅ purged: $url" >&2
 }
 

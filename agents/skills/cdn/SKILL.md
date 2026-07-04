@@ -37,8 +37,9 @@ the only real cap** — 10 GB holds thousands of screenshots/figures, but it's
 not infinite, so:
 
 - **Content-addressed keys dedup automatically** — re-uploading identical bytes
-  is a no-op (same `img/<sha16>` key; rclone skips the transfer). You can't
-  bloat storage by re-running.
+  reuses the same `img/<sha16>` key, so it can never create a second object or a
+  different url (rclone usually skips the transfer entirely; even a re-PUT
+  overwrites the same single object). You can't bloat storage by re-running.
 - **Clean up the `review/` lane** — scp-loop-killer uploads are throwaway;
   `cdn.sh rm review/<...>` or sweep the prefix periodically. (A lifecycle rule
   on the `review/` prefix in the R2 dashboard can auto-expire them.)
@@ -76,10 +77,16 @@ cdn.sh --dry-run x.png                    # print key/url, no creds, no network
 cdn.sh a.png b.png c.png                  # batch; one url per stdout line
 ```
 `up` prints **only the url(s) to stdout** (pipeable); progress goes to stderr.
-It's idempotent: identical bytes → identical key → the upload is skipped and the
-same url returned. Verification is authoritative against R2 (a successful
-`rclone copyto` *is* the proof it's stored) — the tool never HEADs the public
-url (see Caching gotcha).
+It's idempotent by *url*: identical bytes → identical key → the same immutable
+url (rclone usually skips the transfer; worst case it re-PUTs the same bytes to
+the same key — still one object, and a re-PUT is a free-tier Class-A op). You
+can't create a duplicate or a different url by re-running. Verification is
+authoritative against R2 (a successful `rclone copyto` *is* the proof it's
+stored) — the tool never HEADs the public url (see Caching gotcha).
+
+**Subcommand-name collision:** a file literally named `up`/`get`/`ls`/`rm`/
+`purge`/`help` is parsed as the subcommand on the bare form. Upload it
+explicitly: `cdn.sh up ./get` or `cdn.sh -- get`.
 
 ### Load it back (`get`)
 ```sh

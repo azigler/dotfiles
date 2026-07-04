@@ -62,12 +62,35 @@ done
 bash "$CDN" --help >/dev/null 2>&1;  eq "help exit0" "$?" "0"
 bash "$CDN"       >/dev/null 2>&1;   eq "noargs exit2" "$?" "2"
 
+# usage errors exit 2 (not 1 via ${:?}) — honors the documented contract
+bash "$CDN" get      >/dev/null 2>&1; eq "get noarg exit2"      "$?" "2"
+bash "$CDN" purge    >/dev/null 2>&1; eq "purge noarg exit2"    "$?" "2"
+bash "$CDN" up --key >/dev/null 2>&1; eq "up --key noval exit2" "$?" "2"
+
+# ── dry-run on a MISSING content-addressed file: must error, print NO url ─────
+OUTM="$(CDN_BASE_URL='https://cdn.zig.computer' bash "$CDN" up --dry-run /no/such/f.png 2>/dev/null)"; RCM=$?
+eq "dry missing default: empty stdout" "$OUTM" ""
+if [ "$RCM" -ne 0 ]; then ok; else bad "dry missing default: expected nonzero exit, got 0"; fi
+# but --key dry-run needs no file (no hashing):
+OUTK2="$(CDN_BASE_URL='https://cdn.zig.computer' bash "$CDN" up --key a/b.png --dry-run /no/such.png 2>/dev/null)"
+eq "dry --key missing ok" "$OUTK2" "https://cdn.zig.computer/a/b.png"
+
 # ── REGRESSION: never probe the canonical public url around upload ───────────
-# The cache-poisoning bug was `curl -fsSI "$url"` (a bare HEAD of the canonical
-# url) which negative-caches a 404. Guard: no `-fsSI` HEAD anywhere, and the
-# only public probe must be cache-busted (`_cb=`).
-if grep -q 'fsSI' "$CDN"; then bad "regression: bare HEAD (-fsSI) of canonical url present"; else ok; fi
-if grep -q '_cb=' "$CDN"; then ok; else bad "regression: expected a cache-busted (_cb) public probe"; fi
+# The cache-poisoning bug was a HEAD/GET of the canonical url (negative-caches a
+# 404 for hours). Guard BEHAVIORALLY, not by a literal token:
+#   A) no curl line HEADs the url (any of -I / --head / -fsSI);
+#   B) any curl that FETCHES the url (-o ... url) must be cache-busted (_cb=).
+# (The `purge` curl posts to the CF API and references $url only in --data, with
+#  no `-o`, so it's correctly excluded from B.)
+if grep -E 'curl' "$CDN" | grep -Eq '(-I |--head|-fsSI).*url'; then
+  bad "regression: a HEAD of the canonical url is present"
+else ok; fi
+FETCHES="$(grep -E 'curl' "$CDN" | grep -E -- '-o .*url')"
+if [ -z "$FETCHES" ]; then
+  bad "regression: no cache-busted reachability GET found"
+elif printf '%s\n' "$FETCHES" | grep -qv '_cb='; then
+  bad "regression: a canonical-url fetch is not cache-busted -> $FETCHES"
+else ok; fi
 
 rm -rf "$TMPD"
 echo "── cdn.sh tests: $PASS passed, $FAIL failed ──" >&2
