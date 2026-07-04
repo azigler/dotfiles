@@ -240,6 +240,7 @@ full body; descriptions below are just the prompt-toolkit summary.
 - `/gdoc` — Google Docs mechanics + LinearB styling contract
 - `/asana` — fleet-proxied Asana writes (daily bead-log + receipt-of-work patterns)
 - `/distribute` — mirror dotfiles → coworker tree (default: `~/lb-skills`)
+- `/cdn` — upload a local file → stable public URL on Cloudflare R2 (`cdn.zig.computer`); `up`/`get`/`ls`/`rm`/`purge` lifecycle, content-addressed **immutable** URLs, free-tier-aware. Hosts published/AAIF/blog images + kills the scp-review loop. Creds in `~/.secrets`.
 
 **Frontend craft:**
 - `/impeccable` — design library: 7 foundations + 14 operations
