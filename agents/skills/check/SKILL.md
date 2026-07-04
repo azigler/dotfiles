@@ -97,8 +97,8 @@ Keep analysis concrete. Cite docs, code, RFCs. No hand-waving.
 
 When the user decides, **append** the resolution to the spec bead's
 `--notes`. The `--notes` field is intended as an append-only working
-log — but **`br update --notes` itself is REPLACE-only on `br 0.2.5`**
-(verified 2026-05-06). Calling it twice in succession wipes the prior
+log — but **`br update --notes` itself is REPLACE-only** (verified
+br 0.2.5 → 0.2.15). Calling it twice in succession wipes the prior
 content. To "append" you must read the existing notes first and
 re-submit the full body in a single update.
 

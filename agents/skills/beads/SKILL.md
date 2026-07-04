@@ -69,7 +69,7 @@ the `--description` field is sloppy — split them properly:
 | `--description` / `--body` | The "what + why" (context + task framing) | At create + as scope evolves |
 | `--design` | Design notes — interfaces, data structures, algorithm sketches | When design decisions are made |
 | `--acceptance-criteria` / `--acceptance` | Concrete pass/fail bullets the next agent verifies | At create OR after `/check` |
-| `--notes` | Append-only-by-convention working log — investigation notes, links, partial findings. **Caveat**: `br update --notes <text>` itself is REPLACE-only on `br 0.2.5` — to "append" you must read the existing notes first and re-submit the full body. See `/check` SKILL Step 3 for the read-then-rewrite pattern (bead bd-otl8). | Any time during work |
+| `--notes` | Append-only-by-convention working log — investigation notes, links, partial findings. **Caveat**: `br update --notes <text>` is REPLACE-only (verified br 0.2.5 → 0.2.15, behavior unchanged) — to "append" you must read the existing notes first and re-submit the full body. See `/check` SKILL Step 3 for the read-then-rewrite pattern (bead bd-otl8); `test/test-notes-replace-behavior.sh` guards this claim against `br`-version drift. | Any time during work |
 | `--external-ref` | Link to Asana / Linear / Jira / Slack thread | When relevant |
 | `--parent` | Parent bead ID (for epic-style parent/child) | At create or via update |
 | `--deps` | Dependencies (`blocks:bd-X,relates-to:bd-Y`) | At create OR via `br dep add` |
@@ -289,8 +289,8 @@ bead is closed:
   SUPERSEDED 2026-MM-DD by bd-YYYY: <one-line reason>"
   ```
 
-  This is needed because `br update --notes` is REPLACE-only on
-  `br 0.2.5` — you must read existing, concat, re-submit.
+  This is needed because `br update --notes` is REPLACE-only
+  (verified br 0.2.5 → 0.2.15) — you must read existing, concat, re-submit.
 
 - **The new bead's `--description`** opens with `## Supersedes bd-XXXX`
   in its Context section, so the graph is traversable both ways.
