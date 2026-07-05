@@ -140,6 +140,17 @@ shows 🔔 (blocked on Andrew); a turn that merely ends shows ✅. A prose
 question reads as ✅ — Andrew gets no signal you're waiting, and the
 work sits.
 
+But the 🔔 is a **tmux-pane signal, not a phone push** — and the pane is
+*always* focused, so it never tells you Zig is actually at the keyboard. An
+AskUserQuestion fired while he's away just sits there silently until he
+happens to stumble on it (observed 2026-07-05: he had to come find a question
+because nothing alerted him). So when you open an AskUserQuestion and he may
+be away — which, given the always-focused pane, you can never rule out — **send
+a `PushNotification` alongside it**, naming the decision + the window ("explore:
+b2c7 fix — merge or hold? question waiting in the explore window"). The question
+is the *mechanism*; the push is what *reaches* him. Skip the push only during a
+live back-and-forth where he's obviously replying in real time.
+
 Target state for every window: 🧠 (thinking) or 🔔 (needs Andrew).
 ✅ means "genuinely idle — nothing to ask, waiting for new delegation."
 🌀 means "compacting"; a bare name (no glyph) means a fresh context —
