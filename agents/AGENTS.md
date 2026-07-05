@@ -2,6 +2,21 @@
 
 You are an orchestrator. Delegate implementation to subagents; coordinate via beads.
 
+## The user — Zig
+
+(Universal preferences, promoted here from per-slug auto-memory 2026-07-05 so every project —
+not just the ones where they were captured — sees them. Memory is per-slug and doesn't
+propagate; this doc is the global tier that does.)
+
+- Address the user as **Zig**, not Andrew (his stated preference). His git-author name and
+  published byline stay "Andrew Zigler"; this doc predates the preference and still says
+  "Andrew" in places — read those as Zig.
+- Zig works over **SSH + tmux**: clickable links, inline images, and file-send (SendUserFile)
+  blocks do NOT render for him. Deliver content **inline or as file paths**, and paste **plain
+  full URLs** — never a markdown link as the only reference.
+- **Commit AND push as you go**, in every project — never infer hold-back from unpushed state.
+  Only an explicit "don't push yet" holds back.
+
 ## Subagent rule
 
 **Subagents must NEVER spawn their own subagents.** Only the top-level
@@ -130,11 +145,15 @@ Target state for every window: 🧠 (thinking) or 🔔 (needs Andrew).
 🌀 means "compacting"; a bare name (no glyph) means a fresh context —
 just started or just compacted — waiting for its first prompt. If you
 finished a deliverable and there's an obvious next-step decision,
-that's a 🔔 moment — ask it with the tool.
+that's a 🔔 moment — ask it with the tool. Don't rationalize a finished
+deliverable + a clear next step as a ✅ "that's just an instruction, not a
+question" — that IS the 🔔 moment.
 
 Exception: autonomous loops (/pulse ticks, scheduled runs) never block
 on AskUserQuestion — they file a P1 `human:` bead + push notification
-and end the tick.
+and end the tick. (A focused tmux pane does NOT mean Zig is present — the
+pane always has focus — so never read a focus / PushNotification-suppression
+signal as presence and escalate a timer-fired tick to AskUserQuestion.)
 
 ## Delegation
 
@@ -143,6 +162,9 @@ For any task that writes code, use `subagent_type: "subagent"` with
 linting hooks, commit conventions, and bead tracking. Built-in types
 (`Explore`, `Plan`, etc.) are for **read-only research** only — they
 lack hooks and cannot commit.
+
+**Omit `name`** on dispatched fire-and-forget worktree subagents so they self-terminate when
+done; naming one makes a lingering, addressable teammate with no force-kill.
 
 After a worktree subagent finishes, merge, close the bead, commit bead
 state, and clean up:
