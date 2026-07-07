@@ -117,8 +117,15 @@ The compendium-wide opportunity-finder. Fires on `pulse-elevate.timer`
    it touches), rather than a one-shot per-folder blast (which is the weaker,
    non-remixing mode). Don't rewrite existing content — append the dated
    section; multiple sweeps stack dated sections so the history is legible.
-6. Append a one-line record to the explore handoff/ledger and commit +
-   push the beads AND the touched FINDINGS files.
+6. **Append a `pulse-ledger` row** — the sweep is a pulse loop, so it MUST
+   leave a ledger row like every other (no ledger-less ticks; the dashboard
+   reads it). Append one line to `~/explore/refs/pulse-ledger.jsonl` with
+   `"row":"elevate"` and a `proof` token (the touched FINDINGS / filed beads):
+   ```json
+   {"ts":"<UTC date -u +%FT%TZ>","row":"elevate","outcome":"done","proof":{"kind":"artifact","path":"<a touched FINDINGS.md>"},"note":"elevate sweep — N opportunities, M beads filed"}
+   ```
+   A sweep that found nothing new logs `"outcome":"quiet"` (no proof needed).
+   Then commit + push the ledger, the beads, AND the touched FINDINGS files.
 
 The sweep is autonomous (scheduled): it never blocks on AskUserQuestion —
 it notifies + files beads + ends, exactly like a `/pulse` tick.
