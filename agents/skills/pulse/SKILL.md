@@ -185,6 +185,40 @@ deliberate: dialogs for staffed sessions, beads for unstaffed ticks.)
    ```
 5. Commit `refs/pulse.md` in the project; the units stay machine-local.
 
+## Relocating a pulse loop's home (moving it between projects)
+
+Moving a pulse loop from one project to another (e.g. daily-digest
+weekly-reporting → explore) is a **single atomic unit** — a loop has FOUR
+coupled pieces that must all move together, or the dashboard desyncs. This is
+not hypothetical: on 2026-07-07 the daily-digest ledger was migrated into
+`~/explore` by one session while another had just pointed the manifest at the
+*old* path, so the manifest dangled at a deleted file and the loop read
+"unknown — ledger unreadable." Move all four, in one session:
+
+1. **The ledger file** — move `refs/<ledger>.jsonl` to the new project's `refs/`
+   **with its full history** (`git mv`, don't recreate — you lose the streak).
+2. **The skill + steering** — move them and repoint every path inside
+   (`$WR`/`$EX`/absolute) to the new home, so the skill *writes* the ledger at
+   the new project-relative path.
+3. **The harnessd manifest** (`~/harnessd/refs/harness-manifest.json`) — move the
+   loop's entry into the new project's `loops[]` **and update its `ledger` to the
+   new project-relative path** (prefer relative over a cross-project absolute).
+   This is the piece most easily forgotten because it lives in a *different repo*.
+4. **The timer** — only if `--dir`/`--window` in the systemd unit changed; the
+   ledger move alone doesn't touch it. (A brand-new ledger needs a seed `quiet`
+   row so it doesn't read stale before the first fire; a *moved* ledger carries
+   its history and needs none.)
+
+**Verify + coordinate:**
+- Regenerate and check: `python3 ~/harnessd/bin/harness_state.py` → the loop must
+  read a real outcome, **0 "unknown/unreadable"**; then `~/harnessd/bin/harness-refresh`
+  to push to the dashboard.
+- **If another durable session shares the working tree, claim the move first** (a
+  bead or a handoff line). A cross-cutting relocation half-done from two sessions
+  is exactly how the manifest pointer and the files desync — the shared-tree
+  version of the graduation `.service`-moved-but-`.timer`-dropped bug (`/graduate`
+  step 4d.5 is the systemd-symlink analogue of this checklist).
+
 ## `/pulse status`
 
 Read the table + ledger and report: rows with caps remaining today,
