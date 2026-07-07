@@ -138,6 +138,11 @@
             "type": "command",
             "command": "~/.claude/hooks/pre-merge-worktree.sh",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/pre-bash-stderr-guard.sh",
+            "timeout": 5
           }
         ]
       },
