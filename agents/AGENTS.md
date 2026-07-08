@@ -130,6 +130,29 @@ as "no data," which became false claims to Andrew.) Instead:
   with stderr visible before concluding** — empty is very often a swallowed
   error, not absent data.
 
+## Secrets never go in memory (or notes) — reference them, don't paste them
+
+A literal secret (API key, OAuth token, bearer/refresh token, password, private
+key) must **never** be written into a `memory/` file, a bead, a note, or any
+durable doc. Memory is loaded into context every session and lands in transcript
+JSONL — so a pasted secret propagates everywhere and, once a store is git-tracked
+(the claude-vault arc), into permanent history. Redaction after the fact is
+cleanup, not prevention.
+
+**The rule:** secrets live in **`~/.secrets`** (or an `.env` / a real secrets
+store). Memory/notes reference them **by pointer** — the env-var name or the file
+path — never the value. The good pattern: `auth: api-key: $HEVY_API_KEY` /
+`creds in dashboard .env.local`. The anti-pattern that motivated this
+(`explore-2a7a`, 2026-07-08): a `gdrive-credentials.md` memory file holding a live
+OAuth refresh token — a secret store masquerading as memory.
+
+**Still check, because auto-memory + tool output can slip:** the scanner/redactor
+`scrub.py` (`scan`/`redact`, high-confidence patterns, JSON-safe atomic rewrite —
+`~/explore/.claude/skills/scrub-secrets/`, graduating per `explore-r2iq`) is the
+mechanical guard: a pre-commit hook on the vaults (blocks), a periodic
+session-end/pulse scan of the memory tier (detects auto-memory drift → files a
+`human:` bead). Prevention (this rule) is cheapest; detection is the backstop.
+
 ## Surfacing to Andrew — AskUserQuestion, not trailing prose
 
 When you end a turn needing Andrew's input — a decision, feedback on a
