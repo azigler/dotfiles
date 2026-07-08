@@ -55,6 +55,25 @@ if [ -n "${CLAUDE_NO_OFFBOARD_MARKER:-}" ]; then
   exit 0
 fi
 
+# --- Layer 2 secret-hygiene (explore-r2iq): scan the MEMORY tier for a leaked
+# literal secret each session end. Policy is "secrets never go in memory" — this
+# is the detect backstop for auto-memory/tool writes that can't be fenced. Scan
+# is READ-ONLY (never redacts). On a finding, drop a durable alert marker + log
+# that the next /onboard surfaces; clear it when the tier is clean. Best-effort:
+# never fail the hook. High-confidence patterns only (no --entropy) to avoid noise.
+_SCRUB="$HOME/.claude/skills/scrub-secrets/scrub.py"
+if [ -f "$_SCRUB" ] && command -v python3 &>/dev/null; then
+  _MEM=("$HOME"/.claude/projects/*/memory)
+  if [ -e "${_MEM[0]}" ]; then
+    if _OUT=$(python3 "$_SCRUB" scan "${_MEM[@]}" 2>&1); then
+      rm -f "$HOME/.claude/.secret-alert" 2>/dev/null   # clean → clear the marker
+    else
+      { date -u +%FT%TZ; printf '%s\n' "$_OUT"; } > "$HOME/.claude/secret-scan.log" 2>/dev/null
+      touch "$HOME/.claude/.secret-alert" 2>/dev/null   # found → raise the marker
+    fi
+  fi
+fi
+
 if command -v git &>/dev/null && git rev-parse --is-inside-work-tree &>/dev/null; then
   ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
   case "$ROOT" in

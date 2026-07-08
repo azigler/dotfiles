@@ -43,6 +43,18 @@ if [ -f ".git" ] || echo "$GIT_TOPLEVEL" | grep -q '/.claude/worktrees/'; then
   IN_WORKTREE=true
 fi
 
+# Layer-2 secret-hygiene alert (explore-r2iq): the session-end scan raises
+# ~/.claude/.secret-alert when it finds a secret in the memory tier. Surface it
+# prominently for top-level sessions so the next session acts on it (redact +
+# move the value to ~/.secrets). Cleared automatically once the tier scans clean.
+if ! $IN_WORKTREE && [ -f "$HOME/.claude/.secret-alert" ]; then
+  echo ""
+  echo "⚠ SECRET ALERT — a session-end scan found a secret in the memory tier."
+  echo "  Details: $HOME/.claude/secret-scan.log"
+  echo "  Redact:  python3 ~/.claude/skills/scrub-secrets/scrub.py redact <file> --apply"
+  echo "  Policy:  secrets live in ~/.secrets, referenced by pointer — never in memory."
+fi
+
 if command -v git &>/dev/null && git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
   BRANCH=$(git branch --show-current 2>/dev/null)
   echo "Branch: ${BRANCH:-detached}"
