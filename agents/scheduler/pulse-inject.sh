@@ -143,20 +143,25 @@ if [ "$CURRENT_CMD" != "$LAUNCH_BASE" ]; then
     || note "WARN: '$LAUNCH_BASE' not detected after 30s (pane runs '$NOW')"
 
   # Liveness (the process exists) is NOT readiness (the TUI can accept typed
-  # input). pane_current_command flips within ~1-4s of exec, but an interactive
-  # TUI — especially a heavy project (big CLAUDE.md + MCP + skills + hooks) —
-  # takes much longer to draw its composer. Typing before then drops the
-  # keystrokes SILENTLY. That was the ha-portal cold-boot bug: a homeowner submit
-  # launched claude, but the '/ha-serve' send-keys ~3s later hit the not-yet-ready
-  # TUI and was eaten, so the queue never drained; only a later press into the
-  # now-WARM session worked. (Timer pulses — /pulse, /daily-digest — dodge it:
-  # their session + window are long-lived, so they almost never take this
-  # cold-boot branch; the cold path is rare, and the next tick papers over a miss.
-  # The on-demand button has no such retry, so it EXPOSES the race.) The old fixed
-  # `sleep 3` was the too-short guess. Instead, poll the pane for an input-READY
-  # marker (Claude Code's composer footer) before injecting, then a small settle.
-  # Bounded; on timeout inject anyway, so a marker miss degrades to "try late"
-  # (the old behavior) rather than "never".
+  # input). pane_current_command flips to 'claude' within ~1-4s of exec, but the
+  # interactive TUI needs longer to draw its composer; typing before then drops
+  # the keystrokes SILENTLY. The old cold-boot path detected the process, slept a
+  # fixed 3s, then injected — an UNGUARDED timing race that never checked whether
+  # the composer was actually up. Whether the 3s lands after-ready varies with
+  # boot load, session weight, and attachment, so the SAME injector wins some cold
+  # boots and loses others. Evidence (pulse-inject.log): weekly-report cold-boots
+  # a fresh window + fresh claude every week (it does NOT reuse a warm session)
+  # into the DETACHED, lighter `work` session and injected at +4s/+5s — after
+  # ready. The ha-portal button cold-boots into the ATTACHED, heavier ~/explore
+  # session (bigger CLAUDE.md + SessionStart) and injected at +5s/+6s/+7s — the
+  # +7s run landed BEFORE ready, so '/ha-serve' was eaten and the homeowner queue
+  # never drained (a later press into the now-warm session worked). Note the
+  # FAILING boot waited LONGER than the winners — so a bigger fixed sleep is not
+  # the fix, and the on-demand button (no next-tick retry to paper over a miss) is
+  # just what surfaced the race. FIX: poll the pane for an input-READY marker
+  # (Claude Code's composer footer) before typing, then a small settle. Bounded;
+  # on timeout inject anyway, so a marker miss degrades to "try late" (the old
+  # behavior) rather than "never".
   #   PULSE_READY_MARKER  — ERE matched against capture-pane. Empty DISABLES the
   #                         gate (non-TUI launches / tests). Default = CC footer.
   #   PULSE_READY_TIMEOUT — max seconds to wait for the marker (default 60). The
