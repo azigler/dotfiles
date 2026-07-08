@@ -58,7 +58,17 @@ git --git-dir="$MEMORY_GIT" rev-parse --verify -q "$sha^{commit}" >/dev/null \
   || die "not a commit in the vault: $sha"
 
 path="$slug/memory"
-[ -n "$sub" ] && path="$slug/memory/$sub"
+if [ -n "$sub" ]; then
+  # keep the subpath INSIDE <slug>/memory/ (scrutiny F2): reject '..' and absolute
+  # paths so a crafted subpath can't point the diff/copy-back at another slug.
+  case "/$sub" in
+    */../*|*/..) die "subpath must stay within <slug>/memory/ (no '..'): $sub" ;;
+  esac
+  case "$sub" in
+    /*) die "subpath must be relative to <slug>/memory/ (no leading '/'): $sub" ;;
+  esac
+  path="$slug/memory/$sub"
+fi
 
 short="$(git --git-dir="$MEMORY_GIT" rev-parse --short "$sha")"
 staging="$STAGING_ROOT/$short"
@@ -85,11 +95,18 @@ echo
 echo "== diff (live vs staged revision; empty = identical) =="
 if diff -ruN "$MEMORY_WORKTREE/$path" "$staging/$path"; then
   echo "(no differences — the live tree already matches $short)"
+else
+  drc=$?   # 1 = differences (shown above); >=2 = diff itself errored (scrutiny F3)
+  [ "$drc" -ge 2 ] && echo "(warning: diff could not compare cleanly — exit $drc; inspect by hand)" >&2
 fi
 echo
 echo "== nothing was applied. To adopt the staged revision, copy back BY HAND: =="
 if [ -d "$staging/$path" ]; then
-  echo "  cp -a -- \"$staging/$path/.\" \"$MEMORY_WORKTREE/$path/\""
+  # a FAITHFUL revert of a directory needs --delete: plain `cp` overlays and leaves
+  # files that were added AFTER this revision in place (scrutiny F1). rsync --delete
+  # makes live match the staged revision exactly. Review the diff above first.
+  echo "  rsync -a --delete -- \"$staging/$path/\" \"$MEMORY_WORKTREE/$path/\""
+  echo "  # (rsync --delete removes files added since $short; the diff above shows them as deletions)"
 else
   echo "  cp -- \"$staging/$path\" \"$MEMORY_WORKTREE/$path\""
 fi

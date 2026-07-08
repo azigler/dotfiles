@@ -48,9 +48,11 @@ if [ -e "$MEMORY_WORKTREE/.git" ]; then
 fi
 echo "   init OK — no .git at the work-tree root"
 
-# 4. repo-LOCAL identity (OQ-E6) + creds + hooksPath — NEVER --global (explore-62q5)
-git --git-dir="$MEMORY_GIT" config user.name  "Claude Vault"
-git --git-dir="$MEMORY_GIT" config user.email "vault@localhost"
+# 4. repo-LOCAL creds + hooksPath — NEVER --global (explore-62q5).
+# Identity: intentionally NOT set repo-locally — the vault INHERITS the machine's
+# global git identity (Zig's), so vault commits are authored by Zig with Claude as
+# co-author (see the commit trailer in vault-lib.sh). This supersedes OQ-E6's
+# "distinct bot identity" (Zig 2026-07-08: commit as me, Claude co-authors).
 git --git-dir="$MEMORY_GIT" config credential.helper '!gh auth git-credential'
 git --git-dir="$MEMORY_GIT" config core.hooksPath "$MEMORY_GIT/hooks"
 
@@ -75,7 +77,9 @@ else
 fi
 
 # 7. commit #1 (hook re-runs the gate) + push ---------------------------------
-mvault commit -q -m "memory: initial snapshot $(date -u +%FT%TZ)"
+# authored by Zig (inherited global identity), Claude as co-author.
+mvault commit -q -m "memory: initial snapshot $(date -u +%FT%TZ)" \
+                 -m "Co-Authored-By: Claude <noreply@anthropic.com>"
 mvault branch -M main
 mvault remote add origin "https://github.com/$MEMORY_REPO.git"
 mvault push -u origin main

@@ -106,7 +106,10 @@ _vault_push_locked() {
     return 0                                   # nothing changed
   fi
   slug=$(printf '%s' "$PWD" | sed 's#/#-#g')
-  if ! out=$(mgit commit -q -m "memory: ${slug} $(date -u +%FT%TZ)" 2>&1); then
+  # authored by Zig (vault inherits the global git identity — no repo-local override,
+  # explore-62q5), Claude as co-author. Supersedes OQ-E6's distinct-bot-identity.
+  if ! out=$(mgit commit -q -m "memory: ${slug} $(date -u +%FT%TZ)" \
+                          -m "Co-Authored-By: Claude <noreply@anthropic.com>" 2>&1); then
     # a pre-commit-hook block (Layer 1 secret gate) or a real fs failure — loud.
     echo "WARN: memory vault commit blocked/failed:" >&2
     printf '%s\n' "$out" >&2
