@@ -187,6 +187,12 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 **Prereqs/side-effects:** refs/research/ archive; findings verified empirically before becoming load-bearing; independent scrutinizer (refute-framed) is the DEFAULT at the fold-to-canon boundary; autonomous mode has circuit breakers (2 consecutive anomalous iters → stop + P1 human: bead); notifications for material results.
 **Anti-pattern:** Success defined as absence-of-error instead of presence-of-evidence — uniform failure passes uniformity checks; scaling an experiment whose pipeline never classified a known-good AND known-bad canary correctly.
 
+### scrub-secrets
+**Job:** Detect + redact high-confidence secrets (provider token prefixes, private keys, long Bearer tokens) in the claude-vault tiers — memory files + transcript JSONL/tool-results. `scan` (report + nonzero exit = gate) / `redact` (JSON-safe atomic rewrite: temp → verify \n-line-count + per-line JSON parse → os.replace).
+**Fire when:** Before a vault commits (block a secret entering permanent history), on a periodic memory-tier sweep (catch a leaked literal), or to strip a credential that landed in memory/notes/transcripts. Layer 0 of the secret-hygiene system (explore-r2iq); callable by other skills (exit 1=found/0=clean).
+**Prereqs/side-effects:** stdlib-only CLI (`~/.claude/skills/scrub-secrets/scrub.py`); `--apply` mutates files (dry-run default); `--exclude` skips the active session; `--entropy` scan-only (+ an allowlist for Doc IDs/$env/~paths/shas/uuids); `--gitleaks` folds the maintained-ruleset backend (opt-in, detect-only). Pairs with the "secrets never go in memory" AGENTS.md policy.
+**Anti-pattern:** Entropy patterns in REDACT mode (a false positive corrupts real content — redact is high-confidence-prefix-only by design); relying on redaction instead of PREVENTION (secrets belong in `~/.secrets`, referenced by pointer).
+
 ### /scrutinize
 **Job:** Adversarial read-only gate after an impl wave — disprove "done": stub bodies, mock-the-unit tests, unverified criteria, composition gaps.
 **Fire when:** After every impl-wave merge, before merge-to-main / bead close. Skip only for atomic mechanical changes.
