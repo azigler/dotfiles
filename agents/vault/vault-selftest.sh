@@ -73,6 +73,33 @@ else
 fi
 rm -rf "$tmpd"
 
+# T7 — runtime guard refuses non-memory even when an in-tree .gitignore bypasses
+# the excludes (scrutiny finding 1 regression guard). Fully ISOLATED: a throwaway
+# git-dir + work-tree via env overrides; never touches the live vault or tree.
+(
+  tw=$(mktemp -d)
+  export VAULT_DIR="$tw/vaults" MEMORY_GIT="$tw/vaults/m.git" \
+         MEMORY_WORKTREE="$tw/wt" MEMORY_LOCK="$tw/vaults/.lock"
+  # MEMORY_EXCLUDES intentionally stays the REAL excludes file (that's the SUT).
+  mkdir -p "$MEMORY_WORKTREE/-s/memory" "$VAULT_DIR"
+  echo real > "$MEMORY_WORKTREE/-s/memory/M.md"
+  printf '!*\n' > "$MEMORY_WORKTREE/-s/.gitignore"     # negate the whitelist
+  echo LEAK  > "$MEMORY_WORKTREE/-s/leak.jsonl"        # a transcript-shaped escapee
+  git --git-dir="$MEMORY_GIT" --work-tree="$MEMORY_WORKTREE" init -q
+  git --git-dir="$MEMORY_GIT" config user.name  t      # repo-local (never --global)
+  git --git-dir="$MEMORY_GIT" config user.email t@t
+  printf '%s PRIVATE\n' "$(date -u +%F)" > "$VAULT_DIR/.memory-visibility"  # stub guard
+  _vault_push_locked >/dev/null 2>&1 || true
+  # the guard must have refused: NO commit exists, and leak.jsonl is not tracked.
+  if git --git-dir="$MEMORY_GIT" rev-parse HEAD >/dev/null 2>&1 \
+     || git --git-dir="$MEMORY_GIT" --work-tree="$MEMORY_WORKTREE" ls-files | grep -q .; then
+    echo "FAIL: runtime-guard-refuses-non-memory (a commit/track slipped through)"; rc=1
+  else
+    echo "PASS: runtime-guard-refuses-non-memory"; rc=0
+  fi
+  rm -rf "$tw"; exit $rc
+) && pass=$((pass+1)) || fail=$((fail+1))
+
 echo "---"
 echo "selftest: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
