@@ -141,6 +141,12 @@ chmod +x "$HOME/.local/bin/agentgateway" "$HOME/.local/bin/agctl"
 section "Upgrading goose"
 curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash
 
+# --- gitleaks (secret scanner — foundational to the secret-hygiene system, explore-r2iq) ---
+section "Upgrading gitleaks"
+GL_TAG=$(curl -fsSL https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep -oP '"tag_name":\s*"\K[^"]+')
+curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/${GL_TAG}/gitleaks_${GL_TAG#v}_linux_x64.tar.gz" | tar xz -C "$HOME/.local/bin" gitleaks
+chmod +x "$HOME/.local/bin/gitleaks"
+
 # rustfmt + clippy upgraded automatically by `rustup update` (already in script)
 
 # --- Bun global packages ---

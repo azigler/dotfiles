@@ -90,6 +90,11 @@ if [ "$(hostname -s)" != "zig-computer" ]; then
     # --- goose (Block's open-source AI agent, an AAIF project) ---
     curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash
 
+    # --- gitleaks (secret scanner — foundational to the secret-hygiene system, explore-r2iq) ---
+    GL_TAG=$(curl -fsSL https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep -oP '"tag_name":\s*"\K[^"]+')
+    curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/${GL_TAG}/gitleaks_${GL_TAG#v}_linux_x64.tar.gz" | tar xz -C "$HOME/.local/bin" gitleaks
+    chmod +x "$HOME/.local/bin/gitleaks"
+
     exec sudo --login --user $USER
 
     nix --extra-experimental-features nix-command --extra-experimental-features flakes profile add 'nixpkgs#nix-direnv'
