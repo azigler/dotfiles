@@ -100,6 +100,28 @@ rm -rf "$tmpd"
   rm -rf "$tw"; exit $rc
 ) && pass=$((pass+1)) || fail=$((fail+1))
 
+# T8 — /vault-restore writes STAGING, never the live tree, never the vault index
+# (spec §4.5 / OQ-E4). Restore HEAD of a tracked slug's memory file and assert the
+# live file + the vault's real index are byte-for-byte untouched afterwards.
+VR="$HERE/vault-restore.sh"
+someslug=$(mvault ls-files | head -1 | cut -d/ -f1)
+somefile=$(mvault ls-files | grep -m1 "^${someslug}/memory/" || true)
+if [ -x "$VR" ] && [ -n "$someslug" ] && [ -n "$somefile" ]; then
+  livef="$MEMORY_WORKTREE/$somefile"; sub=${somefile#"${someslug}"/memory/}
+  h0=$(sha256sum "$livef" 2>/dev/null | awk '{print $1}'); s0=$(mvault status --porcelain | wc -l | tr -d ' ')
+  bash "$VR" "$(mvault rev-parse HEAD)" "$someslug" "$sub" >/dev/null 2>&1 || true
+  h1=$(sha256sum "$livef" 2>/dev/null | awk '{print $1}'); s1=$(mvault status --porcelain | wc -l | tr -d ' ')
+  staged="$VAULT_DIR/restore-staging/$(mvault rev-parse --short HEAD)/$somefile"
+  if [ -f "$staged" ] && [ "$h0" = "$h1" ] && [ "$s0" = "$s1" ]; then
+    ok "vault-restore-writes-staging-not-live"
+  else
+    no "vault-restore-writes-staging-not-live (staged=$([ -f "$staged" ] && echo y||echo n) liveEq=$([ "$h0" = "$h1" ] && echo y||echo n) idxEq=$([ "$s0" = "$s1" ] && echo y||echo n))"
+  fi
+  rm -rf "$VAULT_DIR/restore-staging"
+else
+  echo "SKIP: vault-restore-writes-staging-not-live (no tracked slug/file or script missing)"
+fi
+
 echo "---"
 echo "selftest: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
