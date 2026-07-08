@@ -433,6 +433,34 @@ Defense in depth, in order:
    - verify: `jq -r '.id' .beads/issues.jsonl | sort | uniq -d` is empty,
      then `br doctor` (its `jsonl.duplicate_ids` detector confirms)
 
+## New project: init with a UNIQUE id prefix (never the `bd` default)
+
+`br init` defaults the id prefix to `bd` when `--prefix` is omitted. Fine
+within one project — but across the fleet it means many projects
+independently mint `bd-<id>` ids that **collide**. That breaks any
+cross-project view (a fleet-wide `bv` workspace, a merged export) and
+makes cross-project references ambiguous. (Verified 2026-07-08: **16
+projects** shared the `bd` default → 651 colliding ids.)
+
+**Rule: always `br init --prefix <unique>` — never accept the `bd`
+default.** Derive a short, globally-unique prefix from the project dir,
+and check it isn't already taken before init:
+
+```bash
+proj=$(basename "$PWD")                 # or a hand-picked short tag
+# is this prefix already used anywhere under ~? (must print nothing)
+find ~ -path '*/.beads/config.yaml' -exec grep -lE "issue_prefix:\s*${proj}\b" {} +
+br init --prefix "$proj"
+```
+
+Existing `bd`-prefixed projects keep working: the fleet-aggregate `bv`
+**workspace** namespaces each repo by a per-repo prefix (`reef/bd-10b0`),
+so a one-time re-prefix is **optional, not required** — and note there is
+no `br` re-prefix command (it would be a custom id + dep-ref rewrite +
+DB resync). Prevention (this rule) beats cleanup.
+(Stronger enforcement — a PreToolUse hook that rejects `br init` without a
+unique `--prefix` — is a candidate follow-up; see `feedback_editorial_vs_mechanical_enforcement`.)
+
 ## Visualization & triage analysis with `bv`
 
 `bv` ([beads_viewer](https://github.com/Dicklesworthstone/beads_viewer)) is
