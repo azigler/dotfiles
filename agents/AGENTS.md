@@ -284,6 +284,7 @@ full body; descriptions below are just the prompt-toolkit summary.
 **Knowledge / voice:**
 - `/zig-voice` — Andrew Zigler's writing voice + anti-patterns
 - `/randomize` — force real-entropy diversity in creative generation (seed → modulo → choice, with a provenance block)
+- `/recall` — grep + type-keyed render over transcript history (sessions + subagents + tool-results); fails LOUD on anything unrenderable; a stdlib CLI callable by other skills (the read half of the claude-vault arc, spec explore-76oc)
 
 ## Skill libraries outside the global set
 

@@ -175,6 +175,12 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 **Prereqs/side-effects:** openssl rand seed; arithmetic must be re-runnable by a reviewer; provenance block written BEFORE prose.
 **Anti-pattern:** Narrating "committed choices" without running the arithmetic — no provenance block means it wasn't a real randomize.
 
+### /recall
+**Job:** grep + expand over the transcript firehose (`~/.claude/projects/<slug>/**/*.jsonl` incl. subagent transcripts + `tool-results/*.txt`) — type-keyed render of matching turns; the read half of the claude-vault arc (spec explore-76oc §4.2).
+**Fire when:** "what did we decide about X", "find where I said Y", search past sessions for the actual transcript TEXT (not curated memory); the read primitive other skills call (the Phase-4 learning loop).
+**Prereqs/side-effects:** stdlib-only Python CLI (`recall.py`), reads LIVE local files (no vault needed); exit 0=hit/1=none/2=error + `--json` `{slug,session,ts,role,line,text}`; `--regex` ReDoS-guarded (aborts LOUD on a pathological pattern); `--root`/`CLAUDE_PROJECTS_ROOT`/`RECALL_MAX_LINE_BYTES` overrides.
+**Anti-pattern:** Using it when the question needs REASONING/synthesis (that's an agent — which may call /recall to ground itself); treating a `role="unrenderable"` loud line as noise — it's the drift detector firing on a genuinely-new record type.
+
 ### /research
 **Job:** Autonomous layered research harness — parallel research subagents, empirical verification, independent scrutiny gate, fold to canon, layer next questions. Data-GENERATING items (benchmarks, scaled probes) additionally run reference/experiment-protocol.md: pre-registration, positive+negative calibration controls, blocking gates, raw-data provenance.
 **Fire when:** "Research X" / "stay autonomous"; proactively on operational blockers, new substrates, doubted findings.
