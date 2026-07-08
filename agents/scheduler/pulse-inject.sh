@@ -15,7 +15,7 @@
 #
 # Usage:
 #   pulse-inject.sh --dir <project-path> --cmd "<prompt or /skill>" \
-#                   [--session work] [--window pulse] [--launch claude]
+#                   [--session work] [--window pulse] [--launch claude] [--loop <id>]
 #
 #   --dir      project directory the Claude session anchors in (required)
 #   --cmd      the text typed into the session, submitted with Enter (required)
@@ -26,6 +26,13 @@
 #              don't break window discovery.
 #   --launch   program to start when the window has no live session
 #              (default: claude). Tests override with something inert.
+#   --loop     the loop id (= the manifest timer / harness-state loop id, e.g.
+#              pulse-daily-digest). Units pass `--loop %p` (systemd expands %p to
+#              the unit prefix). On a 🔔-defer, the loop id is recorded to
+#              ~/.local/state/harness/pulse-bounces.jsonl so the state bus renders
+#              the tick as 'bounced' instead of a false 'tick in flight'
+#              (harnessd-gf6). Optional + backward-compatible: omit it and defer
+#              behaves exactly as before (logs, no bounce record).
 #
 # Behavior contract (tested in test-pulse-inject.sh):
 #   1. No tmux server / no session  -> created detached.
@@ -48,6 +55,7 @@ WINDOW="pulse"
 LAUNCH="claude"
 DIR=""
 CMD=""
+LOOP=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -56,6 +64,7 @@ while [ $# -gt 0 ]; do
     --session) SESSION=$2; shift 2 ;;
     --window)  WINDOW=$2; shift 2 ;;
     --launch)  LAUNCH=$2; shift 2 ;;
+    --loop)    LOOP=$2; shift 2 ;;
     *) echo "pulse-inject: unknown arg $1" >&2; exit 64 ;;
   esac
 done
@@ -154,6 +163,18 @@ fi
 WIN_NAME=$("$TMUX_BIN" display-message -p -t "$PANE" '#{window_name}' 2>/dev/null)
 if [ "$WIN_NAME" != "${WIN_NAME#🔔}" ]; then
   note "deferred: window '$WIN_NAME' is blocked on Andrew (🔔) — not injecting '$CMD'; next timer retries"
+  # Record the bounce where the state bus can read it (harnessd-gf6). A deferred
+  # tick never ran, so the bus must render 'bounced' — not a false 'tick in flight'.
+  # Best-effort + loop-scoped (only when --loop is passed by the unit as `--loop %p`);
+  # confined to this defer path (normal injection below is untouched) and must NEVER
+  # fail the exit 0. The loop id must equal the manifest timer / bus loop id.
+  if [ -n "$LOOP" ]; then
+    _bdir="${HARNESS_STATE_DIR:-$HOME/.local/state/harness}"   # override for tests
+    { mkdir -p "$_bdir" 2>/dev/null \
+      && printf '{"ts":"%s","loop":"%s","reason":"blocked_on_andrew"}\n' \
+           "$(date -u +%FT%TZ)" "$LOOP" >> "$_bdir/pulse-bounces.jsonl" 2>/dev/null ; } \
+      || note "bounce-record failed for loop '$LOOP' (non-fatal)"
+  fi
   exit 0
 fi
 

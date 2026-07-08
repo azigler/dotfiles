@@ -102,6 +102,35 @@ fi
 WIN_COUNT6=$("$TMUX_BIN" list-windows -t "=$SESSION" -F '#{window_name}' | sed -E 's/^(🧠|✅|🔔|🌀) ?//' | grep -cx "pulse")
 if [ "$WIN_COUNT6" -eq 1 ]; then ok; else bad "no duplicate window on deferred 🔔 run (count=$WIN_COUNT6)"; fi
 
+# 7. Bounce record (harnessd-gf6): a 🔔-deferred tick invoked WITH --loop appends a
+#    bounce record to the harness state dir (HARNESS_STATE_DIR override) so the state
+#    bus renders 'bounced' instead of a false 'tick in flight'. Window is still 🔔.
+BOUNCE_DIR=$(mktemp -d)
+HARNESS_STATE_DIR="$BOUNCE_DIR" "$INJECT" --session "$SESSION" --window pulse --dir "$DIR" \
+  --launch cat --cmd "should-not-appear-tick-7" --loop pulse-test-loop >/dev/null 2>&1
+if grep -q '"loop":"pulse-test-loop"' "$BOUNCE_DIR/pulse-bounces.jsonl" 2>/dev/null \
+   && grep -q '"reason":"blocked_on_andrew"' "$BOUNCE_DIR/pulse-bounces.jsonl" 2>/dev/null; then
+  ok
+else
+  bad "bounce record written on 🔔 defer with --loop"
+fi
+# …and the tick is still NOT injected (defer still holds with --loop present).
+if "$TMUX_BIN" capture-pane -p -t "$PANE" 2>/dev/null | grep -q "should-not-appear-tick-7"; then
+  bad "injection still skipped on 🔔 defer when --loop is passed"
+else
+  ok
+fi
+# …and WITHOUT --loop, a 🔔 defer writes NO bounce file (backward compat).
+BOUNCE_DIR2=$(mktemp -d)
+HARNESS_STATE_DIR="$BOUNCE_DIR2" "$INJECT" --session "$SESSION" --window pulse --dir "$DIR" \
+  --launch cat --cmd "should-not-appear-tick-7b" >/dev/null 2>&1
+if [ -f "$BOUNCE_DIR2/pulse-bounces.jsonl" ]; then
+  bad "no bounce file written without --loop (backward compat)"
+else
+  ok
+fi
+rm -rf "$BOUNCE_DIR" "$BOUNCE_DIR2"
+
 # --- Summary ---
 TOTAL=$((PASS + FAIL))
 if [ "$FAIL" -eq 0 ]; then

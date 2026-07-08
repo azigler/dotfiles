@@ -12,4 +12,4 @@ Type=oneshot
 # The injector ensures the work session + pulse window + interactive
 # Claude session exist, then types the command into it. Interactive
 # session = normal subscription usage, visible + steerable in tmux.
-ExecStart=%h/dotfiles/agents/scheduler/pulse-inject.sh --dir /home/ubuntu/<project-path> --cmd "/pulse tick"
+ExecStart=%h/dotfiles/agents/scheduler/pulse-inject.sh --loop %p --dir /home/ubuntu/<project-path> --cmd "/pulse tick"
