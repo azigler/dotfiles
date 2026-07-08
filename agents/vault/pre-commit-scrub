@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# claude-memory vault pre-commit hook — Layer 1 of the secret-hygiene system
+# (explore-r2iq / explore-76oc OQ-B3). Blocks ANY commit that would put a
+# high-confidence secret into the vault's PERMANENT history. The vault only ever
+# stages the memory tier, so scanning the whole tier == scanning the commit.
+#
+# Body kept versioned at ~/dotfiles/agents/vault/pre-commit-scrub; installed by
+# bootstrap-memory.sh into ~/.claude/vaults/memory.git/hooks/pre-commit.
+# Best-effort: if the scrubber is missing it does NOT block (Layer 2's periodic
+# scan + /onboard alert remain the backstop). High-confidence patterns only.
+set -u
+SCRUB="${SCRUB:-$HOME/.claude/skills/scrub-secrets/scrub.py}"
+MEM=("$HOME"/.claude/projects/*/memory)
+
+[ -f "$SCRUB" ] || exit 0
+command -v python3 >/dev/null 2>&1 || exit 0
+[ -e "${MEM[0]}" ] || exit 0
+
+if ! python3 "$SCRUB" scan "${MEM[@]}"; then
+  {
+    echo ""
+    echo "BLOCKED: claude-memory pre-commit — a high-confidence secret was found in"
+    echo "the memory tier. Nothing has been committed. Move the value to ~/.secrets"
+    echo "and reference it by pointer, then retry. (scrub-secrets / explore-r2iq)"
+  } >&2
+  exit 1
+fi
+exit 0

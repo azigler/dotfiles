@@ -1,0 +1,11 @@
+# claude-memory vault excludes (explore-76oc §4.1, D1 — sandbox-validated).
+# Whitelist: ignore everything, then re-include ONLY <slug>/memory/**.
+# Applied via `git -c core.excludesFile=<this>` so the vault stages only the
+# memory tier over the shared ~/.claude/projects work-tree, leaving the 2 GB of
+# transcripts untracked. Do NOT edit without re-running bootstrap's
+# "only */memory/** staged" assertion.
+/*
+!*/
+*/*
+!*/memory/
+!*/memory/**
