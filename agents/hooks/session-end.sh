@@ -74,6 +74,25 @@ if [ -f "$_SCRUB" ] && command -v python3 &>/dev/null; then
   fi
 fi
 
+# --- claude-memory vault push (explore-76oc Phase 1). Commit+push the memory
+# tier on session end. Best-effort; NEVER fails the hook. Worktree-guarded
+# (OQ-A5): only top-level sessions push — a worktree/subagent teardown's slug is
+# transient. Inert until the vault is bootstrapped (vault_push_memory returns
+# early if ~/.claude/vaults/memory.git is absent). Its own flock serializes
+# concurrent sessions; its pre-commit hook (Layer 1) blocks a secret loudly.
+# Output goes to a dedicated log; a real secret problem also trips the Layer-2
+# .secret-alert above, which /onboard surfaces.
+case "$PWD" in
+  */.claude/worktrees/*) ;;   # subagent/worktree teardown — skip the vault push
+  *)
+    _VAULT_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../vault/vault-lib.sh"
+    if [ -f "$_VAULT_LIB" ]; then
+      . "$_VAULT_LIB"
+      vault_push_memory >>"$HOME/.claude/vault-session-end.log" 2>&1 || true
+    fi
+    ;;
+esac
+
 if command -v git &>/dev/null && git rev-parse --is-inside-work-tree &>/dev/null; then
   ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
   case "$ROOT" in
