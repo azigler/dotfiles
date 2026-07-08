@@ -21,8 +21,14 @@ if [ ! -x "$TMUX_BIN" ]; then
 fi
 
 SESSION="pulse-test-$$"
+SESSION2="pulse-ready-$$"
 DIR=$(mktemp -d)
-trap '"$TMUX_BIN" kill-session -t "=$SESSION" 2>/dev/null; rm -rf "$DIR"' EXIT
+trap '"$TMUX_BIN" kill-session -t "=$SESSION" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION2" 2>/dev/null; rm -rf "$DIR"' EXIT
+
+# The inert launch (`cat`) is NOT a TUI, so the default input-ready marker never
+# appears; cap the readiness-poll ceiling so cold-start cases fall back fast
+# instead of waiting the production default. Case 8 overrides this per-invocation.
+export PULSE_READY_TIMEOUT=2
 
 ok() { PASS=$((PASS + 1)); }
 bad() { FAIL=$((FAIL + 1)); FAILED_NAMES+=("$1"); }
@@ -130,6 +136,37 @@ else
   ok
 fi
 rm -rf "$BOUNCE_DIR" "$BOUNCE_DIR2"
+
+# 8. Input-readiness gate (the ha-portal cold-boot fix): on a cold launch the
+#    injector waits for PULSE_READY_MARKER — the "TUI is ready for input" signal
+#    (Claude Code's composer footer in prod) — BEFORE typing, so keystrokes are
+#    not eaten by a still-initializing TUI. Simulate a slow TUI: a launch that
+#    prints the marker only after a delay, then reads stdin (echoing it, like a
+#    composer). Assert (a) the cmd lands, and (b) the injector actually WAITED for
+#    the delayed marker (elapsed covers the delay) rather than injecting blindly.
+SLOWTUI="$DIR/slowtui.sh"
+cat > "$SLOWTUI" <<'EOS'
+sleep 4
+echo "TUI-INPUT-READY-MARKER-XYZ"
+while IFS= read -r line; do printf '%s\n' "$line"; done
+EOS
+_t0=$(date +%s)
+PULSE_READY_MARKER='TUI-INPUT-READY-MARKER-XYZ' PULSE_READY_TIMEOUT=20 \
+  "$INJECT" --session "$SESSION2" --window pulse --dir "$DIR" \
+  --launch "bash $SLOWTUI" --cmd "ready-gated-tick" >/dev/null 2>&1
+_elapsed=$(( $(date +%s) - _t0 ))
+PANE2=$("$TMUX_BIN" list-panes -t "=$SESSION2" -a -F '#{window_name} #{pane_id}' 2>/dev/null | awk '$1=="pulse"{print $2; exit}')
+if "$TMUX_BIN" capture-pane -p -t "$PANE2" 2>/dev/null | grep -q "ready-gated-tick"; then
+  ok
+else
+  bad "cmd injected once the readiness marker appeared"
+fi
+if [ "$_elapsed" -ge 3 ]; then
+  ok
+else
+  bad "injector waited for the delayed readiness marker (elapsed=${_elapsed}s)"
+fi
+"$TMUX_BIN" kill-session -t "=$SESSION2" 2>/dev/null
 
 # --- Summary ---
 TOTAL=$((PASS + FAIL))

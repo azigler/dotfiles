@@ -130,19 +130,54 @@ if [ "$CURRENT_CMD" != "$LAUNCH_BASE" ]; then
   sleep 0.5
   "$TMUX_BIN" send-keys -t "$PANE" "$LAUNCH" Enter
   note "launched '$LAUNCH' in $PANE (was: ${CURRENT_CMD:-empty})"
-  # Wait for the program to come up (Claude Code TUI takes a few
-  # seconds; bounded poll, then proceed regardless and let the log
-  # show what happened).
+  # Wait for the launch PROCESS to come up — this is LIVENESS, not readiness
+  # (bounded poll, then proceed). Claude Code's pane_current_command flips to
+  # 'claude' within a second or two of exec.
   for _ in $(seq 1 30); do
     sleep 1
     NOW=$("$TMUX_BIN" display-message -p -t "$PANE" '#{pane_current_command}' 2>/dev/null)
     [ "$NOW" = "$LAUNCH_BASE" ] && break
   done
   NOW=$("$TMUX_BIN" display-message -p -t "$PANE" '#{pane_current_command}' 2>/dev/null)
-  if [ "$NOW" != "$LAUNCH_BASE" ]; then
-    note "WARN: '$LAUNCH_BASE' not detected after 30s (pane runs '$NOW') — injecting anyway"
+  [ "$NOW" = "$LAUNCH_BASE" ] \
+    || note "WARN: '$LAUNCH_BASE' not detected after 30s (pane runs '$NOW')"
+
+  # Liveness (the process exists) is NOT readiness (the TUI can accept typed
+  # input). pane_current_command flips within ~1-4s of exec, but an interactive
+  # TUI — especially a heavy project (big CLAUDE.md + MCP + skills + hooks) —
+  # takes much longer to draw its composer. Typing before then drops the
+  # keystrokes SILENTLY. That was the ha-portal cold-boot bug: a homeowner submit
+  # launched claude, but the '/ha-serve' send-keys ~3s later hit the not-yet-ready
+  # TUI and was eaten, so the queue never drained; only a later press into the
+  # now-WARM session worked. (Timer pulses — /pulse, /daily-digest — dodge it:
+  # their session + window are long-lived, so they almost never take this
+  # cold-boot branch; the cold path is rare, and the next tick papers over a miss.
+  # The on-demand button has no such retry, so it EXPOSES the race.) The old fixed
+  # `sleep 3` was the too-short guess. Instead, poll the pane for an input-READY
+  # marker (Claude Code's composer footer) before injecting, then a small settle.
+  # Bounded; on timeout inject anyway, so a marker miss degrades to "try late"
+  # (the old behavior) rather than "never".
+  #   PULSE_READY_MARKER  — ERE matched against capture-pane. Empty DISABLES the
+  #                         gate (non-TUI launches / tests). Default = CC footer.
+  #   PULSE_READY_TIMEOUT — max seconds to wait for the marker (default 60). The
+  #                         first match returns immediately; this is only a ceiling.
+  READY_MARKER=${PULSE_READY_MARKER-'shift\+tab to cycle|\? for shortcuts|for agents|bypass permissions|accept edits on|plan mode on'}
+  READY_TIMEOUT=${PULSE_READY_TIMEOUT:-60}
+  if [ -n "$READY_MARKER" ]; then
+    _ready=""
+    for _ in $(seq 1 "$READY_TIMEOUT"); do
+      if "$TMUX_BIN" capture-pane -p -t "$PANE" 2>/dev/null | grep -Eq "$READY_MARKER"; then
+        _ready=1; break
+      fi
+      sleep 1
+    done
+    if [ -n "$_ready" ]; then
+      note "input-ready marker seen; settling before inject"
+      sleep 2
+    else
+      note "WARN: input-ready marker not seen after ${READY_TIMEOUT}s — injecting anyway"
+    fi
   else
-    # Give an interactive TUI a moment to finish booting before typing.
     sleep 3
   fi
 fi
