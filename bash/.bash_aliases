@@ -153,12 +153,15 @@ alias ssh-pico='ssh pico@$(tailscale ip -4 pico 2>/dev/null || echo pico)'
 # bigger commitment -- keep this toggle one command away.
 CC_SETTINGS="$HOME/.claude/settings.json"
 CC_GW_URL="http://100.72.47.4:17017/claude"
-# Force the 1M-context model while routed: behind a custom ANTHROPIC_BASE_URL, CC drops the
-# context-1m beta header and budgets 200k unless ANTHROPIC_MODEL carries the [1m] suffix (a saved
-# /model picker choice does NOT survive a custom base URL). This is the CLIENT half; it only yields
-# real 1M if the pico agentgateway FORWARDS the `anthropic-beta: context-1m-2025-08-07` header
-# upstream. Verify with /context after relaunch: /1M = pico forwards it, /200k = it's being stripped.
-CC_GW_MODEL="claude-opus-4-8[1m]"
+# ROUTING-ONLY (reworked 2026-07-08, Zig): the toggle no longer pins ANTHROPIC_MODEL. Your /model
+# picker stays the single source of truth, so toggling routing never changes your model. Trade-off:
+# behind a custom ANTHROPIC_BASE_URL, CC drops the context-1m beta and a /model choice does NOT
+# survive, so a routed session caps at 200k. If you want 1M on a SPECIFIC routed shell, export it
+# there yourself before launching CC:  export ANTHROPIC_MODEL="$CC_GW_MODEL"  — and even then it only
+# yields real 1M if pico FORWARDS `anthropic-beta: context-1m-2025-08-07` (check /context: /1M = it
+# forwards, /200k = stripped). Why decoupled: a global ANTHROPIC_MODEL in settings.json .env (and an
+# exported one) beats the /model picker for ALL sessions, which silently clobbered the model default.
+CC_GW_MODEL="claude-opus-4-8[1m]"   # kept for MANUAL 1M-on-gateway; cc-gw no longer auto-applies it
 CC_GW_MCP_NAME="honk"
 CC_GW_MCP_URL="http://100.72.47.4:15001/mcp"
 
@@ -166,7 +169,8 @@ cc-gw ()
 {
 	[ -f "$CC_SETTINGS" ] || echo '{}' > "$CC_SETTINGS"
 	local tmp; tmp=$(mktemp)
-	jq --arg u "$CC_GW_URL" --arg m "$CC_GW_MODEL" '.env = ((.env // {}) + {ANTHROPIC_BASE_URL: $u, ANTHROPIC_MODEL: $m})' "$CC_SETTINGS" > "$tmp" && command mv "$tmp" "$CC_SETTINGS"
+	# routing only: set ANTHROPIC_BASE_URL, and STRIP any stale ANTHROPIC_MODEL so the /model picker owns the model
+	jq --arg u "$CC_GW_URL" '.env = ((.env // {}) + {ANTHROPIC_BASE_URL: $u}) | del(.env.ANTHROPIC_MODEL)' "$CC_SETTINGS" > "$tmp" && command mv "$tmp" "$CC_SETTINGS"
 	# CC routes only its MODEL through the gateway (token/cost/prompt o11y). It takes NO MCP tools
 	# from the gateway; CC uses its own built-in tools. goose gets the curated honk MCP; CC gets
 	# nothing. TRADEOFF (re-corrected 2026-07-04): as of Claude Code v2.1.196 Anthropic DISABLES
@@ -174,7 +178,7 @@ cc-gw ()
 	# An earlier "they coexist" reading was a version middle-ground (older CC build, gate not yet
 	# enforced) — do NOT re-flip this. Zig keeps CC on cc-direct to retain Remote Control; use
 	# cc-gw only for a session where you're fine losing it.
-	echo "→ Claude Code MODEL routed through pico agentgateway ($CC_GW_URL) as $CC_GW_MODEL (1M pinned), no MCP. RESTART CC to apply, then check /context: /1M means pico forwards the context-1m beta, /200k means it's stripped. Remote Control is OFF while routed."
+	echo "→ Claude Code ROUTING through pico agentgateway ($CC_GW_URL), no MCP. MODEL is left to your /model choice (not pinned). RESTART CC to apply. Routed sessions cap at 200k unless you also 'export ANTHROPIC_MODEL=$CC_GW_MODEL' AND pico forwards the context-1m beta (check /context). Remote Control is OFF while routed."
 	jq '.env' "$CC_SETTINGS"
 }
 
@@ -185,14 +189,15 @@ cc-direct ()
 		jq 'del(.env.ANTHROPIC_BASE_URL, .env.ANTHROPIC_MODEL)' "$CC_SETTINGS" > "$tmp" && command mv "$tmp" "$CC_SETTINGS"
 	fi
 	# The kill switch must scrub BOTH sources of truth: settings.json .env (above) AND any
-	# ANTHROPIC_BASE_URL already EXPORTED into this shell / the tmux session. An exported var wins
-	# at launch, so cleaning only settings.json leaves CC silently routed — which (verified on CC
-	# v2.1.201, 2026-07-04) means a 200k context ceiling AND Remote Control disabled, even though
-	# settings.json reads "direct." A function runs in the CURRENT shell, so this unset takes effect
-	# for the next CC you launch from HERE; the tmux scrub stops new panes re-inheriting it.
-	unset ANTHROPIC_BASE_URL
-	[ -n "$TMUX" ] && tmux setenv -u ANTHROPIC_BASE_URL 2>/dev/null
-	echo "→ Claude Code restored to direct-to-Anthropic (kill switch): settings.json cleaned + ANTHROPIC_BASE_URL unset in this shell${TMUX:+ + tmux env}. RESTART CC from THIS shell to apply — Remote Control returns."
+	# ANTHROPIC_BASE_URL / ANTHROPIC_MODEL already EXPORTED into this shell / the tmux session. An
+	# exported var wins at launch, so cleaning only settings.json leaves CC silently routed — which
+	# (verified on CC v2.1.201, 2026-07-04) means a 200k context ceiling AND Remote Control disabled,
+	# even though settings.json reads "direct." ANTHROPIC_MODEL is scrubbed too so a stale forced model
+	# can't keep overriding your /model picker. A function runs in the CURRENT shell, so these unsets
+	# take effect for the next CC you launch from HERE; the tmux scrub stops new panes re-inheriting them.
+	unset ANTHROPIC_BASE_URL ANTHROPIC_MODEL
+	[ -n "$TMUX" ] && { tmux setenv -u ANTHROPIC_BASE_URL 2>/dev/null; tmux setenv -u ANTHROPIC_MODEL 2>/dev/null; }
+	echo "→ Claude Code restored to direct-to-Anthropic (kill switch): settings.json cleaned + ANTHROPIC_BASE_URL/ANTHROPIC_MODEL unset in this shell${TMUX:+ + tmux env}. RESTART CC from THIS shell to apply — your /model choice + Remote Control return."
 	jq '.env' "$CC_SETTINGS" 2>/dev/null || echo '(no settings.json — already direct)'
 }
 
