@@ -105,11 +105,24 @@ _vault_push_locked() {
   if mgit diff --cached --quiet 2>/dev/null; then
     return 0                                   # nothing changed
   fi
-  slug=$(printf '%s' "$PWD" | sed 's#/#-#g')
+  # Name the commit after the slug(s) whose memory ACTUALLY changed — derived from the
+  # STAGED files, not $PWD. A session-end commits whatever memory changed across ALL
+  # slugs, so the committing session's cwd frequently mismatched the content (the
+  # message claimed one folder while changing another — explore-ha3v).
+  local slugs nslugs subj; local -a msg
+  slugs=$(mgit diff --cached --name-only 2>/dev/null | sed 's#/memory/.*##' | sort -u | grep -v '^$' || true)
+  nslugs=$(printf '%s\n' "$slugs" | grep -c . || true)
+  if [ "$nslugs" -le 1 ]; then
+    subj="memory: ${slugs:-$(printf '%s' "$PWD" | sed 's#/#-#g')} $(date -u +%FT%TZ)"
+    msg=(-m "$subj")
+  else
+    subj="memory: ${nslugs} slugs $(date -u +%FT%TZ)"
+    msg=(-m "$subj" -m "$(printf '%s\n' "$slugs")")   # full slug list in the body
+  fi
   # authored by Zig (vault inherits the global git identity — no repo-local override,
   # explore-62q5), Claude as co-author. Supersedes OQ-E6's distinct-bot-identity.
-  if ! out=$(mgit commit -q -m "memory: ${slug} $(date -u +%FT%TZ)" \
-                          -m "Co-Authored-By: Claude <noreply@anthropic.com>" 2>&1); then
+  msg+=(-m "Co-Authored-By: Claude <noreply@anthropic.com>")
+  if ! out=$(mgit commit -q "${msg[@]}" 2>&1); then
     # a pre-commit-hook block (Layer 1 secret gate) or a real fs failure — loud.
     echo "WARN: memory vault commit blocked/failed:" >&2
     printf '%s\n' "$out" >&2

@@ -122,6 +122,23 @@ else
   echo "SKIP: vault-restore-writes-staging-not-live (no tracked slug/file or script missing)"
 fi
 
+# T9 — commit message names the CHANGED slug(s), not $PWD (regression for the
+# message/content mismatch Zig found — explore-ha3v). Commit SLUGA's memory change
+# from a DIFFERENT cwd (/tmp) and assert the subject names SLUGA, not tmp.
+(
+  tw=$(mktemp -d)
+  export VAULT_DIR="$tw/v" MEMORY_GIT="$tw/v/m.git" MEMORY_WORKTREE="$tw/wt" MEMORY_LOCK="$tw/v/.lock"
+  mkdir -p "$MEMORY_WORKTREE/-home-ubuntu-SLUGA/memory" "$VAULT_DIR"
+  echo hi > "$MEMORY_WORKTREE/-home-ubuntu-SLUGA/memory/MEMORY.md"
+  git --git-dir="$MEMORY_GIT" --work-tree="$MEMORY_WORKTREE" init -q
+  git --git-dir="$MEMORY_GIT" config user.name t; git --git-dir="$MEMORY_GIT" config user.email t@t
+  printf '%s PRIVATE\n' "$(date -u +%F)" > "$VAULT_DIR/.memory-visibility"   # stub the guard
+  ( cd /tmp && _vault_push_locked >/dev/null 2>&1 )                          # commit from a foreign cwd
+  msg=$(git --git-dir="$MEMORY_GIT" show -s --format='%s' HEAD 2>/dev/null)
+  rm -rf "$tw"
+  printf '%s' "$msg" | grep -q 'SLUGA' && ! printf '%s' "$msg" | grep -qi 'tmp'
+) && ok "commit-message-names-changed-slug-not-pwd" || no "commit-message-names-changed-slug-not-pwd"
+
 echo "---"
 echo "selftest: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
