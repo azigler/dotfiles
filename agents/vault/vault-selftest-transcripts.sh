@@ -125,6 +125,27 @@ no(){ echo "FAIL: $1"; fail=$((fail+1)); }
   rm -rf "$tw"; exit $rc
 ) && ok "leak-guard-returns-0-on-clean-under-set-e" || no "leak-guard-returns-0-on-clean-under-set-e"
 
+# TT6 — the pre-commit SECRET gate blocks a planted token in a STAGED transcript and
+# passes once clean (F2 — proves the HOOK integration end-to-end, not just the scanner
+# in isolation; would have caught a broken staged-file selection).
+(
+  tw=$(mktemp -d)
+  export TRANSCRIPTS_GIT="$tw/t.git" TRANSCRIPTS_WORKTREE="$tw/wt"
+  mkdir -p "$TRANSCRIPTS_WORKTREE/-p" "$tw"
+  faketok="sk-ant-$(printf 'a%.0s' $(seq 1 40))"        # built at runtime — no literal token in this file
+  printf '{"leak":"%s"}\n' "$faketok" > "$TRANSCRIPTS_WORKTREE/-p/u.jsonl"
+  git --git-dir="$TRANSCRIPTS_GIT" --work-tree="$TRANSCRIPTS_WORKTREE" init -q
+  git --git-dir="$TRANSCRIPTS_GIT" --work-tree="$TRANSCRIPTS_WORKTREE" -c core.excludesFile="$TRANSCRIPTS_EXCLUDES" add -A
+  GIT_DIR="$TRANSCRIPTS_GIT" GIT_WORK_TREE="$TRANSCRIPTS_WORKTREE" bash "$HERE/pre-commit-scrub-transcripts" >/dev/null 2>&1
+  blocked=$?                                            # expect nonzero — gate blocked the token
+  printf '{"leak":"REDACTED"}\n' > "$TRANSCRIPTS_WORKTREE/-p/u.jsonl"
+  git --git-dir="$TRANSCRIPTS_GIT" --work-tree="$TRANSCRIPTS_WORKTREE" -c core.excludesFile="$TRANSCRIPTS_EXCLUDES" add -A
+  GIT_DIR="$TRANSCRIPTS_GIT" GIT_WORK_TREE="$TRANSCRIPTS_WORKTREE" bash "$HERE/pre-commit-scrub-transcripts" >/dev/null 2>&1
+  clean=$?                                              # expect 0 — clean content passes
+  rm -rf "$tw"
+  [ "$blocked" -ne 0 ] && [ "$clean" -eq 0 ]
+) && ok "pre-commit-secret-gate-blocks-staged-token" || no "pre-commit-secret-gate-blocks-staged-token"
+
 # ============================ LIVE-VAULT TESTS ============================
 if [ ! -d "$TRANSCRIPTS_GIT" ]; then
   echo "SKIP (live): transcripts vault not bootstrapped ($TRANSCRIPTS_GIT)"

@@ -90,9 +90,9 @@ if [ "$DRY" -eq 1 ]; then
     printf '%s\n' "$badmem" "$badoth" | grep -v '^$' | head >&2
     rm -rf "$(dirname "$TRANSCRIPTS_GIT")"; exit 1
   fi
-  n=$(printf '%s\n' "$wouldadd" | grep -v '^$' | wc -l | tr -d ' ')
+  n=$(printf '%s\n' "$wouldadd" | grep -cv '^$' || true)   # || true: grep exits 1 on empty (F5)
   big=$(find "$TRANSCRIPTS_WORKTREE" -type f \( -name '*.jsonl' -o -path '*/tool-results/*.txt' \) \
-          -size +"${TS_SPLIT_TRIGGER}c" 2>/dev/null | wc -l | tr -d ' ')
+          -size +"${TS_SPLIT_TRIGGER}c" 2>/dev/null | wc -l | tr -d ' ') || big=0   # find/pipefail guard
   echo ""
   echo "== DRY RUN complete — audit gate CLEAN; whitelist valid on the live tree =="
   echo "   $n transcript path(s) would stage; 0 memory/junk; $big file(s) >=99 MiB would be split-on-copy."

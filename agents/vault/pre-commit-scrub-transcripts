@@ -6,12 +6,19 @@
 #   1. SIZE WALL (defense in depth): if any STAGED blob is >= 100 MiB, block the
 #      whole commit. The size guard in transcripts-lib.sh should have chunked it
 #      via split-on-copy; if a >=100 MiB blob still reached the index, pushing it
-#      would get the ENTIRE push rejected by GitHub and wedge the vault — so block
-#      loudly at commit time instead.
-#   2. SECRET SCAN (staged-only): scan the on-disk source of each staged path
-#      (mapping a .partNNN chunk back to its base file), so only NEW content is
-#      scanned (bootstrap did the full-history gate). Blocks on a high-confidence
-#      secret entering permanent history.
+#      would get the ENTIRE push rejected by GitHub and wedge the vault.
+#   2. SECRET SCAN (staged content): scan the content being committed. Fast path
+#      scans each staged path's on-disk SOURCE (a .partNNN chunk maps back to its
+#      base file — scanning the base covers all its chunks); in the automated push
+#      (add -> chunk -> commit inside one flock) the on-disk file IS the staged
+#      content, so a single batched scrub call avoids 3.7 GB of temp I/O. If a
+#      staged path's on-disk source is MISSING (index diverged from disk), that
+#      path's STAGED BLOB is materialized and scanned so nothing committed is
+#      skipped (scrutiny explore-h04c F3).
+#
+# NOTE on `--diff-filter=d`: LOWERCASE `d` EXCLUDES deletions (scans Added/Copied/
+# Modified/Renamed) — it is NOT "deleted-only" (that is uppercase `D`). Verified
+# empirically; a scrutiny reviewer misread it, hence this note.
 #
 # Body versioned at ~/dotfiles/agents/vault/pre-commit-scrub-transcripts; installed
 # by bootstrap-transcripts.sh into ~/.claude/vaults/transcripts.git/hooks/pre-commit.
@@ -37,23 +44,35 @@ if [ -n "$oversize" ]; then
   exit 1
 fi
 
-# --- Gate 2: staged-only secret scan ----------------------------------------
+# --- Gate 2: secret scan of the content being committed ---------------------
 [ -f "$SCRUB" ] || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
+tmpd=""; cleanup(){ [ -n "$tmpd" ] && rm -rf "$tmpd"; }; trap cleanup EXIT
 
-# Map each staged path to its on-disk SOURCE file: a .partNNN chunk (which is NOT on
-# disk — it lives only in the index) maps back to its base live file; scanning the
-# base covers all of its chunks. Dedupe, keep only files that exist on disk.
 declare -A seen=()
 files=()
+missing=()
 while IFS= read -r -d '' p; do
   base="$p"
   case "$p" in *.part[0-9][0-9][0-9]) base="${p%.part[0-9][0-9][0-9]}";; esac
-  [ -n "${seen[$base]:-}" ] && continue
-  seen[$base]=1
   f="$WORKTREE/$base"
-  [ -f "$f" ] && files+=("$f")
+  if [ -f "$f" ]; then
+    [ -n "${seen[$base]:-}" ] && continue
+    seen[$base]=1
+    files+=("$f")
+  else
+    missing+=("$p")                       # on-disk source gone → scan its staged blob
+  fi
 done < <(git diff --cached --name-only -z --diff-filter=d 2>/dev/null)
+
+# materialize staged blobs for any path whose on-disk source is absent (normally none)
+if [ "${#missing[@]}" -gt 0 ]; then
+  tmpd=$(mktemp -d); i=0
+  for p in "${missing[@]}"; do
+    i=$((i+1)); tf="$tmpd/blob$i"
+    if git cat-file -p ":$p" > "$tf" 2>/dev/null; then files+=("$tf"); fi
+  done
+fi
 
 [ "${#files[@]}" -eq 0 ] && exit 0
 
