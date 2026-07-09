@@ -1,0 +1,19 @@
+# Pulse retry watcher (harnessd-dbp) — re-fires a BOUNCED pulse tick EARLY, the moment
+# the target window's 🔔 (blocked-on-Andrew) clears, instead of waiting up to a DAY for
+# the loop's next scheduled fire. Fleet-wide: ONE instance (pair with the 2-min .timer),
+# not one per loop. LLM-free, deterministic, best-effort per loop. Reads
+# ~/.local/state/harness/pulse-bounces.jsonl; for each loop whose latest bounce is unacted
+# AND still before its next scheduled fire AND whose window has cleared 🔔, runs
+# `systemctl --user start <loop>.service` (which re-invokes pulse-inject, re-checking 🔔).
+# NOT ENABLED until Zig confirms go-live (pair with the .timer; enable via the timer).
+# Inspect: journalctl --user -u pulse-retry.service -n 20  +  ~/.local/state/harness/pulse-retry.log
+[Unit]
+Description=Pulse retry watcher: re-fire bounced ticks when 🔔 clears
+
+[Service]
+Type=oneshot
+ExecStart=%h/dotfiles/agents/scheduler/pulse-retry.sh
+# Bound the whole run so a wedged systemctl / tmux can never hang the watcher forever.
+TimeoutStartSec=120
+StandardOutput=append:%h/.local/state/harness/pulse-retry.log
+StandardError=append:%h/.local/state/harness/pulse-retry.log

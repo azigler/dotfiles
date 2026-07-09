@@ -1,0 +1,17 @@
+# Timer: pulse-retry watcher — every 2 minutes (a low-latency poll so a cleared 🔔 is
+# noticed EARLY, but cheap: the run is a filesystem read + a few systemctl/tmux queries,
+# and it no-ops instantly when pulse-bounces.jsonl is empty). ONE fleet-wide instance.
+# NOT ENABLED until Zig confirms go-live:
+#   systemctl --user daemon-reload && systemctl --user enable --now pulse-retry.timer
+[Unit]
+Description=Pulse retry watcher timer (poll for cleared 🔔 every 2 min)
+
+[Timer]
+# Poll shortly after boot, then every 2 minutes while the machine is up.
+OnBootSec=2min
+OnUnitActiveSec=2min
+# Fire on next boot if the machine slept through a window:
+Persistent=true
+
+[Install]
+WantedBy=timers.target
