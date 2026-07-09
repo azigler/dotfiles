@@ -1,0 +1,12 @@
+# Pulse tick: recall-distill (claude-vault Phase 4, explore-76oc §4.4) — the
+# propose-only "sleep-time" learning loop. Injects `/recall-distill tick` into the
+# durable explore window; it's a genuine LLM tick (mines recent sessions via /recall,
+# reasons, files HUMAN-GATED proposal beads — never writes MEMORY.md). Current-slug
+# scoped (explore only) for confidential safety. NOT ENABLED until Zig confirms.
+# Inspect runs: journalctl --user -u pulse-recall-distill.service -n 20
+[Unit]
+Description=Pulse tick: recall-distill (learning loop, injected into the explore window)
+
+[Service]
+Type=oneshot
+ExecStart=%h/dotfiles/agents/scheduler/pulse-inject.sh --loop %p --dir %h/explore --session work --window explore --cmd "/recall-distill tick"

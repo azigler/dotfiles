@@ -1,0 +1,13 @@
+[Unit]
+Description=claude-transcripts vault — daily commit+push of the transcript tier
+# Deterministic, LLM-free (explore-76oc §4.3, OQ-C4 refined: dedicated timer, not a
+# pulse LLM tick — a pure git push needs no reasoning). Inert until the vault is
+# bootstrapped (vault_push_transcripts returns early if transcripts.git is absent).
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env bash %h/dotfiles/agents/vault/vault-push-transcripts.sh
+# Bound the whole run so a wedged push can never hang forever.
+TimeoutStartSec=1800
+StandardOutput=append:%h/.claude/vault-transcripts.log
+StandardError=append:%h/.claude/vault-transcripts.log

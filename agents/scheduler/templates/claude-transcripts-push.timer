@@ -1,0 +1,13 @@
+# Timer: claude-transcripts vault daily push — 03:37 America/Los_Angeles (off-peak;
+# off the :00/:30 marks). NOT ENABLED until Zig confirms go-live. Enable with:
+#   systemctl --user enable --now claude-transcripts-push.timer
+[Unit]
+Description=Daily claude-transcripts vault push
+
+[Timer]
+OnCalendar=*-*-* 03:37:00 America/Los_Angeles
+# Fire on next boot if the machine slept through the window:
+Persistent=true
+
+[Install]
+WantedBy=timers.target

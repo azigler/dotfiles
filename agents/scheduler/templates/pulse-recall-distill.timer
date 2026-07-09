@@ -1,0 +1,13 @@
+# Timer: recall-distill weekly — Sunday 04:13 America/Los_Angeles (off-peak, off the
+# :00/:30 marks, away from the 3x/day vibe-explore ticks). Weekly suits a distiller
+# that mines "sessions since its last run." NOT ENABLED until Zig confirms go-live:
+#   systemctl --user enable --now pulse-recall-distill.timer
+[Unit]
+Description=Weekly recall-distill learning-loop tick
+
+[Timer]
+OnCalendar=Sun *-*-* 04:13:00 America/Los_Angeles
+Persistent=true
+
+[Install]
+WantedBy=timers.target

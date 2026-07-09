@@ -1,0 +1,22 @@
+# claude-transcripts vault excludes (explore-76oc Phase 3, §4.3 — sandbox-validated).
+# Whitelist the VARIABLE-DEPTH transcript corpus over the shared ~/.claude/projects
+# work-tree, leaving memory (the other vault) and everything else untracked.
+#
+# The idiom differs from memory.excludes: transcripts live at variable depth
+# (main *.jsonl at depth 1, subagents at depth 3+, tool-results/*.txt at depth 2),
+# so this uses the UNANCHORED `*` catch-all (NOT `/*`) — the load-bearing fix a
+# Phase-3 design review caught (an anchored `/*` re-stages the whole tree incl.
+# memory .md). Do NOT edit without re-running the sandbox whitelist assertion
+# (bootstrap + selftest: "only transcript paths staged, none under */memory/").
+#
+# ignore EVERYTHING at every depth
+*
+# but let git descend into every directory so deep files stay reachable
+!*/
+# re-include session transcripts at ANY depth (main depth-1 + subagents depth-3+)
+!**/*.jsonl
+# re-include raw tool outputs (only directly inside a tool-results/ dir)
+!**/tool-results/*.txt
+# HARD seal on the OTHER vault's tier: prune memory/ last so NOTHING under it is
+# re-includable — not even a stray memory/x.jsonl (the cross-vault double-claim fix).
+**/memory/

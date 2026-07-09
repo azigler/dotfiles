@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# claude-transcripts vault pre-commit hook — Layer 1 of the secret-hygiene system
+# (explore-r2iq / explore-76oc OQ-B3) for the TRANSCRIPTS tier + a hard size wall.
+# Two gates, both fail-closed on a real hit, best-effort otherwise:
+#
+#   1. SIZE WALL (defense in depth): if any STAGED blob is >= 100 MiB, block the
+#      whole commit. The size guard in transcripts-lib.sh should have chunked it
+#      via split-on-copy; if a >=100 MiB blob still reached the index, pushing it
+#      would get the ENTIRE push rejected by GitHub and wedge the vault — so block
+#      loudly at commit time instead.
+#   2. SECRET SCAN (staged-only): scan the on-disk source of each staged path
+#      (mapping a .partNNN chunk back to its base file), so only NEW content is
+#      scanned (bootstrap did the full-history gate). Blocks on a high-confidence
+#      secret entering permanent history.
+#
+# Body versioned at ~/dotfiles/agents/vault/pre-commit-scrub-transcripts; installed
+# by bootstrap-transcripts.sh into ~/.claude/vaults/transcripts.git/hooks/pre-commit.
+set -u
+SCRUB="${SCRUB:-$HOME/.claude/skills/scrub-secrets/scrub.py}"
+WALL="${TS_WALL_BYTES:-104857600}"           # 100 MiB
+WORKTREE="${GIT_WORK_TREE:-$HOME/.claude/projects}"
+
+# --- Gate 1: hard size wall over staged blobs -------------------------------
+oversize=""
+while IFS= read -r -d '' p; do
+  sz=$(git cat-file -s ":$p" 2>/dev/null || echo 0)
+  [ "$sz" -ge "$WALL" ] && oversize="$oversize$p ($((sz/1048576)) MiB)"$'\n'
+done < <(git diff --cached --name-only -z --diff-filter=d 2>/dev/null)
+if [ -n "$oversize" ]; then
+  {
+    echo ""
+    echo "BLOCKED: claude-transcripts pre-commit — a staged blob is >= 100 MiB and would"
+    echo "be rejected wholesale by GitHub. The split-on-copy size guard should have"
+    echo "chunked it; this is the safety wall. Nothing committed. Offending:"
+    printf '%s' "$oversize"
+  } >&2
+  exit 1
+fi
+
+# --- Gate 2: staged-only secret scan ----------------------------------------
+[ -f "$SCRUB" ] || exit 0
+command -v python3 >/dev/null 2>&1 || exit 0
+
+# Map each staged path to its on-disk SOURCE file: a .partNNN chunk (which is NOT on
+# disk — it lives only in the index) maps back to its base live file; scanning the
+# base covers all of its chunks. Dedupe, keep only files that exist on disk.
+declare -A seen=()
+files=()
+while IFS= read -r -d '' p; do
+  base="$p"
+  case "$p" in *.part[0-9][0-9][0-9]) base="${p%.part[0-9][0-9][0-9]}";; esac
+  [ -n "${seen[$base]:-}" ] && continue
+  seen[$base]=1
+  f="$WORKTREE/$base"
+  [ -f "$f" ] && files+=("$f")
+done < <(git diff --cached --name-only -z --diff-filter=d 2>/dev/null)
+
+[ "${#files[@]}" -eq 0 ] && exit 0
+
+if ! python3 "$SCRUB" scan "${files[@]}"; then
+  {
+    echo ""
+    echo "BLOCKED: claude-transcripts pre-commit — a high-confidence secret was found in"
+    echo "staged transcript content. Nothing committed. Rotate the credential (it is"
+    echo "already on disk / in prior context) and redact the file, then retry."
+    echo "(scrub-secrets / explore-r2iq Layer 1)"
+  } >&2
+  exit 1
+fi
+exit 0
