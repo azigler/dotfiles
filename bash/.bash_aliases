@@ -154,13 +154,13 @@ alias ssh-pico='ssh pico@$(tailscale ip -4 pico 2>/dev/null || echo pico)'
 CC_SETTINGS="$HOME/.claude/settings.json"
 CC_GW_URL="http://100.72.47.4:17017/claude"
 # ROUTING-ONLY (reworked 2026-07-08, Zig): the toggle no longer pins ANTHROPIC_MODEL. Your /model
-# picker stays the single source of truth, so toggling routing never changes your model. Trade-off:
-# behind a custom ANTHROPIC_BASE_URL, CC drops the context-1m beta and a /model choice does NOT
-# survive, so a routed session caps at 200k. If you want 1M on a SPECIFIC routed shell, export it
-# there yourself before launching CC:  export ANTHROPIC_MODEL="$CC_GW_MODEL"  — and even then it only
-# yields real 1M if pico FORWARDS `anthropic-beta: context-1m-2025-08-07` (check /context: /1M = it
-# forwards, /200k = stripped). Why decoupled: a global ANTHROPIC_MODEL in settings.json .env (and an
-# exported one) beats the /model picker for ALL sessions, which silently clobbered the model default.
+# picker stays the single source of truth, so toggling routing never changes your model. Context note:
+# behind a custom ANTHROPIC_BASE_URL, CC won't AUTO-upgrade to 1M — pick the [1m] model via /model. A
+# live test (2026-07-04) showed the [1m] label yields a 1M LOCAL budget even while routed; whether the
+# gateway+Anthropic actually SERVE past 200k is untested (pico must forward the context-1m beta; the
+# real check is crossing 200k on a routed session). To force it on a specific routed shell without the
+# picker, export ANTHROPIC_MODEL="$CC_GW_MODEL" before launching. Why decoupled: a global/exported
+# ANTHROPIC_MODEL beats the /model picker for ALL sessions, which silently clobbered the model default.
 CC_GW_MODEL="claude-opus-4-8[1m]"   # kept for MANUAL 1M-on-gateway; cc-gw no longer auto-applies it
 CC_GW_MCP_NAME="honk"
 CC_GW_MCP_URL="http://100.72.47.4:15001/mcp"
@@ -178,7 +178,7 @@ cc-gw ()
 	# An earlier "they coexist" reading was a version middle-ground (older CC build, gate not yet
 	# enforced) — do NOT re-flip this. Zig keeps CC on cc-direct to retain Remote Control; use
 	# cc-gw only for a session where you're fine losing it.
-	echo "→ Claude Code ROUTING through pico agentgateway ($CC_GW_URL), no MCP. MODEL is left to your /model choice (not pinned). RESTART CC to apply. Routed sessions cap at 200k unless you also 'export ANTHROPIC_MODEL=$CC_GW_MODEL' AND pico forwards the context-1m beta (check /context). Remote Control is OFF while routed."
+	echo "→ Claude Code ROUTING through pico agentgateway ($CC_GW_URL), no MCP. MODEL is left to your /model choice (not pinned). RESTART CC to apply. For 1M while routed, pick the [1m] model in /model (verify with /context). Remote Control is OFF while routed."
 	jq '.env' "$CC_SETTINGS"
 }
 
