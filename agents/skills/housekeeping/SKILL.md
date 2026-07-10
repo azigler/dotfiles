@@ -28,9 +28,9 @@ aligned with reality.
 **Fleet-wide audit work:**
 - CLAUDE.md identity check across every agent clone (first line must
   read `# lb-agent-<name>`, not `# lb-agent-factory`)
-- Skill consistency check between global (`~/.claude/skills/`),
-  canonical (`~/linearb/skills/.claude/skills/`), and factory
-  (`~/linearb/agent-factory/.claude/skills/`)
+- Skill consistency check between global (`~/.claude/skills/`, symlinked
+  from dotfiles) and factory (`~/linearb/agent-factory/.claude/skills/`);
+  LinearB-native skills are canonical in `~/linearb/.claude/skills/`
 - Bead hygiene: close beads whose work is actually done (especially
   `in_progress` beads that have been finished for a while); fix
   stale JSONL status
@@ -241,28 +241,29 @@ with `--ours`). Don't paper over by hand-editing each clone.
 
 ### 9.2 Skill consistency check
 
-Skills live in up to three places:
-- `~/.claude/skills/<name>/SKILL.md` — global (user scope)
-- `~/linearb/skills/.claude/skills/<name>/SKILL.md` — canonical source (distributed
-  out via the `distribute` skill pack tooling)
-- `~/linearb/agent-factory/.claude/skills/<name>/SKILL.md` — factory-level
-  (propagates into agent clones via upstream merges)
+Paragon skills are canonical in dotfiles and surface as `~/.claude/skills/`
+(a symlink to `~/dotfiles/agents/skills/`). The old dotfiles→team distribute
+flow is retired — the team now consumes skills via the hand-maintained
+`lb-marketing` plugin, and LinearB-native skills (apex, imc, linearb-*, the
+builders) are canonical in `~/linearb/.claude/skills/`. There is no longer an
+auto-synced mirror to diff against.
 
-For skills that exist in multiple copies, they MUST be byte-identical
-(or a known intentional divergence). Drift breaks the "one source of truth"
-promise.
+The one place a paragon skill still exists in a second copy is the factory
+(`~/linearb/agent-factory/.claude/skills/<name>/SKILL.md`), which propagates
+into agent clones via upstream merges. Those copies MUST stay byte-identical
+to the dotfiles source (or carry a known intentional divergence).
 
 ```bash
 for skill in ~/.claude/skills/*/SKILL.md; do
   name=$(basename "$(dirname "$skill")")
-  canon="$HOME/linearb/skills/.claude/skills/$name/SKILL.md"
-  [ -f "$canon" ] || continue
-  diff -q "$skill" "$canon" > /dev/null && echo "OK $name" || echo "DRIFT $name"
+  factory="$HOME/linearb/agent-factory/.claude/skills/$name/SKILL.md"
+  [ -f "$factory" ] || continue
+  diff -q "$skill" "$factory" > /dev/null && echo "OK $name" || echo "DRIFT $name"
 done
 ```
 
-When drift is found, pick one as canonical and sync the other(s). Typical
-pattern: canonical in `lb-skills`, mirror to global with `cp`.
+When drift is found, sync the factory copy from the dotfiles-backed global
+source (`cp`), not the other way around.
 
 ### 9.3 Bead hygiene
 

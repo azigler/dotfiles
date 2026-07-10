@@ -454,7 +454,7 @@ Worked pattern: `~/.claude/skills/zig-voice/reference/fusions/checkmarx-2026-seu
   - **Provenance** (link back to the source talk's project repo + bead trail)
 - `images/` with 4-6 selected canonical reference images — for human reference only. **Don't attach as `--ref` to API calls** (heavy refs trigger 502s per Anti-patterns).
 
-The fusion extraction is its own bead in the talk repo (see `ej8.13` in the Checkmarx project for the worked example). Lands uncommitted in dotfiles; coworkers pick it up on next `~/dotfiles/zig-computer.distribute.sh`.
+The fusion extraction is its own bead in the talk repo (see `ej8.13` in the Checkmarx project for the worked example). Lands uncommitted in dotfiles.
 
 ## CLAUDE.md template
 

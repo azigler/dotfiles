@@ -295,7 +295,6 @@ full body; descriptions below are just the prompt-toolkit summary.
 - `/nginx` — global reverse proxy (auto-loads on `**/nginx.conf`, `**/sites-available/**`, `**/ops/nginx/**`)
 - `/gdoc` — Google Docs mechanics + LinearB styling contract
 - `/asana` — fleet-proxied Asana writes (daily bead-log + receipt-of-work patterns)
-- `/distribute` — mirror dotfiles → coworker tree (default: `~/lb-skills`)
 - `/cdn` — upload a local file → stable public URL on Cloudflare R2 (`cdn.zig.computer`); `up`/`get`/`ls`/`rm`/`purge` lifecycle, content-addressed **immutable** URLs, free-tier-aware. Hosts published/AAIF/blog images + kills the scp-review loop. Creds in `~/.secrets`.
 - `scrub-secrets` — detect + redact high-confidence secrets in memory/transcript files; `scan` (nonzero-exit gate) + `redact` (JSON-safe atomic rewrite). Layer 0 of the secret-hygiene system (`explore-r2iq`); the vault pre-commit hook + periodic memory scan call it; gitleaks is its optional maintained-ruleset backend. Pairs with the "secrets never go in memory" policy above.
 

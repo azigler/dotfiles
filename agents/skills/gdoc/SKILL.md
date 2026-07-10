@@ -326,8 +326,8 @@ in Tab 3).
 
 ## Guardrails
 
-- **Don't change the styling values** without `/distribute` and a sample
-  doc for review. The point of a contract is that it's shared.
+- **Don't change the styling values** without a sample doc for review.
+  The point of a contract is that it's shared.
 - **Don't inline hex colors or custom font sizes per agent.** If a new
   element type needs a rule (callout boxes, footnotes), extend this
   contract; don't special-case inside an agent.
