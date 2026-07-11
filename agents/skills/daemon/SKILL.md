@@ -136,6 +136,20 @@ close the bead with the verdict recorded, clean up the worktree.
    auth header/secret). Don't repoint earlier — events would 404-and-retry.
 4. Decommission the old deployment after cutover.
 
+## Optional arc — a PWA cockpit with cross-platform push + badges
+
+A daemon that already serves HTTP can grow an **installable web-app cockpit** with
+real push notifications + app-icon badges on **every** platform (iPhone Home Screen,
+macOS Safari, desktop Chrome — tab AND installed PWA), **auto-updating on use** — so
+the thin service can *reach* the human, not just wait to be visited. No app-store, no
+native build. Full playbook + the hard-won gotchas (TLS/secure-context, VAPID + the
+`mailto:` trap, the service worker, the badge rules, the opt-in/test UX, deploy
+discipline, the delivery-vs-display debug split) in
+[`reference/pwa-cockpit-push.md`](reference/pwa-cockpit-push.md). **The load-bearing
+lesson: use a CLASSIC Web Push payload, not Declarative Web Push** — the declarative
+`app_badge` is a silent no-op on iOS 18.7 (even with `mutable:true`); a classic push
+fires the SW so `setAppBadge()` runs. Worked example: **harnessd**.
+
 ## Process notes (hard-won)
 
 - Present the **complete proposed stack for review as its own checkpoint**

@@ -52,8 +52,8 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 ### /daemon
 **Job:** Bootstrap a daemon+agent hybrid — a thin, LLM-free ingress (webhook/poller/sensor) + the Claude Code harness holding all intelligence. Scaffolds the refs set, the 4 decision forks, the bead roadmap, the go-live sequence.
 **Fire when:** First-session scaffold for "an always-on capture/trigger thing + an agent on top" (the hevyd shape).
-**Prereqs/side-effects:** Creates refs/ + CLAUDE.md + beads (`br init`); templates in reference/templates/; default stack Go pure-static + SQLite(WAL) + DuckDB analytics lens; pairs with `agents/infra.md`.
-**Anti-pattern:** Putting the LLM in the daemon's hot path; matching the store to data-SIZE not workload-SHAPE; skipping the live premise-check + topology discovery before designing.
+**Prereqs/side-effects:** Creates refs/ + CLAUDE.md + beads (`br init`); templates in reference/templates/; default stack Go pure-static + SQLite(WAL) + DuckDB analytics lens; pairs with `agents/infra.md`. Optional arc: `reference/pwa-cockpit-push.md` — a TLS PWA cockpit with cross-platform Web Push + badges (iPhone/Safari/Chrome, auto-updating), worked example harnessd.
+**Anti-pattern:** Putting the LLM in the daemon's hot path; matching the store to data-SIZE not workload-SHAPE; skipping the live premise-check + topology discovery before designing. For the push arc: using a DECLARATIVE Web Push payload (the `app_badge` is a no-op on iOS 18.7) instead of a CLASSIC one that fires the SW → `setAppBadge`.
 
 ### /dispatch
 **Job:** Canonical subagent prompt template (bead ID, merge target, wave position, verification gates).
