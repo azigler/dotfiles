@@ -58,64 +58,78 @@ the average — the opposite of what exploration is for.
   research agents through Workflow `effort:'xhigh'`).
 - **Add a divergent `max`-effort ideation pass.** Beyond cataloguing "what
   is this," every archival exploration gets a fresh, **max**-effort
-  brainstorm — *"what's the novel opportunity here — the non-obvious
-  connection to an arc Andrew works on now, the thing worth building, OR
-  simply why this is genuinely interesting on its own terms?"* — as a
-  Workflow `agent(…, {effort:'max'})`, ideally a fresh unpolluted agent so
-  it isn't anchored to the convergent writeup. Fold its best ideas into
-  FINDINGS under a "Novel opportunities" heading. This is where the
-  exhaustive upfront brainstorm Andrew wants actually lives — don't skip it
-  for researchable topics. **Where that upside should land (and the freedom
-  to let it land nowhere) is governed by the next section — read it before
-  prompting the ideation agent.** (For re-examining ALREADY-finished
-  explorations, use `/elevate`.)
+  brainstorm — *"what's the novel opportunity here — an ENTIRELY NEW idea
+  this sparks (tied to nothing yet); a non-obvious interlink to another
+  exploration or an open-ended bead that forms a deeper context; a thing
+  worth building; an application to an arc Andrew works on now; OR simply
+  why this is genuinely interesting on its own terms? Lead with CURIOSITY —
+  don't force a tie-back to a real project here."* — as a Workflow
+  `agent(…, {effort:'max'})`, ideally a fresh unpolluted agent so it isn't
+  anchored to the convergent writeup (or to the example projects already
+  sitting in `~/explore`). Fold its best ideas into FINDINGS under a "Novel
+  opportunities" heading. This is where the exhaustive upfront brainstorm
+  Andrew wants actually lives — don't skip it for researchable topics.
+  **Where that upside can land (including nowhere but a genuinely new idea)
+  is governed by the next section — read it before prompting the ideation
+  agent.** (For re-examining ALREADY-finished explorations, use `/elevate`.)
 
-## Where the opportunity should land — active arcs, intrinsic interest, the tabled arc
+## Where the opportunity can land — lead with curiosity, not a tie-back
 
-The `Novel opportunities` pass exists so findings can be *acted on* — but two
-failure modes rot it, and both were live in mid-2026: (1) it kept aiming
-opportunities at a project Andrew has **moved on from**, and (2) it assumed
-every finding **must** tie back to something on this machine at all. This
-section fixes both. It mirrors the same steer in `/elevate` ("Where to apply
-the upside"); keep the two in sync.
+The `Novel opportunities` pass's FIRST job is to be **curious**, not to find a
+home for the finding on this machine. **Over-anchoring to the real example
+projects here is how novelty gets missed** (Zig, 2026-07-13): if every
+opportunity has to cash out as "a move for LinearB / the harness / a live `~/`
+arc," the ideation collapses to the modal tie-back and the genuinely new idea
+never gets said. So the ideation agent ranges across **all** of the following
+with **no default ranking** — explicitly do not privilege the active-arc one.
+It mirrors the same steer in `/elevate` ("Where to apply the upside"); keep the
+two in sync.
 
-**1. Bias the actionable upside to what Andrew works on NOW — decided by
-recency, not a frozen list.** Each run, re-derive the active set empirically
-from timestamps — recent git activity + file mtimes across `~/`, `~/explore`,
-`~/linearb`, `~/explore/aaif`. As of 2026-06-29 the hot arcs are **LinearB**
-(content / GEO / Dev-Interrupted — his job), **`~/explore/aaif`** (the monthly
-Ambassador cadence), **the harness itself** (`~/.claude` + `~/dotfiles` —
-pulse / elevate / scrutinize / beads / memory), and whatever in `~/explore` he
-has touched in the last week or two. Prefer a concrete move in one of these
-over an abstract one. (This is the "empirical over aspirational" rule applied
-to the harness itself — don't trust this paragraph's dated list over a live
-`ls -lt` / `git log`.)
+- **An entirely NEW idea.** Net-new — a thing worth building or exploring that
+  this finding *sparked*, tied to nothing already here. Novelty is a
+  first-class output, not a consolation prize. Say it even when it connects to
+  nothing on the machine.
+- **An interlink that forms a deeper context.** Connect the finding to *another
+  exploration* (the Step 3.5 siblings / `Related explorations`) **and to
+  open-ended beads** — proposed-but-not-done ideas in `br` (`explore:` /
+  `elevate:` / `human:` threads). Two half-ideas that meet become one bigger
+  opportunity; a finding that hands an open bead its missing piece is worth more
+  than either alone. Interlinking the compendium into deeper contexts is the
+  whole reason it lives in one place — hunt these **actively**, not just the
+  nearest sibling.
+- **An application to Andrew's active work — when it's real.** Some findings
+  genuinely land on what he works on now (derive it by recency each run — git
+  activity + mtimes across `~/`, `~/explore`, `~/linearb`, `~/explore/aaif`; the
+  usual hot arcs are LinearB / `~/explore/aaif` / the harness / recently-touched
+  `~/explore`). When one does, name the concrete move. But this is **one** valid
+  landing, not the preferred one.
+- **Interesting for its own sake.** Cool, beautiful, clarifying, or just worth
+  understanding. A `Novel opportunities` section may legitimately be "no build;
+  the value is comprehension" plus a genuinely-curious thread. Comprehension is
+  the deliverable (see `~/explore/CLAUDE.md`); the harvest is a bonus, not a tax.
 
-**2. The mud / golem / local-coding-models / Hermes-local arc is TABLED
-(2026-06-29).** Do **not** frame opportunities as integrating findings into it,
-advancing it, or "when the arc resumes" work. The golem/MUD stays a useful
-**source** of evidence (incidents, prototypes, a testbed to reason *from*) —
-just never the **destination** the work lands in. When a finding's natural home
-is that arc, do one of three things: **(a)** lift it to a *general* harness move
-(the orchestrator's own memory / loops, not the golem's), **(b)** aim it at an
-active arc, or **(c)** drop it and say so. A finding that can only land in the
-tabled arc is not an opportunity. (Re-read when the tabling lifts.)
+**Two guards stay hard:**
 
-**3. "Interesting for its own sake" is a valid verdict.** An exploration does
-**not** have to cash out in a harness build. If a topic is cool, beautiful,
-clarifying, or just worth understanding on its own terms, say *that* — a
-`Novel opportunities` section may legitimately read "no build here; the value
-is comprehension" plus one or two genuinely-curious threads. **Do not
-manufacture a strained tie-back** to LinearB / the harness / a `~/` project to
-justify the writeup — a forced connection is worse than an honest "this is here
-because it's interesting." Comprehension is the deliverable (see
-`~/explore/CLAUDE.md`); the opportunity harvest is a bonus, not a tax.
+- **Don't manufacture a tie-back.** A forced connection to LinearB / the harness
+  / a `~/` project is worse than an honest "this sparks a new idea with no home
+  yet" or "this is here because it's interesting."
+- **The build PROJECTS are tabled — the CONCEPTS are not.** The **Hermes /
+  MUD-golem / local-coding-models / Hermes-local BUILD PROJECTS** are tabled
+  (2026-06-29): don't frame an opportunity as advancing or reviving *them*. But
+  that tabling is about those named projects + local models — **not the concepts
+  they happened to touch.** An **agent-sim / simulation / agent-toy / agent-pet**
+  idea, a memory idea, a loops idea is **active** even though the golem also did
+  it — route it to a general harness move or a net-new build, never into the
+  tabled bucket. (The tell you've over-tabled: writing "tabled *agent-sim* arc"
+  or calling a sim/pet build "not a live destination." Zig flagged exactly this
+  on `subterrans`, 2026-07-13.) The golem/MUD stays a *source* to reason from;
+  frontier-model versions (subscription, no local model) dodge the tabling
+  entirely.
 
-The net: connect to the brain's *siblings* always (Step 3.5 / `Related
-explorations` — that's intra-compendium and always on), but connect to
-Andrew's *active machine work* only when it's real, aimed at a live arc, and
-never at the tabled one — and feel free to let an exploration simply be
-interesting.
+The net: **always** interlink into the compendium (siblings **+ open-ended
+beads** → deeper contexts), **freely** propose entirely new ideas and
+interesting-for-its-own-sake threads, and land on active work **only when it's
+real** — never forced, never at the tabled build projects.
 
 ## Archival mode — the umbrella-folder pattern
 

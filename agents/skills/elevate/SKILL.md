@@ -36,40 +36,52 @@ It is the **generative twin of `/scrutinize`**:
    original conclusions framed as settled. Divergent lenses (2+ different
    angles) beat one.
 
-## Where to apply the upside — bias to what Andrew works on now (by recency)
+## Where the upside can land — lead with curiosity, not a tie-back
 
-`/elevate` hunts upside so it can be *acted on*. Point that upside at the
-projects Andrew actually cares about **now** — and decide which those are
-**empirically, by recency**, never from a frozen list that rots (the
-"empirical over aspirational" rule, applied to the harness itself).
+`/elevate` hunts upside — but its FIRST job is to be **curious**, not to find a
+home for the finding on this machine. **Over-anchoring to Andrew's real projects
+is how the novel opportunity gets missed** (Zig, 2026-07-13): if every finding
+has to cash out as "a move for LinearB / the harness / a live `~/` arc," the
+re-read collapses to the modal tie-back and the genuinely new idea — the whole
+point of a max-effort fresh pass — never gets said. Range across **all** of the
+following with **no default ranking**; do not privilege the active-arc one.
+(Mirrors `/explore`'s "Where the opportunity can land"; keep the two in sync.)
 
-**Each run, re-derive the active set from timestamps** — recent git activity
-and file mtimes across `~/`, `~/explore`, `~/linearb`, and `~/explore/aaif`.
-As of 2026-06-29 the hot arcs are: **LinearB** (content / GEO /
-Dev-Interrupted thought-leadership — his job), **`~/explore/aaif`** (the
-monthly AGENTS.md / public-agents Ambassador cadence), **the harness itself**
-(`~/.claude` + `~/dotfiles` — pulse / elevate / scrutinize / beads), and
-whatever in `~/explore` he has touched in the last week or two. Prefer a
-*concrete move in one of these* over an abstract one.
+- **An entirely NEW idea.** Net-new — a thing worth building or exploring that
+  the re-read *sparked*, tied to nothing already here. First-class output, not a
+  consolation prize.
+- **An interlink that forms a deeper context.** Connect the re-examined work to
+  *other explorations* **and to open-ended beads** (proposed-but-not-done ideas
+  in `br` — `explore:` / `elevate:` / `human:` threads). Two half-ideas that meet
+  become one bigger opportunity; a finding that hands an open bead its missing
+  piece is worth more than either alone. The sweep's cross-cluster hunt (Mode B)
+  is exactly this — run it over **beads too**, not only FINDINGS.
+- **An application to Andrew's active work — when it's real.** Derive the active
+  set empirically by recency each run (git activity + mtimes across `~/`,
+  `~/explore`, `~/linearb`, `~/explore/aaif`; usual hot arcs: LinearB /
+  `~/explore/aaif` / the harness / recently-touched `~/explore`). When a finding
+  genuinely lands there, name the concrete move — but it's **one** valid landing,
+  not the preferred one. (Empirical over aspirational — trust `ls -lt` / `git
+  log`, not this paragraph's dated list.)
+- **Interesting for its own sake.** Clarifying, beautiful, or worth
+  understanding on its own terms. Say *that*; don't force a build.
 
-**The mud / golem / local-coding-models / Hermes-local arc is TABLED
-(2026-06-29).** Do **not** frame opportunities as integrating findings into
-it, advancing it, or "when the arc resumes" work. When a finding's natural
-home is that arc, do one of three things instead: **(a) lift it to a general
-harness move** (the orchestrator's own memory / loops, not the golem's),
-**(b) apply it to an active arc** (LinearB, AAIF, a `~/` project, the
-harness), or **(c) drop it and say so**. The golem/MUD stays a useful
-*source* of evidence (incidents, prototypes) to reason *from* — just never the
-*destination* the work lands in. A finding that can only land in the tabled
-arc is not an opportunity. (Re-read when the tabling lifts.)
+**Two guards stay hard:**
 
-**"Interesting for its own sake" is a valid verdict.** Upside does not have to
-cash out in a build. If the re-examined work is valuable simply because it's
-clarifying, beautiful, or worth understanding on its own terms, say *that* —
-and **do not manufacture a strained tie-back** to LinearB / the harness / a
-`~/` project to justify it. A forced connection is worse than an honest "this
-stands on its own." (Mirrors `/explore`'s "Where the opportunity should land"
-§3; keep the two in sync.)
+- **Don't manufacture a tie-back.** A forced connection to LinearB / the harness
+  / a `~/` project is worse than an honest "new idea, no home yet" or "this
+  stands on its own."
+- **The build PROJECTS are tabled — the CONCEPTS are not.** The **Hermes /
+  MUD-golem / local-coding-models / Hermes-local BUILD PROJECTS** are tabled
+  (2026-06-29): don't frame an opportunity as advancing or reviving *them*. But
+  the tabling is about those named projects + local models — **not the concepts**
+  (agent-sim / simulation / memory / loops) they touched, which stay **active**
+  even though the golem also did them. Route such a finding to a general harness
+  move or a net-new build, never the tabled bucket. (Tell you've over-tabled:
+  "tabled *agent-sim* arc," or calling a sim/pet build "not a live destination"
+  — Zig flagged this on `subterrans`, 2026-07-13.) The golem/MUD stays a *source*
+  to reason from; frontier-model versions (subscription, no local model) dodge
+  the tabling entirely.
 
 ## Mode A — targeted elevate (`/elevate <target>`)
 
@@ -94,9 +106,13 @@ The compendium-wide opportunity-finder. Fires on `pulse-elevate.timer`
 1. Enumerate the explore compendium (`~/explore/*/FINDINGS.md` etc.) and
    any other finished-work corpus in scope.
 2. Fan out **max-effort** fresh agents over slices (by cluster/theme), each
-   hunting: cross-exploration clusters, novel "you should build X"
-   opportunities, non-obvious connections to Andrew's active work, and
-   "what did the per-card baseline pass miss." Then a max-effort synthesis.
+   hunting: cross-exploration clusters **and interlinks with open-ended beads**
+   (a finding that completes a proposed-but-not-done `br` idea), **entirely new
+   ideas the corpus sparks** (tied to nothing yet — novelty is first-class),
+   novel "you should build X" opportunities, non-obvious connections to Andrew's
+   active work, and "what did the per-card baseline pass miss." Then a max-effort
+   synthesis. (Feed the agents the open `br` beads too, not only the FINDINGS —
+   the interlinks live at the FINDINGS↔bead seam.)
 3. **Deliver the findings to Andrew's attention via a session/push
    notification** (PushNotification / remote control) — a short "elevate
    sweep found N opportunities" with the headlines.
