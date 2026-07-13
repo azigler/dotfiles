@@ -45,7 +45,13 @@ SECRETS = {
     "openai-key": "sk-proj-abcdefghij0123456789KLMNopqr",
     "aws-akia": "AKIAABCDEFGHIJKLMNOP",  # AKIA + 16
     "slack-token": "xoxb-0123456789-abcdefABCDEF",
+    "gateway-sk-key": "sk-svc-0a1b2c3d4e",  # sk-<name>-<hex>, FAKE (not a real key)
 }
+
+# The placeholder shape a tracked `.example` config uses — must NOT be flagged
+# (uppercase/underscore tail is not [0-9a-f]). The true-negative guard for
+# gateway-sk-key so the gate never blocks a committed example config.
+GATEWAY_KEY_PLACEHOLDER = "sk-goose-REPLACE_ME"
 
 # A random-looking, high-entropy token with NO distinctive prefix: invisible to
 # the default high-confidence scan, but the --entropy scan should surface it.

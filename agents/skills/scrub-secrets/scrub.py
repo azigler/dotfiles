@@ -62,6 +62,13 @@ PATTERNS: dict[str, re.Pattern] = {
     ),
     "anthropic-key": re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}"),
     "openai-key": re.compile(r"sk-proj-[A-Za-z0-9_-]{20,}"),
+    # Custom `sk-<name>-<hex>` service/gateway keys (e.g. agentgateway's
+    # sk-goose-<hex> / sk-cc-<hex>). The (?<![A-Za-z0-9]) lookbehind anchors `sk`
+    # to a token start so words ending in "sk" (risk-, task-, disk-) can't match;
+    # the [0-9a-f]{8,} hex tail excludes placeholders like `sk-goose-REPLACE_ME`.
+    "gateway-sk-key": re.compile(
+        r"(?<![A-Za-z0-9])sk-[a-z][a-z0-9]{0,30}-[0-9a-f]{8,}"
+    ),
     "aws-akia": re.compile(r"AKIA[0-9A-Z]{16}"),
     "slack-token": re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"),
     "gitlab-pat": re.compile(r"glpat-[A-Za-z0-9_-]{20}"),

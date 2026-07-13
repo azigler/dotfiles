@@ -15,8 +15,10 @@ from __future__ import annotations
 import json
 
 import pytest
+import scrub
 from _scrub_helpers import (
     ENV_REF,
+    GATEWAY_KEY_PLACEHOLDER,
     GDOC_ID,
     GIT_SHA,
     HIGH_ENTROPY_SECRET,
@@ -26,8 +28,6 @@ from _scrub_helpers import (
     write_jsonl,
     write_text,
 )
-
-import scrub
 
 MARKER = scrub.MARKER
 
@@ -52,6 +52,30 @@ def test_scan_exits_0_when_clean(scrub_cli, tree):
     )
     r = scrub_cli("scan", tree)
     assert r.returncode == 0, r.combined
+
+
+def test_gateway_sk_key_caught_but_placeholder_and_words_ignored(
+    scrub_cli, tree
+):
+    """Regression (explore-fk14): custom sk-<name>-<hex> gateway keys were a
+    blind spot. Catch the real shape; do NOT flag the .example REPLACE_ME
+    placeholder, nor words ending in 'sk' (risk-/task-/disk-)."""
+    # true positive: a real-shaped gateway key in vault content is flagged
+    # (.md — the dir-walk covers .md/.jsonl/.txt; explicit non-vault paths like a
+    # .yaml config are also scanned when named directly, verified separately).
+    write_text(tree / "note.md", f"gateway key {SECRETS['gateway-sk-key']}\n")
+    hit = scrub_cli("scan", tree)
+    assert hit.returncode == 1, hit.combined
+    assert "gateway-sk-key" in hit.stdout
+
+    # true negatives: the placeholder + hyphenated words that contain "sk-"
+    write_text(
+        tree / "note.md",
+        f"placeholder {GATEWAY_KEY_PLACEHOLDER}\n"
+        "risk-manage-abcdef12 task-run-deadbeef1 disk-cache-00112233\n",
+    )
+    clean = scrub_cli("scan", tree)
+    assert clean.returncode == 0, clean.combined
 
 
 def test_scan_never_echoes_the_secret_value(scrub_cli, tree):
