@@ -41,8 +41,11 @@
 # - Per-session state IS stored (the SSoT the readers consume), keyed by
 #   session_id under $CLAUDE_LEXICON_STATE_DIR, cleaned on SessionEnd by
 #   session-end.sh (mirrors statusline's /tmp/claude-context-pct file).
-# - Targets the window containing $TMUX_PANE, so split panes (bead
-#   viewer next to the agent) are unaffected.
+# - Targets the window containing this session's pane, so split panes (bead
+#   viewer next to the agent) are unaffected. The pane is $TMUX_PANE when set,
+#   else recovered from process ancestry via lib/tmux-pane-resolve.sh — a
+#   background-forked session (`bg-pty-host --fork-session`, CC 2.x) has no
+#   $TMUX_PANE even though it lives in a pane (root-caused 2026-07-13).
 # - Wired to main-session events only (SessionStart, UserPromptSubmit,
 #   Stop, Notification, PreCompact, SessionEnd) — NOT SubagentStart/
 #   SubagentStop, so background subagents don't flicker the window.
@@ -62,6 +65,14 @@ LIB="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/lexicon-map.sh"
 [ -f "$LIB" ] && . "$LIB"
 command -v lexicon_resolve >/dev/null 2>&1 || exit 0
 
+# Shared pane resolver — recovers our tmux pane from process ancestry when
+# $TMUX_PANE is absent (a background-forked session: `claude bg-pty-host
+# --fork-session`, CC 2.x, has no $TMUX_PANE even though it lives in a pane).
+# Best-effort: if the lib is missing we simply fall back to $TMUX_PANE below.
+RESOLVE_LIB="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/tmux-pane-resolve.sh"
+# shellcheck source=../lib/tmux-pane-resolve.sh
+[ -f "$RESOLVE_LIB" ] && . "$RESOLVE_LIB"
+
 EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
 [ -z "$EVENT" ] && exit 0
 
@@ -80,9 +91,19 @@ PREFIX="$LEXICON_GLYPH"
 # exactly as the original did, while the SSoT write still happens.
 TMUX_BIN=$(command -v tmux 2>/dev/null)
 [ -x "$TMUX_BIN" ] || TMUX_BIN=/usr/bin/tmux
+
+# Resolve THIS session's pane. $TMUX_PANE is the fast path; a background-forked
+# session (`claude bg-pty-host --fork-session`, CC 2.x) has no $TMUX_PANE even
+# though it lives in a pane, so recover it from process ancestry via the shared
+# resolver — otherwise the glyph never tracks state (root-caused 2026-07-13).
+PANE="${TMUX_PANE:-}"
+if [ -z "$PANE" ] && command -v tmux_resolve_pane >/dev/null 2>&1; then
+  PANE=$(tmux_resolve_pane)
+fi
+
 CURRENT=""
-if [ -n "$TMUX" ] && [ -n "$TMUX_PANE" ] && [ -x "$TMUX_BIN" ]; then
-  CURRENT=$("$TMUX_BIN" display-message -p -t "$TMUX_PANE" '#W' 2>/dev/null)
+if [ -n "$PANE" ] && [ -x "$TMUX_BIN" ]; then
+  CURRENT=$("$TMUX_BIN" display-message -p -t "$PANE" '#W' 2>/dev/null)
 fi
 
 # Strip any existing lexicon prefix to recover the manual base name.
