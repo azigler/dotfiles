@@ -47,6 +47,10 @@ sqlite3 3.46, **duckdb v1.5.4** (`~/.local/bin/duckdb`, installed 2026-06-27).
 `pulse-weekly-report`, `pulse-elevate`, `hermes-watchdog`, `andrewzigler3-build`
 (daily 03:00). `systemctl --user list-timers`.
 
+**Timer-rename gotcha:** rename a timer's stamp/unit with `mv` (not
+recreate) — `mv` preserves mtime, so the renamed timer inherits its
+run-history and won't fire a phantom catch-up tick on next activation.
+
 ## Projects on this box (selected)
 - `~/andrewzigler3` — personal site; daily "now page" build **consumes
   `HEVY_API_KEY`** (03:00). Tested TS Hevy transforms (`tests/hevy-transforms.spec.ts`).

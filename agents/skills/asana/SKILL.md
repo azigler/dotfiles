@@ -73,6 +73,11 @@ title context carry the hierarchy.
 - ❌ **Unsupported tags** (`<p>`, any `<br>`, `<h3>`) in `html_notes` —
   `400 xml_parsing_error`.
 - ❌ **Bare `<img>`** — it must self-close: `<img/>`.
+- ❌ **`GID` / `TID` as a card-loop variable in zsh** — `GID` is a
+  reserved/setgid special var and `TID` collides; assigning them
+  silently misbehaves (the gid/tid gets mangled, the write hits the
+  wrong task or errors). Name the per-card loop variable `CARD` (or any
+  non-reserved word). Recurred twice in vibe-explore card-marking loops.
 
 ## See also
 
