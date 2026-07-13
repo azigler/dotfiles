@@ -189,6 +189,38 @@ and end the tick. (A focused tmux pane does NOT mean Zig is present — the
 pane always has focus — so never read a focus / PushNotification-suppression
 signal as presence and escalate a timer-fired tick to AskUserQuestion.)
 
+## The counterpart: when you decide-and-proceed, leave a durable record
+
+AskUserQuestion is the escalate path. This is the other one. When you
+resolve your own uncertainty and **proceed without asking** on a non-trivial
+call — you weighed real alternatives, judged it reversible / low-stakes, and
+picked the best way forward (the "propose-and-proceed" rung of the escalation
+ladder) — that decision must NOT live only in the running context, where
+compaction eats it and the next session has no idea it was ever made. Leave an
+ADR-shaped record as a `-t decision` bead:
+
+```bash
+br create -t decision "decision: <what you decided>" -d "$(cat <<'EOF'
+Context: <the fork you faced + the alternatives>
+Decision: <what you chose>
+Why: <the reasoning; the load-bearing trade-off>
+Reversibility: <undoable how, at what cost — this is WHY it didn't need Zig>
+EOF
+)"
+```
+
+The bar is a judgment call, not every micro-choice — record when the decision
+(a) changes direction, (b) picks among real alternatives someone might have
+chosen differently, or (c) a reviewer walking in later would want to know you
+made autonomously. Skip the trivial; that's noise (same discipline as memory).
+This is the propose-and-proceed step made **durable** — the anti-comprehension-
+rot trail that keeps Zig able to walk in and see what got decided without him.
+`/offboard` harvests every `-t decision` bead created since the last offboard
+into the handoff note, so a mid-session call can't fall through the gap between
+sessions. Escalate (AskUserQuestion) when it's irreversible, a taste/values
+call that's genuinely Zig's, or his intent itself is ambiguous; decide-and-
+record when you can act and merely need the trail.
+
 ## Delegation
 
 For any task that writes code, use `subagent_type: "subagent"` with

@@ -48,6 +48,42 @@ echo "Session: ${SESSION_ID:-(none found)}"
 If no JSONL is found, use the date alone in the handoff title; the marker
 step just skips.
 
+## Step 2.5: Harvest this-session decision records
+
+Autonomous "decide-and-proceed" calls are logged as `-t decision` beads
+during the session (see AGENTS.md "when you decide-and-proceed, leave a
+durable record"). Collect the ones created since the last offboard so they
+land in the handoff instead of dissolving in compaction:
+
+```bash
+_HP="$HOME/dotfiles/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
+type last_offboard_path >/dev/null 2>&1 || last_offboard_path() { printf '%s/.claude/last-offboard-session' "${1:-.}"; }
+# Pass data via env vars — NOT `br … | python3 - <<HEREDOC` (the pipe and the
+# heredoc both claim stdin, so python reads the JSON as its program). Verified.
+export SINCE_EPOCH=$(stat -c %Y "$(last_offboard_path .)" 2>/dev/null || date -d 'today 00:00' +%s)
+export DECISIONS_JSON=$(br list --type decision --json 2>/dev/null)
+python3 <<'PY'
+import os, json, datetime as dt
+cut = int(os.environ["SINCE_EPOCH"])
+try:
+    rows = json.loads(os.environ.get("DECISIONS_JSON") or "[]")
+except Exception:
+    rows = []
+rows = rows if isinstance(rows, list) else rows.get("issues", [])
+for r in rows:
+    ca = (r.get("created_at") or "").replace("Z", "+00:00")
+    try:
+        if ca and dt.datetime.fromisoformat(ca).timestamp() >= cut:
+            print(f"- `{r.get('id')}` — {r.get('title','')}")
+    except ValueError:
+        pass
+PY
+```
+
+Put each result under the handoff's **Decisions made this session** section
+(Step 3). If none, the section says "none this session." These are a durable
+ADR log — leave them open unless a later decision supersedes one.
+
 ## Step 3: Write the session handoff note
 
 Write the handoff note (overwrite, don't append — it's a snapshot, not a
@@ -89,6 +125,9 @@ Write the markdown below to `$HANDOFF`:
 ## What happened this session (bullets)
 - <key accomplishments, decisions, merges>
 - <anything load-bearing for next session>
+
+## Decisions made this session (autonomous decide-and-proceed calls)
+- <the `-t decision` beads harvested in Step 2.5, one bullet each; or "none this session">
 
 ## What's next
 - <the next 1–3 actions the next session should take>
