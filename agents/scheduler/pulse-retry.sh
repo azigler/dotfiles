@@ -70,6 +70,30 @@ strip_lexicon() { printf '%s' "$1" | sed -E 's/^(🧠|✅|🔔|🌀) ?//'; }
 # e.g. execstart_flag "$es" --session → "work". Empty if the flag is absent.
 execstart_flag() { printf '%s' "$1" | grep -oE -- "$2 [^ ]+" | head -1 | awk '{print $2}'; }
 
+# Normalize a `systemctl show -p NextElapseUSecRealtime --value` reading into epoch SECONDS.
+# systemd renders this property in DIFFERENT forms across versions / timer kinds:
+#   - raw microseconds since the epoch (systemd ≤256): all-digit, e.g. 1783969200000000
+#   - a formatted realtime timestamp (systemd 257+):   "Mon 2026-07-13 19:00:00 UTC"
+#   - empty / "0" / "n/a" / "infinity":                no bounded realtime schedule (unbounded)
+# Echoes epoch seconds when there IS a bounded next fire; echoes NOTHING (empty) otherwise — so the
+# caller treats "no output" as unbounded and skips (the original intent), while a real schedule in
+# EITHER the numeric OR the human form now resolves correctly.
+#   HISTORY (harnessd-95w): the caller previously kept only an all-digit guard and treated ANY
+#   non-digit reading as "unbounded" — so the systemd 257 upgrade (which switched this property to a
+#   human timestamp) silently turned pulse-retry into a no-op for EVERY OnCalendar loop. This helper
+#   is the format-agnostic replacement.
+next_fire_epoch() {
+  local raw="$1" secs
+  case "$raw" in
+    ''|0|n/a|infinity) return 0 ;;                        # no bounded realtime schedule
+    *[!0-9]*)                                             # non-digit → a formatted timestamp
+      secs=$(date -d "$raw" +%s 2>/dev/null) || return 0 # GNU date (Linux, where the timers run)
+      [ -n "$secs" ] && printf '%s' "$secs"
+      ;;
+    *) printf '%s' $(( raw / 1000000 )) ;;               # all-digit → microseconds → seconds
+  esac
+}
+
 # --- 1. No bounces → no-op --------------------------------------------------
 
 if [ ! -s "$BOUNCES" ]; then
@@ -122,16 +146,17 @@ for loop in "${!LATEST_BOUNCE[@]}"; do
     [ "${bkey:-0}" -gt "${akey:-0}" ] || continue
   fi
 
-  # 3a. next_fire (epoch µs). Empty / 0 ⇒ no schedule ⇒ unbounded ⇒ skip.
-  nf=$("$SYSTEMCTL_BIN" --user show "$loop.timer" -p NextElapseUSecRealtime --value 2>>"$LOG")
-  case "$nf" in
-    ''|*[!0-9]*) note "skip $loop: no numeric next_fire ('$nf') — unbounded, not retrying"; continue ;;
-  esac
-  if [ "$nf" = "0" ]; then
-    note "skip $loop: next_fire=0 (no schedule) — unbounded, not retrying"
+  # 3a. next_fire → epoch SECONDS. systemd 257+ renders NextElapseUSecRealtime as a formatted
+  #     timestamp ("Mon 2026-07-13 19:00:00 UTC"); older systemd as raw µs; a monotonic-only or
+  #     unscheduled timer as empty/0. next_fire_epoch normalizes all three — an EMPTY result ⇒ no
+  #     bounded realtime schedule ⇒ unbounded ⇒ skip (don't early-retry a loop with no natural
+  #     fallback). (The prior all-digit guard silently broke on the systemd 257 upgrade — harnessd-95w.)
+  nf_raw=$("$SYSTEMCTL_BIN" --user show "$loop.timer" -p NextElapseUSecRealtime --value 2>>"$LOG")
+  nf_sec=$(next_fire_epoch "$nf_raw")
+  if [ -z "$nf_sec" ]; then
+    note "skip $loop: no bounded next_fire (raw='$nf_raw') — unbounded, not retrying"
     continue
   fi
-  nf_sec=$(( nf / 1000000 ))
 
   # 3b. next fire already due ⇒ let the natural timer take over.
   if [ "$now" -ge "$nf_sec" ]; then

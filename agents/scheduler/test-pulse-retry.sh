@@ -85,8 +85,14 @@ ok()  { PASS=$((PASS + 1)); }
 bad() { FAIL=$((FAIL + 1)); FAILED_NAMES+=("$1"); }
 
 NOW=$(date +%s)
-FUTURE_US=$(( (NOW + 3600) * 1000000 ))   # next fire an hour out
-PAST_US=$(( (NOW - 3600) * 1000000 ))     # next fire an hour ago
+FUTURE_US=$(( (NOW + 3600) * 1000000 ))   # next fire an hour out (systemd ≤256 raw-µs form)
+PAST_US=$(( (NOW - 3600) * 1000000 ))     # next fire an hour ago  (raw-µs form)
+
+# systemd 257+ renders NextElapseUSecRealtime as a FORMATTED TIMESTAMP, not raw µs. These are the
+# regression guard for harnessd-95w — the exact form that silently broke pulse-retry in production
+# (the old all-digit guard classified it "unbounded" and skipped every OnCalendar loop).
+FUTURE_HUMAN=$(date -u -d '+1 hour' '+%a %Y-%m-%d %H:%M:%S UTC')
+PAST_HUMAN=$(date -u -d '-1 hour' '+%a %Y-%m-%d %H:%M:%S UTC')
 
 # setup_case: fresh state dir + fake control dir; exports HARNESS_STATE_DIR + PRT_FAKE.
 setup_case() {
@@ -242,6 +248,35 @@ if [ "$(started_count)" = "0" ] && [ ! -f "$HARNESS_STATE_DIR/pulse-retry-state.
 else
   bad "absent bounces → clean no-op (no start, no retry-state)"
 fi
+
+# ---------------------------------------------------------------------------
+# Case 9 (harnessd-95w regression): systemd 257 renders next_fire as a HUMAN TIMESTAMP, not raw µs.
+#   FUTURE human timestamp + cleared window → must RE-FIRE. The prior all-digit guard wrongly
+#   classified this "unbounded" and skipped it, silently breaking every OnCalendar loop after the
+#   systemd 257 upgrade. This is the case the old suite lacked (its mock only fed raw µs).
+setup_case
+printf '{"ts":"2026-07-09T05:00:00Z","loop":"pulse-vibe","reason":"blocked_on_andrew"}\n' \
+  > "$HARNESS_STATE_DIR/pulse-bounces.jsonl"
+printf '%s\n' "$FUTURE_HUMAN" > "$PRT_FAKE/nextfire/pulse-vibe.timer"   # systemd-257 human format
+printf 'ExecStart={ argv[]=x --session explore --window explore ; }\n' \
+  > "$PRT_FAKE/execstart/pulse-vibe.service"
+printf 'explore\n' > "$PRT_FAKE/windows/explore"     # cleared (not 🔔)
+"$RETRY"
+if [ "$(started_count)" = "1" ] && grep -qx "pulse-vibe.service" "$PRT_FAKE/started"; then
+  ok
+else
+  bad "systemd-257 human-format FUTURE next_fire + cleared → re-fire (got $(started_count) starts)"
+fi
+
+# Case 10 (harnessd-95w): human-format PAST next_fire → skip (natural timer takes over) — proves
+#   the human timestamp is actually PARSED and compared to now, not blanket-accepted.
+setup_case
+printf '{"ts":"2026-07-09T05:00:00Z","loop":"pulse-vibe","reason":"blocked_on_andrew"}\n' \
+  > "$HARNESS_STATE_DIR/pulse-bounces.jsonl"
+printf '%s\n' "$PAST_HUMAN" > "$PRT_FAKE/nextfire/pulse-vibe.timer"     # human format, already due
+printf 'pulse\n' > "$PRT_FAKE/windows/work"
+"$RETRY"
+if [ "$(started_count)" = "0" ]; then ok; else bad "human-format PAST next_fire → skip (no start)"; fi
 
 # --- Summary ---
 TOTAL=$((PASS + FAIL))
