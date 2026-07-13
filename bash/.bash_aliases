@@ -136,14 +136,13 @@ alias ssh-zig='ssh ubuntu@$(tailscale ip -4 zig-computer 2>/dev/null || echo zig
 alias ssh-pico='ssh pico@$(tailscale ip -4 pico 2>/dev/null || echo pico)'
 
 # --- Claude Code <-> agentgateway routing toggle (the kill switch) ---
-# Routes Claude Code through the pico agentgateway o11y/gov plane, or back to
-# direct-to-Anthropic. This is a TRUE toggle: it swaps BOTH the LLM base URL AND
-# the gateway's omni MCP server, so on-gateway CC presents its scoped virtual key
-# (and gets its governed tools) while off-gateway leaves no dangling MCP entry.
-# CC reads both at LAUNCH, so RESTART your CC session after toggling to apply.
-#   cc-gw     -> route CC LLM through the pico gateway + add the scoped omni MCP server
-#   cc-direct -> restore direct-to-Anthropic + remove the omni MCP server (KILL SWITCH)
-#   cc-route  -> show current LLM routing + MCP state without changing it
+# Routes Claude Code's LLM through the pico agentgateway o11y/gov plane, or back
+# to direct-to-Anthropic. ROUTING ONLY: it swaps the LLM base URL and nothing
+# else — no MCP server, no model pin. CC reads settings at LAUNCH, so RESTART
+# your CC session after toggling to apply.
+#   cc-gw     -> route CC's LLM through the pico gateway (proxy on)
+#   cc-direct -> restore direct-to-Anthropic (KILL SWITCH; proxy off)
+#   cc-route  -> show current LLM routing without changing it
 # Caveat (why cc-direct is an ESCAPE HATCH, not only a "pico is down" kill switch):
 # the gateway parses every LLM request for token o11y, and that path has a max body
 # size. A big request -- notably CONTEXT COMPACTION, the largest request CC makes --
@@ -162,8 +161,6 @@ CC_GW_URL="http://100.72.47.4:17017/claude"
 # picker, export ANTHROPIC_MODEL="$CC_GW_MODEL" before launching. Why decoupled: a global/exported
 # ANTHROPIC_MODEL beats the /model picker for ALL sessions, which silently clobbered the model default.
 CC_GW_MODEL="claude-opus-4-8[1m]"   # kept for MANUAL 1M-on-gateway; cc-gw no longer auto-applies it
-CC_GW_MCP_NAME="honk"
-CC_GW_MCP_URL="http://100.72.47.4:15001/mcp"
 
 cc-gw ()
 {
@@ -171,14 +168,13 @@ cc-gw ()
 	local tmp; tmp=$(mktemp)
 	# routing only: set ANTHROPIC_BASE_URL, and STRIP any stale ANTHROPIC_MODEL so the /model picker owns the model
 	jq --arg u "$CC_GW_URL" '.env = ((.env // {}) + {ANTHROPIC_BASE_URL: $u}) | del(.env.ANTHROPIC_MODEL)' "$CC_SETTINGS" > "$tmp" && command mv "$tmp" "$CC_SETTINGS"
-	# CC routes only its MODEL through the gateway (token/cost/prompt o11y). It takes NO MCP tools
-	# from the gateway; CC uses its own built-in tools. goose gets the curated honk MCP; CC gets
-	# nothing. TRADEOFF (re-corrected 2026-07-04): as of Claude Code v2.1.196 Anthropic DISABLES
+	# CC routes only its MODEL through the gateway (token/cost/prompt o11y); it takes NO MCP tools
+	# and uses its own built-in tools. TRADEOFF (re-corrected 2026-07-04): as of Claude Code v2.1.196 Anthropic DISABLES
 	# Remote Control whenever proxying is on, so cc-gw and Remote Control are mutually exclusive.
 	# An earlier "they coexist" reading was a version middle-ground (older CC build, gate not yet
 	# enforced) — do NOT re-flip this. Zig keeps CC on cc-direct to retain Remote Control; use
 	# cc-gw only for a session where you're fine losing it.
-	echo "→ Claude Code ROUTING through pico agentgateway ($CC_GW_URL), no MCP. MODEL is left to your /model choice (not pinned). RESTART CC to apply. For 1M while routed, pick the [1m] model in /model (verify with /context). Remote Control is OFF while routed."
+	echo "→ Claude Code ROUTING through pico agentgateway ($CC_GW_URL). MODEL is left to your /model choice (not pinned). RESTART CC to apply. For 1M while routed, pick the [1m] model in /model (verify with /context). Remote Control is OFF while routed."
 	jq '.env' "$CC_SETTINGS"
 }
 
@@ -205,11 +201,6 @@ cc-route ()
 {
 	jq -r '.env.ANTHROPIC_BASE_URL // "direct (no ANTHROPIC_BASE_URL set)"' "$CC_SETTINGS" 2>/dev/null \
 		| sed 's/^/Claude Code LLM routing: /'
-	if jq -e --arg n "$CC_GW_MCP_NAME" '.mcpServers[$n]' "$HOME/.claude.json" >/dev/null 2>&1; then
-		echo "Gateway MCP server:      present ($CC_GW_MCP_NAME)"
-	else
-		echo "Gateway MCP server:      absent"
-	fi
 }
 
 # --- goose through the pico agentgateway (local model + omni MCP) ---
