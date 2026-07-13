@@ -153,6 +153,6 @@ fi
 NEW="${PREFIX}${BASE}"
 [ "$NEW" = "$CURRENT" ] && exit 0
 
-"$TMUX_BIN" rename-window -t "$TMUX_PANE" "$NEW" 2>/dev/null
+"$TMUX_BIN" rename-window -t "$PANE" "$NEW" 2>/dev/null
 
 exit 0

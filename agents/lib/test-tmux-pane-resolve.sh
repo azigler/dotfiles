@@ -67,6 +67,17 @@ for g in 🧠 ✅ 🔔 🌀 📬; do
   [ "$got" = 'win' ] && pass "T5 strip [$g]" || fail "T5 strip [$g]" "$got"
 done
 
+# T6 — multi-fork ambiguity: forked session + >1 bg session -> DEGRADE (fail).
+if got=$(TPR_TEST_FORKED=1 TPR_TEST_BG_COUNT=2 MOCK_PID="$$" tmux_resolve_pane); then
+  fail 'T6 multi-fork degrades' "rc=0 got=$got"
+else
+  [ -z "$got" ] && pass 'T6 multi-fork degrades (non-zero+empty)' || fail 'T6 multi-fork empty' "$got"
+fi
+
+# T7 — forked but SINGLE bg session -> still resolves (the common /clear case).
+got=$(TPR_TEST_FORKED=1 TPR_TEST_BG_COUNT=1 MOCK_PID="$$" tmux_resolve_pane)
+[ "$got" = '%99' ] && pass 'T7 single-fork resolves' || fail 'T7 single-fork resolves' "$got"
+
 echo
 if [ "$FAILS" -eq 0 ]; then echo "ALL PASS"; else echo "$FAILS FAILURE(S)"; fi
 [ "$FAILS" -eq 0 ]

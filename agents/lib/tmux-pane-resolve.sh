@@ -19,6 +19,15 @@
 # the pane by walking the parent-PID chain and matching tmux pane_pids — no
 # dependency on the env var. Env fast-path first (cheap when $TMUX_PANE IS set).
 #
+# Scope + a known limit: this resolves a SINGLE forked session (its ancestry
+# leads to the daemon's origin pane, which IS its display pane) and any normal
+# in-pane session. It CANNOT distinguish TWO+ sessions forked under one shared
+# daemon (they all trace to the same origin pane, and nothing in the process
+# tree ties a fork to its display pane — that link is the runtime PTY socket).
+# In that multi-fork case the resolver DEGRADES (returns non-zero -> callers
+# fall back to legacy / skip the rename) rather than return a wrong window. A
+# fully robust multi-fork mapping would need the PTY-socket/tmux-pane signal.
+#
 # NEVER use a bare/untargeted `tmux display-message` to identify "my" window: it
 # returns the CLIENT's currently-focused window (wherever the user is looking),
 # not this session's own (verified 2026-06-30).
@@ -41,19 +50,45 @@ _tpr_ppid() {
   fi
 }
 
+# _tpr_cmdline <pid> -> the process command line (NULs -> spaces). /proc first,
+# ps fallback (macOS/BSD).
+_tpr_cmdline() {
+  if [ -r "/proc/$1/cmdline" ]; then tr '\0' ' ' < "/proc/$1/cmdline" 2>/dev/null
+  else ps -o command= -p "$1" 2>/dev/null; fi
+}
+
+# _tpr_bg_session_count -> number of live daemon-hosted bg sessions (their PTY
+# sockets). >1 means several forked sessions share ONE daemon rooted in a single
+# pane, so process ancestry cannot tell which fork THIS is — it would confidently
+# return the daemon's origin pane (possibly the wrong window).
+# (TPR_TEST_BG_COUNT overrides for tests.)
+_tpr_bg_session_count() {
+  [ -n "${TPR_TEST_BG_COUNT:-}" ] && { printf '%s' "$TPR_TEST_BG_COUNT"; return; }
+  find /tmp -maxdepth 4 -type s -path '*cc-daemon*/pty/*.sock' 2>/dev/null | wc -l | tr -d ' '
+}
+
 # _tpr_by_ancestry <tmux-format> -> for the first ancestor PID that is a tmux
-# pane_pid, print that pane's <tmux-format> attribute. Non-zero if none matches
-# (no tmux, or a truly detached session with no pane ancestor).
+# pane_pid, print that pane's <tmux-format> attribute. Non-zero when it can't be
+# resolved (no tmux / no pane ancestor) OR when resolution would be AMBIGUOUS:
+# a background-forked session (an ancestor is a bg-pty-host) while >1 bg session
+# is live shares the daemon's origin pane with its siblings, so we REFUSE (return
+# non-zero -> caller degrades to legacy) rather than confidently guess the wrong
+# window. Single fork, or a normal in-pane session, resolves fine.
+# (TPR_TEST_FORKED forces the forked branch for tests.)
 _tpr_by_ancestry() {
-  local fmt="$1" tb panes pid hit i=0
+  local fmt="$1" tb panes pid hit i=0 forked="${TPR_TEST_FORKED:-0}"
   tb=$(command -v tmux 2>/dev/null); [ -x "$tb" ] || tb=/usr/bin/tmux
   [ -x "$tb" ] || return 1
   panes=$("$tb" list-panes -a -F "#{pane_pid} $fmt" 2>/dev/null) || return 1
   [ -n "$panes" ] || return 1
   pid=$$
   while [ -n "$pid" ] && [ "$pid" != 1 ] && [ "$i" -lt 24 ]; do
+    case "$(_tpr_cmdline "$pid")" in *bg-pty-host*) forked=1 ;; esac
     hit=$(printf '%s\n' "$panes" | awk -v t="$pid" '$1==t{$1="";sub(/^ /,"");print;exit}')
-    [ -n "$hit" ] && { printf '%s' "$hit"; return 0; }
+    if [ -n "$hit" ]; then
+      [ "$forked" = 1 ] && [ "$(_tpr_bg_session_count)" -gt 1 ] && return 1
+      printf '%s' "$hit"; return 0
+    fi
     pid=$(_tpr_ppid "$pid"); [ -n "$pid" ] || return 1
     i=$((i+1))
   done
