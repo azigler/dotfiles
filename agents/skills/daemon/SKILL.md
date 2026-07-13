@@ -144,7 +144,10 @@ macOS Safari, desktop Chrome — tab AND installed PWA), **auto-updating on use*
 the thin service can *reach* the human, not just wait to be visited. No app-store, no
 native build. Full playbook + the hard-won gotchas (TLS/secure-context, VAPID + the
 `mailto:` trap, the service worker, the badge rules, the opt-in/test UX, deploy
-discipline, the delivery-vs-display debug split) in
+discipline, the delivery-vs-display debug split) **plus the act-now half — a
+watcher that decides WHEN to push** (diff the attention set on each state swap;
+in-memory dedup with prime-silent-on-first, clear-on-resolution, retry-on-failure;
+full-detail because a push to the user's own devices is E2E-encrypted) in
 [`reference/pwa-cockpit-push.md`](reference/pwa-cockpit-push.md). **The load-bearing
 lesson: use a CLASSIC Web Push payload, not Declarative Web Push** — the declarative
 `app_badge` is a silent no-op on iOS 18.7 (even with `mutable:true`); a classic push

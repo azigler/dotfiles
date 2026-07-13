@@ -138,6 +138,49 @@ went stale from re-subscribe/SW churn — re-subscribing yields a valid one.
 pass the **bare email** (`andrewzigler@gmail.com`), not `mailto:...`, or you get
 `mailto:mailto:...` → Apple 403 `BadJwtToken`.
 
+## The act-now half — a watcher that decides WHEN to push
+
+Everything above is how to *send*. This is the trigger that turns the channel
+into an **autonomous** alert — the thing that makes the daemon *reach out*
+instead of waiting to be visited (harnessd `v8o.3`, on-device-validated
+2026-07-13).
+
+- **Hook the watcher into the ONE place the state actually changes**, not a
+  separate timer. The daemon already regenerates its snapshot on a cadence; put
+  the observe call at the single monotonic swap point (harnessd: `storeIfNewer`,
+  right beside the SSE broadcast) so it sees every real change and nothing else.
+- **Derive the attention set from the SAME source of truth the system already
+  gates on.** harnessd mirrors its `--needs-me` gate exactly, so the push rings
+  for precisely what the gate flags — anything narrower is a silent gap. Parse
+  **defensively**: a malformed/partial snapshot yields the empty set, never a
+  panic (this runs in the daemon's hot swap path).
+- **Dedup in memory — the daemon's lifetime IS the seen-state** (no on-disk
+  seen-file). Keep a `set<key>` of what you've already alerted on; four rules make
+  it correct:
+  1. **Prime silently on the first observe** — record the current set, send
+     NOTHING. Else a restart re-alerts every existing condition and a deploy
+     *spams the user*. This is the single most important rule.
+  2. **Fire only on keys NEW since the last observe.**
+  3. **Clear-on-resolution** — reset the set to exactly the current keys each
+     tick, so a resolved key drops and a genuine *recurrence* re-fires.
+  4. **Retry on send failure** — un-mark the just-fired keys if the send errors,
+     so the next tick re-attempts (never drop a crossing on a transient failure).
+  A restart re-baselining silently is CORRECT — don't re-alert what the user was
+  already told. Persist a seen-file ONLY if you must catch conditions that arise
+  *during* a restart window.
+- **Send async, off the swap path** — compose the payload synchronously (cheap),
+  fire the fan-out in a detached goroutine; never hold the state lock across
+  network I/O.
+- **Badge = the TRUE attention count** (the set size), never the ≥1 *test* floor.
+- **Confidentiality: a push to the user's OWN devices is end-to-end encrypted**
+  (VAPID + RFC 8291) — it never reaches an untrusted third party in cleartext, so
+  it may carry **full detail** even from otherwise-confidential stores. Redact
+  only for a genuinely *public* / third-party export, which is a separate call.
+  (Don't over-build a redaction guard for an E2E-to-own-device channel.)
+- **Grammar counts** — notification text is user-facing copy. Agree subject and
+  verb off the count ("1 thing **needs** you" / "N things **need** you"); don't
+  hardcode the plural verb behind a pluralized noun.
+
 ## Deploy discipline
 
 If the daemon `go:embed`s the `dashboard/` dir, **any Go OR dashboard change needs a
@@ -170,4 +213,6 @@ Watch the daemon log for the send tally (`{Sent, Pruned, Failed}`). And know tha
 already serves HTTP. The traps are all above; the load-bearing one is **classic, not
 declarative, payload**. Once it's in, the daemon has a real, self-updating,
 cross-platform attention channel to the human — the thing that turns a dashboard into
-a cockpit.
+a cockpit. The **watcher** (the act-now section above) is what makes it *autonomous*:
+the daemon reaches out the moment something new needs the human, instead of waiting to
+be opened.
