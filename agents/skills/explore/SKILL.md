@@ -108,11 +108,24 @@ two in sync.
   the value is comprehension" plus a genuinely-curious thread. Comprehension is
   the deliverable (see `~/explore/CLAUDE.md`); the harvest is a bonus, not a tax.
 
-**Two guards stay hard:**
+**Three guards stay hard:**
 
 - **Don't manufacture a tie-back.** A forced connection to LinearB / the harness
   / a `~/` project is worse than an honest "this sparks a new idea with no home
   yet" or "this is here because it's interesting."
+- **"NO adopt" is not "NO build" — hold the two questions apart.** "Don't adopt
+  *this artifact*" (a 2-commit repo, a WASM lib, a commercial engine, a runtime
+  mismatch) must NOT silently become "there's nothing to build here." Ask the
+  second question *separately*: is there a transferable **method, pattern, or
+  primitive** worth building — one that dodges the artifact's runtime wall? A wall
+  for the tool (weights, WASM, a paywall) is rarely a wall for the pattern (a
+  prompt convention, a skill-loader, an on-device primitive, a Generator/Verifier
+  loop). The tell: a verdict that jumps from "runtime mismatch / immature repo"
+  straight to "no build" without ever weighing the method on its own. (Caught
+  2026-07-13 by the curiosity re-exam: reflexive "NO harness build" buried ~3
+  buildable experiments — colibrì's skill-loader, kapa's judge primitive,
+  ternlight's embedder — each conflating a real runtime wall with a
+  substrate-independent pattern.)
 - **The build PROJECTS are tabled — the CONCEPTS are not.** The **Hermes /
   MUD-golem / local-coding-models / Hermes-local BUILD PROJECTS** are tabled
   (2026-06-29): don't frame an opportunity as advancing or reviving *them*. But

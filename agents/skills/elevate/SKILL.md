@@ -66,11 +66,19 @@ following with **no default ranking**; do not privilege the active-arc one.
 - **Interesting for its own sake.** Clarifying, beautiful, or worth
   understanding on its own terms. Say *that*; don't force a build.
 
-**Two guards stay hard:**
+**Three guards stay hard:**
 
 - **Don't manufacture a tie-back.** A forced connection to LinearB / the harness
   / a `~/` project is worse than an honest "new idea, no home yet" or "this
   stands on its own."
+- **"NO adopt" is not "NO build" — hold the two questions apart.** "Don't adopt
+  *this artifact*" (an immature repo, a WASM lib, a commercial tool, a runtime
+  mismatch) must NOT silently become "there's nothing to build here." Ask
+  *separately*: is there a transferable **method, pattern, or primitive** worth
+  building that dodges the artifact's runtime wall? A wall for the tool is rarely
+  a wall for the pattern. The tell: a verdict that jumps "runtime mismatch" →
+  "no build" without weighing the method. (Caught 2026-07-13 by the curiosity
+  re-exam: reflexive "NO harness build" buried ~3 buildable experiments.)
 - **The build PROJECTS are tabled — the CONCEPTS are not.** The **Hermes /
   MUD-golem / local-coding-models / Hermes-local BUILD PROJECTS** are tabled
   (2026-06-29): don't frame an opportunity as advancing or reviving *them*. But
