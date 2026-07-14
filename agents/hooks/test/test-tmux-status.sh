@@ -316,6 +316,9 @@ printf '%s' "$(printf '{"hook_event_name":"Stop","session_id":"%s"}' "$CPSID")" 
   | TMUX="$SOCKET,0,0" TMUX_PANE='%999' \
     CLAUDE_LEXICON_STATE_DIR="$CPSTATE" CLAUDE_LEXICON_LOG_DIR="$CPLOG" "$HOOK"
 assert_logged_window "childed-pid tick recovers window from cache (not empty)" "cockpit"
+# ...and the VISIBLE glyph is recovered too, by finding the window by name (no
+# live pane), so the emoji doesn't freeze on a bg-forked session. Stop -> ✅.
+assert_name "childed-pid glyph recovery renames window by name" "✅ cockpit"
 
 # --- Summary ---
 TOTAL=$((PASS + FAIL))

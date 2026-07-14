@@ -190,11 +190,35 @@ if [ -n "$SESSION_ID" ]; then
   fi
 fi
 
-# --- Reader #1: the tmux window name (behavior IDENTICAL to pre-SSoT) --------
-[ -n "$CURRENT" ] || exit 0
+# --- Reader #1: the tmux window name ----------------------------------------
+# Fast path (behavior IDENTICAL to pre-SSoT): we have the live pane — rename it.
+if [ -n "$CURRENT" ]; then
+  NEW="${PREFIX}${BASE}"
+  [ "$NEW" = "$CURRENT" ] && exit 0
+  "$TMUX_BIN" rename-window -t "$PANE" "$NEW" 2>/dev/null
+  exit 0
+fi
+
+# Childed-pid glyph recovery: no live pane (a background-forked session re-parented
+# under the CC daemon), but BASE was recovered from the sticky cache above, so the
+# transition log / fleet is already repaired. Keep the VISIBLE window glyph tracking
+# state too by finding the window by its (glyph-stripped) NAME and renaming THAT —
+# but ONLY when the match is UNAMBIGUOUS across all sessions, else skip rather than
+# glyph the wrong window (cross-session shared base-names are a separate latent
+# issue). Without this the emoji freezes at its last in-pane value until the session
+# is un-forked (e.g. restarted), even though the state is being tracked correctly.
+[ -n "$BASE" ] && [ -x "$TMUX_BIN" ] || exit 0
+WID=""; COUNT=0
+while IFS='|' read -r _wid _wname; do
+  [ -n "$_wid" ] || continue
+  _stripped=$(printf '%s' "$_wname" | sed -E "s/${LEXICON_STRIP_RE}//")
+  if [ "$_stripped" = "$BASE" ]; then WID=$_wid; COUNT=$((COUNT + 1)); fi
+done <<EOF
+$("$TMUX_BIN" list-windows -a -F '#{window_id}|#{window_name}' 2>/dev/null)
+EOF
+[ "$COUNT" = 1 ] || exit 0
+CUR=$("$TMUX_BIN" display-message -p -t "$WID" '#W' 2>/dev/null)
 NEW="${PREFIX}${BASE}"
-[ "$NEW" = "$CURRENT" ] && exit 0
-
-"$TMUX_BIN" rename-window -t "$PANE" "$NEW" 2>/dev/null
-
+[ "$NEW" = "$CUR" ] && exit 0
+"$TMUX_BIN" rename-window -t "$WID" "$NEW" 2>/dev/null
 exit 0
