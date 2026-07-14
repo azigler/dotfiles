@@ -238,6 +238,42 @@ lex_event UserPromptSubmit
 assert_state "same-state re-fire keeps the token" "working"
 assert_log_lines "same-state re-fire logs no transition" 4
 
+# --- Question-🔔 stickiness (async-Agent-completion flap, root-caused 2026-07-14) ---
+# A question-🔔 (PreToolUse AskUserQuestion) must survive an UNRELATED tool's
+# PostToolUse — the common trigger is a background Agent subagent COMPLETING
+# mid-question, whose main-session PostToolUse used to self-heal the 🔔 away the
+# same second it went up, so Zig never saw it. Only the blocking tool's own
+# PostToolUse (= the answer) clears a question-🔔.
+lex_tool() {  # <event> <tool>
+  lex_fire "$(printf '{"hook_event_name":"%s","tool_name":"%s","session_id":"%s"}' "$1" "$2" "$LSID")"
+}
+
+# S7. PreToolUse AskUserQuestion → blocked (reason=question recorded).
+lex_tool PreToolUse AskUserQuestion
+assert_state "AskUserQuestion sets the blocked token" "blocked"
+assert_log_lines "question-block is a logged transition" 5
+assert_last_transition "transition is working->blocked" "working" "blocked"
+
+# S8. An UNRELATED tool completing (async Agent) while the question is pending
+#     is a NO-OP — the 🔔 stays up and NO transition is logged. This is the fix.
+lex_tool PostToolUse Agent
+assert_state "unrelated PostToolUse leaves the question-🔔 up" "blocked"
+assert_log_lines "unrelated PostToolUse logs no transition" 5
+assert_glyph_matches_window "window still shows the blocked glyph during a pending question"
+
+# S9. The blocking tool's OWN PostToolUse (= the answer arriving) clears it.
+lex_tool PostToolUse AskUserQuestion
+assert_state "the answer (PostToolUse AskUserQuestion) heals to working" "working"
+assert_log_lines "answering the question logs a transition" 6
+assert_last_transition "transition is blocked->working" "blocked" "working"
+
+# S10. A permission-🔔 STILL self-heals on any tool (reason=permission, not
+#      question) — the fix must not regress the permission self-heal path.
+lex_fire "$(printf '{"hook_event_name":"Notification","message":"Claude needs your permission to use Bash","session_id":"%s"}' "$LSID")"
+assert_state "permission notification re-enters blocked" "blocked"
+lex_tool PostToolUse Bash
+assert_state "permission-🔔 self-heals on an unrelated tool" "working"
+
 # --- Summary ---
 TOTAL=$((PASS + FAIL))
 if [ "$FAIL" -eq 0 ]; then

@@ -29,6 +29,17 @@
 # - PostToolUse (any tool) -> 🧠 (working): work is visibly happening. This
 #   also self-heals a stale 🔔 right after a permission is granted, since
 #   the approved tool's PostToolUse fires immediately.
+# - EXCEPTION (question-🔔 stickiness, root-caused 2026-07-14): a question-🔔
+#   (from AskUserQuestion/ExitPlanMode) must NOT be self-healed by an UNRELATED
+#   tool's PostToolUse — the question is still pending. The common trigger is an
+#   async Agent subagent COMPLETING mid-question: its main-session PostToolUse
+#   fired 🧠 the same second the 🔔 went up, so the window flapped to 🧠 and Zig
+#   never saw the 🔔 (proven in the lexicon transition log). So while blocked
+#   with reason=question, only the blocking tool's OWN PostToolUse (= the answer)
+#   clears it; every other tool is a no-op. A permission-🔔 (reason=permission)
+#   still self-heals on any tool, as before. This needs the caller to pass the
+#   prior token + blocked reason (params 4/5); with them omitted the mapping
+#   behaves exactly as it always did (backward-compatible).
 #
 # Glyph choice (2026-06-09): 🤖 renders as plain ASCII in Andrew's terminal
 # font and 🦾 reads too dark next to ✅/🔔 — settled on 🧠. 🌀 added
@@ -66,11 +77,25 @@ lexicon_glyph() {
 #   <message> is only consulted for Notification, <tool> only for PreToolUse;
 #   pass empty strings when not applicable.
 lexicon_resolve() {
-  local event=$1 msg=$2 tool=$3
+  local event=$1 msg=$2 tool=$3 prev=${4:-} reason=${5:-}
   LEXICON_TOKEN=""
   LEXICON_GLYPH=""
   case "$event" in
-    UserPromptSubmit|PostToolUse) LEXICON_TOKEN="working" ;;
+    UserPromptSubmit)             LEXICON_TOKEN="working" ;;
+    PostToolUse)
+      # Normally -> working (work visibly happening; self-heals a permission-🔔).
+      # But a question-🔔 must survive an UNRELATED tool completing while the
+      # question is still pending (the async-Agent-completion flap). Only the
+      # blocking tool's OWN PostToolUse (= the answer) clears a question-🔔.
+      if [ "$prev" = "blocked" ] && [ "$reason" = "question" ]; then
+        case "$tool" in
+          AskUserQuestion|ExitPlanMode) LEXICON_TOKEN="working" ;;
+          *) return 1 ;;  # unrelated tool completing — leave the 🔔 up
+        esac
+      else
+        LEXICON_TOKEN="working"
+      fi
+      ;;
     Stop)                         LEXICON_TOKEN="ready" ;;
     PreCompact)                   LEXICON_TOKEN="compacting" ;;
     Notification)

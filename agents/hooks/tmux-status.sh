@@ -79,10 +79,28 @@ EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
 MSG=$(echo "$INPUT" | jq -r '.message // empty' 2>/dev/null)
 TOOL=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
 
+# Read the per-session SSoT (prior token + blocked reason) BEFORE resolving, so
+# the mapping can keep a question-🔔 sticky against an unrelated tool completing
+# while the question is still pending (the async-Agent-completion flap, root-
+# caused 2026-07-14). Both are empty for the synthetic window-only tests (no
+# session_id) and for any non-main event — the mapping then behaves exactly as
+# it always did. STATE_FILE is reused by the SSoT-write block below.
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
+STATE_DIR="${CLAUDE_LEXICON_STATE_DIR:-/tmp/claude-lexicon}"
+STATE_FILE=""
+PREV=""
+REASON=""
+if [ -n "$SESSION_ID" ]; then
+  STATE_FILE="$STATE_DIR/$SESSION_ID"
+  [ -f "$STATE_FILE" ] && PREV=$(cat "$STATE_FILE" 2>/dev/null)
+  [ -f "$STATE_FILE.reason" ] && REASON=$(cat "$STATE_FILE.reason" 2>/dev/null)
+fi
+
 # Compute the semantic state. A non-zero return means "this event does not
-# map — leave state alone" (idle notification, ordinary PreToolUse tool,
-# unknown event), exactly the old inline `exit 0` no-op paths.
-lexicon_resolve "$EVENT" "$MSG" "$TOOL" || exit 0
+# map — leave state alone" (idle notification, ordinary PreToolUse tool, an
+# unrelated tool completing while a question-🔔 is up, unknown event), exactly
+# the old inline `exit 0` no-op paths.
+lexicon_resolve "$EVENT" "$MSG" "$TOOL" "$PREV" "$REASON" || exit 0
 TOKEN="$LEXICON_TOKEN"
 PREFIX="$LEXICON_GLYPH"
 
@@ -114,17 +132,10 @@ if [ -n "$CURRENT" ]; then
 fi
 
 # --- The SSoT: per-session state token + transition log ---------------------
-# Only when the payload carries a session_id (main-session events always do).
-SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
+# SESSION_ID / STATE_DIR / STATE_FILE / PREV were resolved above (before
+# lexicon_resolve, so the mapping could consult PREV + the blocked reason).
 if [ -n "$SESSION_ID" ]; then
-  STATE_DIR="${CLAUDE_LEXICON_STATE_DIR:-/tmp/claude-lexicon}"
   mkdir -p "$STATE_DIR" 2>/dev/null
-  STATE_FILE="$STATE_DIR/$SESSION_ID"
-
-  # The state file itself carries the prior token — read it before we
-  # overwrite, so we can detect (and log) a genuine state transition.
-  PREV=""
-  [ -f "$STATE_FILE" ] && PREV=$(cat "$STATE_FILE" 2>/dev/null)
 
   if [ "$PREV" != "$TOKEN" ]; then
     # Raw exhaust stream: one JSON line per transition. A DuckDB view over
@@ -146,6 +157,19 @@ if [ -n "$SESSION_ID" ]; then
   fi
 
   printf '%s\n' "$TOKEN" > "$STATE_FILE" 2>/dev/null
+
+  # Track WHY we are blocked so a later PostToolUse can distinguish a
+  # permission-🔔 (self-heals on any tool) from a question-🔔 (only its own
+  # answer clears it — the async-Agent-completion sticky guard in lexicon-map).
+  # Cleared whenever we leave blocked, so it never lingers into the next state.
+  if [ "$TOKEN" = "blocked" ]; then
+    case "$EVENT" in
+      Notification) printf 'permission\n' > "$STATE_FILE.reason" 2>/dev/null ;;
+      PreToolUse)   printf 'question\n'   > "$STATE_FILE.reason" 2>/dev/null ;;
+    esac
+  else
+    rm -f "$STATE_FILE.reason" 2>/dev/null
+  fi
 fi
 
 # --- Reader #1: the tmux window name (behavior IDENTICAL to pre-SSoT) --------

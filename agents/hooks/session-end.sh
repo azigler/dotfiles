@@ -28,7 +28,7 @@ SESSION_ID=$(echo "$STDIN" | jq -r '.session_id // empty' 2>/dev/null)
 # is durable exhaust and is deliberately NOT touched.
 if [ -n "$SESSION_ID" ]; then
   LEX_DIR="${CLAUDE_LEXICON_STATE_DIR:-/tmp/claude-lexicon}"
-  rm -f "$LEX_DIR/$SESSION_ID" 2>/dev/null
+  rm -f "$LEX_DIR/$SESSION_ID" "$LEX_DIR/$SESSION_ID.reason" 2>/dev/null
 fi
 
 # Per-window scoping of the offboard markers (handoff-path.sh): in a project
