@@ -116,7 +116,17 @@ trim()
 	echo -n "$var"
 }
 
-alias claude='claude --dangerously-skip-permissions'
+# Durable-session-identity wrapper (P1, explore-qmsy): defines a claude() function
+# that stamps a per-session attribution header (X-Session-Identity: session:window) so
+# the agentgateway can attribute each LLM call to the durable tmux window. Preserves
+# --dangerously-skip-permissions, passes args through, fails open, SUBSCRIPTION-SAFE
+# (custom header only, never a gateway credential). Falls back to the plain alias if
+# the wrapper file is missing.
+if [ -f "$HOME/dotfiles/agents/lib/claude-identity-wrapper.sh" ]; then
+  . "$HOME/dotfiles/agents/lib/claude-identity-wrapper.sh"
+else
+  alias claude='claude --dangerously-skip-permissions'
+fi
 #alias copilot='bun run copilot'
 #alias codex='bun run codex'
 #alias gemini='bun run gemini'
