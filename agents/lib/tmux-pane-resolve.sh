@@ -102,11 +102,58 @@ tmux_resolve_pane() {
   _tpr_by_ancestry '#{pane_id}'
 }
 
-# tmux_resolve_window -> the glyph-stripped window name for THIS session's pane.
-# Targeted display-message on $TMUX_PANE when set, else ancestry. Non-zero if
-# it can't be resolved. Strips the tmux-lexicon glyph prefix (🧠✅🔔🌀📬).
+# --- Sticky session->window cache (childed-pid recovery, root-caused 2026-07-14)
+# A background-forked session (`claude bg-pty-host --fork-session`, CC 2.x) is
+# re-parented under the CC daemon (fork -> bg-pty-host -> daemon), so its process
+# ancestry NEVER reaches its display pane's shell AND $TMUX_PANE is absent — both
+# live-resolution paths above then come back empty. Every window-keyed surface
+# breaks: the lexicon transition log records window="" (the session drops out of
+# the harnessd fleet roster's window-keyed dwell join — explore's hourly pulse
+# ticks read "idle 15h" while ticking), and handoff scoping can't key the window.
+# This is the ancestry resolver's documented multi-fork degrade (dotfiles-5w4)
+# AND, on CC 2.1.207, the SINGLE-fork case too.
+#
+# Recovery without the fragile PTY-socket->pane archaeology: cache
+# session_id -> window whenever we DO resolve it live (every time the session
+# runs normally in its pane — interactive or a --resume, both keep intact
+# ancestry/$TMUX_PANE), and fall back to that last-known-good window when live
+# resolution fails. Keyed by session id (stable across a durable session's pulse
+# ticks) so it can never return a WRONG window the way ancestry-degrade could.
+# The cache lives beside the per-session lexicon token ($CLAUDE_LEXICON_STATE_DIR,
+# default /tmp/claude-lexicon) so every lexicon surface shares one convention.
+_tpr_win_cache_file() { printf '%s/%s.window' "${CLAUDE_LEXICON_STATE_DIR:-/tmp/claude-lexicon}" "$1"; }
+
+# tmux_win_cache_get <session_id> -> cached window on stdout; non-zero if the
+# session has no (non-empty) cache entry.
+tmux_win_cache_get() {
+  [ -n "${1:-}" ] || return 1
+  local f w; f=$(_tpr_win_cache_file "$1")
+  [ -s "$f" ] || return 1
+  w=$(cat "$f" 2>/dev/null); [ -n "$w" ] || return 1
+  printf '%s' "$w"
+}
+
+# tmux_win_cache_put <session_id> <window> -> atomically cache the mapping
+# (temp+mv so a concurrent reader never sees a partial name). Non-zero on empty
+# args or a write failure; callers ignore its return.
+tmux_win_cache_put() {
+  [ -n "${1:-}" ] && [ -n "${2:-}" ] || return 1
+  local dir="${CLAUDE_LEXICON_STATE_DIR:-/tmp/claude-lexicon}" f
+  f=$(_tpr_win_cache_file "$1")
+  mkdir -p "$dir" 2>/dev/null || return 1
+  printf '%s' "$2" > "$f.tmp.$$" 2>/dev/null || { rm -f "$f.tmp.$$" 2>/dev/null; return 1; }
+  mv -f "$f.tmp.$$" "$f" 2>/dev/null || { rm -f "$f.tmp.$$" 2>/dev/null; return 1; }
+}
+
+# tmux_resolve_window [session_id] -> the glyph-stripped window name for THIS
+# session's pane. Targeted display-message on $TMUX_PANE when set, else ancestry,
+# else the sticky session->window cache (childed-pid recovery, above). Seeds the
+# cache on every successful LIVE resolution. session_id defaults to
+# $CLAUDE_CODE_SESSION_ID so env-only callers (handoff-path.sh) get recovery too.
+# Strips the tmux-lexicon glyph prefix (🧠✅🔔🌀📬). Non-zero only when live
+# resolution fails AND the cache has no entry.
 tmux_resolve_window() {
-  local tb w
+  local sid="${1:-${CLAUDE_CODE_SESSION_ID:-}}" tb w
   tb=$(command -v tmux 2>/dev/null); [ -x "$tb" ] || tb=/usr/bin/tmux
   [ -x "$tb" ] || return 1
   if [ -n "${TMUX_PANE:-}" ]; then
@@ -114,6 +161,9 @@ tmux_resolve_window() {
   fi
   [ -n "${w:-}" ] || w=$(_tpr_by_ancestry '#{window_name}')
   w=$(printf '%s' "${w:-}" | sed -E 's/^(🧠|✅|🔔|🌀|📬) ?//')
-  [ -n "$w" ] || return 1
-  printf '%s' "$w"
+  if [ -n "$w" ]; then
+    tmux_win_cache_put "$sid" "$w"   # seed for later fork ticks (no-op if sid empty)
+    printf '%s' "$w"; return 0
+  fi
+  tmux_win_cache_get "$sid"          # childed-pid recovery; non-zero if no cache
 }

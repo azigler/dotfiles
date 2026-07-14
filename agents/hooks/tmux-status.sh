@@ -131,6 +131,24 @@ if [ -n "$CURRENT" ]; then
   [ -z "$BASE" ] && BASE="claude"
 fi
 
+# Childed-pid recovery (root-caused 2026-07-14): a background-forked session
+# (`claude bg-pty-host --fork-session`) is re-parented under the CC daemon, so
+# it resolves NEITHER $TMUX_PANE NOR a pane ancestor — CURRENT/BASE come back
+# empty and the transition below would log window="", dropping the session from
+# the harnessd fleet roster's window-keyed dwell join (explore's pulse ticks
+# logged window="" for 15h). Keep a sticky session->window cache beside the
+# token (shared helpers in tmux-pane-resolve.sh): seed it whenever we DID resolve
+# a real window, recover from it when we didn't. The rename below still no-ops on
+# empty CURRENT, so only the LOG's window field — what the fleet joins on — is
+# repaired.
+if [ -n "$SESSION_ID" ] && command -v tmux_win_cache_get >/dev/null 2>&1; then
+  if [ -n "$BASE" ] && [ "$BASE" != "claude" ]; then
+    tmux_win_cache_put "$SESSION_ID" "$BASE"
+  elif [ -z "$BASE" ]; then
+    BASE=$(tmux_win_cache_get "$SESSION_ID") || BASE=""
+  fi
+fi
+
 # --- The SSoT: per-session state token + transition log ---------------------
 # SESSION_ID / STATE_DIR / STATE_FILE / PREV were resolved above (before
 # lexicon_resolve, so the mapping could consult PREV + the blocked reason).

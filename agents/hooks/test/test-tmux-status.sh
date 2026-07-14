@@ -274,6 +274,49 @@ assert_state "permission notification re-enters blocked" "blocked"
 lex_tool PostToolUse Bash
 assert_state "permission-🔔 self-heals on an unrelated tool" "working"
 
+# --- Childed-pid window recovery (bg-fork, root-caused 2026-07-14) ------------
+# A background-forked session loses BOTH $TMUX_PANE and pane-ancestry, so the
+# window can't be resolved live and the transition would log window="" — dropping
+# the session from the harnessd fleet's window-keyed dwell join (explore read
+# "idle 15h" while its pulse ticked hourly). The sticky session->window cache,
+# seeded while the session ran normally in its pane, recovers it. We assert the
+# LOGGED window field — that is exactly what the fleet joins on.
+CPSTATE=$(mktemp -d); CPLOG=$(mktemp -d)
+trap '"$TMUX_BIN" kill-session -t "$SESSION" 2>/dev/null; rm -rf "$LEXSTATE" "$LEXLOG" "$CPSTATE" "$CPLOG"' EXIT
+CPSID="childed-pid-sess"
+CPLOGFILE="$CPLOG/$(date -u +%F).jsonl"
+
+assert_logged_window() {
+  local name=$1 want=$2 got
+  got=$(tail -1 "$CPLOGFILE" 2>/dev/null | jq -r '.window')
+  if [ "$got" = "$want" ]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    FAILED_NAMES+=("$name (logged window: want '$want', got '$got')")
+  fi
+}
+
+# C1. Normal tick with a LIVE pane → logs the real window AND seeds the cache.
+"$TMUX_BIN" rename-window -t "$PANE" "cockpit"
+printf '%s' "$(printf '{"hook_event_name":"UserPromptSubmit","session_id":"%s"}' "$CPSID")" \
+  | TMUX="$SOCKET,0,0" TMUX_PANE="$PANE" \
+    CLAUDE_LEXICON_STATE_DIR="$CPSTATE" CLAUDE_LEXICON_LOG_DIR="$CPLOG" "$HOOK"
+assert_logged_window "normal tick logs the real window" "cockpit"
+if [ "$(cat "$CPSTATE/$CPSID.window" 2>/dev/null)" = "cockpit" ]; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1)); FAILED_NAMES+=("normal tick seeds the window cache (got '$(cat "$CPSTATE/$CPSID.window" 2>/dev/null)')")
+fi
+
+# C2. Childed-pid tick: $TMUX_PANE points at a DEAD pane (%999) so live
+#     resolution yields BASE="" — the transition must STILL carry "cockpit"
+#     recovered from the cache, NOT "". (Stop != working, so a line is logged.)
+printf '%s' "$(printf '{"hook_event_name":"Stop","session_id":"%s"}' "$CPSID")" \
+  | TMUX="$SOCKET,0,0" TMUX_PANE='%999' \
+    CLAUDE_LEXICON_STATE_DIR="$CPSTATE" CLAUDE_LEXICON_LOG_DIR="$CPLOG" "$HOOK"
+assert_logged_window "childed-pid tick recovers window from cache (not empty)" "cockpit"
+
 # --- Summary ---
 TOTAL=$((PASS + FAIL))
 if [ "$FAIL" -eq 0 ]; then
