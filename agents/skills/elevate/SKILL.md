@@ -112,7 +112,12 @@ The compendium-wide opportunity-finder. Fires on `pulse-elevate.timer`
 (biweekly), or on demand.
 
 1. Enumerate the explore compendium (`~/explore/*/FINDINGS.md` etc.) and
-   any other finished-work corpus in scope.
+   any other finished-work corpus in scope. **The compendium is a commonplace
+   book / zettelkasten of intrigue, not a should-I-adopt catalogue** — read the
+   FINDINGS bodies for CONTENT, but take the *connection map* from the clean
+   `CHILDREN.md` / `INDEX.md` essences, and do **not** imitate the bodies'
+   accumulated house-style (the reflexive "…and the harness move is"). Lead with
+   what each thing is on its own terms.
 2. Fan out **max-effort** fresh agents over slices (by cluster/theme), each
    hunting: cross-exploration clusters **and interlinks with open-ended beads**
    (a finding that completes a proposed-but-not-done `br` idea), **entirely new

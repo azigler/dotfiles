@@ -144,9 +144,18 @@ beads** → deeper contexts), **freely** propose entirely new ideas and
 interesting-for-its-own-sake threads, and land on active work **only when it's
 real** — never forced, never at the tabled build projects.
 
-## Archival mode — the umbrella-folder pattern
+## Archival mode — the commonplace book (umbrella-folder pattern)
 
-When the task is "research this topic and keep it as a personal archive" (recent examples: `~/explore/zero/`, `~/explore/tolaria/`), the canonical output shape is:
+`~/explore/` is Zig's **commonplace book — a modern zettelkasten**. The unit is
+**intrigue**: he dumps a link or resource that pulls at him in order to bring it
+into his world, learn it, **see what resonates, and innovate on it**. The
+deliverable is comprehension + a networked web of interests, not a verdict.
+Tool-evaluation ("should I adopt X") is *one shape an entry can take* — never the
+spine; treating it as the spine is what flattens a hobby/idea/craft entry into
+"what's the harness move" (the qertaasi failure). Lead with what the thing IS and
+why it's interesting on its own terms.
+
+When the task is to bring an intriguing topic into this compendium (recent examples: `~/explore/zero/`, `~/explore/tolaria/`), the canonical output shape is:
 
 ```
 ~/explore/<topic>/
@@ -158,18 +167,16 @@ When the task is "research this topic and keep it as a personal archive" (recent
     └── ...
 ```
 
-Workflow within archival mode:
+**Workflow within archival mode — the tick ORCHESTRATES; a fresh, blank-context subagent GENERATES.** This is cognitive isolation, and it's just the `/dispatch` + `/orchestrator` pattern pointed here: the running session never generates the take from its own corpus-marinated context — it *steers* a new, clean session that does. Every session decides how it steers the next.
 
-1. Run Steps 1-3 (verify Asana, fetch URLs, search adjacent sources) as normal
-2. **Run Step 3.5 (consult the compendium)** — read INDEX.md + grep prior FINDINGS for the adjacent siblings; this feeds the required `Related explorations` section
-3. **Run the max-effort `Novel opportunities` ideation pass** (Effort §) — a fresh `Workflow agent(…, {effort:'max'})`; its output is the required `Novel opportunities` section
-4. **`mkdir -p ~/explore/<topic>/refs`** before writing
-5. Write each fetched source's distillation as a `refs/<source-slug>.md` (one per primary source) — captures the substance verbatim or paraphrased under fair use
-6. Write `FINDINGS.md` as the synthesis — TL;DR, what the thing is, usability verdict, **`Related explorations`** (the Step 3.5 siblings + the connection), **`Novel opportunities`** (the max-effort ideation), recommendation. A harness/active-arc tie-in is a **conditional** note, never a standing section: include it only when the connection is genuine; when there isn't one, the honest synthesis says "no harness tie-back — interesting on its own terms" and does **not** manufacture one. (This is the structural teeth behind "lead with curiosity" below — the reflexive harness map forced onto qertaasi, a text game that isn't about the harness, is exactly the failure a standing "harness incorporation" slot was producing.) The FINDINGS frontmatter `what:` follows the same discipline — a tight hook, not an abstract ending in a harness hook (see `.exploration-meta/README.md`)
-7. Write `CLAUDE.md` as the orientation file pointing future-agents at the structure
-8. Run Step 5 (POST to Asana) — the Asana update mirrors the FINDINGS.md content, and **ends with the back-pointer** `Archived: ~/explore/<topic>/ (FINDINGS.md)` so review can jump from the card to the brain
-9. Commit the folder in the umbrella's git: `git add <topic> && git commit -m ":seedling: explore: <topic> — <one-line theme>"`
-10. If `Novel opportunities` surfaced a "build/explore X" worth queueing, see the **loop-seam** note in `/elevate` (promote to a Vibes card, human-gated) — don't let it evaporate
+1. Run Steps 1-3 (verify Asana, fetch URLs) and write each source's distillation to `refs/<source-slug>.md` (one per primary source, substance verbatim or paraphrased under fair use). These captures are the raw material.
+2. **Generative pass — dispatch a fresh, blank-context subagent** (`/dispatch`). Hand it: the topic + the `refs/` captures + a **specifically-tuned prompt** — *"what IS this, why is it interesting, what resonates, what would you innovate on — **on its own terms**; lead with curiosity."* Run it at **`max`** for the divergent ideation. **Do NOT give it the compendium prose** — marinating a fresh take in ~100 prior FINDINGS' house-style is exactly what over-rotates it to the modal harness tie-back (the qertaasi failure). Its return **is** the FINDINGS body + the `Novel opportunities`.
+3. **Connective pass — orchestrator, AFTER the take exists, via CLEAN essences only.** *Now* consult the compendium for links: read `CHILDREN.md` / `INDEX.md` **essences** (the clean connection map), **not** the verbose FINDINGS bodies. Add the `Related explorations` links + any genuine cross-interlinks. This is the zettelkasten step — it connects the take without re-styling it.
+4. **Assemble `FINDINGS.md`** = the subagent's take (body + `Novel opportunities`) + the connective `Related explorations` + the frontmatter. Write the `what:` yourself here (orchestrator step — this is where the gitflow tick's bloat slipped through): a **tight 1–2 sentence hook** — what it is + why it's interesting — **never** an abstract, **never** a forced harness tie-back (see `.exploration-meta/README.md` "The `what:` discipline"). A harness/active-arc note in the *body* is conditional the same way: include only when genuine; otherwise "no harness tie-back — interesting on its own terms," never manufactured.
+5. Write `CLAUDE.md` as the orientation file pointing future-agents at the structure.
+6. Run Step 5 (POST to Asana) — mirror the FINDINGS.md content, **end with the back-pointer** `Archived: ~/explore/<topic>/ (FINDINGS.md)` so review can jump from the card to the brain.
+7. Commit the folder: `git add <topic> && git commit -m ":seedling: explore: <topic> — <one-line theme>"`.
+8. If `Novel opportunities` surfaced a "build/explore X" worth queueing, see the **loop-seam** note in `/elevate` (promote to a Vibes card, human-gated) — don't let it evaporate.
 
 ### Folder vs submodule — when each is right
 
