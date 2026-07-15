@@ -1,0 +1,31 @@
+{
+  "name": "editorial",
+  "description": "Purple/indigo editorial look (borrowed from Ben's doc style; AZ's house format). Ink headings, indigo kickers + section labels, muted meta, thin rules. Reads like a polished internal brief.",
+  "font": "Calibri",
+  "palette": {
+    "ink": "1A1A2E",
+    "accent": "4F46E5",
+    "muted": "6B7280",
+    "link": "3B36C9",
+    "rule": "E5E7EB",
+    "ruleStrong": "C7CAD1"
+  },
+  "roles": {
+    "kicker":      { "size": 8.5, "bold": true, "color": "accent", "upper": true, "sa": 0, "sb": 2 },
+    "title":       { "size": 24, "bold": true, "color": "ink", "sa": 2, "sb": 2 },
+    "subtitle":    { "size": 12, "color": "muted", "sa": 0, "sb": 2 },
+    "dateline":    { "size": 9.5, "color": "muted", "italic": true, "sa": 0, "sb": 2 },
+    "intro":       { "size": 10.5, "color": "ink", "sa": 4, "sb": 4 },
+    "note":        { "size": 9.5, "color": "muted", "italic": true, "sa": 0, "sb": 6 },
+    "sectionRule": { "rule": "ruleStrong", "sa": 12, "sb": 4 },
+    "itemRule":    { "rule": "rule", "sa": 14, "sb": 8 },
+    "itemTitle":   { "size": 14, "bold": true, "color": "ink", "sa": 2, "sb": 2 },
+    "itemNumber":  { "size": 14, "bold": true, "color": "accent" },
+    "link":        { "size": 9.5, "color": "link", "underline": true, "sa": 0, "sb": 1 },
+    "meta":        { "size": 9.5, "color": "muted", "sa": 0, "sb": 4 },
+    "label":       { "size": 8.5, "bold": true, "color": "accent", "upper": true, "sa": 10, "sb": 2 },
+    "heading":     { "size": 15, "bold": true, "color": "ink", "sa": 12, "sb": 4 },
+    "body":        { "size": 10.5, "color": "ink", "sa": 0, "sb": 4 },
+    "bullet":      { "size": 10.5, "color": "ink", "bullet": true, "sa": 0, "sb": 3 }
+  }
+}

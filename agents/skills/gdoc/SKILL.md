@@ -124,6 +124,84 @@ Anything else is drift. Bring it back to the contract.
 
 ---
 
+## Brand-styled content drops — the theme system
+
+The styling contract above is the *default* house style. When you want a
+**polished, shareable, brand-styled** drop — an internal brief, a weekly digest,
+a report the editorial team will read — use the **theme system**: content
+declares blocks by **role**; a **theme** (`themes/<name>.json`) maps every role
+to a concrete palette color, size, and weight. Swap the theme, keep the content,
+get a new look. This is a small design system, versioned as JSON, so new
+palettes/designs are just a file and future projects customize on the fly.
+
+**The anti-pattern this replaces:** a bare `insertText` of markdown renders as a
+literal wall of text — the `#`, `**`, and `═` show up as characters, colons
+don't stand out, headings are plain. Never hand-write markdown into a doc/tab.
+
+**One spec → two matching outputs.** The same spec file drives both:
+- `render_styled_blocks.mjs` → renders into a Google Doc **tab** (or body).
+- `build_styled_docx.py` → renders a matching **.docx** (the shareable artifact;
+  `--pdf` also exports a PDF via `soffice`).
+
+```bash
+# tab (SA_KEY = a service-account json with Docs write on the doc)
+SA_KEY=/path/sa.json bun ~/.claude/skills/gdoc/render_styled_blocks.mjs spec.json
+# shareable Word doc (+ pdf)
+python3 ~/.claude/skills/gdoc/build_styled_docx.py spec.json out.docx --pdf
+```
+
+**Spec schema** (`spec.json`):
+```jsonc
+{
+  "docId": "1AbC...",              // tab render only
+  "tabId": "t.xxxx",               // OR "tabTitle": "Digest 2026-07-15" (find-or-create)
+  "theme": "editorial",            // themes/editorial.json  (or inline "themeDef": {...})
+  "clear": true,                   // wipe the tab first (default true)
+  "blocks": [
+    { "role": "kicker",   "text": "DEV INTERRUPTED  ·  RESEARCH DIGEST" },
+    { "role": "title",    "text": "Research Digest" },
+    { "role": "subtitle", "text": "..." },
+    { "role": "sectionRule" },
+    { "role": "itemTitle","runs": [ {"role":"itemNumber","text":"1.  "}, {"text":"AI Writes Faster..."} ] },
+    { "role": "link",     "text": "https://...", "link": "https://..." },
+    { "role": "label",    "text": "Summary" },
+    { "role": "bullet",   "text": "..." },
+    { "role": "body",     "text": "..." }
+  ]
+}
+```
+- A **block** is one paragraph. It picks a `role`; the theme supplies size /
+  color / weight / spacing / bullet / rule. Any field can be overridden inline
+  (`size`, `color`, `bold`, `italic`, `underline`, `link`, `upper`, `sa`, `sb`).
+- Multi-style lines use `runs[]` (each run may carry its own `role` + overrides),
+  e.g. an indigo number followed by an ink title.
+- `color` is a **palette key** (`ink`/`accent`/`muted`/`link`/…) or a raw hex.
+
+**Role vocabulary** (defined per theme): `kicker`, `title`, `subtitle`,
+`dateline`, `intro`, `note`, `heading`, `sectionRule`, `itemRule`, `itemTitle`,
+`itemNumber`, `link`, `meta`, `label`, `body`, `bullet`. Add roles to a theme as
+needed; keep the names stable across themes so content stays swappable.
+
+**Adding a theme** — copy `themes/editorial.json`, rename, change the `palette`
+(and `font`) — the roles stay identical so any existing content re-renders in the
+new look. Shipped themes: `editorial` (indigo/Calibri, AZ's house brief style),
+`slate` (corporate blue/Arial). This is where new project palettes live.
+
+**Technique — insert-all-then-style.** Both renderers concatenate the full plain
+text, insert it **once** (`insertText` at index 1), then batch
+`updateParagraphStyle` (spacing, `borderBottom` for rules) + `updateTextStyle`
+(color/size/bold/italic/underline/link) + `createParagraphBullets` over computed
+char ranges. Gotchas: Docs indices are **UTF-16 code units** (JS `.length`
+matches for BMP text — avoid emoji inside styled runs or offsets drift); apply
+paragraph styles, then text runs, then bullets; a single insert keeps all
+offsets stable.
+
+**When to use which:** `gdoc.sh write <tabId>` for a quick markdown drop in the
+standard Arial contract; the theme system when the output needs a real design
+(palette, kickers, section labels) and a matching downloadable `.docx`.
+
+---
+
 ## Shell Shim Usage
 
 The `gdoc.sh` script (lives at `~/.claude/skills/gdoc/gdoc.sh`) wraps
