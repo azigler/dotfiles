@@ -24,6 +24,60 @@ The class generalizes far past fitness: any event/data source (email, RSS, home
 sensors, a game server, a SaaS webhook, a price feed) → thin ingress → local
 store → agent that curates/coaches/acts. hevyd is the first instance.
 
+## The trigger must be FULL-STACK (spawn-if-absent), not best-effort
+
+The daemon's two jobs are **capture** and **trigger**. Capture is easy to get
+right (persist first, ack fast). The trigger is where daemons quietly rot, and
+there is exactly one correct shape for it.
+
+**The pitfall (a real hevyd incident, 2026-07-15).** hevyd's inject was written
+"best-effort": it typed the coaching prompt into the agent's tmux window **only
+if that session + window + a live `claude` pane already existed**, else it logged
+`skip: window … absent` and exited 0 — on the theory that "the daemon stays light,
+and the durable queue is the source of truth." A workout hydrated perfectly, the
+DB row enqueued, and **no proactive coaching ever fired**, because the window
+happened to be closed (the *normal* state — the human closes sessions and expects
+to pick back up later). The event sat in the queue for hours. The `/pulse` fleet,
+running the same minute, cold-booted a fresh session and landed its tick — because
+pulse-inject.sh **spawns the whole stack.** The daemon didn't.
+
+**The lesson: a durable queue is necessary but NOT sufficient.** It guarantees you
+don't lose the *data*; it does nothing to guarantee the agent ever *acts*. A
+proactive daemon whose trigger only fires when a session is already open isn't
+proactive — it's a manual tool with extra steps. The trigger must be able to
+**materialize the agent**, idempotently, from nothing.
+
+**The ideal form** (the `/pulse` scheduler primitive, `dotfiles/agents/scheduler/
+pulse-inject.sh`): no tmux server / no session → `new-session -d`; no window →
+`new-window`; the pane isn't running claude → launch it **and wait for the
+composer to be input-ready** (typing into a still-booting TUI drops the keystrokes
+silently); only then inject; and **defer** (don't inject) when the window is
+blocked on a human modal (🔔 AskUserQuestion / permission), so the trigger can't
+mis-answer an open question. It's idempotent and graceful — it works whether the
+session is warm, cold, or the tmux server is dead.
+
+**The recommendation for any daemon of this shape:**
+- **Delegate to the shared `pulse-inject.sh`; do not hand-roll the tmux dance.**
+  One injector, one place to fix bugs (its input-ready-race fix, the 🔔 guard,
+  lexicon-aware window matching all come for free). Every `/pulse` unit already
+  references it directly; a co-located daemon can too.
+- **Detach the spawn so the daemon stays light.** A cold boot (launch + input-ready
+  poll) takes 30–60 s — far past any sane *inline* inject timeout (hevyd bounds its
+  injector at 10 s, and the scheduler calls it inline). So the daemon's inject
+  script should `setsid` the `pulse-inject.sh` call into the background and return
+  in <1 s. The daemon *triggers* the spawn; it never *waits* for it. Correctness
+  still rides on the durable queue, so a detached best-effort spawn is safe.
+- **Keep the queue as the backstop, not the mechanism.** The row is what heals a
+  missed/failed spawn (a later event or a periodic drain re-fires). It is not a
+  substitute for a trigger that actually materializes the agent.
+
+Worked example: hevyd's `ops/hevyd-inject.sh` is a ~40-line wrapper that forwards
+`--session/--window/--cmd` (+ the required `--dir`) to `pulse-inject.sh`, detached.
+No daemon rebuild needed — the script is exec'd fresh per inject. Anti-pattern to
+copy from nowhere: the original "stripped-down sibling … do NOT launch a session"
+comment that *rationalized* the gap. Staying light is not worth a trigger that
+silently never fires.
+
 ## When to use / not
 
 - **Use** when the vision is "an always-on thing that captures X, and an agent I
