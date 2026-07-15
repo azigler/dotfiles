@@ -133,8 +133,11 @@ The compendium-wide opportunity-finder. Fires on `pulse-elevate.timer`
    refresh) a section in its `FINDINGS.md`:
    ```
    ## Novel opportunities (elevate sweep YYYY-MM-DD)
-   - <opportunity> — <harness move> — <effort> — <risk>
+   - <opportunity> — <effort> — <risk>[ — <harness/active-arc move, ONLY if genuine>]
    ```
+   The harness/active-arc move is **optional** — append it only when the tie-in is
+   real. A new idea "tied to nothing yet" is first-class; do not manufacture a
+   harness move just to fill the slot (mirrors `/explore`'s conditional harness note).
    This is the BACKFILL mechanism: the ~40 pre-2026-06-29 explorations were
    created before `Novel opportunities` was a required `/explore` section, so
    the sweep completes them over time, cross-cuttingly (one section per file

@@ -162,6 +162,13 @@ From this, determine:
 - **Open beads**: in-progress beads mean interrupted work to resume
 - **Dirty files**: uncommitted changes need attention before new work
 
+> **The session-start "Open beads" list is a PARTIAL, priority-capped view** (it
+> exists to protect context — a big backlog would otherwise bloat every onboard).
+> Don't treat it as complete. When — and only when — you're about to commit to
+> something meaningful, scan the *full* backlog then (`br list` / `bv --robot-triage`)
+> to catch a higher-priority or duplicate item. Pull it just-in-time, not up front:
+> loading the whole list at session start is the exact cost the cap removes.
+
 ## Step 4: Find current position
 
 Locate the project's roadmap or plan files. Common locations:

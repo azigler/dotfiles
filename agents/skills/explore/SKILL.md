@@ -165,7 +165,7 @@ Workflow within archival mode:
 3. **Run the max-effort `Novel opportunities` ideation pass** (Effort §) — a fresh `Workflow agent(…, {effort:'max'})`; its output is the required `Novel opportunities` section
 4. **`mkdir -p ~/explore/<topic>/refs`** before writing
 5. Write each fetched source's distillation as a `refs/<source-slug>.md` (one per primary source) — captures the substance verbatim or paraphrased under fair use
-6. Write `FINDINGS.md` as the synthesis — TL;DR, what the thing is, usability verdict, harness incorporation, **`Related explorations`** (the Step 3.5 siblings + the connection), **`Novel opportunities`** (the max-effort ideation), recommendation
+6. Write `FINDINGS.md` as the synthesis — TL;DR, what the thing is, usability verdict, **`Related explorations`** (the Step 3.5 siblings + the connection), **`Novel opportunities`** (the max-effort ideation), recommendation. A harness/active-arc tie-in is a **conditional** note, never a standing section: include it only when the connection is genuine; when there isn't one, the honest synthesis says "no harness tie-back — interesting on its own terms" and does **not** manufacture one. (This is the structural teeth behind "lead with curiosity" below — the reflexive harness map forced onto qertaasi, a text game that isn't about the harness, is exactly the failure a standing "harness incorporation" slot was producing.) The FINDINGS frontmatter `what:` follows the same discipline — a tight hook, not an abstract ending in a harness hook (see `.exploration-meta/README.md`)
 7. Write `CLAUDE.md` as the orientation file pointing future-agents at the structure
 8. Run Step 5 (POST to Asana) — the Asana update mirrors the FINDINGS.md content, and **ends with the back-pointer** `Archived: ~/explore/<topic>/ (FINDINGS.md)` so review can jump from the card to the brain
 9. Commit the folder in the umbrella's git: `git add <topic> && git commit -m ":seedling: explore: <topic> — <one-line theme>"`
@@ -187,13 +187,13 @@ Existing folder examples: `linters`, `shell-home-assistant`, `zero`, `tolaria`. 
 
 **Submodules are the default for `~/coding-jams/`** (each jam is an atomic submitted unit). They're the exception for `~/explore/`. Don't reach for a submodule under `~/explore/` unless the criteria above are clearly met — the cost of submodule infrastructure (separate git history, distribute discipline, CI hookup) outweighs the benefit for one-off investigations.
 
-See `~/explore/CLAUDE.md` for the children table and the naming convention (local folder drops `explore-` prefix even if remote repo keeps it).
+See `~/explore/CHILDREN.md` for the roster (the flat children table) and `~/explore/CLAUDE.md` for the naming convention (local folder drops `explore-` prefix even if remote repo keeps it).
 
 ## Inputs
 
 1. **Asana task GID** — required. The destination for the report (description) and any subtasks.
 2. **URLs** — at least 2, usually 3-6, sometimes 1 if it's a deep single source.
-3. **Research question** (optional) — a specific lens. If absent, the implicit lens is "what's worth learning, what's relevant to the user's harness/research/content, what could be a social-post angle."
+3. **Research question** (optional) — a specific lens. If absent, the implicit lens is "what's genuinely interesting or worth understanding here, on its own terms" — a harness/research/content or social-post angle is welcome when it's real, never forced (see "Where the opportunity can land").
 
 ## Step 1: Verify the Asana target
 

@@ -169,11 +169,32 @@ if command -v br &>/dev/null; then
   fi
 
   br sync --import-only 2>/dev/null
-  BEADS=$(br list 2>/dev/null)
-  if [ -n "$BEADS" ]; then
+  # Cap the onboard dump: an unbounded `br list` (its own default is already 50)
+  # put 100+ open beads into EVERY session-start message. Show the top N by
+  # priority + a count of the rest. This is a GLOBAL cap (this hook runs for every
+  # project) that self-adjusts — it only truncates when the backlog exceeds the cap
+  # — and the cap is overridable per-project via $HARNESS_ONBOARD_BEAD_CAP (e.g. in
+  # a project's .envrc). Display-only: never triages or closes anything (triaging
+  # ~/explore is the elevate session's special job).
+  #
+  # The notice below is load-bearing: aggressive truncation is safe ONLY because
+  # the agent has recourse — so it tells the agent this view is PARTIAL and to scan
+  # the full list JUST-IN-TIME, right before committing to meaningful work — NOT
+  # now. Pulling all 100+ up front is the exact context bloat this cap prevents.
+  BEAD_CAP=${HARNESS_ONBOARD_BEAD_CAP:-12}
+  BEAD_TOTAL=$(br list --limit 0 2>/dev/null | grep -c .)
+  if [ "${BEAD_TOTAL:-0}" -gt 0 ]; then
     echo ""
-    echo "Open beads:"
-    echo "$BEADS"
+    if [ "$BEAD_TOTAL" -gt "$BEAD_CAP" ]; then
+      echo "Open beads — top $BEAD_CAP of $BEAD_TOTAL by priority (truncated to protect context; NOT the full backlog):"
+      br list --limit "$BEAD_CAP" 2>/dev/null
+      echo "  + $((BEAD_TOTAL - BEAD_CAP)) more not shown — this is a PARTIAL view. Before you start anything"
+      echo "    meaningful, scan the full backlog THEN (\`br list\` / \`bv --robot-triage\`) to catch a"
+      echo "    higher-priority or duplicate item — do it at that point, not now."
+    else
+      echo "Open beads:"
+      br list --limit "$BEAD_CAP" 2>/dev/null
+    fi
   fi
 
   # Top pick from bv (graph-aware triage). Bare `bv` would launch the TUI;

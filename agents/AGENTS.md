@@ -4,13 +4,10 @@ You are an orchestrator. Delegate implementation to subagents; coordinate via be
 
 ## The user — Zig
 
-(Universal preferences, promoted here from per-slug auto-memory 2026-07-05 so every project —
-not just the ones where they were captured — sees them. Memory is per-slug and doesn't
-propagate; this doc is the global tier that does.)
+Universal preferences that every project should see — this doc is the global
+tier that propagates; per-slug memory doesn't.
 
-- Address the user as **Zig**, not Andrew (his stated preference). His git-author name and
-  published byline stay "Andrew Zigler"; this doc predates the preference and still says
-  "Andrew" in places — read those as Zig.
+- Address the user as **Zig**. His git-author name and published byline stay "Andrew Zigler".
 - Zig works over **SSH + tmux**: clickable links, inline images, and file-send (SendUserFile)
   blocks do NOT render for him. Deliver content **inline or as file paths**, and paste **plain
   full URLs** — never a markdown link as the only reference.
@@ -34,9 +31,7 @@ main session, not via an Explore agent; an orchestrator that doesn't
 know its own toolkit is a worse orchestrator. The digest carries each
 skill's anti-patterns, prereqs, and side-effect flags at ~3k tokens;
 full bodies load on invocation, plus up-front for the 1–3 skills the
-session's work leans on. (Replaced the read-every-body mandate
-2026-06-09 — that cost ~80k tokens/session, not the "few thousand"
-it claimed.)
+session's work leans on.
 
 For infra / ports / deploy / networking work, also read `agents/infra.md` — the
 machine baseline (hostname, public IP, tailnet peers, nginx vhosts, free ports,
@@ -70,10 +65,10 @@ exploratory work silently settles for baseline intelligence. Don't.
   furnace.
 
 **The levers (and their limits):**
-- The **interactive session** effort is Andrew's effort-menu setting,
+- The **interactive session** effort is Zig's effort-menu setting,
   surfaced as `$CLAUDE_EFFORT`. The orchestrator **cannot change its own
   session effort** — but `/onboard` reads it, and you must **proactively
-  ask Andrew to bump it** (via AskUserQuestion) when the session's work
+  ask Zig to bump it** (via AskUserQuestion) when the session's work
   is divergent/exploratory and effort is below `xhigh`. (`ultracode` =
   `xhigh` + standing multi-agent-workflow permission.)
 - **Subagent effort:** the plain `Agent` tool does NOT expose effort — a
@@ -85,7 +80,7 @@ exploratory work silently settles for baseline intelligence. Don't.
 
 **The naming norm:** when effort matters, **name it and why** ("running
 this brainstorm at max — it's divergent/novel"), and **flag crank-it-up
-moments** to Andrew rather than silently proceeding at `high`. Effort is a
+moments** to Zig rather than silently proceeding at `high`. Effort is a
 decision, not a default to forget. See `/elevate` for the max-effort
 fresh-eyes re-examination pattern.
 
@@ -98,14 +93,14 @@ accrues four costs that never trip an alarm and **reinforce each other**
 | Cost | What it is | Guard in the harness |
 |---|---|---|
 | **Verification debt** | unverified output piling up between "ran" and "right" | `/scrutinize` + the pulse `done`-gate (proof, not self-report) |
-| **Comprehension rot** | the loop ships faster than Andrew reads; his mental map lags | the **📬-not-complete** review pattern + the structural review cadence |
+| **Comprehension rot** | the loop ships faster than Zig reads; his mental map lags | the **📬-not-complete** review pattern + the structural review cadence |
 | **Cognitive surrender** | "no time" → "no longer want to bother" → stop having an opinion | ⚠️ **the least-guarded** — see the ritual below |
 | **Token blowout** | an idle bug runs all night | pulse **caps** + the budget directive + the effort dial |
 
 **The cognitive-surrender guard (the one mechanism the harness lacked).**
 The defense the paper insists on is staying *capable of saying "no."*
 Practice: **periodically explain, in your own words, 2–3 recent loop
-outputs** — and surface that to Andrew, not just to yourself. If a loop
+outputs** — and surface that to Zig, not just to yourself. If a loop
 output can't be explained, that's the signal the map has fallen behind, and
 it's far cheaper to find on a quiet morning than via a production incident.
 "Build the loop like someone who intends to stay the engineer." Keep one
@@ -116,9 +111,7 @@ but because the door being open is what keeps the loop trustworthy.
 
 `2>/dev/null` on a command whose **output or errors you need to read** hides
 real failures: a broken query/command then reads as an *empty result* ("no
-data") instead of the error it actually was. (Bit hevyd twice in one session —
-a wrong-column query and a reserved-word alias both errored silently and read
-as "no data," which became false claims to Andrew.) Instead:
+data") instead of the error it actually was. Instead:
 
 - **Filter the specific known-noise line, keep the rest:**
   `cmd 2> >(grep -vF 'KNOWN NOISE' >&2)` — keeps stdout, exit code, *and* real
@@ -142,39 +135,36 @@ cleanup, not prevention.
 **The rule:** secrets live in **`~/.secrets`** (or an `.env` / a real secrets
 store). Memory/notes reference them **by pointer** — the env-var name or the file
 path — never the value. The good pattern: `auth: api-key: $HEVY_API_KEY` /
-`creds in dashboard .env.local`. The anti-pattern that motivated this
-(`explore-2a7a`, 2026-07-08): a `gdrive-credentials.md` memory file holding a live
+`creds in dashboard .env.local`. The anti-pattern: a memory file holding a live
 OAuth refresh token — a secret store masquerading as memory.
 
 **Still check, because auto-memory + tool output can slip:** the scanner/redactor
 `scrub.py` (`scan`/`redact`, high-confidence patterns, JSON-safe atomic rewrite —
-`~/explore/.claude/skills/scrub-secrets/`, graduating per `explore-r2iq`) is the
-mechanical guard: a pre-commit hook on the vaults (blocks), a periodic
-session-end/pulse scan of the memory tier (detects auto-memory drift → files a
+`~/explore/.claude/skills/scrub-secrets/`) is the mechanical guard: a pre-commit
+hook on the vaults (blocks), plus a periodic session-end/pulse scan of the memory tier (detects auto-memory drift → files a
 `human:` bead). Prevention (this rule) is cheapest; detection is the backstop.
 
-## Surfacing to Andrew — AskUserQuestion, not trailing prose
+## Surfacing to Zig — AskUserQuestion, not trailing prose
 
-When you end a turn needing Andrew's input — a decision, feedback on a
+When you end a turn needing Zig's input — a decision, feedback on a
 deliverable, "which of these next?" — ask via the **AskUserQuestion
 tool**, not a free-text question at the end of your message. The tmux
 lexicon and notifications key off the tool: an open AskUserQuestion
-shows 🔔 (blocked on Andrew); a turn that merely ends shows ✅. A prose
-question reads as ✅ — Andrew gets no signal you're waiting, and the
+shows 🔔 (blocked on Zig); a turn that merely ends shows ✅. A prose
+question reads as ✅ — Zig gets no signal you're waiting, and the
 work sits.
 
 But the 🔔 is a **tmux-pane signal, not a phone push** — and the pane is
 *always* focused, so it never tells you Zig is actually at the keyboard. An
 AskUserQuestion fired while he's away just sits there silently until he
-happens to stumble on it (observed 2026-07-05: he had to come find a question
-because nothing alerted him). So when you open an AskUserQuestion and he may
+happens to stumble on it. So when you open an AskUserQuestion and he may
 be away — which, given the always-focused pane, you can never rule out — **send
 a `PushNotification` alongside it**, naming the decision + the window ("explore:
 b2c7 fix — merge or hold? question waiting in the explore window"). The question
 is the *mechanism*; the push is what *reaches* him. Skip the push only during a
 live back-and-forth where he's obviously replying in real time.
 
-Target state for every window: 🧠 (thinking) or 🔔 (needs Andrew).
+Target state for every window: 🧠 (thinking) or 🔔 (needs Zig).
 ✅ means "genuinely idle — nothing to ask, waiting for new delegation."
 🌀 means "compacting"; a bare name (no glyph) means a fresh context —
 just started or just compacted — waiting for its first prompt. If you
@@ -359,8 +349,7 @@ skill graduates from the toybox to the global set when other umbrellas
 tracking is mechanical: the `toybox-usage.sh` hook logs every
 cross-umbrella load of a toybox SKILL.md to
 `~/explore/.claude/skills/USAGE.log` (date, skill, source project);
-`/housekeeping` reviews the log and proposes graduations. (Replaced
-the never-exercised "≥3 projects" heuristic, 2026-06-09.)
+`/housekeeping` reviews the log and proposes graduations.
 
 Project-scoped skill sets (e.g. LinearB-internal skills under
 `~/linearb/.claude/skills/`) are documented in their own project's
@@ -373,9 +362,8 @@ Project-scoped skill sets (e.g. LinearB-internal skills under
   plus the **session artifact** `refs/session-handoff.md` (written by
   `/offboard`). Plural
   form. Lives at the **project root**, not under `.claude/` — visible
-  to git/IDE/coworkers and consistent fleet-wide. (Note: permission
-  treatment is identical for both locations per Claude Code docs,
-  verified 2026-06-09 — visibility/consistency is the real rationale.)
+  to git/IDE/coworkers and consistent fleet-wide (visibility/consistency,
+  not permissions, is the rationale).
 - **`specs/`** at project root — formal specifications, file-based
   (`01-foo.md`, `02-bar.md`). Pre-existing only; new specs go in beads
   via `/spec` (see below).
@@ -390,8 +378,7 @@ Project-scoped skill sets (e.g. LinearB-internal skills under
 - **`.claude/refs/`**, **`.claude/ref/`**, **`.claude/plans/`**,
   root-level `PLAN.md` are all **deprecated** — beads cover plans /
   decisions / notes (typed); `refs/` covers reference material AND
-  the session handoff note (migrated out of
-  `.claude/plans/` 2026-06-09); `specs/` covers legacy file-based
+  the session handoff note; `specs/` covers legacy file-based
   specs only.
 
 **Project-specific (declared in project's own CLAUDE.md, NOT global):**

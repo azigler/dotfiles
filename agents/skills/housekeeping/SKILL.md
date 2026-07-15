@@ -203,10 +203,10 @@ Every housekeeping pass should end with a documentation and memory audit:
 
 ### `~/explore/INDEX.md` (explore umbrella only)
 The theme-clustered concept-map of the compendium (the connective tissue
-the flat `CLAUDE.md` children table lacks; audit `explore-doj`). When
+the flat `CHILDREN.md` children table lacks; audit `explore-doj`). When
 housekeeping runs in `~/explore`:
 - **New explorations** -- is every folder/submodule in INDEX.md, in the
-  right cluster? (cross-check against the CLAUDE.md children table.)
+  right cluster? (cross-check against the `CHILDREN.md` children table.)
 - **Cross-cluster connections** -- still accurate after new additions?
 - **Biggest-unconnected-opportunities** -- regenerate; these seed the
   next `/elevate` sweep. Stale-but-still-valid clusters are fine to keep.
