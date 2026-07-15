@@ -48,11 +48,40 @@ fi
 # prominently for top-level sessions so the next session acts on it (redact +
 # move the value to ~/.secrets). Cleared automatically once the tier scans clean.
 if ! $IN_WORKTREE && [ -f "$HOME/.claude/.secret-alert" ]; then
-  echo ""
-  echo "⚠ SECRET ALERT — a session-end scan found a secret in the memory tier."
-  echo "  Details: $HOME/.claude/secret-scan.log"
-  echo "  Redact:  python3 ~/.claude/skills/scrub-secrets/scrub.py redact <file> --apply"
-  echo "  Policy:  secrets live in ~/.secrets, referenced by pointer — never in memory."
+  # Self-verify before crying wolf (explore-ytms): the marker may be STALE — a
+  # prior scan error, or the tier was cleaned since it was raised. The memory
+  # tier is tiny (~MB) and the scan is sub-second, so re-scan NOW and only
+  # surface the alert if it STILL finds something. This self-heal kills the
+  # "false alert rides every new session" symptom on the first start.
+  _SCRUB="$HOME/.claude/skills/scrub-secrets/scrub.py"
+  _RESCAN_RC=2   # default: could-not-verify (missing scrub/tier) → soft branch, never a scary FOUND
+  if [ -f "$_SCRUB" ] && command -v python3 &>/dev/null; then
+    _MEM=("$HOME"/.claude/projects/*/memory)
+    if [ -e "${_MEM[0]}" ]; then
+      _RESCAN=$(python3 "$_SCRUB" scan "${_MEM[@]}" 2>&1); _RESCAN_RC=$?
+    fi
+  fi
+  if [ "$_RESCAN_RC" -eq 0 ]; then
+    # tier scans CLEAN → the marker was stale; self-heal silently (clear both).
+    rm -f "$HOME/.claude/.secret-alert" "$HOME/.claude/secret-scan.log" 2>/dev/null
+  elif [ "$_RESCAN_RC" -eq 1 ]; then
+    # STILL a real finding → surface, refreshing the log so Details is never dangling.
+    { date -u +%FT%TZ; printf '%s\n' "$_RESCAN"; } > "$HOME/.claude/secret-scan.log" 2>/dev/null
+    echo ""
+    echo "⚠ SECRET ALERT — a scan found a secret in the memory tier."
+    echo "  Details: $HOME/.claude/secret-scan.log"
+    echo "  Redact:  python3 ~/.claude/skills/scrub-secrets/scrub.py redact <file> --apply"
+    echo "  Policy:  secrets live in ~/.secrets, referenced by pointer — never in memory."
+  else
+    # could not re-verify (scan error / missing scrub) → do NOT cry wolf with a
+    # scary FOUND alert; note it softly (marker kept) with a valid diagnostics path.
+    { date -u +%FT%TZ; printf 'session-start re-scan could not verify (rc=%s):\n%s\n' \
+        "$_RESCAN_RC" "${_RESCAN:-<no scan output>}"; } \
+      > "$HOME/.claude/secret-scan-error.log" 2>/dev/null
+    echo ""
+    echo "⚠ secret-scan could not verify the memory tier (scan error; marker kept)."
+    echo "  Diagnostics: $HOME/.claude/secret-scan-error.log"
+  fi
 fi
 
 if command -v git &>/dev/null && git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then

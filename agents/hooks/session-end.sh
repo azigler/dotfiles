@@ -65,11 +65,25 @@ _SCRUB="$HOME/.claude/skills/scrub-secrets/scrub.py"
 if [ -f "$_SCRUB" ] && command -v python3 &>/dev/null; then
   _MEM=("$HOME"/.claude/projects/*/memory)
   if [ -e "${_MEM[0]}" ]; then
-    if _OUT=$(python3 "$_SCRUB" scan "${_MEM[@]}" 2>&1); then
-      rm -f "$HOME/.claude/.secret-alert" 2>/dev/null   # clean → clear the marker
-    else
+    # scrub.py exits 0=clean, 1=found, 2=usage/scan-error. Distinguish them
+    # explicitly (explore-ytms): an ERROR is NOT a finding — conflating them
+    # (the old `if …; then clean; else raise; fi`) raised a persistent false
+    # SECRET ALERT on any transient hiccup, which trains the operator to
+    # dismiss the real one. Treat marker + log as a unit on every branch.
+    _OUT=$(python3 "$_SCRUB" scan "${_MEM[@]}" 2>&1); _RC=$?
+    if [ "$_RC" -eq 0 ]; then
+      # clean → clear BOTH the marker and any stale log (never leave a dangling log)
+      rm -f "$HOME/.claude/.secret-alert" "$HOME/.claude/secret-scan.log" 2>/dev/null
+    elif [ "$_RC" -eq 1 ]; then
+      # real finding → write the log and raise the marker together
       { date -u +%FT%TZ; printf '%s\n' "$_OUT"; } > "$HOME/.claude/secret-scan.log" 2>/dev/null
-      touch "$HOME/.claude/.secret-alert" 2>/dev/null   # found → raise the marker
+      touch "$HOME/.claude/.secret-alert" 2>/dev/null
+    else
+      # scan error (exit 2, or any non-0/1) → log to a diagnostics file, do NOT
+      # raise the persistent .secret-alert. A false alarm here is worse than a
+      # missed one: it erodes trust in the real alert.
+      { date -u +%FT%TZ; printf 'scan error (rc=%s):\n%s\n' "$_RC" "$_OUT"; } \
+        > "$HOME/.claude/secret-scan-error.log" 2>/dev/null
     fi
   fi
 fi
