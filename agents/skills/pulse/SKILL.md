@@ -136,13 +136,24 @@ the daily cap.)
    in with `refs/.handoff-per-window`, and the handoff is then
    `refs/session-handoff--<window>.md` so the two sessions don't clobber each
    other's resume doc. Anchor it to `$PULSE_DIR`, like the ledger.
-   **Structural review cadence:** every **5th** `done` tick for a row,
-   surface a lightweight review nudge to Andrew (a `human:` review bead +
-   push, or — interactive — an AskUserQuestion) listing the last 5 outputs
-   for him to sample. Human review is a *permanent* loop feature, not only
-   the blocked-tick exception (Loop Engineering §XI.C: "keep one door
-   open"). It keeps Andrew capable of saying "no" before comprehension rot
-   sets in.
+   **Structural review cadence.** Human review is a *permanent* loop
+   feature, not only the blocked-tick exception (Loop Engineering §XI.C:
+   "keep one door open") — it keeps Andrew capable of saying "no" before
+   comprehension rot sets in. The DEFAULT trigger is a count: every **5th**
+   `done` tick for a row, surface a lightweight review nudge (a `human:`
+   review bead + push, or — interactive — an AskUserQuestion) listing the
+   last 5 outputs for him to sample. **But a count is an arbitrary default,
+   not sacred** — it reviews the 5th output regardless of whether any of the
+   5 mattered, and it fires even while Andrew is actively watching the loop
+   (when he *is* the review). So **a loop MAY delegate this review to a
+   better-keyed mechanism** by declaring it in its `refs/pulse.md`; a tick
+   whose row is so delegated **skips the count nudge entirely**. The
+   canonical example: `~/explore` delegates the `vibe-explore` review to the
+   **weekly `/elevate` sweep** (Fri), which re-reads the week's finished work
+   anyway and can key the review off *signal* (an output that drifted /
+   overclaimed / recommends a build) rather than a tally — see the explore
+   pulse table. Prefer a signal- or absence-keyed review to the count where
+   one exists.
 6. **End with a one-line state report** ("tick: weekly-report fired,
    wr-abc closed, pushed; next eligible rows: inbox").
 

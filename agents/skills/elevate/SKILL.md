@@ -1,6 +1,6 @@
 ---
-description: Max-effort, fresh-eyes re-examination of FINISHED work — the generative twin of /scrutinize. Where /scrutinize is a critical/adversarial gate hunting for what's WRONG, /elevate is an opportunity gate hunting for what was MISSED: the novel opportunity, the non-obvious connection, the thing worth building that a baseline-effort pass walked past. Runs fresh, unpolluted subagents at effort:'max' via Workflow so the re-read isn't anchored to the original (often lower-effort) framing. Two modes — targeted (elevate one project/exploration/decision) and sweep (the biweekly compendium-wide opportunity-finder, pulse-elevate.timer).
-when_to_use: An exploration / finding / design / decision is "done" but you suspect a baseline pass under-thought it; the user says "elevate X", "look at this with fresh eyes on max", "what opportunity did we miss here"; or the biweekly pulse-elevate sweep fires. NOT for correctness review (use /scrutinize) and NOT for first-pass research (use /explore).
+description: Max-effort, fresh-eyes re-examination of FINISHED work — the generative twin of /scrutinize. Where /scrutinize is a critical/adversarial gate hunting for what's WRONG, /elevate is an opportunity gate hunting for what was MISSED: the novel opportunity, the non-obvious connection, the thing worth building that a baseline-effort pass walked past. Runs fresh, unpolluted subagents at effort:'max' via Workflow so the re-read isn't anchored to the original (often lower-effort) framing. Two modes — targeted (elevate one project/exploration/decision) and sweep (the WEEKLY compendium-wide opportunity-finder + review touchpoint, pulse-elevate.timer, Fri). The weekly sweep also carries the explore loop's structural-review function (it re-reads the week's new explorations and flags any that need Zig's eyes) — vibe-explore delegates its per-tick review here.
+when_to_use: An exploration / finding / design / decision is "done" but you suspect a baseline pass under-thought it; the user says "elevate X", "look at this with fresh eyes on max", "what opportunity did we miss here"; or the weekly pulse-elevate sweep fires. NOT for first-pass research (use /explore). It is the OPPORTUNITY gate, not the correctness gate — for a pure correctness review use /scrutinize (the weekly sweep DISPATCHES /scrutinize on any week's exploration that looks like it drifted/overclaimed).
 argument-hint: "<target: a path / project / exploration / 'sweep'>"
 ---
 
@@ -106,10 +106,15 @@ design, a decision.
 4. If it surfaces something worth doing, **file a bead** for it (typed
    `note`/`task`); don't let the insight evaporate.
 
-## Mode B — the sweep (`/elevate sweep`, biweekly)
+## Mode B — the sweep (`/elevate sweep`, weekly, Fri)
 
-The compendium-wide opportunity-finder. Fires on `pulse-elevate.timer`
-(biweekly), or on demand.
+The compendium-wide opportunity-finder **AND the explore loop's weekly
+review touchpoint**. Fires on `pulse-elevate.timer` (weekly, Fri 10:00 PT),
+or on demand. It carries two jobs: the opportunity hunt (its historical
+purpose) and — since `~/explore` delegated `vibe-explore`'s per-tick
+structural review here (superseding the old every-5-`done` count nudge,
+2026-07-15) — a **review touchpoint** over the week's new explorations
+that keeps Andrew capable of saying "no" before comprehension rot sets in.
 
 1. Enumerate the explore compendium (`~/explore/*/FINDINGS.md` etc.) and
    any other finished-work corpus in scope. **The compendium is a commonplace
@@ -117,18 +122,30 @@ The compendium-wide opportunity-finder. Fires on `pulse-elevate.timer`
    FINDINGS bodies for CONTENT, but take the *connection map* from the clean
    `CHILDREN.md` / `INDEX.md` essences, and do **not** imitate the bodies'
    accumulated house-style (the reflexive "…and the harness move is"). Lead with
-   what each thing is on its own terms.
+   what each thing is on its own terms. **Identify THIS WEEK's new work** — the
+   explorations added or updated since the last sweep (the `vibe-explore` ledger
+   `done` rows since the last `elevate` row) — they get the review lens in step 2b;
+   the rolling opportunity backfill over older explorations continues underneath.
 2. Fan out **max-effort** fresh agents over slices (by cluster/theme), each
-   hunting: cross-exploration clusters **and interlinks with open-ended beads**
-   (a finding that completes a proposed-but-not-done `br` idea), **entirely new
-   ideas the corpus sparks** (tied to nothing yet — novelty is first-class),
-   novel "you should build X" opportunities, non-obvious connections to Andrew's
-   active work, and "what did the per-card baseline pass miss." Then a max-effort
-   synthesis. (Feed the agents the open `br` beads too, not only the FINDINGS —
-   the interlinks live at the FINDINGS↔bead seam.)
-3. **Deliver the findings to Andrew's attention via a session/push
-   notification** (PushNotification / remote control) — a short "elevate
-   sweep found N opportunities" with the headlines.
+   hunting: (a — OPPORTUNITY) cross-exploration clusters **and interlinks with
+   open-ended beads** (a finding that completes a proposed-but-not-done `br`
+   idea), **entirely new ideas the corpus sparks** (tied to nothing yet — novelty
+   is first-class), novel "you should build X" opportunities, non-obvious
+   connections to Andrew's active work, and "what did the per-card baseline pass
+   miss"; **(b — REVIEW, on THIS WEEK's new explorations only)** does any read as
+   **drifted, overclaimed, or thin** — a conclusion the sources don't support, a
+   forced tie-back, a card that got a shrug not a crawl? This is the
+   structural-review function `vibe-explore` delegates here: **flag any such
+   exploration for Andrew's eyes, and DISPATCH a `/scrutinize` on it** (elevate is
+   the opportunity gate; scrutinize is the correctness gate — hand off, don't
+   improvise). Then a max-effort synthesis. (Feed the agents the open `br` beads
+   too, not only the FINDINGS — the interlinks live at the FINDINGS↔bead seam.)
+3. **Deliver to Andrew's attention via a session/push notification**
+   (PushNotification / remote control): **lead with the week's REVIEW digest** —
+   the N new explorations one line each, and explicitly *which (if any) need his
+   eyes / got a `/scrutinize` dispatched* (or "all clean, nothing flagged") — then
+   the opportunity headlines ("elevate sweep found N opportunities"). The review
+   digest is the door left open; do not bury it under the opportunities.
 4. **Preserve the findings in beads** (one `note`/`task` bead per real
    opportunity, prefix the title `elevate:`), in the explore umbrella's
    `.beads/`. **Do NOT put them on Asana** — beads are the durable store;
@@ -213,4 +230,4 @@ Andrew chooses which become the next explorations, and the brain compounds.
 - AGENTS.md "Effort — the intelligence dial" — the policy this enforces
 - `/scrutinize` — the critical twin
 - `/explore` — first-pass research (elevate re-examines its output)
-- `pulse-elevate.timer` / `.service` (machine-local) — the biweekly sweep
+- `pulse-elevate.timer` / `.service` (machine-local) — the weekly sweep (Fri)

@@ -301,7 +301,7 @@ full body; descriptions below are just the prompt-toolkit summary.
 - `/handoff` — pre-commit handoff verification (subagent → orchestrator)
 - `/grok` — read-only walk of an unfamiliar area before editing
 - `/fix` — fix-and-guard for any identified bug (creates `-t bug` bead + regression test; orchestrators fire autonomously)
-- `/elevate` — max-effort, fresh-eyes re-examination of finished work (the *generative* twin of `/scrutinize`'s critical gate): hunts the novel opportunity / non-obvious connection a baseline-effort pass missed. Runs unpolluted subagents via Workflow `effort:'max'`. Also the biweekly compendium-sweep (`pulse-elevate.timer`).
+- `/elevate` — max-effort, fresh-eyes re-examination of finished work (the *generative* twin of `/scrutinize`'s critical gate): hunts the novel opportunity / non-obvious connection a baseline-effort pass missed. Runs unpolluted subagents via Workflow `effort:'max'`. Also the **weekly** compendium-sweep (`pulse-elevate.timer`, Fri), which doubles as the explore loop's review touchpoint — it re-reads the week's new explorations and flags any that need Zig's eyes (superseding `/pulse`'s every-5-`done` count nudge for `vibe-explore`, 2026-07-15).
 - `/triage` — bead-state hygiene (orphans / stale / epic close-eligible)
 - `/housekeeping` — mechanical doc + cross-repo state hygiene (includes a triage sub-pass)
 - `/explore` — multi-source research → Asana compile → optional Zig-voice LinkedIn post + randomize-driven image deliverable. Bridges `/zig-voice` + `/randomize` + `/openrouter` + the Asana fleet proxy in one flow.
