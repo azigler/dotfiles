@@ -85,6 +85,17 @@ This cost multiple deploy cycles to discover; the classic payload just works.
   notification slot (good — no 30-deep stack), but Chrome *replaces a same-tag
   notification silently* (no new banner) until the old one is dismissed. `renotify`
   forces a re-alert each time. Safari re-alerts regardless.
+- **iOS display truths (verified on-device, harnessd `v8o.22`, 2026-07-15):**
+  - **`silent: true` IS honored** on iOS — a `showNotification(…, {silent:true,
+    renotify:false})` presents with **no sound/vibration**. Use it for a low-key
+    update (e.g. an "all clear") you don't want to buzz.
+  - **Same-tag *replacement* is NOT honored** on iOS the way it is on Chrome. A 2nd
+    push with the same `tag` **STACKS a new banner** instead of updating the 1st. To
+    force an **in-place swap**, the handler must `await self.registration
+    .getNotifications({tag})` → `n.close()` the stale one, THEN `showNotification` the
+    new. This is **safe re: the user-visible rule** — the NEW notification remains
+    shown; you only close the OLD one. (Cost us a round: silent worked first try, the
+    stack-not-replace needed the explicit close.)
 - **Network-first self-update.** Serve the shell (`index.html`/`*.mjs`/`*.css`/
   manifest/icons) **network-first** (cache = offline fallback only) + `skipWaiting()`
   + `clients.claim()`, and have the page reload once on `controllerchange` with a
@@ -107,6 +118,13 @@ This cost multiple deploy cycles to discover; the classic payload just works.
   the badge only stays visible while the app is **backgrounded/closed**; opening it
   wipes the badge instantly. A "why doesn't the badge show?" report is almost always
   the tester looking at a focused window.
+- **Refinement — sync to the TRUE count, don't clear-to-0 (harnessd `v8o.22`).** If
+  attention *persists* across a glance (items still pending after you look), a blind
+  `clearAppBadge()` on focus **under-reports to 0** while things are still open. Instead
+  **sync the badge to the live attention count** — `setAppBadge(n)` (or `clearAppBadge()`
+  when `n===0`) on load/focus/visibility AND on each data refresh while visible — so the
+  badge stays honest even after a glance. Pair it with `getNotifications().close()` on
+  focus to also tidy stale banners the user has now seen.
 - For a **test** push, floor the badge to `Math.max(1, realCount)` — the real
   attention count is often 0, which *clears* the badge, so a test would show nothing.
 
@@ -172,6 +190,21 @@ instead of waiting to be visited (harnessd `v8o.3`, on-device-validated
   fire the fan-out in a detached goroutine; never hold the state lock across
   network I/O.
 - **Badge = the TRUE attention count** (the set size), never the ≥1 *test* floor.
+- **Self-resolving alerts — the DOWN-edge (harnessd `v8o.22`, live-verified on iPhone).**
+  To clear a delivered notification + drop the badge **without the user opening the app**,
+  send a **silent down-edge push** when a key resolves. WebKit still requires a shown
+  notification (you can't clear silently), so you **repurpose the alert into a silent
+  "all clear"**: `silent:true`, the **decremented** badge, and — per the iOS same-tag
+  note in the SW section — **`getNotifications({tag})`+`close()` the stale banner** so it
+  swaps in place instead of stacking. Two rules keep it honest:
+  1. **Fire ONLY for a key you actually alerted on** — track a separate **`pushed` set**,
+     not just `notified`. A boot-primed key (present at the silent-prime, never up-pushed)
+     showed no banner, so an "all clear" for it is a spurious notification. `pushed` gains
+     a key when its up-edge sends, loses it when the resolve sends.
+  2. **Don't retry a failed resolve** — the app-open badge-sync backstop (see Badges)
+     reconciles a miss; a retry loop on the down-edge isn't worth the complexity.
+  Net: the alert channel becomes **self-cleaning** — the badge + banner reflect current
+  reality with no app-open, closing the loop the up-edge opened.
 - **Confidentiality: a push to the user's OWN devices is end-to-end encrypted**
   (VAPID + RFC 8291) — it never reaches an untrusted third party in cleartext, so
   it may carry **full detail** even from otherwise-confidential stores. Redact
@@ -191,6 +224,16 @@ the build `-dirty` — clean throwaway tools before the final deploy. After a de
 the daemon restart briefly drops connections; a client reloading at that instant can
 fail its shell fetch and land on a white screen — a clean reload (or, for a stuck
 PWA, remove + re-add the Home-Screen icon) recovers it.
+
+**The push handler updates only on PWA *open*, not on deploy (bit us, harnessd `v8o.22`).**
+The network-first self-update refreshes the *shell* on the next page LOAD — but the
+service worker that runs a **push while the app is CLOSED** stays the OLD version until
+the user actually **opens** the installed PWA (which activates the waiting SW via
+`skipWaiting`/`clients.claim`). So a change to the `push` / `notificationclick` handler (a
+new resolve/close behavior, a tag fix) does **NOT** take effect on-device until a reopen.
+Always **reopen the installed PWA before re-testing a service-worker change** — otherwise
+you test the old handler and chase a phantom (we re-ran a "broken" fix that was actually
+correct, just not yet loaded on the phone).
 
 ## Debugging: split DELIVERY from DISPLAY first
 
