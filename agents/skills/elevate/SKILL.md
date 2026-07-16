@@ -138,8 +138,21 @@ that keeps Andrew capable of saying "no" before comprehension rot sets in.
    structural-review function `vibe-explore` delegates here: **flag any such
    exploration for Andrew's eyes, and DISPATCH a `/scrutinize` on it** (elevate is
    the opportunity gate; scrutinize is the correctness gate — hand off, don't
-   improvise). Then a max-effort synthesis. (Feed the agents the open `br` beads
-   too, not only the FINDINGS — the interlinks live at the FINDINGS↔bead seam.)
+   improvise). Then a max-effort synthesis.
+
+   **Bead context: progressive, not a bomb.** The interlinks live at the
+   FINDINGS↔bead seam, so agents DO need bead context — but feed it the way a
+   careful reader loads tabs, never as a corpus dump. **NEVER `br list --json`
+   the backlog into an agent** — its JSON inlines every bead's full
+   `description` (~250 KB / ~60k tokens for ~100 open explore beads), which
+   blows the budget AND, because every body is dense with the same tie-backs
+   (`iaf`/`len0`/`cdby`/…), *manufactures* the over-anchoring this sweep exists
+   to avoid (an agent that ingested 100 bead bodies ties everything back to the
+   same handful). Instead: pass each slice the **titles index** (`br list`
+   text, filtered to the slice's theme where possible), and let the agent
+   `br show <id>` **only the specific beads its findings actually touch** —
+   pulled progressively, on demand, one interlink candidate at a time. Titles
+   in; bodies only when a real seam appears.
 3. **Deliver to Andrew's attention via a session/push notification**
    (PushNotification / remote control): **lead with the week's REVIEW digest** —
    the N new explorations one line each, and explicitly *which (if any) need his
