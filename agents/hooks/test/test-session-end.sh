@@ -27,7 +27,8 @@ chmod +x "$STUB_DIR/br"
 export PATH="$STUB_DIR:$PATH"
 
 TMPROOT=$(mktemp -d)
-trap 'rm -rf "$STUB_DIR" "$TMPROOT"' EXIT
+LEXROOT=$(mktemp -d)
+trap 'rm -rf "$STUB_DIR" "$TMPROOT" "$LEXROOT"' EXIT
 
 # Build a git repo with one commit that touches the given repo-relative path.
 make_repo() {
@@ -78,6 +79,39 @@ run_case "no marker for the refs/ handoff-note variant" "$R3" no
 R4="$TMPROOT/proj/.claude/worktrees/agent-test"
 make_repo "$R4" "foo.txt"
 run_case "skipped inside a worktree" "$R4" no
+
+# --- Resolve-on-close (harnessd-l9v): a session ending while BLOCKED emits a final
+# blocked->ready lexicon transition so the log's newest-by-window state isn't frozen
+# at "blocked" (which harnessd's lexicon_dwell would count as stuck). Runs the hook
+# with a pre-seeded per-session token + window cache in an isolated lexicon dir. ---
+#   $1 name  $2 last_state  $3 seed_window (""=uncached)  $4 want_event (yes|no)
+run_lexicon_case() {
+  local name=$1 last=$2 win=$3 want=$4
+  local sdir="$LEXROOT/state-$RANDOM" ldir="$LEXROOT/log-$RANDOM" sess="sess-$RANDOM"
+  mkdir -p "$sdir" "$ldir"
+  printf '%s' "$last" > "$sdir/$sess"
+  [ -n "$win" ] && printf '%s' "$win" > "$sdir/$sess.window"
+  printf '{"session_id":"%s"}' "$sess" | \
+    CLAUDE_NO_OFFBOARD_MARKER=1 CLAUDE_LEXICON_STATE_DIR="$sdir" CLAUDE_LEXICON_LOG_DIR="$ldir" \
+    "$HOOK" >/dev/null 2>&1
+  local got=no
+  if [ -n "$win" ] \
+     && grep -lq "\"window\":\"$win\"" "$ldir"/*.jsonl 2>/dev/null \
+     && grep -q '"to_state":"ready"' "$ldir"/*.jsonl 2>/dev/null; then
+    got=yes
+  fi
+  local tokgone=yes; [ -f "$sdir/$sess" ] && tokgone=no   # token must be cleared either way
+  if [ "$got" = "$want" ] && [ "$tokgone" = yes ]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    FAILED_NAMES+=("$name (event: want $want got $got; token-cleared=$tokgone)")
+  fi
+}
+
+run_lexicon_case "resolve-on-close emits blocked->ready when session ended blocked" blocked myproj yes
+run_lexicon_case "no resolve event when session ended working"                      working myproj no
+run_lexicon_case "no crash / no event when blocked but window uncached"             blocked ""     no
 
 # --- Summary ---
 

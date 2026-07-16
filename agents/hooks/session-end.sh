@@ -25,10 +25,37 @@ SESSION_ID=$(echo "$STDIN" | jq -r '.session_id // empty' 2>/dev/null)
 # per-session /tmp teardown for statusline's context-pct file). Done early so
 # even servitor sessions (which return before the offboard logic below) don't
 # leave a stale token behind. The transition log under ~/.claude/lexicon-log/
-# is durable exhaust and is deliberately NOT touched.
+# is durable exhaust — touched in ONE case (the resolve-on-close below): a session
+# that ends while BLOCKED gets a final resolving transition so the log's newest
+# event for its window isn't frozen at "blocked" forever.
 if [ -n "$SESSION_ID" ]; then
   LEX_DIR="${CLAUDE_LEXICON_STATE_DIR:-/tmp/claude-lexicon}"
-  rm -f "$LEX_DIR/$SESSION_ID" "$LEX_DIR/$SESSION_ID.reason" 2>/dev/null
+
+  # Resolve-on-close (harnessd-l9v root fix): a session that ENDS while its lexicon
+  # state is "blocked" would otherwise leave the transition log's newest event for
+  # its window frozen at "blocked" (no resolving event ever follows) — which
+  # harnessd's lexicon_dwell counts as a STUCK window until the window itself
+  # closes, and whose 🔔 push never clears. Emit a final blocked->ready transition
+  # for the window (recovered from the sticky session->window cache, since the pane
+  # may already be gone at teardown) BEFORE clearing the token. Best-effort: the
+  # guards + 2>/dev/null keep it from ever failing the hook. This ALSO lets the
+  # harnessd notifier fire its SILENT down-edge "all clear", clearing the stale 🔔.
+  if [ "$(cat "$LEX_DIR/$SESSION_ID" 2>/dev/null)" = "blocked" ]; then
+    _RLIB="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/tmux-pane-resolve.sh"
+    [ -f "$_RLIB" ] && . "$_RLIB"
+    _WIN=""
+    command -v tmux_win_cache_get >/dev/null 2>&1 && _WIN=$(tmux_win_cache_get "$SESSION_ID" 2>/dev/null || true)
+    if [ -n "$_WIN" ] && command -v jq >/dev/null 2>&1; then
+      _LOGDIR="${CLAUDE_LEXICON_LOG_DIR:-$HOME/.claude/lexicon-log}"
+      mkdir -p "$_LOGDIR" 2>/dev/null
+      jq -cn --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg session "$SESSION_ID" \
+        --arg window "$_WIN" --arg from "blocked" --arg to "ready" \
+        '{ts:$ts,session:$session,window:$window,from_state:$from,to_state:$to}' \
+        >> "$_LOGDIR/$(date -u +%F).jsonl" 2>/dev/null
+    fi
+  fi
+
+  rm -f "$LEX_DIR/$SESSION_ID" "$LEX_DIR/$SESSION_ID.reason" "$LEX_DIR/$SESSION_ID.window" 2>/dev/null
 fi
 
 # Per-window scoping of the offboard markers (handoff-path.sh): in a project
