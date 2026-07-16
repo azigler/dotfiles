@@ -159,10 +159,18 @@ that keeps Andrew capable of saying "no" before comprehension rot sets in.
    eyes / got a `/scrutinize` dispatched* (or "all clean, nothing flagged") — then
    the opportunity headlines ("elevate sweep found N opportunities"). The review
    digest is the door left open; do not bury it under the opportunities.
-4. **Preserve the findings in beads** (one `note`/`task` bead per real
-   opportunity, prefix the title `elevate:`), in the explore umbrella's
-   `.beads/`. **Do NOT put them on Asana** — beads are the durable store;
-   Asana is for the Vibes research queue, not elevate output.
+4. **Preserve the findings in beads AND wire them into the graph** — one
+   `note`/`task` bead per real opportunity, prefix the title `elevate:`, in the
+   explore umbrella's `.beads/`. **Do NOT put them on Asana** — beads are the
+   durable store; Asana is for the Vibes research queue, not elevate output.
+   **Interlink every bead you file** (explore CLAUDE.md "Beads are a crawlable
+   knowledge graph"): the whole value of an interlink finding is the *edge*, so
+   name the beads/explorations it connects **by id** in the body, and
+   `br dep add` a real dependency when one exists (this opportunity completes
+   that open bead). A sweep that files orphan beads has thrown away the graph it
+   just discovered. This is also how you *crawl* on the read side — follow a
+   seed bead's ids/`br dep tree` outward rather than flat-loading — and how the
+   sweep's **research clusters** surface: a densely-linked bead neighborhood.
 5. **Write the opportunities back into the FINDINGS files** (the brain, not
    just the bead store). For each exploration the sweep examined, append (or
    refresh) a section in its `FINDINGS.md`:
