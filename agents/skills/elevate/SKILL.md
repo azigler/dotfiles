@@ -153,12 +153,47 @@ that keeps Andrew capable of saying "no" before comprehension rot sets in.
    `br show <id>` **only the specific beads its findings actually touch** —
    pulled progressively, on demand, one interlink candidate at a time. Titles
    in; bodies only when a real seam appears.
-3. **Deliver to Andrew's attention via a session/push notification**
-   (PushNotification / remote control): **lead with the week's REVIEW digest** —
-   the N new explorations one line each, and explicitly *which (if any) need his
-   eyes / got a `/scrutinize` dispatched* (or "all clean, nothing flagged") — then
-   the opportunity headlines ("elevate sweep found N opportunities"). The review
-   digest is the door left open; do not bury it under the opportunities.
+
+   **Bound + aim the hunt (the corpus is ~100 explorations and growing — an
+   unbounded full-compendium remix every Friday blows the budget or silently thins
+   per-exploration attention).** Split the two lenses by scope: the **REVIEW lens**
+   (2b) stays mandatory over the week's NEW explorations (it must pace intake); the
+   **OPPORTUNITY hunt** rotates over **2–3 `INDEX.md` clusters per sweep** (track the
+   cursor in the sweep narrative, step 5b), with a full-compendium hunt only on
+   demand (`/elevate sweep --full`). And **aim it**: each sweep consumes ONE edge
+   from `INDEX.md`'s hand-authored "Biggest unconnected opportunities" seed list as
+   an explicit slice-agent remix target, strikes drawn/tabled edges, and the
+   synthesis proposes replacement edges — so that seed list becomes a live work queue
+   the loop both consumes and replenishes (today nothing consumes it, and it skews
+   toward the tabled MUD arc). (Accepted latency property: a drifted FINDINGS can
+   seed interlinks for up to a week before this review catches it — acceptable
+   because per-tick `/scrutinize` already fact-gates each card; don't re-litigate it.)
+3. **Deliver the weekly FRIDAY BRIEF to Andrew** (session/push notification;
+   PushNotification / remote control). The sweep is the loop's one **DRAIN** — it
+   must counter the structural write-heavy/drain-light imbalance (the research side
+   runs 4 cards/day; the human-review side has no counter, so `📬` cards, unworked
+   cards, and standing `elevate:` beads pile up invisibly — comprehension rot inside
+   the exact checkpoint built to prevent it). The brief, in this order:
+   a. **REVIEW digest** (the door left open) — the week's N new explorations one line
+      each, and explicitly *which (if any) need his eyes / got a `/scrutinize`
+      dispatched* (or "all clean, nothing flagged").
+   b. **Queue health** (one line) — unworked Vibes depth, `📬`-mailboxed count,
+      oldest-`📬` age, and the NAMES of any unworked cards older than ~3 weeks, so
+      pruning/reordering is a one-minute decision instead of archaeology.
+   c. **Mailbox digest** — a one-line verdict for each of the week's `📬` cards, so
+      Andrew can complete them in a single pass rather than re-reading each.
+   d. **Standing opportunities + the drain** — a titles-first re-rank of open
+      `elevate:` beads (`br list` text; open bodies of only the 3–5 finalists),
+      pitched partner-style with do-now/experiment/defer/drop verdicts. Lead the push
+      with the **top-3 STANDING** opportunities all-time, not only this week's finds.
+      **CLOSE or defer stale/superseded beads with a reason** (a real drain, not a
+      re-list), and record consciously-rejected candidates in
+      `~/explore/refs/vibes-candidates.md`'s **Dropped** table (or the bead
+      `close_reason`) so a 'no' is durable — a dropped idea must not be re-derivable
+      forever (the phantom-backlog failure). Then the opportunity headlines.
+   The review digest + queue health are the door left open; do not bury them under
+   the opportunities. (The auto-complete question for very-old `📬` cards is Andrew's
+   call — raise it via AskUserQuestion when interactive, never a silent loop change.)
 4. **Preserve the findings in beads AND wire them into the graph** — one
    `note`/`task` bead per real opportunity, prefix the title `elevate:`, in the
    explore umbrella's `.beads/`. **Do NOT put them on Asana** — beads are the
@@ -171,6 +206,11 @@ that keeps Andrew capable of saying "no" before comprehension rot sets in.
    just discovered. This is also how you *crawl* on the read side — follow a
    seed bead's ids/`br dep tree` outward rather than flat-loading — and how the
    sweep's **research clusters** surface: a densely-linked bead neighborhood.
+   **Self-check the edges you claimed:** after filing, grep each new bead body for
+   the ids it references, `br dep add` the genuinely dependent ones, and report the
+   edge count in the ledger note (`"8 beads, 11 edges"`). Zero edges on a multi-bead
+   sweep is the tell that this interlink step was skipped — the graph `br ready` /
+   `br dep tree` actually crawl would then be thinner than the prose claims.
 5. **Write the opportunities back into the FINDINGS files** (the brain, not
    just the bead store). For each exploration the sweep examined, append (or
    refresh) a section in its `FINDINGS.md`:
@@ -187,15 +227,35 @@ that keeps Andrew capable of saying "no" before comprehension rot sets in.
    it touches), rather than a one-shot per-folder blast (which is the weaker,
    non-remixing mode). Don't rewrite existing content — append the dated
    section; multiple sweeps stack dated sections so the history is legible.
+5b. **Write the sweep's synthesis narrative + the cumulative field-delta (the
+   TREND layer).** This is what turns a pile of dated FINDINGS into "where the field
+   and the harness are heading" — and it was silently dropping out (the 2026-06-29
+   sweep wrote a `refs/elevate/sweep-*.md` calling its cross-cluster
+   super-opportunities "the highest-value output of the sweep"; later sweeps left
+   none because the steps mandated beads/appends/ledger but never the narrative).
+   Two artifacts:
+   - **`~/explore/refs/elevate/sweep-<date>.md`** — the cross-cluster synthesis:
+     the super-opportunities (connections BETWEEN slices, not within one), the
+     week's review-digest verdicts, and the cluster-rotation cursor (which clusters
+     this sweep hunted + which seed edge it consumed, step 2). This is the ledger
+     row's `proof` (step 6).
+   - **`~/explore/refs/elevate/field-notes.md`** (append-only) — a short **Field
+     delta** block per sweep: which `INDEX.md` clusters GREW, which themes
+     accelerated across the week's explorations + digest sources, new convergence
+     points ("Nth independent instance of X"), and a one-line direction read. After
+     ~4 sweeps this file IS the emergent trend layer — greppable, compoundable, the
+     durable home for the convergence observations that currently evaporate into
+     pulse-ledger note prose.
 6. **Append a `pulse-ledger` row** — the sweep is a pulse loop, so it MUST
    leave a ledger row like every other (no ledger-less ticks; the dashboard
    reads it). Append one line to `~/explore/refs/pulse-ledger.jsonl` with
    `"row":"elevate"` and a `proof` token (the touched FINDINGS / filed beads):
    ```json
-   {"ts":"<UTC date -u +%FT%TZ>","row":"elevate","outcome":"done","proof":{"kind":"artifact","path":"<a touched FINDINGS.md>"},"note":"elevate sweep — N opportunities, M beads filed"}
+   {"ts":"<UTC date -u +%FT%TZ>","row":"elevate","outcome":"done","proof":{"kind":"artifact","path":"refs/elevate/sweep-<date>.md"},"note":"elevate sweep — N opportunities, M beads/E edges filed; reviewed W new explorations (F flagged); field-delta appended"}
    ```
    A sweep that found nothing new logs `"outcome":"quiet"` (no proof needed).
-   Then commit + push the ledger, the beads, AND the touched FINDINGS files.
+   Then commit + push the ledger, the beads, the touched FINDINGS files, AND the
+   `refs/elevate/sweep-<date>.md` + `refs/elevate/field-notes.md` artifacts.
 
 The sweep is autonomous (scheduled): it never blocks on AskUserQuestion —
 it notifies + files beads + ends, exactly like a `/pulse` tick.
