@@ -402,6 +402,54 @@ For multi-section documents, use **tabs** to separate concerns (e.g.,
 article draft in Tab 1, social media drafts in Tab 2, reviewer notes
 in Tab 3).
 
+## Revising an existing doc — study the original first, verify after
+
+When you're editing a doc **someone already reviewed** (a talk track, a
+brief, a shared draft), the job is "swap the text, keep the formatting" —
+and the trap is that `gdoc.sh read` (markdown) is **lossy in exactly the
+ways that matter**. It silently drops:
+
+- **Empty spacer paragraphs** — the blank lines an author put between
+  items for breathing room. The reader collapses them, so a rewrite from
+  that markdown loses every line break.
+- **Numbering scheme** — the reader renders both a native `<ol>` and
+  literal typed "1." as the same `1.`/`- ` text. You cannot tell
+  native-vs-literal, or per-section-restart (1,2 / 1,2,3) vs one running
+  1-N count, from the reader. Guessing wrong reformats the whole doc.
+
+**The discipline (learned the hard way, 2026-07-16 Yishai talk track — two
+rounds of author pushback):**
+
+1. **Study the original's real structure before editing.** Export it and
+   read the *raw HTML*, not the markdown:
+   ```bash
+   # current live version
+   drive.files.export({ fileId, mimeType: 'text/html' })
+   # a prior version (to see what the author actually had)
+   drive.revisions.list({ fileId })            # find the revisionId
+   drive.revisions.get({ fileId, revisionId, fields: 'exportLinks' })  # → text/html link
+   ```
+   The HTML shows the spacer `<p>` paragraphs, the literal-vs-`<ol>`
+   numbering, and the exact per-run colors/weights.
+2. **Preserve the author's scheme.** If numbers are literal and restart
+   per section with blank lines between items, reproduce *that* — do not
+   "upgrade" it to a native auto-list (a native list can't keep a blank
+   line between items; the gap breaks it). Match colors, italics,
+   headings, and spacer paragraphs 1:1.
+3. **Emit spacer paragraphs explicitly** (`<p><span></span></p>`) — they
+   survive a Drive HTML import.
+4. **Verify against the doc, never the reader.** After writing, pull
+   `documents.get` and check per-paragraph text/style/color and *count the
+   empty paragraphs*, or re-export to HTML. The markdown reader will lie
+   to you about both the spacers and the numbering.
+
+Numbering specifically: a **native `createParagraphBullets` list** gives
+auto-renumbering + hanging indent but **cannot** have blank lines between
+items and continues one count across sections (unless you split it into a
+separate list per section). **Literal typed numbers** give you per-section
+restart *and* blank-line spacing, at the cost of manual renumbering. Pick
+the one the original used — don't impose a preference.
+
 ## Guardrails
 
 - **Don't change the styling values** without a sample doc for review.
