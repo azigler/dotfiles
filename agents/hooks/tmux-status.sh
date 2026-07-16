@@ -100,16 +100,7 @@ fi
 # map — leave state alone" (idle notification, ordinary PreToolUse tool, an
 # unrelated tool completing while a question-🔔 is up, unknown event), exactly
 # the old inline `exit 0` no-op paths.
-lexicon_resolve "$EVENT" "$MSG" "$TOOL" "$PREV" "$REASON"; _LR=$?
-# TEMP instrumentation (harnessd-7b0 flap diagnosis) — logs EVERY hook (incl. no-ops)
-# so we can see the exact event/tool/prev/reason that flips a question-🔔. Gated on a
-# flag file so it's off for the fleet by default; best-effort, never affects the hook.
-if [ -f /tmp/lexicon-debug.on ]; then
-  printf '%s ev=%-16s tool=%-16s prev=%-8s reason=%-10s rc=%s tok=%s sess=%s\n' \
-    "$(date -u +%H:%M:%S)" "${EVENT:-}" "${TOOL:-}" "${PREV:-}" "${REASON:-}" "$_LR" "${LEXICON_TOKEN:-}" "${SESSION_ID:0:8}" \
-    >> /tmp/lexicon-debug.log 2>/dev/null
-fi
-[ "$_LR" -ne 0 ] && exit 0
+lexicon_resolve "$EVENT" "$MSG" "$TOOL" "$PREV" "$REASON" || exit 0
 TOKEN="$LEXICON_TOKEN"
 PREFIX="$LEXICON_GLYPH"
 
@@ -191,7 +182,13 @@ if [ -n "$SESSION_ID" ]; then
   # Cleared whenever we leave blocked, so it never lingers into the next state.
   if [ "$TOKEN" = "blocked" ]; then
     case "$EVENT" in
-      Notification) printf 'permission\n' > "$STATE_FILE.reason" 2>/dev/null ;;
+      # A permission Notification must NOT downgrade an already-sticky question-🔔.
+      # CC fires a permission-shaped Notification ~6s AFTER an AskUserQuestion; writing
+      # reason=permission here clobbered reason=question, which silently disabled the
+      # sticky-question guard (lexicon-map) — a later background tool then self-healed the
+      # 🔔 while the question was still open (the flap; root-caused via lexicon-debug
+      # capture 2026-07-16, harnessd-7b0). $REASON is the PRIOR reason (read above).
+      Notification) [ "$REASON" = "question" ] || printf 'permission\n' > "$STATE_FILE.reason" 2>/dev/null ;;
       PreToolUse)   printf 'question\n'   > "$STATE_FILE.reason" 2>/dev/null ;;
     esac
   else

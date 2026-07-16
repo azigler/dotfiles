@@ -274,6 +274,26 @@ assert_state "permission notification re-enters blocked" "blocked"
 lex_tool PostToolUse Bash
 assert_state "permission-🔔 self-heals on an unrelated tool" "working"
 
+# S11. The permission-Notification DOWNGRADE flap (harnessd-7b0, root-caused via the
+#      lexicon-debug capture 2026-07-16). CC fires a permission-shaped Notification
+#      ~6s AFTER an AskUserQuestion; it must NOT rewrite reason=question -> permission,
+#      which silently disabled the S8 sticky guard and let a later tool self-heal the
+#      🔔 while the question was still open. Assert the question-🔔 survives BOTH the
+#      Notification AND a subsequent unrelated tool — the exact flap Zig hit.
+lex_tool PreToolUse AskUserQuestion
+assert_state "fresh AskUserQuestion re-enters blocked" "blocked"
+lex_fire "$(printf '{"hook_event_name":"Notification","message":"Claude needs your permission to continue","session_id":"%s"}' "$LSID")"
+assert_state "a permission Notification does not un-block a pending question" "blocked"
+if [ "$(cat "$LEXSTATE/$LSID.reason" 2>/dev/null)" = "question" ]; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  FAILED_NAMES+=("permission Notification must NOT downgrade reason=question (got '$(cat "$LEXSTATE/$LSID.reason" 2>/dev/null)')")
+fi
+lex_tool PostToolUse Bash
+assert_state "question-🔔 survives an unrelated tool AFTER a permission Notification" "blocked"
+lex_tool PostToolUse AskUserQuestion  # answer it → leave a clean working state
+
 # --- Childed-pid window recovery (bg-fork, root-caused 2026-07-14) ------------
 # A background-forked session loses BOTH $TMUX_PANE and pane-ancestry, so the
 # window can't be resolved live and the transition would log window="" — dropping
