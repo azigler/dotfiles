@@ -402,10 +402,25 @@ For multi-section documents, use **tabs** to separate concerns (e.g.,
 article draft in Tab 1, social media drafts in Tab 2, reviewer notes
 in Tab 3).
 
-## Revising an existing doc — study the original first, verify after
+## Updating an uploaded Office file (.docx / .pptx / .xlsx) in place
 
-When you're editing a doc **someone already reviewed** (a talk track, a
-brief, a shared draft), the job is "swap the text, keep the formatting" —
+When the shared doc is an **uploaded Office file** (an `.docx` a reviewer
+commented on), the Docs API rejects it ("must not be an Office file") and you
+cannot edit tabs. **Do NOT create a new doc or a tab elsewhere** — update the
+SAME file so the reviewer's link keeps working. The move: generate a new `.docx`
+(pandoc `md -> docx`, or python-docx) and **replace the file's bytes** via Drive
+`files.update({ fileId, media: { mimeType: '<docx-mime>', body: stream }, requestBody: { name } })`.
+Same file ID, same URL. Caveat: replacing the content **clears the file's
+existing comments** (they were anchored to the old bytes) — fine once you have
+folded that feedback in, which is usually why you are updating it. Read the old
+file first (download via Drive `files.get alt=media`, unzip, parse
+`word/document.xml` + `word/comments.xml`) to capture the reviewer's comments and
+tracked changes before you overwrite.
+
+## Revising a native Google Doc — study the original first, verify after
+
+When you're editing a **native Google Doc** someone already reviewed (a talk
+track, a brief, a shared draft), the job is "swap the text, keep the formatting" —
 and the trap is that `gdoc.sh read` (markdown) is **lossy in exactly the
 ways that matter**. It silently drops:
 
