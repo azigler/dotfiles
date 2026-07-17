@@ -131,6 +131,11 @@ fi
 #alias codex='bun run codex'
 #alias gemini='bun run gemini'
 alias cursor='agent'
+# goose ALWAYS runs the untrusted local model, so it always runs jailed (low-model-trust
+# confinement, explore-qe32). To run goose UNjailed, call the binary directly: ~/.local/bin/goose
+if [ -x "$HOME/explore/tools/goose-jail/goose-jailed.sh" ]; then
+  alias goose="$HOME/explore/tools/goose-jail/goose-jailed.sh"
+fi
 #alias vercel='bun run vercel'
 
 if [ -f "$HOME/.secrets" ]; then
