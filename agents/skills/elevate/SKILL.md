@@ -192,8 +192,9 @@ that keeps Andrew capable of saying "no" before comprehension rot sets in.
       `close_reason`) so a 'no' is durable — a dropped idea must not be re-derivable
       forever (the phantom-backlog failure). Then the opportunity headlines.
    The review digest + queue health are the door left open; do not bury them under
-   the opportunities. (The auto-complete question for very-old `📬` cards is Andrew's
-   call — raise it via AskUserQuestion when interactive, never a silent loop change.)
+   the opportunities. (Auto-completing very-old `📬` cards was **declined by Andrew
+   2026-07-17** — keep it human-gated; this mailbox digest IS the drain, with his
+   review intact. His 2026-06-12 `📬`-not-complete decision stands.)
 4. **Preserve the findings in beads AND wire them into the graph** — one
    `note`/`task` bead per real opportunity, prefix the title `elevate:`, in the
    explore umbrella's `.beads/`. **Do NOT put them on Asana** — beads are the
