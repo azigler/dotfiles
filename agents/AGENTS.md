@@ -161,8 +161,21 @@ happens to stumble on it. So when you open an AskUserQuestion and he may
 be away — which, given the always-focused pane, you can never rule out — **send
 a `PushNotification` alongside it**, naming the decision + the window ("explore:
 b2c7 fix — merge or hold? question waiting in the explore window"). The question
-is the *mechanism*; the push is what *reaches* him. Skip the push only during a
-live back-and-forth where he's obviously replying in real time.
+is the *mechanism*; the push is a best-effort nudge on top. Skip the push only
+during a live back-and-forth where he's obviously replying in real time.
+
+**Fallback rule — when a push doesn't deliver, raise an AskUserQuestion (Zig,
+2026-07-17).** A `PushNotification` that returns *"Mobile push not sent (Remote
+Control inactive)"* did NOT reach him — Remote Control is frequently inactive, and
+the phone push then silently no-ops. The reliable channel is the AskUserQuestion
+itself: the harness app notification **and** the tmux 🔔 fire on it regardless of
+Remote Control. So on that marker, **always fall back** — reframe whatever the push
+was for (a decision, a review, or a heads-up + the obvious next choice) as an
+AskUserQuestion; never treat an "inactive" push as delivered or assume he saw it. A
+global PostToolUse hook (`post-push-fallback.sh`) injects this reminder
+automatically when it sees the marker, but the rule stands whether or not the hook
+fires. The one exception is the autonomous-loop carve-out below — a tick that must
+not block files a P1 `human:` bead instead.
 
 Target state for every window: 🧠 (thinking) or 🔔 (needs Zig).
 ✅ means "genuinely idle — nothing to ask, waiting for new delegation."
