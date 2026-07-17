@@ -56,9 +56,10 @@ claim that the work actually landed, enforced at commit by
 `pre-commit-checks.sh` (a `done` line without a checkable proof is
 **blocked**; `quiet`/`blocked` are exempt). A valid `done` proof must have
 real verifier-**distance** — the checker must reach a verdict the generator
-can't just assert. Two kinds qualify:
-- `{"kind":"cmd","cmd":"<shell>"}` — the hook **re-runs** it from the repo root; must exit 0 (the *acting* proof — a test, a grep of the deliverable for a required marker, an assertion). Prefer it; even `test -s <path>` beats file-exists because it re-runs.
-- `{"kind":"scrutinize","bead":"<id>"}` — the bead carries a `SHIP` verdict from an independent fresh-context reviewer (code / substantive work).
+can't just assert. Two kinds qualify, strong on **different axes** (so neither
+is unconditionally "strongest" — pick by work class):
+- `{"kind":"cmd","cmd":"<shell>"}` — the hook **re-runs** it from the repo root; must exit 0. The un-fakeable **existence/structure** floor (a test, a grep of the deliverable for a required marker, an assertion; even `test -s <path>` beats file-exists because it re-runs). But it is **self-authored** — it proves the deliverable *exists and is shaped right*, not that it is *correct*: a mock-the-unit test or a well-formed-but-wrong output still passes. Best for research/output ("did the deliverable land").
+- `{"kind":"scrutinize","bead":"<id>"}` — a `SHIP` verdict from an **independent** fresh-context reviewer. Catches the wrong / fabricated / mock-the-unit a self-authored `cmd` cannot (independence, not re-runnability). For **code / substantive** work this is the *stronger* proof — prefer it over `cmd`. (the `explore-umlu` two-axis reframe)
 
 `artifact` (file exists) and `commit` (sha resolves) are **rejected for `done`** —
 both are zero-distance no-ops a stub passes (the `explore-len0` hole): the generator
