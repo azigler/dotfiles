@@ -250,9 +250,11 @@ that keeps Andrew capable of saying "no" before comprehension rot sets in.
 6. **Append a `pulse-ledger` row** — the sweep is a pulse loop, so it MUST
    leave a ledger row like every other (no ledger-less ticks; the dashboard
    reads it). Append one line to `~/explore/refs/pulse-ledger.jsonl` with
-   `"row":"elevate"` and a `proof` token (the touched FINDINGS / filed beads):
+   `"row":"elevate"` and a `kind:cmd` `proof` token that the hook RE-RUNS at
+   commit — it greps the sweep report for two structural markers a stub
+   synthesis lacks (bare `artifact` is rejected fleet-wide; `explore-len0`):
    ```json
-   {"ts":"<UTC date -u +%FT%TZ>","row":"elevate","outcome":"done","proof":{"kind":"artifact","path":"refs/elevate/sweep-<date>.md"},"note":"elevate sweep — N opportunities, M beads/E edges filed; reviewed W new explorations (F flagged); field-delta appended"}
+   {"ts":"<UTC date -u +%FT%TZ>","row":"elevate","outcome":"done","proof":{"kind":"cmd","cmd":"grep -q '## Highest-leverage move' refs/elevate/sweep-<date>.md && grep -q 'cross-cluster super-opportunities' refs/elevate/sweep-<date>.md"},"note":"elevate sweep — N opportunities, M beads/E edges filed; reviewed W new explorations (F flagged); field-delta appended"}
    ```
    A sweep that found nothing new logs `"outcome":"quiet"` (no proof needed).
    Then commit + push the ledger, the beads, the touched FINDINGS files, AND the

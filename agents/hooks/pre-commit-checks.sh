@@ -121,9 +121,13 @@ fi
 #   .jsonl is part of this commit, every NEW `done` line must carry a
 #   machine-verifiable `proof` token, and the proof must actually check out,
 #   or the commit is blocked. quiet/blocked entries are exempt (they claim no
-#   work); existing history (already in HEAD) is never re-validated. Proof
-#   kinds: artifact (file exists) | commit (sha resolves) | scrutinize (bead
-#   has SHIP) | cmd (hook RE-RUNS it, must exit 0 — the acting proof).
+#   work); existing history (already in HEAD) is never re-validated. A valid
+#   'done' proof must have real verifier-DISTANCE: scrutinize (bead has SHIP —
+#   an independent reviewer) | cmd (hook RE-RUNS it, must exit 0 — the acting
+#   proof). artifact (file exists) and commit (sha resolves) are REJECTED for
+#   'done' — both are zero-distance no-ops a stub passes (the explore-len0
+#   hole); they prove progress, not done. A report-only done (no gradeable
+#   deliverable) uses cmd with a minimal `test -s <path>`.
 if command -v jq &>/dev/null && [ -n "$GIT_TOPLEVEL" ]; then
   LEDGERS=$(git -C "$GIT_TOPLEVEL" diff --cached --name-only --diff-filter=ACM 2>/dev/null | grep -E 'pulse-ledger\.jsonl$')
   # commit-by-pathspec / chained-add cases: file may not be staged yet at PreToolUse
@@ -138,13 +142,11 @@ if command -v jq &>/dev/null && [ -n "$GIT_TOPLEVEL" ]; then
       KIND=$(echo "$line" | jq -r '.proof.kind // empty')
       case "$KIND" in
         artifact)
-          P=$(echo "$line" | jq -r '.proof.path // empty')
-          if [ -z "$P" ] || { [ ! -e "$GIT_TOPLEVEL/$P" ] && [ ! -e "$P" ]; }; then
-            echo "Blocked: pulse 'done' proof artifact missing: '$P' (in $L)." >&2; FAILED=1; fi ;;
+          echo "Blocked: pulse 'done' proof 'artifact' (file-exists) is stub-passable — a zero-distance no-op that proves progress, not done (explore-len0). Use kind:cmd (even 'test -s <path>' re-runs and beats file-exists; better, grep the deliverable for a required marker) or kind:scrutinize. Offending entry in $L." >&2
+          FAILED=1 ;;
         commit)
-          S=$(echo "$line" | jq -r '.proof.sha // empty')
-          git -C "$GIT_TOPLEVEL" rev-parse --verify --quiet "${S}^{commit}" &>/dev/null || {
-            echo "Blocked: pulse 'done' proof commit unresolvable: '$S' (in $L)." >&2; FAILED=1; } ;;
+          echo "Blocked: pulse 'done' proof 'commit' (sha-resolves) proves PROGRESS, not done — every real commit resolves, so it's a no-op a stub clears (explore-len0). Use kind:cmd or kind:scrutinize. Offending entry in $L." >&2
+          FAILED=1 ;;
         scrutinize)
           B=$(echo "$line" | jq -r '.proof.bead // empty')
           if [ -z "$B" ] || ! { command -v br &>/dev/null && br show "$B" 2>/dev/null | grep -q 'SHIP'; }; then
@@ -154,7 +156,7 @@ if command -v jq &>/dev/null && [ -n "$GIT_TOPLEVEL" ]; then
           if [ -z "$C" ] || ! ( cd "$GIT_TOPLEVEL" && timeout 60 bash -c "$C" &>/dev/null ); then
             echo "Blocked: pulse 'done' proof cmd failed or empty: '$C' (in $L)." >&2; FAILED=1; fi ;;
         *)
-          echo "Blocked: pulse 'done' entry has no verifiable proof token (kind: artifact|commit|scrutinize|cmd). See /pulse step 4.5 — log blocked/quiet if you can't prove it. Offending entry in $L:" >&2
+          echo "Blocked: pulse 'done' entry has no valid proof token (kind: cmd | scrutinize — artifact/commit are rejected as zero-distance no-ops; see explore-len0). See /pulse step 4.5 — log blocked/quiet if you can't prove it. Offending entry in $L:" >&2
           echo "  $(echo "$line" | jq -c '{ts,row,outcome,bead}' 2>/dev/null)" >&2
           FAILED=1 ;;
       esac

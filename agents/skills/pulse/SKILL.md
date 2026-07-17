@@ -47,18 +47,24 @@ caps, and priorities; ticks never edit the table themselves.
 Append one line per tick:
 
 ```json
-{"ts":"2026-06-16T09:00:12Z","row":"weekly-report","outcome":"done","bead":"wr-abc","proof":{"kind":"artifact","path":"reports/2026-06-16.md"},"note":"report drafted + pushed"}
+{"ts":"2026-06-16T09:00:12Z","row":"weekly-report","outcome":"done","bead":"wr-abc","proof":{"kind":"cmd","cmd":"test -s reports/2026-06-16.md"},"note":"report drafted + pushed"}
 {"ts":"2026-06-17T09:00:09Z","row":null,"outcome":"quiet","note":"no row satisfied"}
 ```
 
 Every `done` line MUST carry a **`proof`** token — a machine-verifiable
 claim that the work actually landed, enforced at commit by
 `pre-commit-checks.sh` (a `done` line without a checkable proof is
-**blocked**; `quiet`/`blocked` are exempt). Four kinds (escalating):
-- `{"kind":"artifact","path":"<repo-rel path>"}` — the deliverable file exists.
-- `{"kind":"commit","sha":"<sha>"}` — a commit holding the work resolves.
-- `{"kind":"scrutinize","bead":"<id>"}` — the bead carries a `SHIP` verdict (code work).
-- `{"kind":"cmd","cmd":"<shell>"}` — the hook **re-runs** it; must exit 0 (the *acting* proof — a test, a grep, an assertion). Strongest; prefer it when cheap.
+**blocked**; `quiet`/`blocked` are exempt). A valid `done` proof must have
+real verifier-**distance** — the checker must reach a verdict the generator
+can't just assert. Two kinds qualify:
+- `{"kind":"cmd","cmd":"<shell>"}` — the hook **re-runs** it from the repo root; must exit 0 (the *acting* proof — a test, a grep of the deliverable for a required marker, an assertion). Prefer it; even `test -s <path>` beats file-exists because it re-runs.
+- `{"kind":"scrutinize","bead":"<id>"}` — the bead carries a `SHIP` verdict from an independent fresh-context reviewer (code / substantive work).
+
+`artifact` (file exists) and `commit` (sha resolves) are **rejected for `done`** —
+both are zero-distance no-ops a stub passes (the `explore-len0` hole): the generator
+authored the very file/commit the checker inspects, so they prove *progress*, not
+*done*. A report-only done with no gradeable deliverable uses `cmd` with a minimal
+`test -s <path>`.
 
 `ts` is UTC (`date -u +%FT%TZ`). Caps count **only `outcome:"done"`**
 entries for the row in the current day/week — a blocked or quiet tick
@@ -120,9 +126,9 @@ the daily cap.)
    - for **substantive/code** work, the proof is the **/scrutinize**
      verdict (an independent fresh-context reviewer) — gate `done` on its
      SHIP and record `"proof":{"kind":"scrutinize","bead":"<id>"}`.
-   - for **research/curation** ticks, the proof is the deliverable landing:
-     `"proof":{"kind":"artifact","path":"<the FINDINGS/report file>"}` or a
-     `cmd` the hook can re-run.
+   - for **research/curation** ticks, the proof is a `cmd` the hook re-runs
+     that greps the deliverable for a required marker (or `test -s <the
+     FINDINGS/report file>` at minimum) — `"proof":{"kind":"cmd","cmd":"…"}`.
    **This is not advisory — it's enforced.** Write the `proof` token (see
    the ledger spec above) on the `done` line; `pre-commit-checks.sh` blocks
    a `done` commit whose proof doesn't verify. If you cannot produce a

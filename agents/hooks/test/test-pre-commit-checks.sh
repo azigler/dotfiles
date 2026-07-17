@@ -161,14 +161,17 @@ proof_case() {
 # 13. done with NO proof → BLOCK
 proof_case "block: done without proof" 2 \
   '{"ts":"2026-06-28T01:00:00Z","row":"r","outcome":"done","note":"x"}' \
-  "no verifiable proof token"
-# 14. done with valid artifact proof → ALLOW
-proof_case "allow: done with valid artifact proof" 0 \
-  '{"ts":"2026-06-28T02:00:00Z","row":"r","outcome":"done","proof":{"kind":"artifact","path":"refs/real.md"},"note":"x"}'
-# 15. done with bogus artifact path → BLOCK
-proof_case "block: done with missing artifact" 2 \
-  '{"ts":"2026-06-28T03:00:00Z","row":"r","outcome":"done","proof":{"kind":"artifact","path":"refs/nope.md"},"note":"x"}' \
-  "proof artifact missing"
+  "no valid proof token"
+# 14. done with artifact proof → BLOCK even when the file EXISTS (file-exists is a
+#     stub-passable zero-distance no-op — rejected fleet-wide, explore-len0).
+proof_case "block: done with artifact proof (rejected fleet-wide)" 2 \
+  '{"ts":"2026-06-28T02:00:00Z","row":"r","outcome":"done","proof":{"kind":"artifact","path":"refs/real.md"},"note":"x"}' \
+  "stub-passable"
+# 15. done with commit proof → BLOCK even when the sha RESOLVES (sha-resolves is a
+#     no-op every real commit passes — rejected fleet-wide, explore-len0).
+proof_case "block: done with commit proof (rejected fleet-wide)" 2 \
+  '{"ts":"2026-06-28T03:00:00Z","row":"r","outcome":"done","proof":{"kind":"commit","sha":"HEAD"},"note":"x"}' \
+  "proves PROGRESS, not done"
 # 16. done with cmd proof that passes → ALLOW (the hook re-runs it)
 proof_case "allow: done with passing cmd proof" 0 \
   '{"ts":"2026-06-28T04:00:00Z","row":"r","outcome":"done","proof":{"kind":"cmd","cmd":"test -e refs/real.md"},"note":"x"}'
