@@ -102,6 +102,18 @@ _vault_push_locked() {
     printf '%s\n' "$leaked" | head >&2
     return 0
   fi
+  # PEER delete-guard (spec lin-i2d.1 OQ-09/OQ-13): on a peer (marker present),
+  # NEVER propagate deletions from a sparse/absent work-tree — strip staged
+  # deletions, keep adds/mods. No-op on the primary (no marker). Backstop behind
+  # sparse skip-worktree; deletions are only ever authored from the primary.
+  if [ -f "$VAULT_DIR/.peer" ]; then
+    local dels; dels=$(mgit diff --cached --diff-filter=D --name-only 2>/dev/null || true)
+    if [ -n "$dels" ]; then
+      echo "WARN: peer delete-guard stripped $(printf '%s\n' "$dels" | grep -c .) staged deletion(s):" >&2
+      printf '%s\n' "$dels" | sed 's#/.*##' | sort -u | head >&2
+      printf '%s\n' "$dels" | while IFS= read -r f; do [ -n "$f" ] && mgit reset -q -- "$f" 2>/dev/null; done
+    fi
+  fi
   if mgit diff --cached --quiet 2>/dev/null; then
     return 0                                   # nothing changed
   fi

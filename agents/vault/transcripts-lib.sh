@@ -186,6 +186,17 @@ _transcripts_push_locked() {
     printf '%s\n' "$leaked" | head >&2
     return 0
   fi
+  # PEER delete-guard (spec lin-i2d.1 OQ-09/OQ-13): on a peer (marker present),
+  # never propagate deletions from a sparse/absent work-tree — strip staged
+  # deletions, keep adds/mods. No-op on the primary. Mirrors the memory guard.
+  if [ -f "${VAULT_DIR:-$HOME/.claude/vaults}/.peer" ]; then
+    local dels; dels=$(tgit diff --cached --diff-filter=D --name-only 2>/dev/null || true)
+    if [ -n "$dels" ]; then
+      echo "WARN: peer delete-guard (transcripts) stripped $(printf '%s\n' "$dels" | grep -c .) staged deletion(s):" >&2
+      printf '%s\n' "$dels" | sed 's#/.*##' | sort -u | head >&2
+      printf '%s\n' "$dels" | while IFS= read -r f; do [ -n "$f" ] && tgit reset -q -- "$f" 2>/dev/null; done
+    fi
+  fi
   if tgit diff --cached --quiet 2>/dev/null; then
     return 0                                   # nothing changed
   fi
