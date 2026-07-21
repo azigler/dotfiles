@@ -239,4 +239,24 @@ if command -v br &>/dev/null; then
   fi
 fi
 
+# --- peer dynamic-slug wiring (marketing-vps sync, spec lin-i2d.1 P5) ---
+# PEER ONLY (~/.claude/vaults/.peer present): for any session whose cwd is a
+# native -home-andrew-linearb* slug, ensure the projects-side dir is a SYMLINK to
+# the canonical -home-ubuntu-* content BEFORE the session writes, so its memory +
+# transcripts land in (and sync via) the shared vault. No-op on the primary.
+if [ -f "$HOME/.claude/vaults/.peer" ]; then
+  _pk_cwd="${HOOK_CWD:-$(pwd -P)}"
+  _pk_slug="$(printf '%s' "$_pk_cwd" | sed 's#/#-#g')"
+  case "$_pk_slug" in
+    -home-andrew-linearb*)
+      _pk_canon="-home-ubuntu-${_pk_slug#-home-andrew-}"
+      _pk_proj="$HOME/.claude/projects"
+      mkdir -p "$_pk_proj/$_pk_canon"
+      [ -e "$_pk_proj/$_pk_slug" ] || ln -s "./$_pk_canon" "$_pk_proj/$_pk_slug"
+      _pk_sf="$HOME/.claude/vaults/transcripts.git/info/sparse-checkout"
+      [ -f "$_pk_sf" ] && ! grep -qxF "/$_pk_canon/" "$_pk_sf" && echo "/$_pk_canon/" >> "$_pk_sf"
+      ;;
+  esac
+fi
+
 exit 0

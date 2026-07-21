@@ -130,6 +130,13 @@ case "$PWD" in
     if [ -f "$_VAULT_LIB" ]; then
       . "$_VAULT_LIB"
       vault_push_memory >>"$HOME/.claude/vault-session-end.log" 2>&1 || true
+      # PEER (marketing-vps): also push transcripts at session-end so a worker
+      # session's results sync immediately (spec lin-i2d.1 P5). The primary uses
+      # the hourly timer instead (avoids parallel-session push contention).
+      if [ -f "$HOME/.claude/vaults/.peer" ]; then
+        _TR_LIB="$(dirname "$_VAULT_LIB")/transcripts-lib.sh"
+        [ -f "$_TR_LIB" ] && { . "$_TR_LIB"; vault_push_transcripts >>"$HOME/.claude/vault-session-end.log" 2>&1 || true; }
+      fi
     fi
     ;;
 esac
