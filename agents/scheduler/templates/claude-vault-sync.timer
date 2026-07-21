@@ -1,0 +1,15 @@
+# Timer: claude-vault hourly bidirectional sync. Two machines run this OFFSET by
+# 15 min so they never fire the same second and clobber each other's push:
+#   zig-computer (primary): minute :00     ->  OnCalendar=*-*-* *:00:00
+#   marketing-vps (peer):   minute :15     ->  OnCalendar=*-*-* *:15:00
+# Set the minute per-machine at install time (the line below is the primary).
+# Enable with:  systemctl --user enable --now claude-vault-sync.timer
+[Unit]
+Description=Hourly claude-vault bidirectional sync
+
+[Timer]
+OnCalendar=*-*-* *:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

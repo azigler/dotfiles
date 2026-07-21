@@ -1,0 +1,12 @@
+[Unit]
+Description=claude-vault bidirectional sync — hourly PULL+push of memory + transcripts
+# spec lin-i2d.1 P5. PULLS latest for both vaults first (so an idle machine still
+# syncs down the other machine's changes), then pushes local via the guarded
+# functions. LLM-free, deterministic. Inert until the vaults are bootstrapped.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env bash %h/dotfiles/agents/vault/vault-sync.sh
+TimeoutStartSec=1800
+StandardOutput=append:%h/.claude/vault-sync.log
+StandardError=append:%h/.claude/vault-sync.log
