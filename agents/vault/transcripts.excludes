@@ -20,7 +20,8 @@
 # HARD seal on the OTHER vault's tier: prune memory/ last so NOTHING under it is
 # re-includable — not even a stray memory/x.jsonl (the cross-vault double-claim fix).
 **/memory/
-# Peer-sync (marketing-vps): hard-exclude the native -home-andrew-* slug SYMLINKS
-# so the peer commits canonical -home-ubuntu-* content, never the links. Last match
-# wins; no-op on zig-computer (no such slugs). See spec lin-i2d.1 OQ-13.
-/-home-andrew-*
+# Peer-sync (marketing-vps): hard-exclude ALL native -home-andrew* slugs (the
+# linearb symlinks AND the bare -home-andrew home-dir slug) so the peer commits
+# canonical -home-ubuntu-* content, never the links / non-linearb local sessions.
+# Last match wins; no-op on zig-computer (no such slugs). See spec lin-i2d.1 OQ-13.
+/-home-andrew*
