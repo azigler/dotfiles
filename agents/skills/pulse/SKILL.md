@@ -256,12 +256,38 @@ from the handoff note. A PreCompact backstop runs in observe mode
 a real auto-compact confirms blockability. Never let auto-compaction
 surprise a tick mid-work.
 
+**The /clear is a HUMAN action — you must SUMMON Andrew with an
+AskUserQuestion, not just prose (Zig, 2026-07-22).** The agent CANNOT
+issue `/clear` itself; the window is a durable session that keeps
+receiving ticks, so it will sit context-full and defer every future
+tick until Andrew physically comes and clears it. Therefore, once you
+have offboarded (handoff written + committed + pushed), **end the turn
+with an `AskUserQuestion`** asking him to `/clear` (or `/compact`) the
+window — e.g. *"explore session is context-full at 85% and offboarded;
+clear it so the loop resumes? [Clear it now / Leave it]"*. This is the
+**one sanctioned exception** to the "ticks never AskUserQuestion" rule
+(below), and it is exactly right here: the AskUserQuestion is the
+*notification mechanism* — the tmux 🔔 **and** the harness app
+notification fire on it regardless of Remote Control state, where a
+`PushNotification` may silently no-op and a `human:` bead sits unseen —
+and "freezing the window" is a feature, not a bug, because the session
+is offboarded and has **nothing else to do** until it is cleared.
+Stopping one step short (a prose "please /clear" with no
+AskUserQuestion) leaves Andrew un-notified and the loop stalled. Send a
+`PushNotification` alongside it too (best-effort), but the
+AskUserQuestion is the load-bearing summon.
+
 ## Anti-patterns
 
 - ❌ **Two dispatches in one tick** — the backlog is the timer's
   problem, not this tick's. One row, stop.
 - ❌ **AskUserQuestion in a tick** — freezes the window for hours.
-  `human:` bead + push, end the tick.
+  `human:` bead + push, end the tick. **ONE exception (Zig, 2026-07-22):
+  when the session is context-full at the 85% guard and needs Andrew to
+  manually `/clear` it, DO end with an AskUserQuestion to summon him —
+  see "Session durability and context" above. The window is offboarded
+  with nothing else to do, so the freeze is the point, and the dialog is
+  the only notification that reliably reaches him.**
 - ❌ **Self-invoking the next tick** (ScheduleWakeup loops, recursive
   /pulse) — the systemd timer is the loop; a session that loops itself
   defeats the caps and the steering wheel.
