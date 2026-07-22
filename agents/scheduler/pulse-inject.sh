@@ -53,6 +53,11 @@ TMUX_BIN=$(command -v tmux 2>/dev/null)
 SESSION="work"
 WINDOW="pulse"
 LAUNCH="claude"
+# Process name to expect in the pane once the launcher is live (liveness/reuse
+# detection). Empty => default to basename of --launch (today's behavior). A
+# jailed launcher (tick-jailed.sh) execs `bwrap`, so its pane_current_command
+# reads 'bwrap' not 'tick-jailed.sh' — those loops pass --launch-detect bwrap.
+LAUNCH_DETECT=""
 DIR=""
 CMD=""
 LOOP=""
@@ -64,6 +69,7 @@ while [ $# -gt 0 ]; do
     --session) SESSION=$2; shift 2 ;;
     --window)  WINDOW=$2; shift 2 ;;
     --launch)  LAUNCH=$2; shift 2 ;;
+    --launch-detect) LAUNCH_DETECT=$2; shift 2 ;;
     --loop)    LOOP=$2; shift 2 ;;
     *) echo "pulse-inject: unknown arg $1" >&2; exit 64 ;;
   esac
@@ -122,9 +128,14 @@ PANE="$WIN_ID.0"
 
 # 3. Ensure the launch program is running in the pane.
 LAUNCH_BASE=$(basename "${LAUNCH%% *}")
+# EXPECT = the process name that means "the launcher is live in this pane".
+# Defaults to the launcher basename; jailed loops override via --launch-detect
+# (pane_current_command reads 'bwrap' under tick-jailed.sh, so without this a
+# warm jailed session is never recognized and every tick re-types junk).
+EXPECT="${LAUNCH_DETECT:-$LAUNCH_BASE}"
 CURRENT_CMD=$("$TMUX_BIN" display-message -p -t "$PANE" '#{pane_current_command}' 2>/dev/null)
 
-if [ "$CURRENT_CMD" != "$LAUNCH_BASE" ]; then
+if [ "$CURRENT_CMD" != "$EXPECT" ]; then
   # cd first so a recycled shell pane anchors in the right project.
   "$TMUX_BIN" send-keys -t "$PANE" "cd $(printf '%q' "$DIR")" Enter
   sleep 0.5
@@ -136,11 +147,11 @@ if [ "$CURRENT_CMD" != "$LAUNCH_BASE" ]; then
   for _ in $(seq 1 30); do
     sleep 1
     NOW=$("$TMUX_BIN" display-message -p -t "$PANE" '#{pane_current_command}' 2>/dev/null)
-    [ "$NOW" = "$LAUNCH_BASE" ] && break
+    [ "$NOW" = "$EXPECT" ] && break
   done
   NOW=$("$TMUX_BIN" display-message -p -t "$PANE" '#{pane_current_command}' 2>/dev/null)
-  [ "$NOW" = "$LAUNCH_BASE" ] \
-    || note "WARN: '$LAUNCH_BASE' not detected after 30s (pane runs '$NOW')"
+  [ "$NOW" = "$EXPECT" ] \
+    || note "WARN: '$EXPECT' not detected after 30s (pane runs '$NOW')"
 
   # Liveness (the process exists) is NOT readiness (the TUI can accept typed
   # input). pane_current_command flips to 'claude' within ~1-4s of exec, but the
