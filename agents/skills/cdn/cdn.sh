@@ -50,6 +50,11 @@ content_type_of() {
     webp)     printf 'image/webp' ;;
     svg)      printf 'image/svg+xml' ;;
     avif)     printf 'image/avif' ;;
+    pdf)      printf 'application/pdf' ;;
+    html|htm) printf 'text/html; charset=utf-8' ;;
+    txt|md)   printf 'text/plain; charset=utf-8' ;;
+    json)     printf 'application/json' ;;
+    mp4)      printf 'video/mp4' ;;
     *)        printf 'application/octet-stream' ;;
   esac
 }
