@@ -84,6 +84,17 @@ COUNT=$(jq -r 'select(.outcome=="done" and .row=="<row>") | .ts' "$PULSE_DIR/ref
 # fire only if COUNT < cap
 ```
 
+**Prefer a mechanical helper over hand-rolling this.** The one-liner above is
+correct, but it is copy-pasted into every tick and is one slip (a naive
+`grep "$(date +%F)"` against the UTC `ts`) from a real boundary bug: the day's
+LAST fire (18:00 PT) carries a `ts` on the NEXT UTC calendar day, so a naive
+count mis-buckets it forward, and the next day then **refuses its legitimate
+final tick as cap-exhausted**. If the project ships a cap helper, call it
+instead — `~/explore/bin/pulse-cap.py` is the reference implementation
+(`--row <row> --cap <n>`; exit 0 = under cap, exit 1 = skip; `--selftest`
+carries the boundary regression). Diagnosed 2026-07-23 (Zig) on the explore
+`vibe-explore` loop.
+
 Working ticks commit the ledger with their work; blocked ticks commit
 it alongside the `human:` bead (audit trail); quiet ticks leave it
 uncommitted until the next working tick sweeps it in (don't generate a
