@@ -134,7 +134,19 @@ if command -v jq &>/dev/null && [ -n "$GIT_TOPLEVEL" ]; then
   if [ -z "$LEDGERS" ] && echo "$SKEL" | grep -q 'pulse-ledger\.jsonl'; then
     LEDGERS=$(git -C "$GIT_TOPLEVEL" ls-files '*pulse-ledger.jsonl' 2>/dev/null)
   fi
-  for L in $LEDGERS; do
+  # TOTAL time budget across every proof command in this commit. Each proof
+  # used to get its own `timeout 60` while the PreToolUse hook that runs them
+  # is itself capped at 120s — so two slow proofs blew the hook's own ceiling
+  # and the commit failed opaquely, with no indication that a PROOF was the
+  # cause. Budget the whole gate instead, and say so when it runs out.
+  # Single-proof behavior is unchanged (60s, exactly as before).
+  PROOF_BUDGET=${HARNESS_PULSE_PROOF_BUDGET:-90}
+  PROOF_DEADLINE=$(( $(date +%s) + PROOF_BUDGET ))
+
+  # `while read`, not `for L in $LEDGERS` — a ledger path containing a space
+  # word-split into nonexistent paths, silently skipping the gate for it.
+  while IFS= read -r L; do
+    [ -z "$L" ] && continue
     while IFS= read -r line; do
       [ -z "$line" ] && continue
       echo "$line" | jq -e '.' &>/dev/null || continue        # skip non-JSON
@@ -153,15 +165,47 @@ if command -v jq &>/dev/null && [ -n "$GIT_TOPLEVEL" ]; then
             echo "Blocked: pulse 'done' proof scrutinize verdict not SHIP for bead '$B' (in $L)." >&2; FAILED=1; fi ;;
         cmd)
           C=$(echo "$line" | jq -r '.proof.cmd // empty')
-          if [ -z "$C" ] || ! ( cd "$GIT_TOPLEVEL" && timeout 60 bash -c "$C" &>/dev/null ); then
-            echo "Blocked: pulse 'done' proof cmd failed or empty: '$C' (in $L)." >&2; FAILED=1; fi ;;
+          if [ -z "$C" ]; then
+            echo "Blocked: pulse 'done' proof cmd is empty (in $L)." >&2
+            FAILED=1
+          else
+            PROOF_LEFT=$(( PROOF_DEADLINE - $(date +%s) ))
+            if [ "$PROOF_LEFT" -le 0 ]; then
+              echo "Blocked: pulse proof budget (${PROOF_BUDGET}s total for this commit) ran out before verifying: $C (in $L)." >&2
+              echo "  Split the ledger across commits, make the proof cheaper, or raise \$HARNESS_PULSE_PROOF_BUDGET." >&2
+              FAILED=1
+            else
+              # Per-command ceiling stays 60s, so the one-proof case behaves
+              # exactly as it always did.
+              [ "$PROOF_LEFT" -gt 60 ] && PROOF_LEFT=60
+              PROOF_OUT=$( cd "$GIT_TOPLEVEL" && timeout "$PROOF_LEFT" bash -c "$C" 2>&1 )
+              PROOF_RC=$?
+              if [ "$PROOF_RC" -ne 0 ]; then
+                # The proof's own output was going to /dev/null, so a blocked
+                # commit said only "proof cmd failed" and the author had to
+                # re-run it by hand to find out why. Show it.
+                echo "Blocked: pulse 'done' proof cmd exited $PROOF_RC (in $L):" >&2
+                echo "  cmd: $C" >&2
+                if [ "$PROOF_RC" -eq 124 ]; then
+                  echo "  timed out after ${PROOF_LEFT}s (budget: ${PROOF_BUDGET}s total, \$HARNESS_PULSE_PROOF_BUDGET)" >&2
+                fi
+                if [ -n "$PROOF_OUT" ]; then
+                  echo "  --- proof output (last 15 lines) ---" >&2
+                  printf '%s\n' "$PROOF_OUT" | tail -15 | sed 's/^/  /' >&2
+                else
+                  echo "  (proof produced no output)" >&2
+                fi
+                FAILED=1
+              fi
+            fi
+          fi ;;
         *)
           echo "Blocked: pulse 'done' entry has no valid proof token (kind: cmd | scrutinize — artifact/commit are rejected as zero-distance no-ops; see explore-len0). See /pulse step 4.5 — log blocked/quiet if you can't prove it. Offending entry in $L:" >&2
           echo "  $(echo "$line" | jq -c '{ts,row,outcome,bead}' 2>/dev/null)" >&2
           FAILED=1 ;;
       esac
     done < <(git -C "$GIT_TOPLEVEL" diff HEAD -- "$L" 2>/dev/null | grep '^+' | grep -v '^+++' | sed 's/^+//')
-  done
+  done <<< "$LEDGERS"
 fi
 
 # 3. Lint files headed into this commit: already-staged + chained-add.
@@ -172,8 +216,14 @@ CANDIDATES=$(printf '%s\n%s\n' \
 
 if [ -n "$CANDIDATES" ]; then
   GIT_ROOT=${GIT_TOPLEVEL:-$(pwd)}
-  JS_FILES=""
-  PY_FILES=""
+  # ARRAYS, not space-joined strings. As strings these were passed to the
+  # linters UNQUOTED, so a single path containing a space split into two
+  # nonexistent filenames, the linter errored on both, and the hook BLOCKED
+  # an otherwise-clean commit. (Reproduced: staging `my dir/ok.js` made
+  # biome report `No such file or directory` for `.../my` and `dir/ok.js`
+  # and the commit was refused.)
+  JS_FILES=()
+  PY_FILES=()
 
   while IFS= read -r file; do
     # Staged names are repo-root-relative; chained-add names are
@@ -186,12 +236,12 @@ if [ -n "$CANDIDATES" ]; then
     fi
     [ -z "$RESOLVED" ] && continue
     case "$file" in
-      *.js|*.ts|*.jsx|*.tsx) JS_FILES="$JS_FILES $RESOLVED" ;;
-      *.py) PY_FILES="$PY_FILES $RESOLVED" ;;
+      *.js|*.ts|*.jsx|*.tsx) JS_FILES+=("$RESOLVED") ;;
+      *.py) PY_FILES+=("$RESOLVED") ;;
     esac
   done <<< "$CANDIDATES"
 
-  if [ -n "$JS_FILES" ] && command -v biome &>/dev/null; then
+  if [ "${#JS_FILES[@]}" -gt 0 ] && command -v biome &>/dev/null; then
     # bd-no31: pin biome at the repo config (root:false makes bare biome resolve
     # the user-level ~/.config/biome instead, flagging the project's own style).
     if [ -f "$GIT_ROOT/biome.jsonc" ]; then
@@ -199,14 +249,14 @@ if [ -n "$CANDIDATES" ]; then
     elif [ -f "$GIT_ROOT/biome.json" ]; then
       export BIOME_CONFIG_PATH="$GIT_ROOT/biome.json"
     fi
-    OUTPUT=$(biome check --error-on-warnings $JS_FILES 2>&1) || {
+    OUTPUT=$(biome check --error-on-warnings "${JS_FILES[@]}" 2>&1) || {
       echo "biome: $OUTPUT" >&2
       FAILED=1
     }
   fi
 
-  if [ -n "$PY_FILES" ] && command -v ruff &>/dev/null; then
-    OUTPUT=$(ruff check $PY_FILES 2>&1) || {
+  if [ "${#PY_FILES[@]}" -gt 0 ] && command -v ruff &>/dev/null; then
+    OUTPUT=$(ruff check "${PY_FILES[@]}" 2>&1) || {
       echo "ruff: $OUTPUT" >&2
       FAILED=1
     }
