@@ -57,3 +57,6 @@ archived/sandbox
 # python bytecode from skill test runs
 __pycache__/
 *.pyc
+
+# transient agent worktrees
+.claude/worktrees/
