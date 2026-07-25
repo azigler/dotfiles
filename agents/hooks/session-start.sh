@@ -2,7 +2,9 @@
 # SessionStart / SubagentStart: inject project context so the agent
 # starts oriented.
 
-LOG=/tmp/session-start-hook.log
+# Overridable so tests can assert on the diagnostics without writing to (or
+# racing on) the shared log.
+LOG=${HARNESS_SESSION_START_LOG:-/tmp/session-start-hook.log}
 
 # Branch/dirty + capped-bead emission is shared with pre-compact.sh
 # (dotfiles-b9ii) — one implementation, so the context cap can't drift
@@ -186,16 +188,56 @@ if command -v br &>/dev/null; then
   # If the driver script is missing at merge time, git falls back to a
   # visible conflict — never a silent resurrection.
   # SKIP in worktrees: auto-commits here corrupt worktree branches.
+  #
+  # Failure visibility (dotfiles-b9ii): every command here used to end in a
+  # blanket 2>/dev/null — precisely what pre-bash-stderr-guard.sh blocks
+  # AGENTS for doing, in the harness's own hook. A failed install was
+  # therefore completely invisible while being exactly the condition the
+  # driver exists to prevent. Errors now go to $LOG (not the agent's
+  # context — this runs on every session and must stay quiet), and a real
+  # failure gets ONE visible line.
   if ! $IN_WORKTREE && [ -d ".beads" ]; then
-    git config merge.jsonl-union.name "JSONL union merge (dedupe by bead ID, keep newer updated_at)" 2>/dev/null
-    git config merge.jsonl-union.driver "$HOME/.claude/hooks/merge-jsonl.sh %O %A %B" 2>/dev/null
-    sed -i -E '/^\.beads\/\*\.jsonl[[:space:]]+merge=union[[:space:]]*$/d' .gitattributes 2>/dev/null
-    grep -q 'merge=jsonl-union' .gitattributes 2>/dev/null \
-      || echo '.beads/*.jsonl merge=jsonl-union' >> .gitattributes
+    MD_ERR=""
+    _md_try() { # <label> <cmd...>
+      local label=$1; shift
+      local out
+      if ! out=$("$@" 2>&1); then
+        MD_ERR="${MD_ERR}${label}: ${out}"$'\n'
+        echo "MERGE-DRIVER FAIL [$label]: $out" >> "$LOG"
+        return 1
+      fi
+      [ -n "$out" ] && echo "merge-driver [$label]: $out" >> "$LOG"
+      return 0
+    }
+
+    _md_try "git config name" \
+      git config merge.jsonl-union.name "JSONL union merge (dedupe by bead ID, keep newer updated_at)"
+    _md_try "git config driver" \
+      git config merge.jsonl-union.driver "$HOME/.claude/hooks/merge-jsonl.sh %O %A %B"
+
+    # `sed -i` on a missing .gitattributes is an expected no-op, not an error.
+    if [ -f .gitattributes ]; then
+      _md_try "strip legacy merge=union" \
+        sed -i -E '/^\.beads\/\*\.jsonl[[:space:]]+merge=union[[:space:]]*$/d' .gitattributes
+    fi
+    if ! grep -q 'merge=jsonl-union' .gitattributes 2>/dev/null; then
+      if ! echo '.beads/*.jsonl merge=jsonl-union' >> .gitattributes 2>>"$LOG"; then
+        MD_ERR="${MD_ERR}append .gitattributes: write failed"$'\n'
+      fi
+    fi
+
     if [ -n "$(git status --porcelain -- .gitattributes 2>/dev/null)" ]; then
-      git add .gitattributes 2>/dev/null
+      _md_try "git add" git add .gitattributes
       # Pathspec commit: only .gitattributes, even if other changes are staged.
-      git commit -q -m ":wrench: config: jsonl-union merge driver for .beads JSONL (dedupe by ID, keep newer)" -- .gitattributes 2>/dev/null
+      _md_try "git commit" \
+        git commit -q -m ":wrench: config: jsonl-union merge driver for .beads JSONL (dedupe by ID, keep newer)" -- .gitattributes
+    fi
+
+    if [ -n "$MD_ERR" ]; then
+      echo ""
+      echo "⚠ jsonl-union merge driver NOT fully installed — bead-resurrection guard is degraded."
+      printf '%s' "$MD_ERR" | sed 's/^/  /' | head -6
+      echo "  Full detail: $LOG"
     fi
   fi
 
