@@ -1,0 +1,13 @@
+{
+  "name": "gdoc-skill",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dependency manifest for the /gdoc skill's Google Docs renderer (render_styled_blocks.mjs). Self-contained so resolution never depends on a global store or a $HOME-level install.",
+  "type": "module",
+  "scripts": {
+    "render": "node ./render_styled_blocks.mjs"
+  },
+  "dependencies": {
+    "googleapis": "173.0.0"
+  }
+}

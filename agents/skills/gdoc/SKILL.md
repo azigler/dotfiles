@@ -26,6 +26,22 @@ like every other doc in the fleet.
 3. **The target document shared** with the service account's
    `client_email` (in the key file — typically
    `*@*.iam.gserviceaccount.com`).
+4. **This skill's own `node_modules`** — `render_styled_blocks.mjs`
+   imports `googleapis`, resolved from the manifest **in this
+   directory** (`package.json` + committed `package-lock.json`,
+   `googleapis` pinned). Provision it with:
+
+   ```bash
+   cd ~/.claude/skills/gdoc && npm install
+   ```
+
+   Because the import resolves from the *script's* directory, the
+   renderer runs correctly from any cwd. Never rely on a global store
+   or a `$HOME`-level install: a stray `bun install -g` re-hoisted a
+   transitive dep out from under it once already and broke the daily
+   digest silently (`dotfiles-1ag`). A `$HOME/package.json` is also a
+   latent hazard — every tool that walks up looking for a "project
+   root" (`tsc`, `biome`, `vitest`, `bunx`) would stop there.
 
 <!-- private-start -->
 > **LinearB:** the factory connector + its service-account key
@@ -269,9 +285,15 @@ For operations not covered by the shim, run bun inline against the
 your environment:
 
 ```bash
-AGENT_DIR="<a directory with googleapis installed>"
+# Any directory with googleapis installed. This skill's own dir now
+# qualifies (see Prerequisites), so it is the portable default:
+AGENT_DIR="$HOME/.claude/skills/gdoc"
 SA_KEY="<path to your service-account .json>"
 ```
+
+> `bun -e` resolves `googleapis` from the **cwd**, not from the script —
+> which is why these snippets `cd "$AGENT_DIR"` first. `gdoc.sh` does the
+> same with its own `GDOC_AGENT_DIR` default.
 <!-- private-start -->
 (LinearB factory paths: `~/linearb/refs/gdoc-connector.md`.)
 <!-- private-end -->
