@@ -132,10 +132,42 @@ else
 fi
 
 # --- agentgateway + agctl ---
+# DO NOT use /releases/latest/download/ here. Upstream mis-flags prereleases:
+# GitHub's /releases/latest returned v1.4.0-beta.1 with "prerelease": false
+# (verified 2026-07-25), so that URL silently installs a BETA. It also skips
+# checksum verification and clobbers a possibly-serving binary in place.
+#
+# Resolve the newest STABLE by semver over tag names, then verify the sha256.
 section "Upgrading agentgateway + agctl"
-curl -fsSL -o "$HOME/.local/bin/agentgateway" https://github.com/agentgateway/agentgateway/releases/latest/download/agentgateway-linux-amd64
-curl -fsSL -o "$HOME/.local/bin/agctl" https://github.com/agentgateway/agentgateway/releases/latest/download/agctl-linux-amd64
-chmod +x "$HOME/.local/bin/agentgateway" "$HOME/.local/bin/agctl"
+AGW_TAG=$(curl -fsSL "https://api.github.com/repos/agentgateway/agentgateway/releases?per_page=100" \
+    | grep -oP '"tag_name":\s*"\Kv[0-9]+\.[0-9]+\.[0-9]+(?=")' \
+    | sort -t. -k1,1V -k2,2n -k3,3n | tail -1)
+if [ -z "$AGW_TAG" ]; then
+    fail "could not resolve a stable agentgateway tag; leaving the installed binary alone"
+else
+    echo "  newest stable: $AGW_TAG"
+    for _b in agentgateway agctl; do
+        _asset="${_b}-linux-amd64"
+        _url="https://github.com/agentgateway/agentgateway/releases/download/${AGW_TAG}/${_asset}"
+        _tmp=$(mktemp)
+        if curl -fsSL -o "$_tmp" "$_url" && curl -fsSL -o "${_tmp}.sha256" "${_url}.sha256"; then
+            _want=$(tr -d '\r' < "${_tmp}.sha256" | awk 'NF{print $1; exit}')
+            _got=$(sha256sum "$_tmp" | awk '{print $1}')
+            if [ -n "$_want" ] && [ "$_want" = "$_got" ]; then
+                install -m 0755 "$_tmp" "$HOME/.local/bin/${_b}"
+                echo "  ${_b} -> ${AGW_TAG} (sha256 verified)"
+            else
+                fail "${_b}: checksum mismatch (want=${_want:-<empty>} got=${_got}) — not installed"
+            fi
+        else
+            fail "${_b}: download failed — not installed"
+        fi
+        rm -f "$_tmp" "${_tmp}.sha256"
+    done
+    warn "This host does not SERVE agentgateway. If a host ever does, upgrade it with"
+    warn "aaif/ops/gateway-host/agentgateway-upgrade instead — it validates the live"
+    warn "config against the new binary and auto-rolls-back on a failed health check."
+fi
 
 # --- goose (Block's open agent, AAIF project) ---
 section "Upgrading goose"
