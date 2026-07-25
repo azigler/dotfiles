@@ -117,7 +117,9 @@ br close <BEAD_ID>
 git add .beads/issues.jsonl
 git commit -m ":card_file_box: beads: close <BEAD_ID>"
 
-git worktree remove --force .claude/worktrees/agent-XXXX
+# --force --force, not -f: single -f overrides modified files but NOT the
+# agent's worktree lock, which can outlive the agent's final reply.
+git worktree remove --force --force .claude/worktrees/agent-XXXX
 git branch -D worktree-agent-XXXX
 git push origin --delete worktree-agent-XXXX 2>/dev/null || true
 ```
