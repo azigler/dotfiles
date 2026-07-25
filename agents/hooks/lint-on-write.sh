@@ -58,7 +58,46 @@ case "$FILE_PATH" in
     # rustfmt only — fast, file-local. cargo clippy runs the whole crate
     # which is too slow for every file write. clippy lives in task-completed.sh.
     command -v rustfmt &>/dev/null || exit 0
-    rustfmt "$FILE_PATH" 2>/dev/null
+
+    # Derive --edition from the crate's Cargo.toml. Bare rustfmt defaults to
+    # edition 2015, which cannot parse edition-2024 syntax (let-chains):
+    #   error: let chains are only allowed in Rust 2024 or later
+    # It exits 1 — so with stderr discarded AND the exit code unchecked, this
+    # hook used to report success having formatted nothing at all, silently,
+    # on every edition-2024 file (dotfiles-2mm).
+    #
+    # Walk up from the file to the nearest Cargo.toml that states a literal
+    # edition. A workspace MEMBER usually says `edition.workspace = true`
+    # (no literal), so finding nothing there and continuing up to the
+    # workspace root — which carries [workspace.package] edition — is the
+    # correct behavior, not a failure.
+    RS_EDITION=""
+    RS_DIR=$(cd "$(dirname "$FILE_PATH")" 2>/dev/null && pwd -P)
+    while [ -n "$RS_DIR" ] && [ "$RS_DIR" != "/" ]; do
+      if [ -f "$RS_DIR/Cargo.toml" ]; then
+        RS_EDITION=$(grep -m1 -E '^[[:space:]]*edition[[:space:]]*=[[:space:]]*"[0-9]{4}"' \
+          "$RS_DIR/Cargo.toml" 2>/dev/null | grep -oE '[0-9]{4}')
+        [ -n "$RS_EDITION" ] && break
+      fi
+      RS_DIR=$(dirname "$RS_DIR")
+    done
+    # Fallback for loose .rs files with no crate around them. 2021 rather
+    # than 2024 deliberately: every rustfmt since Rust 1.56 accepts it,
+    # whereas `--edition 2024` on an older toolchain is a hard "unknown
+    # edition" error that would block every write. Crates that really are
+    # 2024 are covered by the detection above — which is the case this bug
+    # was actually about.
+    RS_EDITION="${RS_EDITION:-2021}"
+
+    # Keep stderr: a parse/format failure must surface, not vanish. (The
+    # repo's own rule — "Don't blanket-suppress stderr" — is what this
+    # branch was violating.) Exit 2 feeds the error back to the agent,
+    # matching the biome / ruff branches above.
+    if ! RUSTFMT_OUT=$(rustfmt --edition "$RS_EDITION" "$FILE_PATH" 2>&1); then
+      echo "rustfmt --edition $RS_EDITION failed on $FILE_PATH (file left unformatted):" >&2
+      echo "$RUSTFMT_OUT" >&2
+      exit 2
+    fi
     ;;
   *.go)
     # gofmt only — fast, file-local. golangci-lint runs the whole module
