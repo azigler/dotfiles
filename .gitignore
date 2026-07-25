@@ -53,3 +53,7 @@ node_modules/
 .bv/
 
 archived/sandbox
+
+# python bytecode from skill test runs
+__pycache__/
+*.pyc
