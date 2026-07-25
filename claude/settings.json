@@ -2,7 +2,14 @@
   "cleanupPeriodDays": 9999,
   "skillListingBudgetFraction": 0.03,
   "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "ANTHROPIC_BASE_URL": "http://100.72.47.4:17017/claude",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5[1m]"
+  },
+  "permissions": {
+    "allow": [
+      "Read(/home/ubuntu/.local/state/harness/conduit/**)"
+    ]
   },
   "hooks": {
     "SessionStart": [
@@ -103,6 +110,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "PushNotification",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/post-push-fallback.sh",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -147,6 +164,16 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/pre-tool-use-worktree-guard.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/pre-tool-use-require-isolation.sh",
             "timeout": 5
           }
         ]
@@ -259,7 +286,6 @@
     "type": "command",
     "command": "~/.claude/statusline.sh"
   },
-  "effortLevel": "high",
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
   "teammateMode": "auto",
