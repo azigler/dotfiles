@@ -4,6 +4,21 @@
 
 LOG=/tmp/session-start-hook.log
 
+# Branch/dirty + capped-bead emission is shared with pre-compact.sh
+# (dotfiles-b9ii) — one implementation, so the context cap can't drift
+# between the two hooks that orient an agent.
+CTX_LIB="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/context-emit.sh"
+if [ -r "$CTX_LIB" ]; then
+  # shellcheck source=lib/context-emit.sh
+  . "$CTX_LIB"
+else
+  # Degrade LOUDLY: a silently missing lib looks identical to "clean repo,
+  # no beads", which is the worst possible way for this hook to fail.
+  echo "⚠ hook lib missing: $CTX_LIB — git/bead context omitted from this session."
+  emit_git_context() { :; }
+  emit_bead_context() { :; }
+fi
+
 # Hooks receive JSON on stdin. SubagentStart's payload contains a `cwd`
 # field — the subagent's intended working directory (the worktree).
 # Without this, the hook runs in the ORCHESTRATOR's cwd and never sees
@@ -84,34 +99,28 @@ if ! $IN_WORKTREE && [ -f "$HOME/.claude/.secret-alert" ]; then
   fi
 fi
 
-if command -v git &>/dev/null && git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
-  BRANCH=$(git branch --show-current 2>/dev/null)
-  echo "Branch: ${BRANCH:-detached}"
-  DIRTY=$(git status --short 2>/dev/null | head -10)
-  if [ -n "$DIRTY" ]; then
-    echo "Dirty files:"
-    echo "$DIRTY"
-  fi
+emit_git_context
 
-  # Unabsorbed-submodule guard: if cwd is a submodule of a parent project
-  # AND its .git is a real directory (not a gitlink file), the parent's
-  # .gitmodules entry was created via `git submodule add` but the gitdir
-  # was never absorbed via `git submodule absorbgitdirs`. Claude Code's
-  # worktree-creation heuristic ends up placing subagent worktrees under
-  # the parent's .claude/worktrees/ instead of the submodule's, breaking
-  # the bead symlink + merge target for any subagent dispatch.
-  # Fix: from the parent, run `git submodule absorbgitdirs <submodule>`.
-  if ! $IN_WORKTREE && [ -d ".git" ]; then
-    SUPER=$(git rev-parse --show-superproject-working-tree 2>/dev/null)
-    if [ -n "$SUPER" ]; then
-      SUB_PATH=$(realpath --relative-to="$SUPER" "$(pwd -P)" 2>/dev/null)
-      echo ""
-      echo "⚠ Unabsorbed submodule detected"
-      echo "  This dir is registered as a submodule of $SUPER but its .git is"
-      echo "  still a local directory. Subagent worktrees would land in the parent's"
-      echo "  .claude/worktrees/ instead of this submodule's. Fix:"
-      echo "    cd $SUPER && git submodule absorbgitdirs ${SUB_PATH:-<this-path>}"
-    fi
+# Unabsorbed-submodule guard: if cwd is a submodule of a parent project
+# AND its .git is a real directory (not a gitlink file), the parent's
+# .gitmodules entry was created via `git submodule add` but the gitdir
+# was never absorbed via `git submodule absorbgitdirs`. Claude Code's
+# worktree-creation heuristic ends up placing subagent worktrees under
+# the parent's .claude/worktrees/ instead of the submodule's, breaking
+# the bead symlink + merge target for any subagent dispatch.
+# Fix: from the parent, run `git submodule absorbgitdirs <submodule>`.
+# (`-d .git` already implies a git work tree, so this no longer needs to
+# nest inside the branch/dirty block that emit_git_context replaced.)
+if ! $IN_WORKTREE && [ -d ".git" ]; then
+  SUPER=$(git rev-parse --show-superproject-working-tree 2>/dev/null)
+  if [ -n "$SUPER" ]; then
+    SUB_PATH=$(realpath --relative-to="$SUPER" "$(pwd -P)" 2>/dev/null)
+    echo ""
+    echo "⚠ Unabsorbed submodule detected"
+    echo "  This dir is registered as a submodule of $SUPER but its .git is"
+    echo "  still a local directory. Subagent worktrees would land in the parent's"
+    echo "  .claude/worktrees/ instead of this submodule's. Fix:"
+    echo "    cd $SUPER && git submodule absorbgitdirs ${SUB_PATH:-<this-path>}"
   fi
 fi
 
@@ -198,33 +207,12 @@ if command -v br &>/dev/null; then
   fi
 
   br sync --import-only 2>/dev/null
-  # Cap the onboard dump: an unbounded `br list` (its own default is already 50)
-  # put 100+ open beads into EVERY session-start message. Show the top N by
-  # priority + a count of the rest. This is a GLOBAL cap (this hook runs for every
-  # project) that self-adjusts — it only truncates when the backlog exceeds the cap
-  # — and the cap is overridable per-project via $HARNESS_ONBOARD_BEAD_CAP (e.g. in
-  # a project's .envrc). Display-only: never triages or closes anything (triaging
+
+  # The capped open-bead banner. Implementation + the full rationale for the
+  # cap and the truncation notice live in lib/context-emit.sh, shared with
+  # pre-compact.sh. Display-only: never triages or closes anything (triaging
   # ~/explore is the elevate session's special job).
-  #
-  # The notice below is load-bearing: aggressive truncation is safe ONLY because
-  # the agent has recourse — so it tells the agent this view is PARTIAL and to scan
-  # the full list JUST-IN-TIME, right before committing to meaningful work — NOT
-  # now. Pulling all 100+ up front is the exact context bloat this cap prevents.
-  BEAD_CAP=${HARNESS_ONBOARD_BEAD_CAP:-12}
-  BEAD_TOTAL=$(br list --limit 0 2>/dev/null | grep -c .)
-  if [ "${BEAD_TOTAL:-0}" -gt 0 ]; then
-    echo ""
-    if [ "$BEAD_TOTAL" -gt "$BEAD_CAP" ]; then
-      echo "Open beads — top $BEAD_CAP of $BEAD_TOTAL by priority (truncated to protect context; NOT the full backlog):"
-      br list --limit "$BEAD_CAP" 2>/dev/null
-      echo "  + $((BEAD_TOTAL - BEAD_CAP)) more not shown — this is a PARTIAL view. Before you start anything"
-      echo "    meaningful, scan the full backlog THEN (\`br list\` / \`bv --robot-triage\`) to catch a"
-      echo "    higher-priority or duplicate item — do it at that point, not now."
-    else
-      echo "Open beads:"
-      br list --limit "$BEAD_CAP" 2>/dev/null
-    fi
-  fi
+  emit_bead_context
 
   # Top pick from bv (graph-aware triage). Bare `bv` would launch the TUI;
   # --robot-next emits one JSON object with the highest-score recommendation.
