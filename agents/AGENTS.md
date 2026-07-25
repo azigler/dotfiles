@@ -39,50 +39,80 @@ installed runtimes, secrets, and sibling projects that consume shared keys).
 
 At session end run `/offboard` — handoff note, commit.
 
-## Effort — the intelligence dial (pick it consciously)
+## Effort — a per-dispatch choice, not a session setting
 
 Effort (`low → medium → high(default) → xhigh → max`) is a behavioral
 signal that affects **all tokens** — thinking, prose, AND tool calls.
-This is load-bearing and usually invisible: at low/medium the model
-*"scopes its work to what was asked rather than going above and beyond"*
-and makes **fewer tool calls** — i.e. it greps the average instead of
-thinking exhaustively. Riding the default `high` through divergent /
-exploratory work silently settles for baseline intelligence. Don't.
+This is load-bearing and usually invisible: at the low end the model
+scopes its work to what was asked rather than going above and beyond,
+and makes fewer, more-consolidated tool calls — i.e. it greps the
+average instead of thinking exhaustively. (Paraphrase, not a quotation:
+Anthropic's effort guidance is worded per-model, and the sentence the
+harness used to quote is from the **Opus 4.7** page, not Opus 5's.)
 
-**The policy (Opus 4.8 / Fable 5 grounded):**
-- **xhigh** — the DEFAULT for exploration, research, divergent ideation,
-  and multi-tool agentic work (Anthropic's own "start with xhigh for
-  agentic + exploratory tasks").
-- **max** — RESERVE for genuinely frontier / generative moments: the
-  exhaustive upfront brainstorm, cross-cutting synthesis, novel-
-  opportunity hunts, foundational design/spec. Real headroom, real
-  payoff. Do NOT spray it — `max` overthinks structured/mechanical tasks
-  and costs a lot for small gains there.
-- **high** — solid for most single-answer intelligence-sensitive work.
+**The policy (Opus 5 grounded — Zig's call, 2026-07-25):**
+- **high** — the **DEFAULT**, and the only level a *session* is ever set
+  to. It is the **vendor default on Opus 5**: identical to omitting the
+  effort parameter entirely. Sitting here gives up nothing.
+- **xhigh** — **NOT a session setting.** A deliberate **per-step
+  escalation** on the one dispatch that earns it (a deep research
+  fan-out, a multi-tool agentic sub-task), via a Workflow
+  `agent(…, {effort:'xhigh'})`.
+- **max** — reserved for genuinely frontier / generative moments:
+  `/elevate`, the exhaustive upfront brainstorm, cross-cutting
+  synthesis, foundational design/spec. Also per-dispatch. Do NOT spray
+  it — `max` overthinks structured/mechanical tasks and costs a lot for
+  small gains there.
 - **medium / low** — mechanical/convergent drains: bead bookkeeping,
-  cataloguing, queue-draining ticks, well-specified edits. Spending less
-  here *funds* the moments that deserve max. It's a thermostat, not a
-  furnace.
+  cataloguing, queue-draining ticks, well-specified edits, and most
+  subagents. Spending less here *funds* the moments that deserve max.
+  On Opus 5 the low end is unusually strong — cheap is not dumb.
+
+⚠️ **Why `high` and not `xhigh` — the Opus 5 400.** Opus 5 rejects
+`output_config.effort` of `xhigh`/`max` whenever **thinking is
+disabled**:
+
+```
+400 output_config.effort 'xhigh' is not supported when thinking is
+disabled on this model. Use effort 'high' or below, or enable thinking.
+```
+
+Claude Code disables thinking on the **WebSearch** path — so a session
+pinned to `xhigh` has **no working web search on Opus 5**. Verified by
+controlled A/B on 2026-07-25 (same host, same proxy, 4 minutes apart:
+`xhigh` → 400, `high` → real results), against 24 HTTP 400s in the
+agentgateway log that all began the minute Opus 5 became the default
+model. The corollary rule: the cheap lever is always **lower effort
+with thinking ON**, never thinking off.
+
+**This failure is silent in a scheduled loop.** A `/pulse` tick that
+loses search doesn't error — it answers from in-weights knowledge and
+logs `done`. Nothing trips; the tick looks successful and the finding
+is quietly stale. That is why this is written down rather than just
+fixed: it's verification debt with no alarm attached.
 
 **The levers (and their limits):**
-- The **interactive session** effort is Zig's effort-menu setting,
-  surfaced as `$CLAUDE_EFFORT`. The orchestrator **cannot change its own
-  session effort** — but `/onboard` reads it, and you must **proactively
-  ask Zig to bump it** (via AskUserQuestion) when the session's work
-  is divergent/exploratory and effort is below `xhigh`. (`ultracode` =
-  `xhigh` + standing multi-agent-workflow permission.)
+- The **interactive session** effort is Zig's effort-menu setting
+  (`effortLevel` in `~/.claude/settings.json`, surfaced as
+  `$CLAUDE_EFFORT`). It stays at `high`. The orchestrator cannot change
+  its own session effort — and no longer needs to.
 - **Subagent effort:** the plain `Agent` tool does NOT expose effort — a
-  dispatched agent **inherits the session level**. True `xhigh`/`max` on
-  a subagent only comes through a **Workflow** `agent(…, {effort:'max'})`.
-  So when a delegated step needs more intelligence than the session is set
-  to (e.g. a fresh-eyes max-effort brainstorm), use a Workflow agent with
-  explicit effort, not a bare Agent dispatch.
+  dispatched agent **inherits the session level**. `xhigh`/`max` on a
+  subagent comes only through a **Workflow** `agent(…, {effort:'max'})`.
+  That used to read as a limitation; under this policy it is the
+  **correct architecture** — the only place effort can be raised is the
+  exact step that needs it, and nothing else in the session inherits the
+  cost or the 400.
+- **`ultracode` is an autonomy grant, not an effort setting** — standing
+  permission for multi-agent workflows, nothing more. Autonomy must
+  never force an effort level; don't let it (or any permission mode)
+  pull the session off `high`.
 
-**The naming norm:** when effort matters, **name it and why** ("running
-this brainstorm at max — it's divergent/novel"), and **flag crank-it-up
-moments** to Zig rather than silently proceeding at `high`. Effort is a
-decision, not a default to forget. See `/elevate` for the max-effort
-fresh-eyes re-examination pattern.
+**The naming norm:** when you escalate a dispatch, **name it and why**
+("running this brainstorm at max — it's divergent/novel"), and state the
+intended effort in the dispatch note so it's a recorded decision. Effort
+is a decision, not a default to forget. See `/elevate` for the
+max-effort fresh-eyes re-examination pattern.
 
 ## The four loop costs (the silent debts a self-running loop accrues)
 

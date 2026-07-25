@@ -9,7 +9,7 @@ argument-hint: "<target: a path / project / exploration / 'sweep'>"
 Most work in this harness is produced at the default `high` effort, and a
 lot of the explore compendium was produced on `1/day` pulse ticks in
 *convergent* "catalog it" mode. That mode scopes to what was asked and
-greps the average (AGENTS.md "Effort — the intelligence dial"). `/elevate`
+greps the average (AGENTS.md "Effort"). `/elevate`
 is the deliberate counter-move: take finished work and **re-examine it with
 maximum intelligence and fresh, unpolluted eyes**, hunting specifically for
 the *upside* a baseline pass missed.
@@ -311,7 +311,8 @@ Andrew chooses which become the next explorations, and the brain compounds.
 
 ## See also
 
-- AGENTS.md "Effort — the intelligence dial" — the policy this enforces
+- AGENTS.md "Effort" — the policy this enforces (`max` is a per-dispatch
+  Workflow escalation, never a session setting)
 - `/scrutinize` — the critical twin
 - `/explore` — first-pass research (elevate re-examines its output)
 - `pulse-elevate.timer` / `.service` (machine-local) — the weekly sweep (Fri)

@@ -46,16 +46,16 @@ See `/zig-voice` SKILL.md "SCOPE" section for the broader rule.
 
 Default to **report-only** unless the user explicitly asks for an archive or a post. The three modes can compose (an archival run can also produce a post if the topic warrants), but most invocations are one of them.
 
-## Effort — run exploration HOT, and brainstorm HOTTER
+## Effort — search at `high`, brainstorm HOTTER
 
-Exploration is the canonical case for high effort (Anthropic: "start with
-xhigh for exploratory tasks like repeated tool calling and detailed
-search"). At baseline `high` the model scopes to what was asked and greps
-the average — the opposite of what exploration is for.
-
-- **Run the research at `xhigh`.** If `$CLAUDE_EFFORT` is below `xhigh`
-  when an exploration starts, ask Andrew to bump the session (or route the
-  research agents through Workflow `effort:'xhigh'`).
+- **Run the research at `high`** — the session default, and the vendor
+  default on Opus 5. **Do NOT escalate the search/fetch fan-out.** Opus 5
+  returns `400 … effort 'xhigh' is not supported when thinking is disabled`
+  and Claude Code disables thinking on the **WebSearch** path, so a
+  searching step raised to `xhigh`/`max` loses search entirely — and loses
+  it *silently*, answering from in-weights knowledge instead. For the skill
+  whose whole job is searching, escalating the search step is the one move
+  that breaks it. (See AGENTS.md "Effort".)
 - **Add a divergent `max`-effort ideation pass.** Beyond cataloguing "what
   is this," every archival exploration gets a fresh, **max**-effort
   brainstorm — *"what's the novel opportunity here — an ENTIRELY NEW idea
@@ -66,7 +66,9 @@ the average — the opposite of what exploration is for.
   don't force a tie-back to a real project here."* — as a Workflow
   `agent(…, {effort:'max'})`, ideally a fresh unpolluted agent so it isn't
   anchored to the convergent writeup (or to the example projects already
-  sitting in `~/explore`). Fold its best ideas into FINDINGS under a "Novel
+  sitting in `~/explore`). **`max` is safe here precisely because this pass
+  reasons over the corpus you already gathered — it doesn't search.** Hand
+  it the material, not a search task. Fold its best ideas into FINDINGS under a "Novel
   opportunities" heading. This is where the exhaustive upfront brainstorm
   Andrew wants actually lives — don't skip it for researchable topics.
   **Where that upside can land (including nowhere but a genuinely new idea)

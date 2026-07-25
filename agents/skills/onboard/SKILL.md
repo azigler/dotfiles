@@ -201,30 +201,33 @@ Some projects also use:
 
 If the project uses a different pipeline, follow its `CLAUDE.md`.
 
-## Step 5.5: Read the effort level — and ask to bump it if the work is divergent
+## Step 5.5: Confirm the effort level — and plan escalations per-dispatch
 
-Every session must start *conscious of its effort*, because the default
-silently settles for baseline intelligence on exactly the work that most
-needs more (see AGENTS.md "Effort — the intelligence dial").
+Every session must start *conscious of its effort*. The session level is
+`high` and stays there; intelligence above that is bought **per dispatch**,
+not by moving the session (see AGENTS.md "Effort").
 
 ```bash
 echo "${CLAUDE_EFFORT:-high}"   # the interactive session's effort level
 ```
 
-Match it against the work you classified in Step 5:
-- **Divergent / exploratory / research / brainstorming / foundational
-  design** wants **xhigh** (or **max** for a genuinely frontier session).
-  If `$CLAUDE_EFFORT` is below that, **ask Andrew to bump it** via
-  AskUserQuestion before diving in — you cannot change your own session
-  effort, only he can (effort menu / `ultracode`). Name why.
-- **Mechanical / well-specified / convergent** work is fine at the default
-  `high` (or lower); no need to ask.
-- For delegated steps that need more intelligence than the session is set
-  to, remember the lever is a **Workflow `agent(effort:'max')`** — the
-  bare `Agent` tool inherits the session level.
-
-Don't silently proceed at a too-low effort through exploratory work — that
-is the single most common way a session quietly underperforms.
+- **`high` is correct — say so and move on.** It is the vendor default on
+  Opus 5 (identical to omitting the parameter). Do not ask Andrew to bump
+  it, for divergent work or any other reason.
+- **⚠️ Anything ABOVE `high` is the anomaly to flag.** At `xhigh`/`max`,
+  Opus 5 returns a 400 on any request with thinking disabled — which is
+  the path Claude Code uses for **WebSearch**. A session sitting there has
+  no working web search, and the failure is silent. If `$CLAUDE_EFFORT`
+  reads `xhigh` or `max`, surface it to Andrew (AskUserQuestion) and ask
+  him to set it back to `high` before doing research-shaped work.
+- **Escalate the step, not the session.** When one delegated step needs
+  more than `high` — a divergent ideation pass, a frontier synthesis — run
+  *that dispatch* through a **Workflow `agent(…, {effort:'xhigh'|'max'})`**;
+  the bare `Agent` tool has no effort param and inherits the session level.
+  Never escalate a step that calls WebSearch.
+- **Mechanical / well-specified / convergent** work can go *down* to
+  `medium`/`low` on its dispatches. Spending less there funds the moments
+  that deserve `max`.
 
 ## Step 6: Check blockers
 
@@ -247,7 +250,7 @@ Show a concise orientation report:
 **Version**: vN.M.R
 **Active branch**: <name or main>
 **Toolkit**: digest loaded (N skills; full bodies: <list or none>)
-**Effort**: <$CLAUDE_EFFORT> (<ok for this work / recommend bump to xhigh|max>)
+**Effort**: <$CLAUDE_EFFORT> (<`high` = correct / ⚠️ above `high` — web search is broken, ask Zig to reset>)
 **Position**: <where in the plan>
 **Active plan**: <plan file path, if any>
 **Open beads**: <count, with priorities>

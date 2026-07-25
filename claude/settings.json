@@ -259,7 +259,7 @@
     "type": "command",
     "command": "~/.claude/statusline.sh"
   },
-  "effortLevel": "xhigh",
+  "effortLevel": "high",
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
   "teammateMode": "auto",
