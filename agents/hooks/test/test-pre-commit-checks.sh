@@ -178,7 +178,7 @@ proof_case "allow: done with passing cmd proof" 0 \
 # 17. done with cmd proof that fails → BLOCK
 proof_case "block: done with failing cmd proof" 2 \
   '{"ts":"2026-06-28T05:00:00Z","row":"r","outcome":"done","proof":{"kind":"cmd","cmd":"test -e refs/nope.md"},"note":"x"}' \
-  "proof cmd failed"
+  "proof cmd exited"
 # 18. quiet line with no proof → ALLOW (exempt)
 proof_case "allow: quiet line exempt from proof" 0 \
   '{"ts":"2026-06-28T06:00:00Z","row":null,"outcome":"quiet","note":"x"}'
@@ -186,7 +186,111 @@ proof_case "allow: quiet line exempt from proof" 0 \
 run_case_in "$PROOFREPO" "allow: non-ledger commit unaffected" 0 \
   '{"tool_input":{"command":"git commit refs/real.md -m \":card_file_box: x\""},"cwd":"/tmp"}'
 
+# --- proof-gate diagnostics + time budget (dotfiles-b9ii, bug 4c) ---------
+# The proof ran as `timeout 60 bash -c "$C" &>/dev/null`, so a blocked commit
+# said only "proof cmd failed" and the author had to re-run the command by
+# hand to learn why. And each proof got its own 60s inside a PreToolUse hook
+# whose OWN ceiling is 120s, so 2+ slow proofs blew the hook itself and the
+# commit failed opaquely, with nothing pointing at the proof gate.
+
+# 20. a failing proof now SHOWS the proof's own output.
+proof_case "block: failing proof surfaces its output" 2 \
+  '{"ts":"2026-06-28T07:00:00Z","row":"r","outcome":"done","proof":{"kind":"cmd","cmd":"echo THE-PROOF-SAID-THIS; exit 7"},"note":"x"}' \
+  "THE-PROOF-SAID-THIS"
+
+# 21. ...and names the exit code.
+proof_case "block: failing proof reports the exit code" 2 \
+  '{"ts":"2026-06-28T08:00:00Z","row":"r","outcome":"done","proof":{"kind":"cmd","cmd":"exit 7"},"note":"x"}' \
+  "exited 7"
+
+# Env-passing variant of run_case_in, for the budget cases.
+run_case_env() {
+  local dir=$1 name=$2 want_exit=$3 payload=$4 want_stderr=$5; shift 5
+  local stderr_out got_exit
+  stderr_out=$( cd "$dir" && echo "$payload" | env "$@" "$HOOK" 2>&1 >/dev/null )
+  got_exit=$?
+  if [ "$got_exit" -ne "$want_exit" ]; then
+    FAIL=$((FAIL + 1)); FAILED_NAMES+=("$name (exit: want $want_exit, got $got_exit)"); return
+  fi
+  if [ -n "$want_stderr" ] && ! echo "$stderr_out" | grep -qF "$want_stderr"; then
+    FAIL=$((FAIL + 1)); FAILED_NAMES+=("$name (stderr missing: $want_stderr)"); return
+  fi
+  PASS=$((PASS + 1))
+}
+
+# 22. a proof that outruns the budget is reported AS a timeout, not as a
+#     mystery — and the hook still returns (it does not run to the harness's
+#     own 120s ceiling).
+printf '%s\n' '{"ts":"2026-06-28T09:00:00Z","row":"r","outcome":"done","proof":{"kind":"cmd","cmd":"sleep 30"},"note":"x"}' \
+  >> "$PROOFREPO/refs/pulse-ledger.jsonl"
+run_case_env "$PROOFREPO" "block: slow proof times out inside the budget" 2 \
+  "$PROOF_CMD" "timed out after 1s" HARNESS_PULSE_PROOF_BUDGET=1
+git -C "$PROOFREPO" checkout -q refs/pulse-ledger.jsonl
+
+# 23. with the budget already spent by an earlier proof, the NEXT one says so
+#     instead of silently eating another 60 seconds.
+printf '%s\n%s\n' \
+  '{"ts":"2026-06-28T10:00:00Z","row":"r","outcome":"done","proof":{"kind":"cmd","cmd":"sleep 30"},"note":"first"}' \
+  '{"ts":"2026-06-28T10:00:01Z","row":"r","outcome":"done","proof":{"kind":"cmd","cmd":"true"},"note":"second"}' \
+  >> "$PROOFREPO/refs/pulse-ledger.jsonl"
+run_case_env "$PROOFREPO" "block: exhausted proof budget is named" 2 \
+  "$PROOF_CMD" "proof budget" HARNESS_PULSE_PROOF_BUDGET=1
+git -C "$PROOFREPO" checkout -q refs/pulse-ledger.jsonl
+
 rm -rf "$PROOFREPO"
+
+# --- paths containing spaces (dotfiles-b9ii, bug 4a/4b) -------------------
+# Two independent word-splitting bugs, both of which changed the VERDICT:
+#   a) `$JS_FILES` / `$PY_FILES` were passed to the linters unquoted, so one
+#      path with a space became two nonexistent files, the linter errored,
+#      and a perfectly clean commit was BLOCKED.
+#   b) `for L in $LEDGERS` split ledger paths the same way, so the proof gate
+#      silently SKIPPED a ledger in a directory with a space — the more
+#      dangerous direction: an unproven `done` sailed through.
+
+SPACEREPO=$(mktemp -d "$HOME/.pcc-space-test.XXXXXX")
+git -C "$SPACEREPO" init -q
+git -C "$SPACEREPO" config user.email t@t; git -C "$SPACEREPO" config user.name t
+mkdir -p "$SPACEREPO/my dir"
+printf 'x = 1\nprint(x)\n' > "$SPACEREPO/my dir/ok.py"
+printf 'const x = 1;\nconsole.log(x);\n' > "$SPACEREPO/my dir/ok.js"
+git -C "$SPACEREPO" add "my dir/ok.py" "my dir/ok.js"
+
+# 24. lint-clean files in a directory with a space → ALLOW.
+run_case_in "$SPACEREPO" "allow: clean staged files whose path has a space" 0 \
+  '{"tool_input":{"command":"git commit -m \":sparkles: x: y\""},"cwd":"/tmp"}'
+
+# 25. a genuinely dirty py file at a spaced path must STILL block — the fix
+#     must not have simply disabled the linters.
+printf 'import os\n\n\ndef f():\n    return undefined_name\n' > "$SPACEREPO/my dir/bad.py"
+git -C "$SPACEREPO" add "my dir/bad.py"
+if command -v ruff >/dev/null 2>&1; then
+  run_case_in "$SPACEREPO" "block: violating py at a spaced path still blocks" 2 \
+    '{"tool_input":{"command":"git commit -m \":sparkles: x: y\""},"cwd":"/tmp"}' \
+    "ruff:"
+fi
+rm -rf "$SPACEREPO"
+
+# 26. a pulse-ledger in a directory with a space is still GATED (pre-fix the
+#     path split and the whole ledger was skipped → unproven done allowed).
+SPACELEDGER=$(mktemp -d "$HOME/.pcc-spaceledger.XXXXXX")
+git -C "$SPACELEDGER" init -q
+git -C "$SPACELEDGER" config user.email t@t; git -C "$SPACELEDGER" config user.name t
+mkdir -p "$SPACELEDGER/my refs"
+printf '%s\n' '{"ts":"2026-01-01T00:00:00Z","row":"r","outcome":"quiet"}' > "$SPACELEDGER/my refs/pulse-ledger.jsonl"
+git -C "$SPACELEDGER" add "my refs/pulse-ledger.jsonl"
+git -C "$SPACELEDGER" commit -qm seed
+printf '%s\n' '{"ts":"2026-06-28T11:00:00Z","row":"r","outcome":"done","note":"no proof"}' \
+  >> "$SPACELEDGER/my refs/pulse-ledger.jsonl"
+# Staged, so the gate finds it via `git diff --cached --name-only` — the
+# primary discovery path, and the one the `for L in $LEDGERS` split broke.
+# (The `git ls-files` fallback cannot help here anyway: a path with a space
+# must be QUOTED in the command, and command_skeleton blanks quoted args.)
+git -C "$SPACELEDGER" add "my refs/pulse-ledger.jsonl"
+run_case_in "$SPACELEDGER" "block: unproven done in a spaced ledger path" 2 \
+  '{"tool_input":{"command":"git commit -m \":card_file_box: tick\""},"cwd":"/tmp"}' \
+  "no valid proof token"
+rm -rf "$SPACELEDGER"
 
 # --- Summary ---
 

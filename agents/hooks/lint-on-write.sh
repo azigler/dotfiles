@@ -47,8 +47,37 @@ case "$FILE_PATH" in
     ;;
   *.py)
     command -v ruff &>/dev/null || exit 0
-    ruff check --fix "$FILE_PATH" 2>/dev/null
-    ruff format "$FILE_PATH" 2>/dev/null
+
+    # These two are the MUTATING commands, and their stderr used to be
+    # blanket-discarded — so a ruff that could not do its job reported
+    # "formatted fine" (same silent-failure class as the rustfmt/gofmt
+    # branches; dotfiles-2mm, dotfiles-b9ii).
+    #
+    # ruff's exit codes: 0 = clean, 1 = violations remain, 2+ = ruff ITSELF
+    # failed (bad config, unreadable/unwritable file, internal error). Only
+    # >=2 is a tool failure: rc 1 from `--fix` is the NORMAL "some violations
+    # aren't auto-fixable" path, and the verify step at the end reports those
+    # properly. `ruff format` has no violations concept, so any nonzero there
+    # is a failure.
+    #
+    # The case this actually catches: a read-only file with no lint findings.
+    # `ruff format` fails with "Failed to write <f>: Permission denied" (rc 2)
+    # while both `check` runs pass — so the old code exited 0 having formatted
+    # nothing at all, silently.
+    RUFF_OUT=$(ruff check --fix "$FILE_PATH" 2>&1)
+    RUFF_RC=$?
+    if [ "$RUFF_RC" -ge 2 ]; then
+      echo "ruff check --fix failed on $FILE_PATH (exit $RUFF_RC; file may be unfixed):" >&2
+      echo "$RUFF_OUT" >&2
+      exit 2
+    fi
+
+    if ! RUFF_OUT=$(ruff format "$FILE_PATH" 2>&1); then
+      echo "ruff format failed on $FILE_PATH (file left unformatted):" >&2
+      echo "$RUFF_OUT" >&2
+      exit 2
+    fi
+
     OUTPUT=$(ruff check "$FILE_PATH" 2>&1) || {
       echo "$OUTPUT" >&2
       exit 2
@@ -103,7 +132,18 @@ case "$FILE_PATH" in
     # gofmt only — fast, file-local. golangci-lint runs the whole module
     # which is too slow for every file write. It lives in task-completed.sh.
     command -v gofmt &>/dev/null || exit 0
-    gofmt -w "$FILE_PATH" 2>/dev/null
+
+    # Keep stderr and CHECK the exit code — exactly the fix the rustfmt
+    # branch above already got (dotfiles-2mm). `gofmt -w` exits 2 and prints
+    # `file.go:4:1: expected operand, found '}'` on a parse error; with the
+    # stderr discarded and the exit code unchecked, this hook reported
+    # success having formatted nothing, on every unparseable Go file.
+    # Exit 2 feeds the error back to the agent, matching every other branch.
+    if ! GOFMT_OUT=$(gofmt -w "$FILE_PATH" 2>&1); then
+      echo "gofmt -w failed on $FILE_PATH (file left unformatted):" >&2
+      echo "$GOFMT_OUT" >&2
+      exit 2
+    fi
     ;;
 esac
 

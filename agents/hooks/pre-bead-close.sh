@@ -75,7 +75,27 @@ BEAD_IDS=$(echo "$SKEL" | grep -oE 'br close [^&;|]+' | sed 's/^br close //' \
 
 # If the command chains `cd <path>` before `br close`, follow it so br
 # runs against the same beads store the command will target (bd-8euh).
-TARGET_CWD=$(echo "$COMMAND" | grep -oE '(^|[;&] *)cd +[^&;|]+' | head -1 | sed -E 's/^.*cd +//' | tr -d ' ')
+TARGET_CWD=$(echo "$COMMAND" | grep -oE '(^|[;&] *)cd +[^&;|]+' | head -1 | sed -E 's/^.*cd +//')
+
+# `tr -d ' '` used to be applied here to trim the trailing space the grep
+# picks up. It deleted EVERY space, so `cd "/home/me/my project"` became
+# "/home/me/myproject" — a path that doesn't exist, so the cd was skipped
+# and the lint/scrutiny gates below silently evaluated whatever bead store
+# happened to be at the HOOK's cwd instead of the command's target. The
+# observed result was a well-formed bead blocked with a doubly-wrong
+# message: "incomplete template sections" followed by "Beads not
+# initialized". Trim only the ends.
+TARGET_CWD="${TARGET_CWD#"${TARGET_CWD%%[![:space:]]*}"}"
+TARGET_CWD="${TARGET_CWD%"${TARGET_CWD##*[![:space:]]}"}"
+
+# A path containing a space MUST be quoted in the real command, so strip one
+# layer of matched surrounding quotes — otherwise the quoted form (the only
+# form that can carry a space) still never resolves.
+case "$TARGET_CWD" in
+  \"*\") TARGET_CWD=${TARGET_CWD#\"}; TARGET_CWD=${TARGET_CWD%\"} ;;
+  \'*\') TARGET_CWD=${TARGET_CWD#\'}; TARGET_CWD=${TARGET_CWD%\'} ;;
+esac
+
 TARGET_CWD="${TARGET_CWD/#\~/$HOME}"
 if [ -n "$TARGET_CWD" ] && [ -d "$TARGET_CWD" ]; then
   cd "$TARGET_CWD" || true
