@@ -48,7 +48,27 @@ Append one line per tick:
 
 ```json
 {"ts":"2026-06-16T09:00:12Z","row":"weekly-report","outcome":"done","bead":"wr-abc","proof":{"kind":"cmd","cmd":"test -s reports/2026-06-16.md"},"note":"report drafted + pushed"}
-{"ts":"2026-06-17T09:00:09Z","row":null,"outcome":"quiet","note":"no row satisfied"}
+{"ts":"2026-06-17T09:00:09Z","row":"weekly-report","outcome":"quiet","note":"cap exhausted (1/1 this week); no lower-priority row satisfied"}
+```
+
+**`row` is NEVER `null` — not even on a quiet tick.** `pulse-cap.py` and every
+per-row analytic (harnessd, `/pulse status`, the dashboard) key on the row
+**name**, so a null-row line is invisible to all of them: the tick happened,
+consumed budget, and cannot be attributed. Always name the row the tick
+**evaluated** — the row whose cap was exhausted or whose `check` failed — even
+though it did not fire. If NOTHING was evaluated (no table rows at all, or a
+fire genuinely outside the routing table), write the literal string
+`"unattributed"`; that is the honest, visible gap marker and the only escape
+hatch. A confabulated row name is worse than `unattributed`, and `null` is
+worse than both. (This example itself taught the bug: 23 null rows across three
+ledgers, 2026-06-14 → 2026-07-08, were copied verbatim from the line that used
+to sit here — `explore-qdo5`.) The mechanical guard is
+`~/dotfiles/agents/scheduler/pulse-ledger-lint.py` — run it against any pulse
+project, it discovers valid row names by parsing that project's `refs/pulse.md`:
+
+```bash
+python3 ~/dotfiles/agents/scheduler/pulse-ledger-lint.py --project "$PULSE_DIR"
+# exit 0 = clean · 1 = violations · 2 = usage/missing file
 ```
 
 Every `done` line MUST carry a **`proof`** token — a machine-verifiable
@@ -77,11 +97,15 @@ boundary. Canonical count (PT project, today's done-fires):
 
 ```bash
 # $PULSE_DIR = the absolute project dir pulse-inject passed (see Tick procedure).
+ROW=weekly-report        # substitute the real row name — never leave a placeholder
 TODAY=$(TZ=America/Los_Angeles date +%F)
-COUNT=$(jq -r 'select(.outcome=="done" and .row=="<row>") | .ts' "$PULSE_DIR/refs/pulse-ledger.jsonl" 2>/dev/null \
+COUNT=$(jq -r --arg row "$ROW" 'select(.outcome=="done" and .row==$row) | .ts' \
+    "$PULSE_DIR/refs/pulse-ledger.jsonl" \
   | while read -r ts; do TZ=America/Los_Angeles date -d "$ts" +%F; done \
   | grep -cx "$TODAY")
-# fire only if COUNT < cap
+# fire only if COUNT < cap.
+# No `2>/dev/null` here on purpose: a missing or unreadable ledger must surface
+# as an error, not collapse to COUNT=0 — which reads as "under cap" and fires.
 ```
 
 **Prefer a mechanical helper over hand-rolling this.** The one-liner above is
@@ -318,6 +342,7 @@ AskUserQuestion is the load-bearing summon.
 
 - Spec + decisions: `cd ~/dotfiles && br show dotfiles-mhn`
 - [scheduler/pulse-inject.sh](../../scheduler/pulse-inject.sh) — the injection primitive (tested)
+- [scheduler/pulse-ledger-lint.py](../../scheduler/pulse-ledger-lint.py) — the ledger attribution gate (`--project <dir>`; row names discovered from that project's `refs/pulse.md`, never hardcoded)
 - [/onboard](../onboard/SKILL.md), [/offboard](../offboard/SKILL.md) — the per-tick brackets
 - [/orchestrator](../orchestrator/SKILL.md), [/scrutinize](../scrutinize/SKILL.md) — the work discipline inside a tick
 - autonovel `/heartbeat` — the parent pattern (retires after migration)
