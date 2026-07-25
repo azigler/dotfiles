@@ -178,7 +178,7 @@ CC_GW_URL="http://100.72.47.4:17017/claude"
 # budget: the gateway forwards anthropic-beta (proven — OAuth subscription passthrough works, which needs that
 # header; context-1m rides the same header), so Anthropic serves past 200k. Evidence: bead dotfiles-w1r notes
 # + ~/explore/agentgateway/refs/{frontier-o11y,capability-map}.md.
-CC_GW_MODEL="claude-opus-4-8[1m]"   # cc-gw pins this via ANTHROPIC_DEFAULT_OPUS_MODEL (survives resume; /model still wins)
+CC_GW_MODEL="claude-opus-5[1m]"   # cc-gw pins this via ANTHROPIC_DEFAULT_OPUS_MODEL (survives resume; /model still wins). Upgraded 4-8[1m]→5[1m] 2026-07-25 (Zig: "all system pulses to opus 5"); opus-5[1m] verified served through the pico gateway.
 
 cc-gw ()
 {
