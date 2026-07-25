@@ -25,6 +25,9 @@ FAILED_NAMES=()
 STUB_DIR=$(mktemp -d)
 cat > "$STUB_DIR/br" <<'STUB'
 #!/bin/bash
+# Record the cwd each invocation actually ran in, so the chained-`cd`
+# target-resolution cases can assert WHICH bead store the gate evaluated.
+[ -n "${BR_PWD_LOG:-}" ] && pwd -P >> "$BR_PWD_LOG"
 case "${1:-}" in
   lint)
     case "${2:-}" in
@@ -209,6 +212,64 @@ run_case "allow: scrutinize-required bead with OVERRIDE verdict" 0 \
 # 22. plain task, no label, no verdict → ALLOW (regression: unlabeled closes stay free)
 run_case "allow: plain task without label or verdict" 0 \
   '{"tool_input":{"command":"br close bd-plainok"},"cwd":"/tmp"}'
+
+# --- Chained `cd` target resolution (dotfiles-b9ii, bug 5) ---------------
+# The hook follows a chained `cd <path>` so the lint/scrutiny gates evaluate
+# the SAME bead store the command will target (bd-8euh). It normalized the
+# scraped path with `tr -d ' '`, which deletes EVERY space — so
+# `cd "/home/me/my project"` became "/home/me/myproject", the directory did
+# not exist, the cd was skipped, and the gate silently graded the bead
+# against whatever store sat at the HOOK's cwd. Observed end result: a
+# well-formed bead blocked with a doubly-wrong message ("incomplete template
+# sections", then "Beads not initialized").
+
+SPACEDIR=$(mktemp -d "$HOME/.pbc target dir.XXXXXX")
+PLAINDIR=$(mktemp -d "$HOME/.pbc-plain.XXXXXX")
+BR_PWD_LOG=$(mktemp)
+export BR_PWD_LOG
+trap 'rm -rf "$STUB_DIR" "$SPACEDIR" "$PLAINDIR" "$BR_PWD_LOG"' EXIT
+
+cd_payload() { # <cd-target-as-written> <bead-id>
+  printf '{"tool_input":{"command":%s},"cwd":"/tmp"}' \
+    "$(printf 'cd %s && br close %s' "$1" "$2" | jq -Rs .)"
+}
+
+assert_ran_in() { # <name> <expected-dir>
+  if grep -qxF "$2" "$BR_PWD_LOG"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    FAILED_NAMES+=("$1 (br never ran in $2; ran in: $(tr '\n' ' ' < "$BR_PWD_LOG"))")
+  fi
+}
+
+# 23. quoted target containing a space → allowed AND evaluated in that dir.
+: > "$BR_PWD_LOG"
+run_case "allow: chained cd into a quoted path with a space" 0 \
+  "$(cd_payload "\"$SPACEDIR\"" bd-ok1)"
+assert_ran_in "chained cd honors a spaced path" "$SPACEDIR"
+
+# 24. single-quoted target containing a space → same.
+: > "$BR_PWD_LOG"
+run_case "allow: chained cd into a single-quoted spaced path" 0 \
+  "$(cd_payload "'$SPACEDIR'" bd-ok2)"
+assert_ran_in "chained cd honors a single-quoted spaced path" "$SPACEDIR"
+
+# 25. an ordinary unquoted path still resolves (the trim must not over-trim).
+: > "$BR_PWD_LOG"
+run_case "allow: chained cd into a plain path" 0 \
+  "$(cd_payload "$PLAINDIR" bd-ok3)"
+assert_ran_in "chained cd honors a plain path" "$PLAINDIR"
+
+# 26. the gate still BLOCKS a bad bead when it follows the cd — the fix must
+#     not have turned the spaced-path case into a free pass.
+: > "$BR_PWD_LOG"
+run_case "block: bogus id still blocks after a spaced cd" 2 \
+  "$(cd_payload "\"$SPACEDIR\"" bd-bogus1)" \
+  "incomplete template sections"
+
+# (BR_PWD_LOG stays exported — the EXIT trap still needs it, and no further
+# cases run. The stub ignores it when unset.)
 
 # --- Summary ---
 
