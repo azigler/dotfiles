@@ -22,7 +22,19 @@ EXIT_CODE=$(echo "$INPUT" | jq -r '.tool_response.exit_code // 0')
 
 command -v br &>/dev/null || exit 0
 
-READY_COUNT=$(br ready 2>/dev/null | grep -cE '^[○●]' || echo 0)
+# `grep -c` PRINTS "0" and EXITS 1 when nothing matches. The old
+# `... | grep -cE '...' || echo 0` therefore appended a SECOND "0" on the
+# no-match path, making READY_COUNT the two-line string "0\n0" — and the
+# `-gt` test below then failed with `[: integer expression expected` on
+# stderr for EVERY `br close` / worktree merge in a repo with no ready
+# beads. Assign first (grep -c always prints a count), then normalize.
+READY_COUNT=$(br ready 2>/dev/null | grep -cE '^[○●]')
+READY_COUNT=${READY_COUNT:-0}
+# Belt-and-braces: never feed a non-integer to `[ -gt ]`. A hint hook must
+# not be able to spray shell errors into the agent's transcript.
+case "$READY_COUNT" in
+  ''|*[!0-9]*) READY_COUNT=0 ;;
+esac
 
 # Threshold: 30 ready beads = backlog needs attention
 if [ "$READY_COUNT" -gt 30 ]; then
