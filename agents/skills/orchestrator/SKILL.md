@@ -58,9 +58,26 @@ cd /home/ubuntu/<project>     # absolute path OR: cd "$(git -C <known> rev-parse
 Then proceed with the merge sequence:
 
 ```bash
-# 1. Merge
-git merge worktree-agent-XXXX --no-edit
-git merge-base --is-ancestor worktree-agent-XXXX HEAD  # safety: abort if not merged
+BRANCH=worktree-agent-XXXX
+TARGET=main          # the branch that must RECEIVE the work
+
+# 1. Merge — assert the target branch FIRST. This is step 0's failure made
+#    mechanical: if the cwd drifted into the worktree, you are on $BRANCH, the
+#    merge no-ops, and `--is-ancestor $BRANCH HEAD` passes because HEAD *is*
+#    $BRANCH. Assert the branch; never infer it from HEAD.
+test "$(git branch --show-current)" = "$TARGET" \
+  || { echo "ABORT: on '$(git branch --show-current)', not '$TARGET' — re-run step 0"; exit 1; }
+
+BEFORE=$(git rev-parse HEAD)
+git merge "$BRANCH" --no-edit || { echo "ABORT: merge failed (conflicts?)"; exit 1; }
+
+#    The guard: $TARGET must have actually MOVED, and must now contain $BRANCH.
+#    The SHA comparison is what catches an agent that committed nothing — a case
+#    the ancestry test passes vacuously.
+test "$(git rev-parse HEAD)" != "$BEFORE" \
+  || { echo "ABORT: $TARGET did not move — the agent committed nothing, or this was already merged"; exit 1; }
+git merge-base --is-ancestor "$BRANCH" "$TARGET" \
+  || { echo "ABORT: $BRANCH is still not in $TARGET"; exit 1; }
 
 # 2. Close bead (orchestrator owns lifecycle)
 br close <bead-id>
@@ -73,9 +90,14 @@ git commit -m ":card_file_box: beads: close <bead-id>"
 # Double --force: the subagent's worktree lock can briefly outlive its
 # final reply (single -f overrides modified files but NOT locks). The
 # work is merged by this point, so forcing past the lock is safe.
-git worktree remove --force --force .claude/worktrees/agent-XXXX
-git branch -D worktree-agent-XXXX
-git push origin --delete worktree-agent-XXXX 2>/dev/null || true
+git worktree remove --force --force ".claude/worktrees/${BRANCH#worktree-}"
+git branch -D "$BRANCH"
+
+# Remote branch: delete only if it exists. A blanket `2>/dev/null || true` hides
+# real auth/network failures and is blocked by the pre-bash-stderr-guard hook.
+if git remote | grep -qx origin && git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+  git push origin --delete "$BRANCH"
+fi
 ```
 
 **Why standalone cd, not `cd && cmd` compound:** the orchestrator's
@@ -408,11 +430,18 @@ base. Cleaning up immediately prevents:
 around between dispatch waves.
 
 ```bash
-# After EVERY successful merge, immediately (double --force — locks
-# can outlive agents):
-git worktree remove --force --force .claude/worktrees/agent-XXXX
-git branch -D worktree-agent-XXXX
-git push origin --delete worktree-agent-XXXX 2>/dev/null || true
+BRANCH=worktree-agent-XXXX
+
+# After EVERY successful merge (the guarded merge above — not "git merge said
+# nothing"), immediately (double --force — locks can outlive agents):
+git worktree remove --force --force ".claude/worktrees/${BRANCH#worktree-}"
+git branch -D "$BRANCH"
+
+# Remote branch: delete only if it exists. A blanket `2>/dev/null || true` hides
+# real auth/network failures and is blocked by the pre-bash-stderr-guard hook.
+if git remote | grep -qx origin && git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+  git push origin --delete "$BRANCH"
+fi
 
 # Verify no stale worktrees remain:
 git worktree list  # should only show main worktree
