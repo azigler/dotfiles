@@ -9,7 +9,8 @@ LOG=${HARNESS_SESSION_START_LOG:-/tmp/session-start-hook.log}
 # Branch/dirty + capped-bead emission is shared with pre-compact.sh
 # (dotfiles-b9ii) — one implementation, so the context cap can't drift
 # between the two hooks that orient an agent.
-CTX_LIB="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/context-emit.sh"
+HOOK_LIB_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib"
+CTX_LIB="$HOOK_LIB_DIR/context-emit.sh"
 if [ -r "$CTX_LIB" ]; then
   # shellcheck source=lib/context-emit.sh
   . "$CTX_LIB"
@@ -28,6 +29,8 @@ fi
 STDIN=$(cat 2>/dev/null || echo '{}')
 HOOK_EVENT=$(echo "$STDIN" | jq -r '.hook_event_name // empty' 2>/dev/null)
 HOOK_CWD=$(echo "$STDIN" | jq -r '.cwd // empty' 2>/dev/null)
+HOOK_SESSION_ID=$(echo "$STDIN" | jq -r '.session_id // empty' 2>/dev/null)
+HOOK_SOURCE=$(echo "$STDIN" | jq -r '.source // empty' 2>/dev/null)
 
 {
   echo ""
@@ -58,6 +61,41 @@ IN_WORKTREE=false
 GIT_TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null || true)
 if [ -f ".git" ] || echo "$GIT_TOPLEVEL" | grep -q '/.claude/worktrees/'; then
   IN_WORKTREE=true
+fi
+
+# --- always-loaded staleness: capture the snapshot fingerprint (explore-6wwu)
+# The always-loaded tier (global CLAUDE.md, the project CLAUDE.md chain,
+# MEMORY.md, skill descriptions) is read from disk ONCE — right about now — and
+# the in-memory copy is what every later request carries. A durable session then
+# runs for hours or days on it while Zig edits the files, with nothing
+# announcing the divergence. Fingerprint the set here so stop-always-loaded-
+# check.sh can name what drifted. Silent + cheap; never blocks anything.
+#
+# NOT captured for worktree subagents: they are short-lived, and Stop does not
+# fire for them, so the manifest would never be read.
+#
+# `source=compact` does NOT re-capture. Compaction rebuilds the CONVERSATION,
+# not the always-loaded snapshot — the files are not re-read from disk — so
+# overwriting here would silently erase real staleness. startup / resume / clear
+# do re-capture (those are the paths where the tier is genuinely re-read).
+if ! $IN_WORKTREE && [ -n "$HOOK_SESSION_ID" ] && [ -r "$HOOK_LIB_DIR/always-loaded.sh" ]; then
+  (
+    # shellcheck source=lib/always-loaded.sh
+    . "$HOOK_LIB_DIR/always-loaded.sh"
+    _AL_DIR="${ALWAYS_LOADED_STATE_DIR:-/tmp/claude-always-loaded}"
+    _AL_MANIFEST="$_AL_DIR/$HOOK_SESSION_ID.manifest"
+    if [ "$HOOK_SOURCE" = "compact" ] && [ -f "$_AL_MANIFEST" ]; then
+      exit 0
+    fi
+    mkdir -p "$_AL_DIR" || exit 0
+    if always_loaded_manifest "${HOOK_CWD:-$(pwd -P)}" > "$_AL_MANIFEST.tmp"; then
+      mv "$_AL_MANIFEST.tmp" "$_AL_MANIFEST"
+      # A fresh snapshot invalidates every prior "already reported" mark.
+      rm -f "$_AL_DIR/$HOOK_SESSION_ID.reported"
+    else
+      rm -f "$_AL_MANIFEST.tmp"
+    fi
+  ) >> "$LOG" 2>&1
 fi
 
 # Layer-2 secret-hygiene alert (explore-r2iq): the session-end scan raises

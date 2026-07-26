@@ -358,6 +358,18 @@ Two verified consequences (bead `dotfiles-6ycc`, tested end-to-end 2026-07-25):
   cleared tick names its row exactly as a warm one does. Verified: three
   consecutive ticks across two `/clear`s, all `"row":"e2e-probe"`.
 
+**If you edit an always-loaded file — any `CLAUDE.md`, a `MEMORY.md`, a skill's
+frontmatter description — the RUNNING windows will not see it until they
+`/clear`.** That tier is read from disk once, at session start; every later
+request carries the in-memory copy. So an edit made to fix a rule does not
+reach the durable sessions still acting on the old rule, and nothing announces
+the mismatch. Since 2026-07-26 the Stop hook `stop-always-loaded-check.sh`
+(decision `explore-0z6r`) fingerprints that tier at session start and names, on
+each Stop, exactly which file drifted and how long ago — it does **not** repair
+anything and does **not** block, because a typo in a `CLAUDE.md` must never be
+able to interrupt a running tick. When you see that warning: `/clear` the
+window, or re-READ the named file before relying on any rule it states.
+
 A loop that clears every tick also **cannot reach the 85% context guard**, so
 for it the human-unblock step below is not a steady-state loop feature.
 
