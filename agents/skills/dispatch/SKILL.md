@@ -66,6 +66,23 @@ Merge target: `<branch>` (NOT main, unless project doesn't use /branch).
 [Reference /handoff Step 4 — the message the orchestrator parses on return]
 ```
 
+### Bead permissions — paste verbatim when the task creates beads
+
+```
+You MAY create beads with their descriptions (`br create -d`), and `br dep add`
+between beads you created. You may NOT change status, ownership, or priority,
+close anything, or modify a bead you did not create.
+
+Gotcha: a `-d` / `--acceptance-criteria` value that STARTS with `- ` is parsed
+by clap as a flag and errors to `--help`. Use `--flag=value` form, or start the
+value with a non-dash character (a `## Heading` line).
+```
+
+Say **`br create -d`**, not "`br create`, then the orchestrator fills it in."
+A bead with a title and no body is a broken handoff (/beads), and
+"create but never update" manufactures them at scale — 18 empty-bodied beads
+in one session before this was written down (`explore-0og4`).
+
 ## Effort — choose it per dispatch (this is where effort is decided)
 
 The session sits at `high` and stays there; **the dispatch is the only
