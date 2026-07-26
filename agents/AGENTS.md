@@ -59,7 +59,7 @@ harness used to quote is from the **Opus 4.7** page, not Opus 5's.)
   fan-out, a multi-tool agentic sub-task), via a Workflow
   `agent(…, {effort:'xhigh'})`.
 - **max** — reserved for genuinely frontier / generative moments:
-  `/elevate`, the exhaustive upfront brainstorm, cross-cutting
+  `/elevate` and `/desk`, the exhaustive upfront brainstorm, cross-cutting
   synthesis, foundational design/spec. Also per-dispatch. Do NOT spray
   it — `max` overthinks structured/mechanical tasks and costs a lot for
   small gains there.
@@ -373,10 +373,13 @@ full body; descriptions below are just the prompt-toolkit summary.
 - `/handoff` — pre-commit handoff verification (subagent → orchestrator)
 - `/grok` — read-only walk of an unfamiliar area before editing
 - `/fix` — fix-and-guard for any identified bug (creates `-t bug` bead + regression test; orchestrators fire autonomously)
-- `/elevate` — max-effort, fresh-eyes re-examination of finished work (the *generative* twin of `/scrutinize`'s critical gate): hunts the novel opportunity / non-obvious connection a baseline-effort pass missed. Runs unpolluted subagents via Workflow `effort:'max'`. Also the **weekly** compendium-sweep (`pulse-elevate.timer`, Fri), which doubles as the explore loop's review touchpoint — it re-reads the week's new explorations and flags any that need Zig's eyes (superseding `/pulse`'s every-5-`done` count nudge for `vibe-explore`, 2026-07-15).
+- `/elevate` — max-effort, fresh-eyes re-examination of **ONE** finished thing (the *generative* twin of `/scrutinize`'s critical gate): hunts the novel opportunity / non-obvious connection a baseline-effort pass missed. Runs unpolluted subagents via Workflow `effort:'max'`. **Targeted only, on demand** — the weekly compendium sweep it used to carry moved to `/desk` (2026-07-26, `explore-369f`).
 - `/triage` — bead-state hygiene (orphans / stale / epic close-eligible)
 - `/housekeeping` — mechanical doc + cross-repo state hygiene (includes a triage sub-pass)
-- `/explore` — multi-source research → Asana compile → optional Zig-voice LinkedIn post + randomize-driven image deliverable. Bridges `/zig-voice` + `/randomize` + `/openrouter` + the Asana fleet proxy in one flow.
+- `/desk` — the research lab's **allocator**: a weekly whole-corpus pass over `~/explore` that emits a ≤1,200-word chief-of-research **resourcing memo** to Zig at `refs/desk/<date>.md` (what to fund, what to stop, what the corpus knows that no single tick can see). Big-context / few-turns by spec (≤20 turns, corpus in ≤4 bulk reads). A destination he walks into, not a report he skims. `pulse-desk.timer`, Fri.
+- `/dive` — the research lab's **executor**: dive ONE lead, bounded, surface and log it. Multi-source research → Asana compile → optional Zig-voice LinkedIn post + randomize-driven image deliverable. Bridges `/zig-voice` + `/randomize` + `/openrouter` + the Asana fleet proxy in one flow. (Renamed from `/explore` 2026-07-26, `explore-mqvu` — the umbrella repo is still `~/explore`.)
+
+  **The rank is grammatical: the allocator is a PLACE, the executor is a TRANSITIVE VERB.** You sit at the desk; you dive a lead. And **"lab" names the INSTITUTION, never a loop** — no loop may be called lab.
 - `/cfp` — conference proposal & paper-submission orchestrator. Bootstraps `~/cfp/<slug>/` with full discipline (beads, CLAUDE.md, refs/, research/), runs the interview-research-draft-critic-submit loop, shepherds post-acceptance (revisions / camera-ready / artifact bundle / arXiv / registration). Includes a peer-reviewed-paper sub-arc for academic venues. Hands off to `/talk` on acceptance.
 
 **Code quality / git:**
