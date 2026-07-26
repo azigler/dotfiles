@@ -168,6 +168,43 @@ else
 fi
 "$TMUX_BIN" kill-session -t "=$SESSION2" 2>/dev/null
 
+# 9. note() is atomic under concurrent writers (dotfiles-0lm3). Two ticks
+#    firing in the same second (pulse-explore + pulse-di-thursday both fire at
+#    13:00 UTC) must not braid into an unparseable record. Assert: every line
+#    matches `<utc-ts> [pid] <text>`, and each writer's lines are recoverable
+#    as a contiguous group by pid — the property a bare flock does NOT give.
+CONC_LOG=$(mktemp -d)/pulse-inject.log
+CONC_SRC=$(mktemp -d)/note.sh
+{
+  echo 'set -uo pipefail'
+  echo "LOG=$CONC_LOG"
+  # extract the real note() implementation from the injector — test the shipped
+  # code, not a copy that can drift.
+  awk '/^note\(\) \{/,/^\}/' "$INJECT"
+  echo 'for i in $(seq 1 200); do note "tick: session=work window=$1 dir=/x cmd=/pulse tick padding-padding-padding-padding-padding-padding-padding-padding-padding-padding-padding-padding-padding-padding-$i"; done'
+} > "$CONC_SRC"
+bash "$CONC_SRC" alpha &
+_p1=$!
+bash "$CONC_SRC" bravo &
+_p2=$!
+wait "$_p1" "$_p2"
+CONC_TOTAL=$(wc -l < "$CONC_LOG")
+CONC_GOOD=$(grep -cE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z \[[0-9]+\] tick: session=work window=(alpha|bravo) .*-[0-9]+$' "$CONC_LOG")
+if [ "$CONC_TOTAL" -eq 400 ] && [ "$CONC_GOOD" -eq 400 ]; then
+  ok
+else
+  bad "concurrent note(): every line parses (total=$CONC_TOTAL parsed=$CONC_GOOD, expected 400/400)"
+fi
+# each writer's 200 lines are individually recoverable by its pid tag
+CONC_PIDS=$(sed -E 's/^[^ ]+ \[([0-9]+)\].*/\1/' "$CONC_LOG" | sort -u | wc -l)
+CONC_PERPID=$(sed -E 's/^[^ ]+ \[([0-9]+)\].*/\1/' "$CONC_LOG" | sort | uniq -c | awk '{print $1}' | sort -u)
+if [ "$CONC_PIDS" -eq 2 ] && [ "$CONC_PERPID" = "200" ]; then
+  ok
+else
+  bad "concurrent note(): records stay attributable per writer (pids=$CONC_PIDS counts=$CONC_PERPID)"
+fi
+rm -rf "$(dirname "$CONC_LOG")" "$(dirname "$CONC_SRC")"
+
 # --- Summary ---
 TOTAL=$((PASS + FAIL))
 if [ "$FAIL" -eq 0 ]; then

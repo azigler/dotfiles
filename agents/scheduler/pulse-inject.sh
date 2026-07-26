@@ -41,8 +41,12 @@
 #   4. Window exists, launch alive  -> cmd sent directly.
 #   5. The window name match is lexicon-aware (✅ pulse == pulse).
 #
-# Logs to /tmp/pulse-inject.log. Exit non-zero on hard failures so the
-# systemd unit records them (journalctl --user -u pulse-*).
+# Logs to /tmp/pulse-inject.log, one line per event, appended under an
+# exclusive flock and tagged with this run's pid so simultaneous ticks
+# (pulse-explore and pulse-di-thursday both fire at 13:00 UTC) stay
+# attributable instead of braiding into an unreadable record — see note().
+# Exit non-zero on hard failures so the systemd unit records them
+# (journalctl --user -u pulse-*).
 
 set -uo pipefail
 
@@ -75,7 +79,37 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-note() { echo "$(date -u +%FT%TZ) $*" >> "$LOG"; }
+# Append one log line ATOMICALLY (dotfiles-0lm3). Two guarantees, both needed:
+#
+#  1. `flock` on the log fd serializes writers, so a line is never torn in half
+#     by a simultaneous tick. (The bare `echo >>` this replaces relied on the
+#     kernel's O_APPEND write being one syscall — true in practice for short
+#     lines, but not a contract, and the `caller:` line carries two 160-char
+#     cmdlines.)
+#  2. The `[pid]` tag makes a RECORD reconstructable. This is the half a plain
+#     flock does NOT fix and the one that actually bit: the observed damage was
+#     never torn lines, it was interleaved *whole* lines — `pulse-explore` and
+#     `pulse-di-thursday` fire at the same second, so their tick/caller/injected
+#     lines braid and a per-tick reader attributes the wrong body to the wrong
+#     header. Nine ticks read as "fired, no row" that way, which is exactly the
+#     condition the stale-loop detector (harnessd-h14z) alerts on — i.e. the
+#     unsynchronized log manufactures false alarms for a detector that has
+#     already been silenced once. Grouping by pid de-braids them.
+#
+# Format stays `<utc-ts> <fields>` with the tag inserted after the timestamp, so
+# existing greps (`grep ' tick: '`, `grep 'launched '`) are unaffected.
+# If `flock` is unavailable the write still goes to the same O_APPEND fd —
+# degraded, never lost.
+#
+# $BASHPID, not $$: bash does NOT update $$ inside a subshell, so two writers
+# forked from one parent would share a tag and re-braid. Production always runs
+# this as its own process (where they agree), but the tag must be right in every
+# caller shape or the de-braiding is silently a no-op. Fallback for non-bash.
+note() {
+  { flock -w 5 9 2>/dev/null
+    printf '%s [%s] %s\n' "$(date -u +%FT%TZ)" "${BASHPID:-$$}" "$*" >&9
+  } 9>>"$LOG"
+}
 
 [ -n "$DIR" ] && [ -n "$CMD" ] || { echo "pulse-inject: --dir and --cmd are required" >&2; exit 64; }
 [ -d "$DIR" ] || { echo "pulse-inject: --dir $DIR does not exist" >&2; note "FAIL: dir missing: $DIR"; exit 66; }
