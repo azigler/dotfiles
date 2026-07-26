@@ -52,9 +52,18 @@ compare it, judge it, *and* write the memo. That is wrong for two
 independent reasons, and only one of them is about cost.
 
 **Pass A — WIDE. Proposes. Never writes.**
-Fresh agent, no history. Loads the corpus in ≤4 bulk reads. Emits **only** a
-structured candidate list — ids, paths, **quoted spans**, ~2k tokens. No
-prose, no memo, no beads, no verdicts. ~6 turns.
+Fresh agent, no history. Loads the corpus in ≤4 bulk reads — **by the mechanism
+in "How Pass A actually loads the corpus" below; do not improvise it.** Emits
+**only** a structured candidate list — ids, paths, **quoted spans**, ~2k tokens.
+No prose, no memo, no beads, no verdicts. ~6 turns.
+
+**The one carve-out from "no prose."** Pass A may also return exactly ONE
+`FIELD DELTA` block of **≤5 lines** — `INDEX.md` clusters that grew, themes that
+accelerated, new convergence points, the A2 cluster cursor. Counts and names
+only, no judgment. It exists because step 7's field-notes layer is **not
+derivable** from a candidate list and Pass B holds no corpus, so without this
+carve-out that layer gets fabricated. Anything longer than 5 lines, or anything
+that reads as a verdict, is Pass A doing Pass B's job — reject it with the rest.
 
 **Pass B — NARROW. Verifies and writes. Never holds the corpus.**
 A **fresh** agent holding **no corpus**. Reads the candidate list and the
@@ -65,11 +74,14 @@ re-reads the quoted span in place, and writes the memo. ~40 turns against a
 **Why the split is forced, not merely permitted:**
 
 - **Cost.** Cache-read = context × turns, the dominant term (`dotfiles-uxj9`).
-  Verifying inside Pass A costs 483k × 40 ≈ **19.3M** — over the spec's 15M
-  gate. Split: (483k × 6) + (40k × 40) ≈ **4.5M** core. *Cheaper and
-  verified.* `refs/warm-session-collapse.md` corroborates: a fresh context
-  costs a median **40,352** tokens of cache-creation; a warm one re-creates a
-  median **478k**. Two fresh contexts beat one long-lived session doing both
+  Verifying inside Pass A costs 483k × 40 ≈ **19.3M**; split, it is
+  (483k × 6) + (40k × 40) ≈ **4.5M** core. **The load-bearing number is the
+  ~4× ratio, not the absolutes** — the spec's `<15M` line (test 14 of
+  `explore-oodx`) is a *stipulated* ceiling with no derivation behind it, so
+  "over the gate" is not an argument, and this bullet does not rest on it.
+  *Cheaper and verified.* `refs/warm-session-collapse.md` corroborates: a
+  fresh context costs a median **40,352** tokens of cache-creation; a warm one
+  re-creates a median **478k**. Two fresh contexts beat one long-lived session doing both
   jobs.
 - **Over-anchoring — the reason that matters more.** `~/explore/CLAUDE.md`
   prohibits loading every bead body precisely because they are dense with the
@@ -166,7 +178,7 @@ max affordable here. Full cost model, weekly vs monthly:
     Pass B     ~40k ctx  × ~40 turns ≈ 1.6M
     refuter    small                 ≈ 0.3M
     ------------------------------------------
-    weekly     ≈ 3.2M        monthly ≈ 6.1M     (spec gate: <15M)
+    weekly     ≈ 3.2M        monthly ≈ 6.1M     (stipulated spec ceiling: <15M)
 
 **Bead context is the one place to be careful.** `br list` (text, titles
 only) is the cheap index — use it freely. **NEVER `br list --json` the
@@ -176,12 +188,58 @@ AND, because every body is dense with the same handful of tie-backs,
 *manufactures* the over-anchoring this loop exists to counter. Titles in;
 bodies (`br show <id>`) only for the beads a real seam actually touches.
 
-Pass A's other bulk inputs (≤4 calls, concatenated — never file-by-file):
-`*/FINDINGS.md`; `refs/desk/<previous>.md` (so you do not re-pitch a program
-he already declined — the golem phantom-backlog failure, memory
+Pass A's other bulk inputs: `refs/desk/<previous>.md` (so you do not re-pitch a
+program he already declined — the golem phantom-backlog failure, memory
 `project_golem_phantom_backlog`; on early runs also the last archived
-`refs/elevate/sweep-*.md`, this loop's pre-rename history); and `git log`
-since the last memo.
+`refs/elevate/sweep-*.md`, this loop's pre-rename history); `refs/desk/axes.md`;
+`refs/desk/signals.md`; and `git log` since the last memo.
+
+### How Pass A actually loads the corpus — do not improvise this
+
+**The obvious way silently fails.** `cat */FINDINGS.md` does NOT deliver the
+corpus: the tool-output cap truncates it to a ~2 KB preview plus a
+persisted-output path, and the result is **success-shaped**. Measured
+2026-07-26: the corpus is **2,210,890 bytes / 23,394 lines**, and a `cat` of just
+*two* findings already returns 31,847 bytes — past the inline cap. A Pass A that
+runs "concatenate the corpus" as a shell pipe receives roughly **0.1% of it** and
+no error.
+
+Nothing downstream can catch that. Pass B holds no corpus *by design*, so the few
+quotes Pass A did emit verify fine; the refuter passes; the ledger proof passes;
+the row logs `done`. That is precisely the silent-failure shape this loop exists
+to surface — occurring inside the loop built to surface it.
+
+**The mechanism that works:**
+
+1. Concatenate to a FILE, so nothing flows through a tool result — and **strip
+   this loop's own prior appends while you do it** (see below):
+   ```bash
+   awk 'FNR==1{skip=0} /^## /{skip = ($0 ~ /^## Novel opportunities \((desk pass|elevate sweep)/)} !skip' \
+     */FINDINGS.md > /tmp/desk-corpus-<date>.md
+   ```
+2. Record the true size: `wc -c < /tmp/desk-corpus-<date>.md`
+3. Read it in ≤4 `Read` calls with explicit `offset`/`limit` (it defaults to 2000
+   lines, so divide the file's actual `wc -l` by four and set the offsets
+   deliberately).
+
+**Why the filter, not a plain `cat`.** Step 8 writes a
+`## Novel opportunities (desk pass <date>)` section into the FINDINGS files, so
+without the filter each pass ingests **its own predecessors' opportunity prose as
+corpus** — measured 2026-07-26: 129 such sections / ~23,300 words already, from
+four prior passes. That is a self-anchoring channel: the loop re-reads what it
+wrote and proposes it back. The filter removes ~168 KB (~7.6%) of the read and,
+more importantly, removes the feedback edge. Human-written
+`## Novel opportunities` sections (no dated pass tag) are **kept** — they are
+corpus.
+
+**The self-check that makes a short read impossible to miss.** Pass A MUST report
+`corpus_bytes_received` alongside its candidate list, and Pass B MUST compare it
+to `wc -c` on the file. A shortfall is a FAILED pass — log `outcome:"blocked"`,
+not `done`, and say so in the memo. §6 logs the number every run.
+
+This is the one observable that converts "Pass B cannot notice what Pass A missed"
+from an *invisible* ceiling into a *visible* one — which is the ground on which
+the architecture accepts that trade at all.
 
 ## Pass B — the narrow verify-and-write pass
 
@@ -192,8 +250,26 @@ register, and `refs/desk/<previous>.md`.
    Re-read the quoted span *in place*. A candidate whose quote does not
    verify is **dropped**, and the drop is noted in the memo footer with a
    count. This is the step that makes citation real rather than decorative.
+
+   **Normalize before comparing — a naive `grep -F` drops GOOD candidates.**
+   The corpus is markdown, so a span quoted as *"the control flow branches on
+   it"* is stored as `the *control flow branches on it*` and a fixed-string
+   match returns 0. Strip `*`, `_` and backticks, collapse whitespace
+   (including newlines), straighten curly quotes, and drop leading/trailing
+   ellipses and trailing `,.;:` — applied **identically** to the quote and the
+   haystack. `bin/verify-quotes.py`'s `normalize()` is the reference
+   implementation; import it rather than re-deriving it. Case is preserved
+   deliberately: a re-cased quote *has* been altered. Skipping this inflates
+   the footer's drop count into noise (`explore-yqtm`: 14 FAILs on
+   `strands-shell`, all false positives).
 2. **Dedup** every surviving candidate against open bead titles *and* the
-   axis register, before anything is written.
+   axis register, before anything is written. **Then verify-first on carried
+   signals:** every §3 item carried in `refs/desk/signals.md` that names a bead
+   gets a `br show <id>` before it is re-emitted — **drop the ones already
+   closed or actioned.** Zig executes §3's proposals *between* memos, so
+   without this check weeks 2–4 re-propose closes he already ran. That is the
+   golem phantom-backlog failure verbatim (`project_golem_phantom_backlog`),
+   whose recorded fix was exactly this verify-first protocol.
 3. **Apply the artifact caps** (below) — they bind before the word cap does.
 4. **Write the memo.**
 
@@ -220,10 +296,16 @@ Urgency, signal, expected return, ROI, honest risk. Not a summary. Assume he
 does not know the premise; explain it from scratch, briefly (memory:
 `pitch-as-partner`, `plain-language-explanations`).
 
-**§1 THE ASK** — always first. 1–3 programs to fund next week. Each with all
-five fields: *what it is | the signal that it's ripe | expected return |
-honest risk | the concrete ask* (a Vibes card? a build? an hour of Zig's
-time?).
+**The heading convention is MANDATORY** — it is what makes the caps machine-
+checkable, and an uncheckable cap is decoration. Exactly these forms, uppercase:
+`## §1 THE ASK`, then one `### ASK n` per program; `## §2 WHAT TO STOP` with one
+`### STOP` per candidate; `### CONNECTION` under §4. The ledger proof greps these
+literals, so a memo that free-styles its headings fails its own gate.
+
+**§1 THE ASK** — always first. 1–3 programs to fund next week, each under its own
+`### ASK n`. Each with all five fields: *what it is | the signal that it's ripe |
+expected return | honest risk | the concrete ask* (a Vibes card? a build? an hour
+of Zig's time?).
 
 **§2 WHAT TO STOP** — MANDATORY, ≥1 candidate to defund / close / table,
 with reasoning. A chief who only proposes new programs is not doing the job.
@@ -236,7 +318,9 @@ correctness gate; hand off, don't improvise. Without this paragraph the
 delegated structural review (`refs/pulse.md`) has no home at all.
 
 **§3 SIGNALS FROM THE FLOOR** — the whole-corpus facts no tick can see.
-Refreshed monthly by a wide pass; carried as a standing register between.
+Refreshed monthly by a wide pass; carried between passes in
+**`refs/desk/signals.md`** — the memo is 1,200-word capped, so without that
+carrier everything §3 pushed below the waterline is unrecoverable in weeks 2–4.
 **All three sub-items are BIDIRECTIONAL:**
 - **contradictions** — two findings that now disagree (cite both paths, quote
   both sides). Resolution is often *"the axis is under-specified,"* not
@@ -343,9 +427,10 @@ in sync.)
   "nothing to build here." Ask *separately* whether a transferable method /
   pattern / primitive dodges the artifact's wall. A wall for the tool is
   rarely a wall for the pattern. (Caught 2026-07-13: reflexive "NO harness
-  build" buried ~3 buildable experiments. The guidance demonstrably did not
-  take — 44 of 128 findings still carry a bare no-build verdict, which is why
-  it is now a standing axis rather than prose.)
+  build" buried ~3 buildable experiments. 44 of 128 findings carry a
+  no-build/no-adopt verdict, phrased ~15 different ways — that is a measure of
+  **presence**, not of miscalibration, and establishing the second is the work.
+  Which is why this is now a standing axis rather than prose.)
 - **The build PROJECTS are tabled — the CONCEPTS are not.** Hermes /
   MUD-golem / local-coding-models are tabled (2026-06-29); the concepts they
   touched (agent-sim, simulation, memory, loops) are **active**. Never write
@@ -357,14 +442,20 @@ in sync.)
    `refs/desk/axes.md` for 28 days) or weekly-delta. Note which in §6.
 2. **Dispatch Pass A** — A1 (axis scan, `effort:'high'`) and A2 (opportunity
    lens, `effort:'max'` via Workflow) in parallel, both fresh. Each returns a
-   **candidate list only**: id / path / quoted span / axis. Reject any Pass A
-   return that contains prose verdicts — that is Pass A doing Pass B's job.
-3. **Pass B** — fresh, corpus-free. Verify every quote in place; drop what
-   does not verify; dedup against open bead titles + the axis register; apply
-   the artifact caps; write §1–§6.
+   **candidate list only**: id / path / quoted span / axis, **plus the one
+   ≤5-line `FIELD DELTA` block** carved out above (step 7's only source).
+   Reject any Pass A return that contains prose verdicts, or a FIELD DELTA that
+   has grown past 5 lines into judgment — that is Pass A doing Pass B's job.
+3. **Pass B** — fresh, corpus-free. Verify every quote in place (normalizing
+   markdown emphasis first); drop what does not verify; dedup against open bead
+   titles + the axis register; `br show` every carried `signals.md` bead and
+   drop the closed ones; apply the artifact caps; write §1–§6.
 4. **Refuter pass** on §1. Record the verdict in the footer.
-5. **Update the axis register.** Add axes that earned entry (≥2 positions),
-   strike resolved ones with the memo date, record the wide-refresh date.
+5. **Update the two registers.** `axes.md`: add axes that earned entry (≥2
+   positions), strike resolved ones with the memo date, record the wide-refresh
+   date. `signals.md`: park §3 items the memo could not fit, strike the ones
+   Zig actioned. Neither register is a place to grow output — both exist so the
+   memo can stay capped.
 6. **File + interlink the beads** — **≤2**, title prefix `desk:`, in the
    umbrella's `.beads/`. **Not Asana.** **Interlink every bead**: name the
    beads/explorations it connects **by id**, and `br dep add` real
@@ -373,13 +464,17 @@ in sync.)
    skipped. Record consciously-rejected candidates in
    `~/explore/refs/vibes-candidates.md`'s **Dropped** table (or the bead
    `close_reason`) so a "no" is durable and not re-derivable forever.
-7. **Append the field delta.** `refs/desk/field-notes.md` (append-only): a
-   short block per pass — which `INDEX.md` clusters GREW, which themes
-   accelerated, new convergence points ("Nth independent instance of X"), and
-   a one-line direction read. After ~4 passes this file IS the emergent trend
-   layer.
-8. **Write opportunities back into the FINDINGS files** — for each
-   exploration examined, append (never rewrite) a dated section:
+7. **Append the field delta.** `refs/desk/field-notes.md` (append-only), written
+   **from Pass A's `FIELD DELTA` block plus a one-line direction read** — do not
+   synthesize it from the candidate list, which cannot support it. Clusters that
+   GREW, themes that accelerated, new convergence points ("Nth independent
+   instance of X"), direction read. After ~4 passes this file IS the emergent
+   trend layer. (It carries four `/elevate`-era passes already — the file moved
+   here from `refs/elevate/` on 2026-07-26 so the trend clock did not restart.)
+8. **Write opportunities back into the FINDINGS files** — **only into the
+   explorations a SURVIVING candidate names**, never "every exploration
+   examined" (Pass A examines the whole corpus; Pass B verified a handful).
+   Append, never rewrite, a dated section:
    ```
    ## Novel opportunities (desk pass YYYY-MM-DD)
    - <opportunity> — <effort> — <risk>[ — <harness/active-arc move, ONLY if genuine>]
@@ -387,18 +482,26 @@ in sync.)
    The harness move is **optional**; a new idea tied to nothing is
    first-class. This is the BACKFILL for the ~40 pre-2026-06-29 explorations
    that predate the required-section rule.
+
+   **This step is the loop's largest durable emission and the artifact caps do
+   not reach it** — measured 2026-07-26, four prior passes wrote ~23,300 words
+   here against a 1,200-word capped memo, i.e. the caps governed under a fifth
+   of what the loop actually emitted. Scoping to surviving candidates is what
+   binds it to the caps. The dated `(desk pass …)` tag is load-bearing: it is
+   what the Pass A corpus filter greps to keep the loop from re-ingesting its
+   own prose. **Never write this section without the dated tag.**
 9. **Append the pulse-ledger row.** `/desk` is a pulse loop, so it MUST leave
    a row (no ledger-less ticks; the dashboard reads it). Append to
    `~/explore/refs/pulse-ledger.jsonl` with `"row":"desk"` and a `kind:cmd`
    proof the commit hook RE-RUNS (bare `artifact` is rejected fleet-wide,
    `explore-len0`):
    ```json
-   {"ts":"<date -u +%FT%TZ>","row":"desk","outcome":"done","proof":{"kind":"cmd","cmd":"D=refs/desk/<date>.md; test $(wc -w < $D) -le 1200 && grep -qF '## §1 THE ASK' $D && grep -qF '## §2 WHAT TO STOP' $D && test $(grep -c '^### ask' $D) -le 3"},"note":"desk pass (wide|delta) — N asks, M beads/E edges; C candidates dropped on quote-verify; reviewed W new explorations (F flagged); field-delta appended"}
+   {"ts":"<date -u +%FT%TZ>","row":"desk","outcome":"done","proof":{"kind":"cmd","cmd":"D=refs/desk/<date>.md; test $(wc -w < $D) -le 1200 && grep -qF '## §1 THE ASK' $D && grep -qF '## §2 WHAT TO STOP' $D && test $(grep -c '^### ASK ' $D) -le 3 && test $(grep -c '^### ASK ' $D) -ge 1 && test $(grep -c '^### STOP' $D) -le 1 && test $(grep -c '^### STOP' $D) -ge 1 && test $(grep -c '^### CONNECTION' $D) -le 1 && test $(git diff HEAD~1 -- .beads/issues.jsonl | grep -c '\"title\":\"desk:') -le 2"},"note":"desk pass (wide|delta) — N asks, M beads/E edges; C candidates dropped on quote-verify; corpus_bytes N of M; reviewed W new explorations (F flagged); field-delta appended"}
    ```
    A pass that found nothing new logs `"outcome":"quiet"` (no proof needed) —
    but see the empty-week rule below: "nothing to report" is a failure, not a
    quiet tick.
-10. **Deliver.** Commit + push the memo, axes, field-notes, beads, ledger, and
+10. **Deliver.** Commit + push the memo, axes, signals, field-notes, beads, ledger, and
     any touched FINDINGS. Then `PushNotification` naming the **top ask + the
     file PATH** (Zig is on SSH+tmux — no clickable links, no file-send). On
     *"Mobile push not sent (Remote Control inactive)"* the push did NOT reach
@@ -443,9 +546,9 @@ autonomously.
 
 ## Anti-patterns
 
-- ❌ **One context that loads, judges, AND writes** — 19.3M, over the gate,
-  and the writer anchors to what it read. This is the design that was
-  rejected on review; do not quietly restore it.
+- ❌ **One context that loads, judges, AND writes** — ~4× the cache-read, and
+  the writer anchors to what it read. This is the design that was rejected on
+  review; do not quietly restore it.
 - ❌ **A Pass A that returns verdicts or prose** — Pass A proposes candidates
   with quoted spans. Judgment is Pass B's job, after verification.
 - ❌ **A Pass B that opens the corpus** — the moment it does, the
@@ -462,7 +565,15 @@ autonomously.
 - ❌ **Uncited claims, or claiming enumeration over a sample** — a bad pitch
   spends trust that costs more than a missed opportunity.
 - ❌ **Migrating the old `elevate` ledger rows** — archived history, left
-  alone.
+  alone. (Scoped to **ledger rows**. `refs/desk/field-notes.md` was correctly
+  moved out of `refs/elevate/` — the trend layer is live state, not history.)
+- ❌ **Filling a seeded axis in from the design review** — quoting the worked
+  pair into `axes.md` hands Pass A the answer and **spends the regression
+  control** that exists to prove a body-level read was necessary. A grep-only
+  design then "passes." Leave seeded axes as questions.
+- ❌ **A step-8 append with no dated `(desk pass …)` tag, or one written for
+  every exploration examined** — the first re-enters the corpus as anchor
+  fodder; the second is the uncapped emission channel.
 - ❌ **Output onto Asana** — beads + the memo + a push, never the Vibes board
   (the fleet proxy has no section-add route anyway).
 
@@ -470,8 +581,11 @@ autonomously.
 
 - `refs/lab-open-questions.md` — the review that produced this design, the
   three amendments, and the seven OQ decisions (bead `explore-oodx`)
-- `refs/desk/axes.md` — the axis register; `refs/desk/controls.md` — frozen
-  regression controls
+- `refs/desk/axes.md` — the axis register (seeded axes carry questions only);
+  `refs/desk/signals.md` — the §3 standing carrier;
+  `refs/desk/field-notes.md` — the append-only cross-pass trend layer (moved
+  from `refs/elevate/` 2026-07-26, history preserved);
+  `refs/desk/controls.md` — frozen regression controls, **not a Pass A input**
 - `/dive` — the executor this desk allocates to
 - `/elevate` — max-effort fresh eyes on ONE finished thing; its technique is
   what Pass A's A2 lens dispatches
