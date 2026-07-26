@@ -308,6 +308,45 @@ run_case "block: br close inside a command substitution still blocks" 2 \
 run_case "allow: br close named in a trailing comment" 0 \
   "$(skel_payload 'git status   # the orchestrator will br close bd-x1 later')"
 
+# --- Lint gate: named-vs-accepted field (explore-yfn4) --------------------
+#
+# The block reads `Missing: ## Acceptance Criteria`, which names a field `br`
+# ALSO exposes as `--acceptance-criteria`. Verified against br 0.2.16: `br lint`
+# reads the --description BODY ONLY. A bead with the --acceptance-criteria field
+# populated still fails the lint; a bead whose --description contains the
+# literal `## Acceptance Criteria` heading passes. (--notes and --design do not
+# satisfy it either — the originally-reported `--notes` claim does NOT
+# reproduce.) The gate is right; its remediation text was pointing at three
+# flags, two of which cannot clear it.
+
+# 31. the block message names the field that actually clears the lint.
+run_case "block message points at --description, not the AC field" 2 \
+  '{"tool_input":{"command":"br close bd-bogus"},"cwd":"/tmp"}' \
+  "reads the --description body ONLY"
+
+run_case "block message says the AC field does not clear it" 2 \
+  '{"tool_input":{"command":"br close bd-bogus"},"cwd":"/tmp"}' \
+  "does NOT clear it"
+
+# 32. the chained-update skip fires for --description (the flag that can
+#     actually satisfy the lint) — the dotfiles-90s clunk fix, unchanged.
+run_case "allow: chained --description update skips the lint gate" 0 \
+  '{"tool_input":{"command":"br update bd-bogus --description \"## Acceptance Criteria\" && br close bd-bogus"},"cwd":"/tmp"}'
+
+# 33. …and NOT for --acceptance-criteria / --design, which cannot. Chaining
+#     either used to buy a free close on a bead that still fails lint.
+run_case "block: chained --acceptance-criteria does not skip the gate" 2 \
+  '{"tool_input":{"command":"br update bd-bogus --acceptance-criteria=\" - [ ] x\" && br close bd-bogus"},"cwd":"/tmp"}' \
+  "incomplete template sections"
+
+run_case "block: chained --design does not skip the gate" 2 \
+  '{"tool_input":{"command":"br update bd-bogus --design \"sketch\" && br close bd-bogus"},"cwd":"/tmp"}' \
+  "incomplete template sections"
+
+run_case "block: chained --notes does not skip the gate" 2 \
+  '{"tool_input":{"command":"br update bd-bogus --notes \"log\" && br close bd-bogus"},"cwd":"/tmp"}' \
+  "incomplete template sections"
+
 # --- Summary ---
 
 TOTAL=$((PASS + FAIL))

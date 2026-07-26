@@ -68,7 +68,7 @@ the `--description` field is sloppy — split them properly:
 | `--title` | One-line subject (`scope: action`) | At create |
 | `--description` / `--body` | The "what + why" (context + task framing) | At create + as scope evolves |
 | `--design` | Design notes — interfaces, data structures, algorithm sketches | When design decisions are made |
-| `--acceptance-criteria` / `--acceptance` | Concrete pass/fail bullets the next agent verifies | At create OR after `/check` |
+| `--acceptance-criteria` / `--acceptance` | Concrete pass/fail bullets the next agent verifies. **Caveat**: `br lint` reads the `--description` body ONLY (verified br 0.2.16), so this field does NOT clear a `Missing: ## Acceptance Criteria` warning or the `br close` gate — put the literal `## Acceptance Criteria` heading in the description too. | At create OR after `/check` |
 | `--notes` | Append-only-by-convention working log — investigation notes, links, partial findings. **Caveat**: `br update --notes <text>` is REPLACE-only (verified br 0.2.5 → 0.2.15, behavior unchanged) — to "append" you must read the existing notes first and re-submit the full body. See `/check` SKILL Step 3 for the read-then-rewrite pattern (bead bd-otl8); `test/test-notes-replace-behavior.sh` guards this claim against `br`-version drift. | Any time during work |
 | `--external-ref` | Link to Asana / Linear / Jira / Slack thread | When relevant |
 | `--parent` | Parent bead ID (for epic-style parent/child) | At create or via update |
