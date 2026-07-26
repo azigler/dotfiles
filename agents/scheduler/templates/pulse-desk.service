@@ -1,0 +1,22 @@
+# Pulse tick: `/desk` — the explore lab's ALLOCATOR. A weekly whole-corpus pass
+# that writes a <=1,200-word chief-of-research resourcing memo to
+# ~/explore/refs/desk/<date>.md, files `desk:` beads, and push-notifies the top
+# ask + the PATH. It never touches Asana. Successor to pulse-elevate.service
+# (rename 2026-07-26, explore-mqvu).
+#
+# The memo is a DESTINATION Zig walks into after the tick has ended (explore-b47q),
+# so the artifact on disk — not the tick's transcript — is the deliverable.
+#
+# tmux WINDOW IS DELIBERATELY UNCHANGED (`elevate`). Zig sits in these windows;
+# renaming one is a separate, Zig-gated step (explore-b47q item 1). If/when the
+# window is renamed `desk`, change `--window elevate` below AND the identity key
+# in ~/explore/.claude/identity.yml AND expect the per-window handoff file to move
+# from refs/session-handoff--elevate.md to refs/session-handoff--desk.md.
+#
+# Inspect runs: journalctl --user -u pulse-desk.service -n 20
+[Unit]
+Description=Pulse tick: weekly /desk pass (explore lab resourcing memo)
+
+[Service]
+Type=oneshot
+ExecStart=%h/dotfiles/agents/scheduler/pulse-inject.sh --loop %p --dir /home/ubuntu/explore --session work --window elevate --cmd "/desk /home/ubuntu/explore"

@@ -47,6 +47,14 @@ sqlite3 3.46, **duckdb v1.5.4** (`~/.local/bin/duckdb`, installed 2026-06-27).
 `pulse-weekly-report`, `pulse-elevate`, `hermes-watchdog`, `andrewzigler3-build`
 (daily 03:00). `systemctl --user list-timers`.
 
+⏳ **Pending rename (NOT yet installed, 2026-07-26 — `explore-mqvu`).** The two
+explore loops were renamed at the *skill* layer: `/explore` → `/dive` and the
+`/elevate` weekly sweep → `/desk`. Unit files for the new names are prepared but
+**uninstalled** at `agents/scheduler/templates/pulse-{dive,desk}.{timer,service}`
+— installing them is a LIVE pulse-schedule change and needs Zig's confirmation
+(`dotfiles-q702`). Until then `pulse-explore` / `pulse-elevate` remain the live
+timers under their old names.
+
 **Timer-rename gotcha:** rename a timer's stamp/unit with `mv` (not
 recreate) — `mv` preserves mtime, so the renamed timer inherits its
 run-history and won't fire a phantom catch-up tick on next activation.

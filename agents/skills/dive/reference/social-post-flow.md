@@ -1,11 +1,11 @@
-# /explore — Social post deliverable pipeline
+# /dive — Social post deliverable pipeline
 
-When /explore is run in deliverable mode (user says "make a post about
+When /dive is run in deliverable mode (user says "make a post about
 it", "do the same treatment", "put this on a subtask"), this is the
 4-step pipeline.
 
 The deliverable is a Zig-voice LinkedIn-ready post AS A PLAINTEXT COMMENT
-on a new SUBTASK under the parent /explore task, with a randomize-driven
+on a new SUBTASK under the parent /dive task, with a randomize-driven
 SPECIFIC-SUBJECT image as an ATTACHMENT.
 
 "Surprise me" is the underpinning. The user should not be able to predict
@@ -34,7 +34,7 @@ should read like a professional handoff.
 
 ## Pipeline overview
 
-1. Create subtask (POST `/api/asana/tasks` w/ `parent` = parent /explore task GID)
+1. Create subtask (POST `/api/asana/tasks` w/ `parent` = parent /dive task GID)
 2. Draft the post in /zig-voice (builder devlog or interview field notes typically)
 3. randomize-roll the image axes, generate image via /openrouter
 4. Attach image (multipart) + post the post as a plaintext comment
@@ -76,7 +76,7 @@ on by accident.
 
 - **Builder devlog** (~200-300 words): u tinkered w/ X, here's what
   worked. In-progress warmth, contradiction or scene opener, specific
-  protocol details, resource stack at the bottom. **Default for /explore
+  protocol details, resource stack at the bottom. **Default for /dive
   posts** unless the topic demands different.
 - **Interview field notes** (~250-350 words): u talked to someone, here
   are the rule-bullets. Time marker + scene + compressed credential
@@ -116,7 +116,7 @@ Hard avoid:
 
 ### Post-as-series discipline
 
-When /explore creates multiple posts that pair (this session: Mycroft +
+When /dive creates multiple posts that pair (this session: Mycroft +
 Open Models built on each other), the LATER posts should reference the
 EARLIER posts in their opener. The thread should be visible to anyone
 who reads them in order. Concrete example:
@@ -129,7 +129,7 @@ THIS IS THE LOAD-BEARING STEP. Past /explore-style sessions have produced
 abstract/simple images (neural networks, glowing brains, text bubbles)
 which is exactly the AI-slop imagery the user rejects.
 
-### The canonical randomize axes for /explore images
+### The canonical randomize axes for /dive images
 
 Always roll these 6 axes. Generate `openssl rand -hex 12` (24 hex chars
 = 6 distinct 4-char slices = 6 axes). Compute integer + modulo for each

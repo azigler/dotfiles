@@ -1,5 +1,5 @@
 ---
-description: Orchestrator-side research harness. Codifies the workflow for layering findings + theories + experiments autonomously on an open-ended technical arc, without the user having to prompt each next step. Bootstraps a `refs/research/` archive, dispatches parallel general-purpose research subagents per gotcha/question, empirically verifies their claims, folds findings into beads + GUARDRAILS + cross-arc docs, and pushes material results to the user via notification + file-send. Distinct from /grok (in-repo code reading), /explore (external multi-source compile to Asana), /spec (writing new specs), /check (OQ resolution).
+description: Orchestrator-side research harness. Codifies the workflow for layering findings + theories + experiments autonomously on an open-ended technical arc, without the user having to prompt each next step. Bootstraps a `refs/research/` archive, dispatches parallel general-purpose research subagents per gotcha/question, empirically verifies their claims, folds findings into beads + GUARDRAILS + cross-arc docs, and pushes material results to the user via notification + file-send. Distinct from /grok (in-repo code reading), /dive (external multi-source compile to Asana), /spec (writing new specs), /check (OQ resolution).
 when_to_use: User says "research X", "look into Y", "explore the lay of the land for Z", "what's the state of the art on W", "find me a fix for this gotcha", "keep going" / "stay autonomous" on a research-heavy arc. Also fire PROACTIVELY when (a) you hit an operational blocker that probably has a known upstream fix, (b) the project enters a new substrate / library / framework you haven't characterized, (c) you suspect a finding might be wrong and want a second opinion, (d) you're between user prompts on a multi-iter autonomous loop and need to decide what to do next.
 argument-hint: "<topic> [follow-up: <specific question>]"
 ---
@@ -16,12 +16,12 @@ This skill captures the workflow that's emerged from doing exactly
 that — codifying it so future sessions don't have to re-derive the
 disciplines, the failure modes, or the layering pattern.
 
-## Mental model: goals + iterations (vs /explore's compile + publish)
+## Mental model: goals + iterations (vs /dive's compile + publish)
 
-`/research` and `/explore` look superficially similar (both fetch
+`/research` and `/dive` look superficially similar (both fetch
 sources, both produce reports) but the **shapes are different**:
 
-- `/explore` is **compile + publish**: user hands you a list of URLs +
+- `/dive` is **compile + publish**: user hands you a list of URLs +
   an Asana destination; you fetch all, synthesize a single artifact,
   ship to Asana, optionally to LinkedIn. **One pass. One deliverable.**
 
@@ -71,7 +71,7 @@ multi-day research arc from becoming a wandering brain-walk.
 technical investigation**: take an open-ended question or a complex
 arc, set explicit goals, walk each through dispatch → verify →
 scrutinize → fold → layer without losing the thread. Distinct from
-in-repo grok (`/grok`), multi-source compile to Asana (`/explore`),
+in-repo grok (`/grok`), multi-source compile to Asana (`/dive`),
 formal spec writing (`/spec`), or OQ resolution (`/check`). Those are
 scoped phases; `/research` is the umbrella discipline you operate
 inside.
@@ -107,7 +107,7 @@ finding gets a `REVISED` callout, not a quiet edit).
 | Want | Skill |
 |---|---|
 | In-repo code reading before editing | `/grok` |
-| Multi-source compile + Asana + LinkedIn post | `/explore` |
+| Multi-source compile + Asana + LinkedIn post | `/dive` |
 | Write a new formal specification | `/spec` |
 | Walk decisions on a spec's open questions | `/check` |
 | Adversarial pre-impl plan critique | `/scrutinize` |

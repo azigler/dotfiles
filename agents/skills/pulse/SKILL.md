@@ -117,7 +117,7 @@ final tick as cap-exhausted**. If the project ships a cap helper, call it
 instead — `~/explore/bin/pulse-cap.py` is the reference implementation
 (`--row <row> --cap <n>`; exit 0 = under cap, exit 1 = skip; `--selftest`
 carries the boundary regression). Diagnosed 2026-07-23 (Zig) on the explore
-`vibe-explore` loop.
+`dive` loop (then named `vibe-explore`).
 
 Working ticks commit the ledger with their work; blocked ticks commit
 it alongside the `human:` bead (audit trail); quiet ticks leave it
@@ -198,8 +198,8 @@ the daily cap.)
    (when he *is* the review). So **a loop MAY delegate this review to a
    better-keyed mechanism** by declaring it in its `refs/pulse.md`; a tick
    whose row is so delegated **skips the count nudge entirely**. The
-   canonical example: `~/explore` delegates the `vibe-explore` review to the
-   **weekly `/elevate` sweep** (Fri), which re-reads the week's finished work
+   canonical example: `~/explore` delegates the `dive` review to the
+   **weekly `/desk` pass** (Fri), which re-reads the week's finished work
    anyway and can key the review off *signal* (an output that drifted /
    overclaimed / recommends a build) rather than a tally — see the explore
    pulse table. Prefer a signal- or absence-keyed review to the count where

@@ -1,0 +1,28 @@
+# Timer: the explore lab's EXECUTOR loop (`/dive`), 4x/day every 6h at
+# 00:00/06:00/12:00/18:00 America/Los_Angeles. Successor to `pulse-explore.timer`
+# (rename decision 2026-07-26, bead explore-mqvu). Schedule is IDENTICAL to the
+# timer it replaces — this is a rename, not a cadence change.
+#
+# NOT INSTALLED. Installing it is a LIVE pulse-schedule change and needs Zig's
+# confirmation (dotfiles-q702). Install sequence, in this order:
+#   1. land the /dive skill + the explore refs/pulse.md `dive` row FIRST
+#      (a tick that reads the new row but can't find /dive is a broken tick)
+#   2. systemctl --user disable --now pulse-explore.timer
+#   3. mv the stamp so the renamed timer inherits its run history and does NOT
+#      fire a phantom catch-up tick (agents/infra.md "Timer-rename gotcha"):
+#      mv ~/.local/share/systemd/timers/stamp-pulse-explore.timer \
+#         ~/.local/share/systemd/timers/stamp-pulse-dive.timer
+#   4. install these two units, `systemctl --user daemon-reload`,
+#      `systemctl --user enable --now pulse-dive.timer`
+#   5. verify: systemd-analyze calendar '*-*-* 00,06,12,18:00:00 America/Los_Angeles'
+[Unit]
+Description=Pulse timer: dive (explore lab executor — Vibes research tick)
+
+[Timer]
+# Every 6 hours: 00:00, 06:00, 12:00, 18:00 PT (4 fires/day).
+OnCalendar=*-*-* 00,06,12,18:00:00 America/Los_Angeles
+# Fire on next boot if the machine slept through a window:
+Persistent=true
+
+[Install]
+WantedBy=timers.target

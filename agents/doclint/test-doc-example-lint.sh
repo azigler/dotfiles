@@ -241,7 +241,7 @@ INNER
 ```
 
 ```json
-{"ts":"2026-07-25T01:21:32Z","row":"vibe-explore","outcome":"done"}
+{"ts":"2026-07-25T01:21:32Z","row":"dive","outcome":"done"}
 ```
 
 Placeholders and elisions are normal in docs:

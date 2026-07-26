@@ -37,9 +37,16 @@ WHAT IT ASSERTS, per non-blank line:
   column of the markdown table in ``refs/pulse.md``). Row names are never
   hardcoded here: ``refs/pulse.md`` is Zig's steering wheel and this gate reads
   it rather than duplicating it. ``--allow`` extends the set for rows declared
-  in ANOTHER project's table or skill — notably ``elevate``, whose weekly sweep
-  writes to this ledger but is declared in the global ``/elevate`` SKILL, not in
-  explore's own table;
+  in ANOTHER project's table or skill.
+
+  RETIRED ROWS: a ledger is append-only history, so a renamed loop leaves its
+  OLD row name behind forever (``~/explore``'s ``vibe-explore`` -> ``dive`` and
+  ``elevate`` -> ``desk``, 2026-07-26, ``explore-mqvu``/``explore-b47q``). Those
+  rows are archived history and must NOT be rewritten — they key the historical
+  cap counters. Declare them in an **"Archived rows"** table in the project's
+  ``refs/pulse.md`` (any markdown table with a ``name`` column contributes row
+  names, so an archive table Just Works and keeps the declaration in Zig's
+  steering wheel rather than hardcoded here);
 * ``outcome`` is one of ``done`` / ``quiet`` / ``blocked``.
 
   Why exactly those three: they are the values the fleet actually uses (a census
@@ -63,7 +70,7 @@ Usage::
     LINT=~/dotfiles/agents/scheduler/pulse-ledger-lint.py
 
     python3 "$LINT"                                  # lints ./refs/* (cwd)
-    python3 "$LINT" --project ~/explore --allow elevate
+    python3 "$LINT" --project ~/explore
     python3 "$LINT" --ledger /abs/pulse-ledger.jsonl --json
     python3 "$LINT" --routing refs/pulse.md --routing other.md
     python3 "$LINT" --selftest                       # regression fixtures

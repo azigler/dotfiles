@@ -1,16 +1,27 @@
 ---
-description: Multi-source research-and-compile workflow. Given a list of URLs and an Asana task, fetches everything in parallel, synthesizes a structured plaintext report into the task description. Two output shapes — **archival** (creates a `~/explore/<topic>/` folder under the explore umbrella for the compendium) or **publishing** (creates a subtask with a Zig-voice LinkedIn-ready post + randomize-driven image attachment). Bridges /zig-voice + /randomize + /openrouter + the Asana fleet proxy in one canonical flow. Distinct from /grok (in-repo code reading) — /explore is for external-topic research.
-when_to_use: User says "explore [topic / list of URLs]", "research these and put it on Asana", "look into [N URLs] and tell me what to learn", "do the same treatment for [task]". Anytime the user hands over multiple sources and an Asana destination.
+description: The EXECUTOR loop of the research lab — dive ONE lead, bounded, surface and log it. Multi-source research-and-compile: given a list of URLs and an Asana task, fetches everything in parallel and synthesizes a structured plaintext report into the task description. Two output shapes — **archival** (creates a `~/explore/<topic>/` folder under the explore umbrella for the compendium) or **publishing** (creates a subtask with a Zig-voice LinkedIn-ready post + randomize-driven image attachment). Bridges /zig-voice + /randomize + /openrouter + the Asana fleet proxy in one canonical flow. Distinct from /grok (in-repo code reading) — /dive is for external-topic research; distinct from /desk, which ALLOCATES rather than executes.
+when_to_use: User says "dive [topic / list of URLs]", "explore [topic]", "research these and put it on Asana", "look into [N URLs] and tell me what to learn", "do the same treatment for [task]"; or the `dive` pulse row fires. Anytime the user hands over multiple sources and an Asana destination.
 argument-hint: "<asana-task-gid> <url> [<url> ...]"
 allowed-tools: Bash(curl *) Bash(jq *) Bash(python3 *) Bash(openssl rand *) Bash(file *) Bash(/home/ubuntu/dotfiles/agents/skills/openrouter/*) WebFetch
 ---
 
-# /explore — Multi-source research + Asana compile + optional post deliverable
+# /dive — Multi-source research + Asana compile + optional post deliverable
 
-The pattern this session has been running. Codifies it so future sessions
-don't drift, especially around the Asana plaintext discipline, the image
-generation that has to stay specific (not abstract), and the cross-skill
-bridges to /zig-voice + /randomize + /openrouter.
+**`/dive` is the lab's EXECUTOR.** `/desk` allocates — it decides what is
+worth funding; `/dive` executes — it digs into ONE lead. The verb is
+transitive and **bounded**: you dive a lead, you *surface*, and you log
+what you found. That boundedness is the time-box discipline, encoded in the
+name rather than argued for in prose. A dive that never surfaces is the
+failure mode; see `.claude/practices.md` "Time-box the exploration anyway."
+
+(Renamed from `/explore` on 2026-07-26 — bead `explore-mqvu`. The umbrella
+repo is still `~/explore`, and an entry in it is still an *exploration*;
+only the LOOP took the new name. "Lab" names the institution, never a loop.)
+
+Codifies the pattern so future sessions don't drift, especially around the
+Asana plaintext discipline, the image generation that has to stay specific
+(not abstract), and the cross-skill bridges to /zig-voice + /randomize +
+/openrouter.
 
 ## CRITICAL: voice scope per output
 
@@ -84,8 +95,8 @@ opportunity has to cash out as "a move for LinearB / the harness / a live `~/`
 arc," the ideation collapses to the modal tie-back and the genuinely new idea
 never gets said. So the ideation agent ranges across **all** of the following
 with **no default ranking** — explicitly do not privilege the active-arc one.
-It mirrors the same steer in `/elevate` ("Where to apply the upside"); keep the
-two in sync.
+It mirrors the same steer in `/desk` and `/elevate` ("Where the upside can land");
+keep all three in sync.
 
 - **An entirely NEW idea.** Net-new — a thing worth building or exploring that
   this finding *sparked*, tied to nothing already here. Novelty is a
@@ -94,7 +105,7 @@ two in sync.
 - **An interlink that forms a deeper context.** Connect the finding to *another
   exploration* (the Step 3.5 siblings / `Related explorations`) **and to
   open-ended beads** — proposed-but-not-done ideas in `br` (`explore:` /
-  `elevate:` / `human:` threads). Two half-ideas that meet become one bigger
+  `desk:` / legacy `elevate:` / `human:` threads). Two half-ideas that meet become one bigger
   opportunity; a finding that hands an open bead its missing piece is worth more
   than either alone. Interlinking the compendium into deeper contexts is the
   whole reason it lives in one place — hunt these **actively**, not just the
@@ -174,11 +185,11 @@ When the task is to bring an intriguing topic into this compendium (recent examp
 1. Run Steps 1-3 (verify Asana, fetch URLs) and write each source's capture to `refs/<source-slug>.md` (one per primary source). **Capture the real source text VERBATIM by default** under fair use — the captures are the durable evidence base *and* what `bin/verify-quotes.py` greps every FINDINGS quote against, so a paraphrased capture silently defeats quote-verification (the archive's durability claim fails the day the live page moves). Fall back to an *extract* only for enormous sources, and flag such a file with a first-line header `capture: extract` plus the capture-date + source URL — that marker tells `verify-quotes.py` to downgrade its no-hits to warnings instead of false-failing. These captures are the raw material.
 2. **Generative pass — dispatch a fresh, blank-context subagent** (`/dispatch`). Hand it: the topic + the `refs/` captures + a **specifically-tuned prompt** — *"what IS this, why is it interesting, what resonates, what would you innovate on — **on its own terms**; lead with curiosity."* Run it at **`max`** for the divergent ideation. **Do NOT give it the compendium prose** — marinating a fresh take in ~100 prior FINDINGS' house-style is exactly what over-rotates it to the modal harness tie-back (the qertaasi failure). Its return **is** the FINDINGS body + the `Novel opportunities`.
 3. **Connective pass — orchestrator, AFTER the take exists, via CLEAN essences only.** *Now* consult the compendium for links: read `CHILDREN.md` / `INDEX.md` **essences** (the clean connection map), **not** the verbose FINDINGS bodies. Add the `Related explorations` links + any genuine cross-interlinks. This is the zettelkasten step — it connects the take without re-styling it.
-4. **Assemble `FINDINGS.md`** = the subagent's take (body + `Novel opportunities`) + the connective `Related explorations` + the frontmatter. Write the `what:` yourself here (orchestrator step — this is where the gitflow tick's bloat slipped through): a **tight 1–2 sentence hook** — what it is + why it's interesting — **never** an abstract, **never** a forced harness tie-back (see `.exploration-meta/README.md` "The `what:` discipline"). A harness/active-arc note in the *body* is conditional the same way: include only when genuine; otherwise "no harness tie-back — interesting on its own terms," never manufactured. Then run `python3 bin/verify-quotes.py <topic>` and fix any FAIL (a quoted span with no match in the `refs/` captures) *before* the scrutiny gate and commit — this cheap local grep is what lets the mandatory `/scrutinize` pass spend its effort on interpretation and premise instead of re-fetching sources to string-match quotes. Finally, run that mandatory `/scrutinize` pass (a fresh, read-only adversarial reviewer on the corpus / method / interpretation — the explore CLAUDE.md scrutiny gate) and append its verdict as a durable block at the END of `FINDINGS.md`: `## Scrutiny — <date>: Verdict: <SHIP | FIX-FIRST → addressed → SHIP | REJECT>` + a one-line rationale. For a `vibe-explore` tick this block IS the machine-checkable **done-proof** the commit gate greps for (`grep -q '## Scrutiny' <topic>/FINDINGS.md`, see `refs/pulse.md` → "Done-proof") — a `done` committed without it is BLOCKED by `pre-commit-checks.sh`. This is the `explore-len0` fix: the mandated adversarial pass now leaves a trace future-you can check, instead of vanishing into the transcript.
+4. **Assemble `FINDINGS.md`** = the subagent's take (body + `Novel opportunities`) + the connective `Related explorations` + the frontmatter. Write the `what:` yourself here (orchestrator step — this is where the gitflow tick's bloat slipped through): a **tight 1–2 sentence hook** — what it is + why it's interesting — **never** an abstract, **never** a forced harness tie-back (see `.exploration-meta/README.md` "The `what:` discipline"). A harness/active-arc note in the *body* is conditional the same way: include only when genuine; otherwise "no harness tie-back — interesting on its own terms," never manufactured. Then run `python3 bin/verify-quotes.py <topic>` and fix any FAIL (a quoted span with no match in the `refs/` captures) *before* the scrutiny gate and commit — this cheap local grep is what lets the mandatory `/scrutinize` pass spend its effort on interpretation and premise instead of re-fetching sources to string-match quotes. Finally, run that mandatory `/scrutinize` pass (a fresh, read-only adversarial reviewer on the corpus / method / interpretation — the explore CLAUDE.md scrutiny gate) and append its verdict as a durable block at the END of `FINDINGS.md`: `## Scrutiny — <date>: Verdict: <SHIP | FIX-FIRST → addressed → SHIP | REJECT>` + a one-line rationale. For a `dive` tick this block IS the machine-checkable **done-proof** the commit gate greps for (`grep -q '## Scrutiny' <topic>/FINDINGS.md`, see `refs/pulse.md` → "Done-proof") — a `done` committed without it is BLOCKED by `pre-commit-checks.sh`. This is the `explore-len0` fix: the mandated adversarial pass now leaves a trace future-you can check, instead of vanishing into the transcript.
 5. Write `CLAUDE.md` as the orientation file pointing future-agents at the structure.
 6. Run Step 5 (POST to Asana) — mirror the FINDINGS.md content, **end with the back-pointer** `Archived: ~/explore/<topic>/ (FINDINGS.md)` so review can jump from the card to the brain.
 7. Commit the folder: `git add <topic> && git commit -m ":seedling: explore: <topic> — <one-line theme>"`.
-8. If `Novel opportunities` surfaced a "build/explore X" worth queueing, see the **loop-seam** note in `/elevate` (promote to a Vibes card, human-gated) — don't let it evaporate.
+8. If `Novel opportunities` surfaced a "build/explore X" worth queueing, see the **loop-seam** note in `/desk` (promote to a Vibes card, human-gated) — don't let it evaporate.
 
 ### Folder vs submodule — when each is right
 
@@ -241,7 +252,7 @@ If a fetch fails (403, 401, 404, partial body):
 
 ## Step 3: Search for what u're missing
 
-A good /explore run does NOT stop at the user's URL list. After fetching,
+A good /dive run does NOT stop at the user's URL list. After fetching,
 pause and ask:
 
 - What other models / projects / standards are *adjacent* to the named
@@ -470,9 +481,9 @@ The chat summary is the index.
 - [/grok](../grok/SKILL.md) — **sibling skill, different scope**.
   `/grok` is for understanding code INSIDE a repo before editing it
   (read-only walk, optional `-t study` bead summarizing findings).
-  `/explore` is for compiling a report on a topic OUTSIDE the repo
+  `/dive` is for compiling a report on a topic OUTSIDE the repo
   (URLs, papers, products, projects). They can compose — a `/grok`
-  walk's output can land inside an `/explore` folder when the topic
+  walk's output can land inside a `/dive` folder when the topic
   spans both code and external context — but most invocations are
   one or the other.
 - [/zig-voice](../zig-voice/SKILL.md) — voice rules + format-specific
@@ -486,10 +497,10 @@ The chat summary is the index.
   cost is stale; current ~$0.05-0.07/image. Confirm w/ user before
   generating multiple.
 - [/asana](../asana/SKILL.md) — the underlying fleet proxy mechanics.
-  /explore overrides /asana's PUT recommendation w/ POST-/update for
+  /dive overrides /asana's PUT recommendation w/ POST-/update for
   task description updates (per bd-wji0).
 - [/beads](../beads/SKILL.md) — file follow-up bugs / improvements as
-  beads in the appropriate repo if u catch them mid-/explore.
+  beads in the appropriate repo if u catch them mid-/dive.
 
 ## See also
 
