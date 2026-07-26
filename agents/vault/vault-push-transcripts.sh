@@ -10,6 +10,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 . "$HERE/transcripts-lib.sh"
 
+# scrub-and-continue (dotfiles-t6sd) applies here too — it lives in transcripts-lib.sh,
+# so this entrypoint redacts + continues exactly like the hourly sync. It does NOT
+# compute the `scrub=` verdict term (that is vault-sync.sh's job); the per-event WARN
+# lines land in this script's log and the durable rows in ~/.claude/vault-redactions.jsonl.
 echo "== transcripts push $(date -u +%FT%TZ) =="
 vault_push_transcripts
 rc=$?

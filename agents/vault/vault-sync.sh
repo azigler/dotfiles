@@ -63,6 +63,29 @@ LEDGER_MAX_LINES="${VAULT_SYNC_LEDGER_MAX_LINES:-10000}"   # ~14 months at hourl
 # 6h also means Zig sees it within one working session, since sessions are daily.
 STALE_HOURS="${VAULT_SYNC_STALE_HOURS:-6}"
 
+# SCRUB-AND-CONTINUE VISIBILITY (dotfiles-t6sd) ------------------------------ #
+# The Layer-1 secret gate no longer halts the push: a secret in vault-bound
+# content is redacted in place and the run continues (scrub-continue.sh). That
+# makes a redaction a NORMAL event — and it means the gate is no longer the thing
+# that tells anyone a credential reached disk. The only remaining signal is what
+# this script emits, so it emits three, at three different distances:
+#   - the REDACTION LEDGER ($VAULT_REDACTION_LEDGER) — one durable JSONL row per
+#     event, naming tier / action / path / pattern names + counts (never the
+#     secret). This is the forensic record.
+#   - the VERDICT LINE — a `scrub=<action counts>` term, so the log line and the
+#     `systemctl status` line for a run that redacted something do not read
+#     identically to a clean run.
+#   - the JOURNAL PRIORITY — a healthy run that redacted is logged at NOTICE
+#     rather than INFO, so `journalctl -p notice -t vault-sync` lists exactly the
+#     runs where a credential was scrubbed. It stays exit 0 and the unit stays
+#     green, because by policy that run behaved correctly.
+REDACTION_LEDGER="${VAULT_REDACTION_LEDGER:-$HOME/.claude/vault-redactions.jsonl}"
+export VAULT_REDACTION_LEDGER="$REDACTION_LEDGER"
+# `[ -f ]` guard rather than 2>/dev/null: the "No such file" here would come from
+# the SHELL's redirection, which 2>/dev/null on wc does not suppress anyway.
+redl_lines() { [ -f "$REDACTION_LEDGER" ] && wc -l < "$REDACTION_LEDGER" || echo 0; }
+redl_before=$(redl_lines)
+
 echo "== vault-sync $(date -u +%FT%TZ) on $(hostname -s) =="
 
 # 0. Peer only: materialize any slugs newly registered by the dynamic-slug hook.
@@ -157,7 +180,31 @@ for pair in "memory:$mem_bad" "transcripts:$tra_bad"; do
   fi
 done
 
-summary="memory=$(status_word "$mem_rc") transcripts=$(status_word "$tra_rc")"
+# 3b. Scrub activity this run = the rows scrub-continue.sh appended while the two
+#     pushes ran. Summarised by action ("redacted=2 deferred-live=1") so the term
+#     says WHAT happened, not just that something did.
+redl_after=$(redl_lines)
+scrub_new=$(( redl_after - redl_before ))
+[ "$scrub_new" -lt 0 ] && scrub_new=0          # ledger was trimmed mid-run
+scrub_term=""
+if [ "$scrub_new" -gt 0 ]; then
+  scrub_detail=$(tail -n "$scrub_new" "$REDACTION_LEDGER" 2>/dev/null | python3 -c '
+import collections, json, sys
+c = collections.Counter()
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        c[json.loads(line).get("action", "?")] += 1
+    except Exception:
+        c["unparseable"] += 1
+print(" ".join(f"{k}={v}" for k, v in sorted(c.items())))
+' 2>/dev/null)
+  scrub_term=" scrub=[${scrub_detail:-$scrub_new events}]"
+fi
+
+summary="memory=$(status_word "$mem_rc") transcripts=$(status_word "$tra_rc")$scrub_term"
 if [ "$mem_bad" -eq 0 ] && [ "$tra_bad" -eq 0 ]; then
   exit_code=0; verdict="OK"; outcome="done"
 else
@@ -179,8 +226,11 @@ fi
 #    loopHealth never copies note/bead, so nothing confidential can leak.
 if [ -n "$LEDGER" ]; then
   mkdir -p "$(dirname "$LEDGER")" 2>/dev/null
-  printf '{"ts":"%s","row":"%s","outcome":"%s","note":"%s (exit %d)"}\n' \
-    "$(date -u +%FT%TZ)" "$LEDGER_ROW" "$outcome" "$summary" "$exit_code" \
+  # `scrub` is a plain integer count of this run's redaction-ledger rows — an
+  # extra key harnessd's loopHealth projection ignores, but which makes a
+  # redacting run mechanically greppable in the sync ledger too.
+  printf '{"ts":"%s","row":"%s","outcome":"%s","scrub":%d,"note":"%s (exit %d)"}\n' \
+    "$(date -u +%FT%TZ)" "$LEDGER_ROW" "$outcome" "$scrub_new" "$summary" "$exit_code" \
     >> "$LEDGER" 2>/dev/null
   # bounded growth: trim to the newest half via an atomic rename, so a concurrent
   # harnessd read always sees a complete file.
@@ -199,10 +249,16 @@ fi
 final="== vault-sync $verdict — $summary (exit $exit_code) =="
 echo "$final"
 if [ -n "${INVOCATION_ID:-}" ] && command -v systemd-cat >/dev/null 2>&1; then
-  if [ "$exit_code" -eq 0 ]; then
-    printf '%s\n' "$final" | systemd-cat -t vault-sync -p info
-  else
+  if [ "$exit_code" -ne 0 ]; then
     printf '%s\n' "$final" | systemd-cat -t vault-sync -p err
+  elif [ "$scrub_new" -gt 0 ]; then
+    # healthy, but a credential was scrubbed out on the way through. NOTICE, not
+    # ERR: the unit stays green because the run did the right thing — but
+    # `journalctl -p notice -t vault-sync` lists exactly these runs, so the event
+    # is never invisible just because it stopped being fatal.
+    printf '%s\n' "$final" | systemd-cat -t vault-sync -p notice
+  else
+    printf '%s\n' "$final" | systemd-cat -t vault-sync -p info
   fi
 fi
 exit "$exit_code"

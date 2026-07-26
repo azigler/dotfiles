@@ -18,6 +18,42 @@ MEMORY_LOCK="${MEMORY_LOCK:-$VAULT_DIR/.memory.lock}"
 MEMORY_REPO="${MEMORY_REPO:-azigler/claude-memory}"
 SCRUB="${SCRUB:-$HOME/.claude/skills/scrub-secrets/scrub.py}"
 
+# scrub-and-continue (dotfiles-t6sd) — shared with transcripts-lib.sh.
+_VL_HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+if [ -f "$_VL_HERE/scrub-continue.sh" ]; then
+  # shellcheck source=/dev/null
+  . "$_VL_HERE/scrub-continue.sh"
+fi
+
+# SCRUB-AND-CONTINUE for the MEMORY tier. Deliberately NOT identical to the
+# transcripts version, in one respect: it does NOT exclude "live" files.
+#   - the transcripts writer APPENDS to a multi-hundred-MB file it may hold open,
+#     so an inode swap under it silently eats later lines -> must defer.
+#   - memory files are small, hand-/hook-authored MD written whole. safe_rewrite's
+#     os.replace is atomic, so the worst case is one lost concurrent write of a
+#     file that, by policy, was holding a credential it must not hold.
+# It also scans the WHOLE memory tier, not just the staged paths, because the
+# memory pre-commit hook does exactly that — redacting only the staged subset
+# would leave the gate blocking on an untouched neighbour and reproduce the stall.
+_memory_scrub_and_continue() {
+  [ "${VAULT_SCRUB_CONTINUE:-1}" = "1" ] || return 0
+  declare -F sc_scan_hits >/dev/null 2>&1 || return 0
+  # nothing staged => no commit => no gate => nothing to pre-empt.
+  mgit diff --cached --quiet 2>/dev/null && return 0
+  local rc
+  local -a dirs=() hits=()
+  local d
+  for d in "$MEMORY_WORKTREE"/*/memory; do [ -d "$d" ] && dirs+=("$d"); done
+  [ "${#dirs[@]}" -gt 0 ] || return 0
+  sc_scan_hits memory hits "${dirs[@]}"; rc=$?
+  [ "$rc" -eq 1 ] && return 1
+  if [ "$rc" -eq 0 ] && [ "${#hits[@]}" -gt 0 ]; then
+    sc_redact_files memory "${hits[@]}" || return 1
+    mgit add -A >/dev/null 2>&1 || true
+  fi
+  return 0
+}
+
 # Raw vault git op — NO lock. Caller MUST hold the flock (vault_push_memory's
 # critical section) or be single-threaded (bootstrap / selftest).
 mgit() {
@@ -101,6 +137,13 @@ _vault_push_locked() {
   fi
   if ! out=$(mgit add -A 2>&1); then
     echo "WARN: memory vault stage failed: $out" >&2
+    return 1
+  fi
+  # SCRUB-AND-CONTINUE — redact before the gate can block, then fall through to
+  # the leak guard (which re-checks the index this may have re-staged).
+  if ! _memory_scrub_and_continue; then
+    mgit reset -q 2>/dev/null || true
+    echo "WARN: memory vault REFUSED — the secret redactor is broken (nothing committed)" >&2
     return 1
   fi
   # SAFETY (scrutiny finding 1): re-assert ONLY */memory/** is staged, EVERY run.

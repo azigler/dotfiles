@@ -16,6 +16,16 @@ Description=claude-vault bidirectional sync — hourly PULL+push of memory + tra
 # redirected to the log file (the secret scanner's per-file report is verbose and
 # must not flood the journal); the script journals ONLY its one-line verdict via
 # systemd-cat, which is what makes `systemctl status` legible without the log.
+#
+# SCRUB-AND-CONTINUE (dotfiles-t6sd, 2026-07-26). A secret in vault-bound content
+# is now REDACTED in place and the push continues, instead of the fail-closed gate
+# stalling the vault. Such a run is still exit 0 and the unit stays GREEN — by
+# policy it behaved correctly — but it is deliberately NOT indistinguishable from
+# a clean run:
+#   journalctl -t vault-sync -p notice    # every run that scrubbed a credential
+#   jq -c 'select(.scrub>0)' ~/.claude/vault-sync-ledger.jsonl
+#   ~/.claude/vault-redactions.jsonl      # tier / action / path / pattern names
+# The verdict line also carries a `scrub=[redacted=N deferred-live=M]` term.
 
 [Service]
 Type=oneshot

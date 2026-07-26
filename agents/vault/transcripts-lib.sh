@@ -32,6 +32,15 @@ TRANSCRIPTS_VISCACHE="${TRANSCRIPTS_VISCACHE:-$VAULT_DIR/.transcripts-visibility
 TRANSCRIPTS_OVERSIZE_LOG="${TRANSCRIPTS_OVERSIZE_LOG:-$HOME/.claude/.transcripts-oversize.log}"
 SCRUB="${SCRUB:-$HOME/.claude/skills/scrub-secrets/scrub.py}"
 
+# scrub-and-continue (dotfiles-t6sd): redact secrets in staged content and KEEP
+# PUSHING, instead of letting the fail-closed gate stall the vault. Sourced from
+# alongside this file so both tiers share one implementation.
+_TL_HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+if [ -f "$_TL_HERE/scrub-continue.sh" ]; then
+  # shellcheck source=/dev/null
+  . "$_TL_HERE/scrub-continue.sh"
+fi
+
 # Size thresholds (bytes). GitHub hard-rejects a single file >100 MiB; we chunk at
 # 99 MiB into <=95 MiB parts to leave margin for growth within the stage→push window.
 TS_WALL_BYTES="${TS_WALL_BYTES:-104857600}"        # 100 MiB — GitHub hard wall (never push a blob this big)
@@ -156,6 +165,67 @@ _transcripts_apply_size_guard() {
   return $rc
 }
 
+# SCRUB-AND-CONTINUE (dotfiles-t6sd). Runs on the STAGED set, after `add -A` and
+# BEFORE the size guard — the chunker builds its .partNNN blobs by re-reading the
+# on-disk file, so redacting first is what makes the chunks clean too.
+#
+# Three outcomes per staged transcript:
+#   * clean            -> untouched, staged, committed. The overwhelmingly common case.
+#   * dirty + not live -> redacted in place, re-staged, committed. Ledger row + WARN.
+#   * dirty + LIVE     -> NEVER rewritten (see _sc_is_live: os.replace swaps the inode
+#                         out from under an appending writer and silently eats every
+#                         later line). Instead the path is UNSTAGED for this run only
+#                         and picked up on a later fire once the session goes quiet.
+#                         Deferring ONE file for one cycle replaces stalling the whole
+#                         vault indefinitely. A live file that is CLEAN is staged and
+#                         committed exactly as before — the common path is unchanged.
+# Returns 1 only when scrub.py itself is broken; everything else continues and, if
+# it could not be cleaned, is caught by the unchanged fail-closed pre-commit gate.
+_transcripts_scrub_and_continue() {
+  [ "${VAULT_SCRUB_CONTINUE:-1}" = "1" ] || return 0
+  declare -F sc_scan_hits >/dev/null 2>&1 || return 0   # helper absent -> inert
+  local path base f rel rc
+  local -a cand=() live=() hits=() livehits=()
+  local -A seen=()
+  while IFS= read -r -d '' path; do
+    base="$path"
+    case "$path" in *.part[0-9][0-9][0-9]) base="${path%.part[0-9][0-9][0-9]}";; esac
+    [ -n "${seen[$base]:-}" ] && continue
+    seen[$base]=1
+    f="$TRANSCRIPTS_WORKTREE/$base"
+    [ -f "$f" ] || continue          # index diverged from disk: the gate scans the blob
+    if _sc_is_live "$f"; then live+=("$f"); else cand+=("$f"); fi
+  done < <(tgit diff --cached --name-only -z --diff-filter=d 2>/dev/null)
+
+  if [ "${#cand[@]}" -gt 0 ]; then
+    sc_scan_hits transcripts hits "${cand[@]}"; rc=$?
+    [ "$rc" -eq 1 ] && return 1                       # scrub.py broken -> FAILED
+    if [ "$rc" -eq 0 ] && [ "${#hits[@]}" -gt 0 ]; then
+      sc_redact_files transcripts "${hits[@]}" || return 1
+      # re-stage so the REDACTED bytes are the staged bytes (only on the rare path
+      # where something actually changed — this re-walks the work-tree).
+      tgit add -A >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Live files: scanned but never rewritten. A dirty one is unstaged for this run.
+  if [ "${#live[@]}" -gt 0 ]; then
+    sc_scan_hits transcripts livehits "${live[@]}"; rc=$?
+    [ "$rc" -eq 1 ] && return 1
+    for f in ${livehits[@]+"${livehits[@]}"}; do
+      rel="${f#"$TRANSCRIPTS_WORKTREE"/}"
+      tgit reset -q -- "$rel" >/dev/null 2>&1 || true
+      tgit reset -q -- "$rel".part[0-9][0-9][0-9] >/dev/null 2>&1 || true
+      echo "WARN: scrub-and-continue (transcripts) DEFERRED $rel — a secret is present" >&2
+      echo "      but the session is still writing to it; rewriting a live transcript" >&2
+      echo "      would lose the writer's later lines. Unstaged this run only; it is" >&2
+      echo "      redacted and committed on the next fire after the session goes quiet." >&2
+      _sc_ledger transcripts deferred-live "$f" "${_SC_COUNTS[$f]:-}"
+    done
+  fi
+  return 0
+}
+
 # The locked body of the daily push. Benign errors quiet (note:), real errors loud
 # (WARN:) — OQ-A3. Mirrors _vault_push_locked but with the transcripts guards.
 #
@@ -172,6 +242,14 @@ _transcripts_push_locked() {
   fi
   if ! out=$(tgit add -A 2>&1); then
     echo "WARN: transcripts vault stage failed: $out" >&2
+    return 1
+  fi
+  # SCRUB-AND-CONTINUE — redact staged secrets in place and keep going. Must run
+  # BEFORE the size guard (the chunker re-reads the file from disk) and before the
+  # commit (so the pre-commit gate sees redacted content).
+  if ! _transcripts_scrub_and_continue; then
+    tgit reset -q 2>/dev/null || true
+    echo "WARN: transcripts vault REFUSED — the secret redactor is broken (nothing committed)" >&2
     return 1
   fi
   # SIZE GUARD (split-on-copy) — replace any oversize staged blob with chunk parts

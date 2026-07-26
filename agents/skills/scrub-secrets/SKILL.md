@@ -102,8 +102,19 @@ it warns `gitleaks: not-found (custom scan only)` and continues.
 ## Role in the system (explore-r2iq)
 
 - **Layer 0 (this tool)** — the reusable scan/redact primitive.
-- **Layer 1 — block:** wire `scrub.py scan` as a pre-commit hook on both vaults
-  (memory + transcripts); any commit introducing a secret is blocked.
+- **Layer 1 — scrub-and-continue, then block what could not be scrubbed**
+  (revised 2026-07-26, dotfiles-t6sd; Zig's call as owner of these PRIVATE vaults).
+  Before staging, `agents/vault/scrub-continue.sh` runs `scan` over the staged set
+  and `redact --apply` over the hits, so the vault **keeps pushing** with the
+  secret removed. The `scrub.py scan` pre-commit hook on both vaults is unchanged
+  and still fail-closed — it is now the **backstop** for what redaction could not
+  fix (an unparseable `.jsonl` that `safe_rewrite` refuses to rewrite, a live
+  transcript excluded from rewriting, a broken redactor). The prior behaviour —
+  block first and only — stalled the transcripts vault for 121 consecutive runs
+  over five days, with nothing able to clear it unattended. Redaction is not
+  rotation: every redaction row lands in `~/.claude/vault-redactions.jsonl` and
+  in the sync verdict precisely so the event stays visible now that it no longer
+  halts anything.
 - **Layer 2 — detect:** a session-end / daily-pulse `scrub.py scan` of the
   memory tier (cheap, ~1.4 MB); a NEW secret vs a last-clean baseline files a P1
   `human:` bead + push.

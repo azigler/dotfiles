@@ -43,8 +43,25 @@ echo "scratch: $SCRATCH"
 
 # --------------------------------------------------------------------------- #
 # build_scratch — a self-contained fake harness home with both vault tiers wired
-# to local bare remotes. Arg 1: "clean" | "seeded" (seeded plants the fake secret
-# in a transcript so the transcripts pre-commit gate blocks).
+# to local bare remotes. Arg 1 selects what is planted in the transcript:
+#
+#   clean       no secret at all.
+#   seeded      the fake secret in a MALFORMED (truncated) JSONL line whose mtime
+#               is backdated out of the live window. This is the T2/T4/T5 fault
+#               injector, and it changed with dotfiles-t6sd's scrub-and-continue:
+#               a plain seeded secret is no longer a failure — it is redacted and
+#               the push continues, which is the whole point. What still blocks is
+#               a secret scrub.py CANNOT safely remove, and the honest, realistic
+#               instance of that is a transcript truncated mid-line by a crash:
+#               safe_rewrite refuses to write a .jsonl whose lines will not parse,
+#               leaves the file untouched, and the unchanged fail-closed gate then
+#               blocks the commit. Same alarm contract, a fault that is still a
+#               fault. (Backdating the mtime matters independently: a fresh file
+#               counts as LIVE and is deferred rather than redacted.)
+#   redactable  the fake secret in a WELL-FORMED, backdated JSONL line — the new
+#               happy path: redact, commit, push, exit 0.
+#   live        the fake secret in a WELL-FORMED JSONL left at NOW's mtime, i.e.
+#               a session still writing. Must never be rewritten.
 # --------------------------------------------------------------------------- #
 build_scratch() {
   local mode="$1" H="$SCRATCH/home" WT VD
@@ -61,14 +78,27 @@ case "$*" in *visibility*) echo private ;; *) exit 0 ;; esac
 GH
   chmod +x "$SCRATCH/bin/gh"
 
-  # content: one memory file (always clean) + one transcript.
+  # content: one memory file (always clean here) + one transcript.
   printf '# test memory %s\n' "$(date -u +%s%N)" > "$WT/-test-slug/memory/MEMORY.md"
-  if [ "$mode" = "seeded" ]; then
-    printf '{"role":"user","text":"key is %s"}\n' "$FAKE_SECRET" > "$WT/-test-slug/t.jsonl"
-  else
-    printf '{"role":"user","text":"nothing to see here %s"}\n' "$(date -u +%s%N)" \
-      > "$WT/-test-slug/t.jsonl"
-  fi
+  case "$mode" in
+    seeded)
+      # truncated line: valid-looking prefix, no closing brace -> unparseable JSON,
+      # so scrub.py's safe_rewrite refuses to rewrite it and the gate blocks.
+      printf '{"role":"user","text":"key is %s\n' "$FAKE_SECRET" > "$WT/-test-slug/t.jsonl"
+      touch -d '2 hours ago' "$WT/-test-slug/t.jsonl"
+      ;;
+    redactable)
+      printf '{"role":"user","text":"key is %s"}\n' "$FAKE_SECRET" > "$WT/-test-slug/t.jsonl"
+      touch -d '2 hours ago' "$WT/-test-slug/t.jsonl"
+      ;;
+    live)
+      printf '{"role":"user","text":"key is %s"}\n' "$FAKE_SECRET" > "$WT/-test-slug/t.jsonl"
+      ;;   # mtime = now => inside VAULT_LIVE_WINDOW_SEC => live
+    *)
+      printf '{"role":"user","text":"nothing to see here %s"}\n' "$(date -u +%s%N)" \
+        > "$WT/-test-slug/t.jsonl"
+      ;;
+  esac
 
   local v
   for v in memory transcripts; do
@@ -98,6 +128,7 @@ GH
 # to $RUN_OUT and sets $RUN_RC. stderr is CAPTURED, never discarded (that swallowing
 # is the bug class under test).
 RUN_OUT=""; RUN_RC=0
+RUN_SCRUB=""            # override scrub.py for one run (broken-redactor tests)
 run_sync() {
   local H="$SCRATCH/home"
   RUN_OUT=$(
@@ -106,11 +137,22 @@ run_sync() {
     VAULT_DIR="$H/.claude/vaults" \
     MEMORY_EXCLUDES="$VAULTDIR/memory.excludes" \
     TRANSCRIPTS_EXCLUDES="$VAULTDIR/transcripts.excludes" \
-    SCRUB="$REAL_SCRUB" \
+    SCRUB="${RUN_SCRUB:-$REAL_SCRUB}" \
     VAULT_SYNC_LEDGER="$H/.claude/vault-sync-ledger.jsonl" \
+    VAULT_REDACTION_LEDGER="$H/.claude/vault-redactions.jsonl" \
     bash "$SYNC" 2>&1
   )
   RUN_RC=$?
+  # VAULT_SYNC_TEST_VERBOSE=1 replays the run's full combined output — the only way
+  # to READ what a redacting run actually says, which is the whole visibility claim.
+  if [ -n "${VAULT_SYNC_TEST_VERBOSE:-}" ]; then
+    printf '\n>>> run_sync (rc=%d) <<<\n%s\n>>> end <<<\n\n' "$RUN_RC" "$RUN_OUT"
+  fi
+}
+REDL="$SCRATCH/home/.claude/vault-redactions.jsonl"
+redl_count() { wc -l < "$REDL" 2>/dev/null || echo 0; }
+remote_blob() {  # $1 = tier, $2 = path — echo the committed content on the REMOTE
+  git --git-dir="$SCRATCH/remotes/$1.git" show "main:$2" 2>/dev/null
 }
 
 stamp_age_set() {   # arg1: tier, arg2: `date -d` offset — forge stamp mtime + body
@@ -212,6 +254,144 @@ rm -rf "$SCRATCH/home/.claude/vaults"
 mkdir -p "$SCRATCH/home/.claude/vaults"
 run_sync
 [ "$RUN_RC" -eq 0 ] && ok "inert-vault-exits-0" || no "inert-vault-exits-0 (rc=$RUN_RC)"
+
+# =========================================================================== #
+# SCRUB-AND-CONTINUE (dotfiles-t6sd). A high-confidence secret in vault-bound
+# content is redacted in place and the push CONTINUES. Zig's call, 2026-07-26:
+# these vaults are private and the credentials involved are rotated; a fail-closed
+# wall that stalls backups for five days is the worse failure.
+# =========================================================================== #
+echo "--- T8: seeded secret is REDACTED, committed, and PUSHED (exit 0) ----"
+build_scratch redactable
+run_sync
+[ "$RUN_RC" -eq 0 ] && ok "redact-and-continue-exits-0" \
+                    || no "redact-and-continue-exits-0 (rc=$RUN_RC)
+$RUN_OUT"
+printf '%s' "$RUN_OUT" | grep -q 'transcripts=ok' \
+  && ok "redact-and-continue-tier-ok" || no "redact-and-continue-tier-ok"
+BLOB=$(remote_blob transcripts '-test-slug/t.jsonl')
+printf '%s' "$BLOB" | grep -q '\[REDACTED-SECRET\]' \
+  && ok "pushed-content-carries-the-redaction-marker" \
+  || no "pushed-content-carries-the-redaction-marker (blob=$BLOB)"
+printf '%s' "$BLOB" | grep -qF "$FAKE_SECRET" \
+  && no "pushed-content-must-not-contain-the-secret" \
+  || ok "pushed-content-must-not-contain-the-secret"
+# the on-disk source is redacted too (the redaction is the point, not a copy of it)
+grep -qF "$FAKE_SECRET" "$SCRATCH/home/.claude/projects/-test-slug/t.jsonl" \
+  && no "on-disk-transcript-must-not-contain-the-secret" \
+  || ok "on-disk-transcript-must-not-contain-the-secret"
+# ...and it is still valid JSONL after the rewrite.
+python3 -c '
+import json,sys
+for i, ln in enumerate(open(sys.argv[1]).read().split("\n"), 1):
+    if ln.strip(): json.loads(ln)
+' "$SCRATCH/home/.claude/projects/-test-slug/t.jsonl" \
+  && ok "redacted-jsonl-still-parses" || no "redacted-jsonl-still-parses"
+
+echo "--- T9: a redacting run is DISTINGUISHABLE from a clean run ---------"
+printf '%s' "$RUN_OUT" | grep -q 'scrub=\[redacted=1\]' \
+  && ok "verdict-line-names-the-redaction" \
+  || no "verdict-line-names-the-redaction
+$RUN_OUT"
+[ -s "$REDL" ] && ok "redaction-ledger-written" || no "redaction-ledger-written"
+tail -n1 "$REDL" 2>/dev/null | python3 -c '
+import json,sys
+r=json.loads(sys.stdin.read())
+assert r["row"]=="vault-scrub", r
+assert r["tier"]=="transcripts", r
+assert r["action"]=="redacted", r
+assert r["path"].endswith("-test-slug/t.jsonl"), r
+assert "aws-akia" in r["detail"], r      # pattern NAME recorded...
+' && ok "redaction-ledger-row-shape" || no "redaction-ledger-row-shape"
+grep -qF "$FAKE_SECRET" "$REDL" \
+  && no "redaction-ledger-must-not-echo-the-secret" \
+  || ok "redaction-ledger-must-not-echo-the-secret"
+tail -n1 "$SCRATCH/home/.claude/vault-sync-ledger.jsonl" | python3 -c '
+import json,sys
+r=json.loads(sys.stdin.read())
+assert r["outcome"]=="done", r            # green: a redaction is NOT a failure
+assert r["scrub"]==1, r                   # ...but it is counted
+' && ok "sync-ledger-row-is-green-but-counts-the-scrub" \
+  || no "sync-ledger-row-is-green-but-counts-the-scrub"
+# the control: a clean run must NOT carry a scrub term.
+build_scratch clean
+run_sync
+printf '%s' "$RUN_OUT" | grep -q 'scrub=' \
+  && no "clean-run-carries-no-scrub-term" || ok "clean-run-carries-no-scrub-term"
+
+echo "--- T10: idempotence — a second run over redacted content is a no-op -"
+build_scratch redactable
+run_sync
+BEFORE_N=$(redl_count)
+BEFORE_SUM=$(md5sum < "$SCRATCH/home/.claude/projects/-test-slug/t.jsonl")
+touch -d '2 hours ago' "$SCRATCH/home/.claude/projects/-test-slug/t.jsonl"
+run_sync
+[ "$RUN_RC" -eq 0 ] && ok "second-run-exits-0" || no "second-run-exits-0 (rc=$RUN_RC)"
+[ "$(redl_count)" -eq "$BEFORE_N" ] \
+  && ok "second-run-appends-no-redaction-ledger-rows" \
+  || no "second-run-appends-no-redaction-ledger-rows ($BEFORE_N -> $(redl_count))"
+[ "$(md5sum < "$SCRATCH/home/.claude/projects/-test-slug/t.jsonl")" = "$BEFORE_SUM" ] \
+  && ok "second-run-does-not-rewrite-the-file" || no "second-run-does-not-rewrite-the-file"
+printf '%s' "$RUN_OUT" | grep -q 'scrub=' \
+  && no "second-run-carries-no-scrub-term" || ok "second-run-carries-no-scrub-term"
+
+echo "--- T11: a BROKEN scrub.py still turns the unit red -----------------"
+build_scratch redactable
+cat > "$SCRATCH/bin/broken-scrub.py" <<'BS'
+#!/usr/bin/env python3
+import sys
+print("boom: the redactor is broken", file=sys.stderr)
+sys.exit(3)
+BS
+RUN_SCRUB="$SCRATCH/bin/broken-scrub.py"
+run_sync
+RUN_SCRUB=""
+[ "$RUN_RC" -ne 0 ] && ok "broken-scrub-turns-unit-red" \
+                    || no "broken-scrub-turns-unit-red (rc=$RUN_RC)
+$RUN_OUT"
+printf '%s' "$RUN_OUT" | grep -q 'redactor is broken' \
+  && ok "broken-scrub-says-why" || no "broken-scrub-says-why"
+grep -qF "$FAKE_SECRET" <(remote_blob transcripts '-test-slug/t.jsonl') \
+  && no "broken-scrub-must-not-push-the-secret" || ok "broken-scrub-must-not-push-the-secret"
+
+echo "--- T12: a LIVE transcript is never rewritten, only deferred --------"
+build_scratch live
+LIVE_SUM=$(md5sum < "$SCRATCH/home/.claude/projects/-test-slug/t.jsonl")
+run_sync
+[ "$RUN_RC" -eq 0 ] && ok "live-deferral-exits-0" || no "live-deferral-exits-0 (rc=$RUN_RC)
+$RUN_OUT"
+[ "$(md5sum < "$SCRATCH/home/.claude/projects/-test-slug/t.jsonl")" = "$LIVE_SUM" ] \
+  && ok "live-transcript-bytes-untouched" || no "live-transcript-bytes-untouched"
+remote_blob transcripts '-test-slug/t.jsonl' | grep -qF "$FAKE_SECRET" \
+  && no "live-transcript-secret-must-not-reach-remote" \
+  || ok "live-transcript-secret-must-not-reach-remote"
+printf '%s' "$RUN_OUT" | grep -q 'scrub=\[deferred-live=1\]' \
+  && ok "live-deferral-is-visible-in-the-verdict" \
+  || no "live-deferral-is-visible-in-the-verdict
+$RUN_OUT"
+# ...and once the session goes quiet, the very next fire cleans it up and pushes.
+touch -d '2 hours ago' "$SCRATCH/home/.claude/projects/-test-slug/t.jsonl"
+run_sync
+[ "$RUN_RC" -eq 0 ] && ok "deferred-file-lands-on-the-next-fire" \
+                    || no "deferred-file-lands-on-the-next-fire (rc=$RUN_RC)"
+remote_blob transcripts '-test-slug/t.jsonl' | grep -q '\[REDACTED-SECRET\]' \
+  && ok "deferred-file-is-redacted-then-pushed" || no "deferred-file-is-redacted-then-pushed"
+
+echo "--- T13: the MEMORY tier scrubs-and-continues too --------------------"
+build_scratch clean
+printf '# notes\napi key: %s\n' "$FAKE_SECRET" \
+  > "$SCRATCH/home/.claude/projects/-test-slug/memory/MEMORY.md"
+run_sync
+[ "$RUN_RC" -eq 0 ] && ok "memory-redact-and-continue-exits-0" \
+                    || no "memory-redact-and-continue-exits-0 (rc=$RUN_RC)
+$RUN_OUT"
+remote_blob memory '-test-slug/memory/MEMORY.md' | grep -q '\[REDACTED-SECRET\]' \
+  && ok "memory-pushed-content-is-redacted" || no "memory-pushed-content-is-redacted"
+remote_blob memory '-test-slug/memory/MEMORY.md' | grep -qF "$FAKE_SECRET" \
+  && no "memory-pushed-content-must-not-contain-the-secret" \
+  || ok "memory-pushed-content-must-not-contain-the-secret"
+grep -q '"tier": "memory"' "$REDL" \
+  && ok "memory-redaction-is-ledgered" || no "memory-redaction-is-ledgered"
 
 echo
 printf '== %d passed, %d failed ==\n' "$pass" "$fail"
