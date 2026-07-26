@@ -12,4 +12,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "== transcripts push $(date -u +%FT%TZ) =="
 vault_push_transcripts
-echo "== done =="
+rc=$?
+# Propagate the tier status (dotfiles-t6sd): this entrypoint has the same exit-0
+# lie vault-sync.sh had — it ended on a successful `echo` and reported
+# 0/SUCCESS no matter what the push did. Codes: 0 OK | 1 FAILED | 2 BLOCKED |
+# 3 DEFERRED | 4 SKIPPED | 9 INERT (see transcripts-lib.sh). 9 is remapped to 0
+# so an un-bootstrapped machine is not a permanently red unit.
+[ "$rc" -eq 9 ] && rc=0
+echo "== done (status $rc) =="
+exit "$rc"
