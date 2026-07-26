@@ -250,6 +250,43 @@ If a fetch fails (403, 401, 404, partial body):
   contents (this session: Neuron 403'd, user pasted the article body).
 - **Search adjacent sources** for the same substance.
 
+### A failed fetch is a fact about the TOOL, not about the source
+
+That list above is *recovery*. This is the **interpretation** rule, and it
+is the one the loop keeps breaking. `/dive` already teaches the right
+discipline for **absent** evidence — "no third-party benchmark was located"
+is a statement about the search, not about the world. The same discipline
+applies to **mangled** evidence, and it is far less intuitive: a 403, a
+garbled table, or a truncated quote *feels* like data about the source. It
+isn't.
+
+- **A non-200, a parse oddity, or a truncation is a TOOL EVENT.** Record it
+  as one ("WebFetch returned 403 on X"). Never restate it as a property of
+  the source ("gated", "misconfigured", "malformed", "they only published a
+  name and one sentence").
+- **Re-verify by a second path before ANY claim that rests on a bad fetch.**
+  It costs seconds: `curl -sS -I <url>` for reachability + size + type,
+  `curl -sS <url>` and read the **raw markup** for structure, a different URL
+  form (canonical vs mirror, `/p/<slug>` vs the SPA page) for content.
+- **Structural claims require raw markup, never rendered text.** If you are
+  about to say a table is malformed, a field is missing, or a layout is
+  broken, parse the HTML — count the `<td>`s, read the `<colgroup>`, check
+  for an explicit N/A convention. Rendered-text capture is lossy in exactly
+  the way that *invents* structural defects.
+- **Enumerate the source's own index before declaring a gap.** Fetching 1 of
+  7 posts listed on the site's own index and then writing about what is
+  "unknown" is a coverage failure wearing the costume of a finding.
+
+**Why this is a rule and not a nicety:** skepticism has a false-positive
+rate and nobody reports it. In the 2026-07-25 odyssey-ml tick the scrutiny
+gate overturned two of the writeup's loudest findings, both this error — a
+403 on a 28 MB PDF that `curl -I` showed as a public HTTP 200 the whole
+time, and a "dropped cell" theory about a table whose raw markup is clean,
+on the strength of which a credibility point was **retracted from the
+vendor**. That is not noise; it is an unfair reading manufactured out of a
+tool limitation. (`explore-g6v8`; inverse flavor of `explore-cdby`, "the
+number is not the thing".)
+
 ## Step 3: Search for what u're missing
 
 A good /dive run does NOT stop at the user's URL list. After fetching,

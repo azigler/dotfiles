@@ -331,6 +331,18 @@ Skipping this step is how:
 fold as a `REVISED` callout. Future readers see both the original
 hypothesis and the empirical reality. Don't quietly edit.
 
+**A failed fetch is a fact about the TOOL, not about the source.** A
+non-200, a parse oddity, or a truncated body is a **tool event** — record
+it as one, never as a property of the source ("gated", "malformed",
+"they only published a name and a sentence"). Before any claim that rests
+on a bad or odd fetch, re-verify by a second path: `curl -sS -I <url>` for
+reachability/size/type, raw markup for any **structural** claim (rendered
+text is lossy in exactly the way that invents structural defects), a
+different URL form for content. And enumerate the source's own index
+before declaring a gap. Skepticism has a false-positive rate too, and
+nobody reports it. (Full rule + the case that produced it: `/dive`
+"A failed fetch is a fact about the TOOL"; bead `explore-g6v8`.)
+
 ## Step 3.5 — Adversarial scrutiny (MANDATORY before fold)
 
 Empirical verification catches "does it work in reality" failures.
