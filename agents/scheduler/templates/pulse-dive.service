@@ -2,16 +2,18 @@
 # dotfiles-mhn, ~/explore/refs/pulse.md row `dive`). Successor to
 # pulse-explore.service (rename 2026-07-26, explore-mqvu).
 #
-# tmux WINDOW IS DELIBERATELY UNCHANGED. Zig sits in these windows; renaming one
-# is a separate, Zig-gated step (explore-b47q item 1). If/when the window is
-# renamed `dive`, change `--window explore` below AND the identity key in
-# ~/explore/.claude/identity.yml AND expect the per-window handoff file to move
-# from refs/session-handoff--explore.md to refs/session-handoff--dive.md.
+# WINDOW ROTATION COMPLETE (2026-07-26, Zig's call). The tmux window was renamed
+# explore -> dive, so this unit injects into `--window dive`. Rotated with it:
+# the identity key in ~/explore/.claude/identity.yml, the per-window handoff file
+# (refs/session-handoff--explore.md -> --dive.md), pulse-recall-distill.service
+# (which shares this window), and the now-deleted pulse-explore.{service,timer}.
+# harnessd's manifest needed NO change — its `key` is a project slug keyed on
+# path, not a tmux window name.
 #
 # Inspect runs: journalctl --user -u pulse-dive.service -n 20
 [Unit]
-Description=Pulse tick: dive (tmux-injection into the explore window)
+Description=Pulse tick: dive (tmux-injection into the dive window)
 
 [Service]
 Type=oneshot
-ExecStart=%h/dotfiles/agents/scheduler/pulse-inject.sh --loop %p --fresh --dir %h/explore --session work --window explore --cmd "/pulse tick"
+ExecStart=%h/dotfiles/agents/scheduler/pulse-inject.sh --loop %p --fresh --dir %h/explore --session work --window dive --cmd "/pulse tick"
