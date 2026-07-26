@@ -95,6 +95,119 @@ run_case "block: git push from a worktree" 2 \
 run_case "allow: git push from project root" 0 \
   '{"tool_input":{"command":"git push"},"cwd":"/tmp"}'
 
+# --- push gate keys on the BRANCH, not the cwd (dotfiles-5a46) ------------
+#
+# The gate used to `case` on the cwd alone, which was wrong in BOTH
+# directions: it blocked a normal-branch push made from a worktree cwd (the
+# cross-repo dispatch pattern, which agents then routed around with
+# `git -C <path> push`), and it allowed a `worktree-agent-*` push made from
+# a normal project root — the exact stale-remote-branch outcome it exists to
+# prevent. Every case below is paired: a block and an allow in the same
+# syntactic position.
+#
+# Fixtures: a real repo with a real worktree checked out on a real
+# worktree-agent-* branch, plus a second, unrelated repo.
+
+PUSHREPO=$(mktemp -d "${TMPDIR:-/tmp}/pcc-push.XXXXXX")
+git -C "$PUSHREPO" init -q -b main
+git -C "$PUSHREPO" config user.email t@t; git -C "$PUSHREPO" config user.name t
+echo seed > "$PUSHREPO/f"; git -C "$PUSHREPO" add f; git -C "$PUSHREPO" commit -qm seed
+PUSHWT="$PUSHREPO/.claude/worktrees/agent-test"
+git -C "$PUSHREPO" worktree add -q -b worktree-agent-test "$PUSHWT" >/dev/null
+
+OTHERREPO=$(mktemp -d "${TMPDIR:-/tmp}/pcc-other.XXXXXX")
+git -C "$OTHERREPO" init -q -b main
+git -C "$OTHERREPO" config user.email t@t; git -C "$OTHERREPO" config user.name t
+echo seed > "$OTHERREPO/f"; git -C "$OTHERREPO" add f; git -C "$OTHERREPO" commit -qm seed
+
+push_cleanup() {
+  git -C "$PUSHREPO" worktree remove --force "$PUSHWT" >/dev/null 2>&1
+  rm -rf "$PUSHREPO" "$OTHERREPO"
+}
+
+# JSON payload with an arbitrary command + cwd.
+plc() { jq -cn --arg c "$1" --arg d "$2" '{tool_input:{command:$c},cwd:$d}'; }
+
+# 5a. THE MISSED DIRECTION: a worktree-agent-* branch pushed from a normal
+#     project root. The old cwd gate allowed this outright.
+run_case "block: worktree-agent branch pushed from a project root" 2 \
+  "$(plc 'git push origin worktree-agent-abc123' "$PUSHREPO")" \
+  "worktree-agent-abc123"
+
+# 5b. …and via the src:dst refspec form, where only the DESTINATION is the
+#     worktree branch (this is what actually creates the stale remote ref).
+run_case "block: HEAD:worktree-agent-* refspec from a project root" 2 \
+  "$(plc 'git push origin HEAD:worktree-agent-abc123' "$PUSHREPO")" \
+  "worktree-agent-abc123"
+
+# 5c. A bare `git push` inside a real worktree resolves HEAD in that repo and
+#     still blocks — now by NAMING the branch, not by pattern-matching a path.
+run_case "block: bare git push inside a real worktree (HEAD resolved)" 2 \
+  "$(plc 'git push' "$PUSHWT")" \
+  "worktree-agent-test"
+
+# 5d. THE FALSE BLOCK: a normal branch pushed from a worktree cwd.
+run_case "allow: normal branch pushed from a worktree cwd" 0 \
+  "$(plc 'git push origin main' "$PUSHWT")"
+
+# 5e. …and the cross-repo form the bug report was filed about. This must not
+#     depend on `-C` accidentally breaking the trigger regex: the gate now
+#     PARSES `-C` and resolves HEAD in THAT repo.
+run_case "allow: cross-repo git -C <other> push from a worktree cwd" 0 \
+  "$(plc "git -C $OTHERREPO push origin main" "$PUSHWT")"
+
+# 5f. …including the bare cross-repo form with no refspec (HEAD of the OTHER
+#     repo is `main`, so it is allowed even though the cwd is a worktree).
+run_case "allow: bare git -C <other> push from a worktree cwd" 0 \
+  "$(plc "git -C $OTHERREPO push" "$PUSHWT")"
+
+# 5g. Deleting a stale worktree branch is the orchestrator's documented
+#     cleanup step (AGENTS.md) and must never be blocked.
+run_case "allow: git push --delete of a worktree-agent branch" 0 \
+  "$(plc 'git push origin --delete worktree-agent-abc123' "$PUSHREPO")"
+
+run_case "allow: git push origin :worktree-agent-* (delete refspec)" 0 \
+  "$(plc 'git push origin :worktree-agent-abc123' "$PUSHREPO")"
+
+# 5h. A quoted "$BRANCH" is blanked by command_skeleton by design, so the ref
+#     is UNRESOLVABLE. That falls back to the old cwd rule — conservative in
+#     a worktree…
+run_case "block: unresolvable quoted refspec from a worktree cwd" 2 \
+  "$(plc 'git push origin "$BRANCH"' "$PUSHWT")" \
+  "from inside a worktree"
+
+# 5i. …and permissive everywhere else (the orchestrator's own scripts).
+run_case "allow: unresolvable quoted refspec from a project root" 0 \
+  "$(plc 'git push origin "$BRANCH"' "$PUSHREPO")"
+
+run_case "allow: git push origin --delete \"\$BRANCH\" from a project root" 0 \
+  "$(plc 'git push origin --delete "$BRANCH"' "$PUSHREPO")"
+
+# 5j. `git push --all` publishes every local branch, worktree ones included —
+#     no refspec names them, so the gate has to look at the repo's refs.
+run_case "block: git push --all in a repo holding worktree-agent branches" 2 \
+  "$(plc 'git push --all origin' "$PUSHREPO")" \
+  "worktree-agent-test"
+
+run_case "allow: git push --all in a repo with no worktree branches" 0 \
+  "$(plc 'git push --all origin' "$OTHERREPO")"
+
+# 5k. `cd <repo> && git push` — the repo being pushed is the one the command
+#     WALKS INTO. (Found live: the fixed hook blocked this very form from a
+#     worktree session, which is the false block it was fixed for.)
+run_case "allow: cd <other-repo> && git push from a worktree cwd" 0 \
+  "$(plc "cd $OTHERREPO && git push" "$PUSHWT")"
+
+run_case "block: cd <worktree> && git push from a project root" 2 \
+  "$(plc "cd $PUSHWT && git push" "$OTHERREPO")" \
+  "worktree-agent-test"
+
+# 5l. A MENTION of a push is still not a push (command_skeleton contract).
+run_case "allow: quoted 'git push origin worktree-agent-x' is not a push" 0 \
+  "$(plc 'echo "never git push origin worktree-agent-x" | cat' "$PUSHREPO")"
+
+push_cleanup
+
 # --- Bead-trailer block + meta-commit carve-out (beads repos only) ---
 
 # 6. commit WITH a Bead: trailer → ALLOW

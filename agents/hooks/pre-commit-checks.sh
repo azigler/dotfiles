@@ -40,9 +40,84 @@ if echo "$SKEL" | grep -qE '(^|[[:space:];&|])git add[[:space:]]+(-A([[:space:]]
   exit 2
 fi
 
-# Block `git push` from inside a worktree. Worktree subagents do not
-# push — the orchestrator merges the worktree branch and pushes.
-if echo "$SKEL" | grep -qE '(^|[[:space:];&|])git[[:space:]]+push([[:space:]]|$)'; then
+# ---------------------------------------------------------------------------
+# `git push` gate (dotfiles-5a46).
+#
+# Keyed on the BRANCH BEING PUSHED, in the REPO being pushed — NOT on the
+# agent's cwd. The harm this gate exists to prevent is a stale
+# `worktree-agent-*` branch on the remote, and that is a property of the
+# refspec, not of where the agent happens to be standing.
+#
+# The old cwd `case` on */.claude/worktrees/agent-* was wrong in BOTH
+# directions:
+#   - it BLOCKED `git push origin main` from a worktree cwd even when the
+#     push targeted another repo — the now-normal cross-repo dispatch — which
+#     taught agents to route around it with `git -C <path> push`. That form
+#     only slipped through because the old trigger regex demanded `git`
+#     immediately followed by `push`; the bug and its workaround shared one
+#     line, so any tightening of the regex would have silently re-blocked
+#     every cross-repo dispatch.
+#   - it ALLOWED `git push origin worktree-agent-abc123` from a normal
+#     project root — the exact outcome the gate exists to prevent.
+#
+# Resolution order for the ref being pushed:
+#   1. explicit refspecs on the command line (BOTH sides of `src:dst`);
+#   2. otherwise the current branch of the target repo (`-C` / `--git-dir`
+#      honored, else the session cwd);
+#   3. if neither resolves — e.g. the branch is a quoted `"$BRANCH"` that
+#      command_skeleton blanks by design — fall back to the old cwd rule.
+#      That is the conservative direction: a worktree's HEAD is a
+#      worktree-agent-* branch essentially always.
+#
+# Deletions are ALWAYS allowed (`--delete`, or a `:branch` refspec with an
+# empty source): deleting the stale branch is the orchestrator's own
+# documented cleanup step (AGENTS.md).
+# ---------------------------------------------------------------------------
+
+# Strip one layer of matching surrounding quotes from a skeleton token.
+# A token that was fully quoted in the source command arrives here as the
+# EMPTY pair `""` / `''` (its contents are blanked) — which unquotes to the
+# empty string and is what marks a value as unresolvable.
+push_gate_unquote() {
+  local v=$1
+  case "$v" in
+    '"'*'"') v=${v#\"}; v=${v%\"} ;;
+    "'"*"'") v=${v#\'}; v=${v%\'} ;;
+  esac
+  printf '%s' "$v"
+}
+
+push_gate_block() {
+  cat >&2 <<EOF
+Blocked: \`git push\` would publish the worktree branch '$1'.
+
+Worktree subagents do not push. Finish your commits; the orchestrator
+merges your worktree branch into the target branch and pushes from
+there. Pushing a worktree-agent-* branch leaves a stale remote branch.
+See /commit ("Worktree exception").
+
+Deleting one is fine — \`git push origin --delete <branch>\` is the
+orchestrator's cleanup step and is never blocked by this gate.
+EOF
+  exit 2
+}
+
+push_gate_block_cwd() {
+  cat >&2 <<'EOF'
+Blocked: `git push` from inside a worktree.
+
+The branch being pushed could not be read from the command (a quoted
+"$BRANCH" refspec, or a repo this hook cannot open), so the gate falls
+back to the cwd rule. Worktree subagents do not push — the orchestrator
+merges your worktree branch and pushes from there. Name the branch
+explicitly (`git push origin my-branch`) if it is genuinely not a
+worktree-agent-* branch. See /commit ("Worktree exception").
+EOF
+  exit 2
+}
+
+case "$SKEL" in
+*push*)
   JSON_CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
   if [ -n "$JSON_CWD" ]; then
     CWD=$(cd "$JSON_CWD" 2>/dev/null && pwd -P)
@@ -50,20 +125,128 @@ if echo "$SKEL" | grep -qE '(^|[[:space:];&|])git[[:space:]]+push([[:space:]]|$)
   else
     CWD=$(pwd -P)
   fi
-  case "$CWD" in
-    */.claude/worktrees/agent-*)
-      cat >&2 <<'EOF'
-Blocked: `git push` from inside a worktree.
 
-Worktree subagents do not push. Finish your commits; the orchestrator
-merges your worktree branch into the target branch and pushes from
-there. Pushing from a worktree leaves stale worktree-agent-* remote
-branches. See /commit ("Worktree exception").
-EOF
-      exit 2
-      ;;
-  esac
-fi
+  # Split the skeleton into simple commands. Quoted CONTENTS are already
+  # blanked by command_skeleton, so every operator left here is real code.
+  while IFS= read -r SEG; do
+    set -f
+    # shellcheck disable=SC2206  # deliberate word-split of a blanked skeleton
+    TOKS=($SEG)
+    set +f
+    [ "${#TOKS[@]}" -ge 2 ] || continue
+
+    # `cd <dir> && git push …` is the other half of the cwd bug: the repo
+    # being pushed is the one the command WALKS INTO, not the one the session
+    # started in. Segments arrive in execution order, so tracking `cd` here
+    # gives later segments the effective cwd. (Caught the hard way: this very
+    # hook, freshly fixed, blocked `cd ~/dotfiles && git push` from a worktree
+    # session — the exact false block it was being fixed for.)
+    if [ "${TOKS[0]}" = "cd" ]; then
+      V=$(push_gate_unquote "${TOKS[1]}")
+      if [ -n "$V" ]; then
+        NEWCWD=$( cd "$CWD" 2>/dev/null && cd "$V" 2>/dev/null && pwd -P )
+        [ -n "$NEWCWD" ] && CWD=$NEWCWD
+      fi
+      continue
+    fi
+
+    [ "${TOKS[0]}" = "git" ] || continue
+
+    # --- walk git's GLOBAL options up to the subcommand -------------------
+    REPO_LOC=()
+    REPO_UNRESOLVED=0
+    IS_PUSH=0
+    i=1
+    n=${#TOKS[@]}
+    while [ "$i" -lt "$n" ]; do
+      T=${TOKS[$i]}
+      case "$T" in
+        push) IS_PUSH=1; i=$((i + 1)); break ;;
+        -C)
+          V=$(push_gate_unquote "${TOKS[$((i + 1))]:-}")
+          if [ -z "$V" ]; then REPO_UNRESOLVED=1; else REPO_LOC=(-C "$V"); fi
+          i=$((i + 2)) ;;
+        --git-dir=*)
+          V=$(push_gate_unquote "${T#--git-dir=}")
+          if [ -z "$V" ]; then REPO_UNRESOLVED=1; else REPO_LOC=(--git-dir "$V"); fi
+          i=$((i + 1)) ;;
+        --git-dir)
+          V=$(push_gate_unquote "${TOKS[$((i + 1))]:-}")
+          if [ -z "$V" ]; then REPO_UNRESOLVED=1; else REPO_LOC=(--git-dir "$V"); fi
+          i=$((i + 2)) ;;
+        # value-taking globals we don't interpret, and bare flags
+        -c|--work-tree|--namespace|--exec-path|--config-env) i=$((i + 2)) ;;
+        -*) i=$((i + 1)) ;;
+        *) break ;;   # a different subcommand — not a push
+      esac
+    done
+    [ "$IS_PUSH" = 1 ] || continue
+
+    # --- walk `push`'s own arguments --------------------------------------
+    DELETE=0
+    ALLREFS=0
+    REMOTE_SEEN=0
+    REF_UNRESOLVED=0
+    REFS=()
+    while [ "$i" -lt "$n" ]; do
+      T=${TOKS[$i]}
+      case "$T" in
+        --delete|-d) DELETE=1; i=$((i + 1)) ;;
+        --all|--mirror) ALLREFS=1; i=$((i + 1)) ;;
+        -o|--push-option|--receive-pack|--exec|--repo) i=$((i + 2)) ;;
+        --) i=$((i + 1)) ;;
+        -*) i=$((i + 1)) ;;
+        *)
+          V=$(push_gate_unquote "$T")
+          if [ "$REMOTE_SEEN" = 0 ]; then
+            REMOTE_SEEN=1
+          elif [ -z "$V" ]; then
+            REF_UNRESOLVED=1   # a blanked "$BRANCH" — content is not knowable
+          else
+            REFS+=("$V")
+          fi
+          i=$((i + 1)) ;;
+      esac
+    done
+
+    # Deleting a remote branch is the cleanup path, never the harm.
+    [ "$DELETE" = 1 ] && continue
+
+    # --all / --mirror publishes every local branch, worktree ones included.
+    if [ "$ALLREFS" = 1 ]; then
+      STRAY=$( cd "$CWD" 2>/dev/null && git "${REPO_LOC[@]}" for-each-ref \
+        --format='%(refname:short)' 'refs/heads/worktree-agent-*' 2>/dev/null | head -1 )
+      [ -n "$STRAY" ] && push_gate_block "$STRAY (via --all/--mirror)"
+      continue
+    fi
+
+    # 1. explicit refspecs — check both sides of src:dst
+    for R in ${REFS[@]+"${REFS[@]}"}; do
+      SRC=${R%%:*}; SRC=${SRC#+}
+      case "$R" in *:*) DST=${R#*:} ;; *) DST=$SRC ;; esac
+      [ -z "$SRC" ] && continue          # `:branch` is a deletion
+      case "${SRC##*/}" in worktree-agent-*) push_gate_block "$SRC" ;; esac
+      case "${DST##*/}" in worktree-agent-*) push_gate_block "$DST" ;; esac
+    done
+    [ "${#REFS[@]}" -gt 0 ] && [ "$REF_UNRESOLVED" = 0 ] && continue
+
+    # 2. no usable refspec — resolve the current branch of the TARGET repo
+    if [ "$REF_UNRESOLVED" = 0 ] && [ "$REPO_UNRESOLVED" = 0 ]; then
+      HEAD_BR=$( cd "$CWD" 2>/dev/null && git "${REPO_LOC[@]}" symbolic-ref \
+        --quiet --short HEAD 2>/dev/null )
+      if [ -n "$HEAD_BR" ]; then
+        case "${HEAD_BR##*/}" in worktree-agent-*) push_gate_block "$HEAD_BR" ;; esac
+        continue                          # resolved, and it is not a worktree branch
+      fi
+    fi
+
+    # 3. unresolvable — fall back to the (conservative) cwd rule
+    case "$CWD" in
+      */.claude/worktrees/agent-*) push_gate_block_cwd ;;
+    esac
+  done < <(printf '%s\n' "$SKEL" | tr ';&|`()<>' '\n\n\n\n\n\n\n\n')
+  ;;
+esac
 
 # Only intercept git commit commands for the rest of the checks below
 # (skeleton: a "git commit" inside a quoted arg/message is not a real commit)
