@@ -382,7 +382,11 @@ cat > LICENSE <<EOF
 <MIT or CC-BY-4.0 — pick the right one for handouts>
 EOF
 
-git add . && git commit -m ":seedling: bootstrap resource pack repo"
+# Stage by name, never `git add .` — the fleet's pre-commit hook REFUSES the
+# broad form, so a documented `git add .` here is a command the machine will
+# not run. Add the handouts/reading/links files explicitly as you create them.
+git add README.md LICENSE
+git commit -m ":seedling: bootstrap resource pack repo"
 git push -u origin main
 ```
 

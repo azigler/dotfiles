@@ -459,12 +459,14 @@ rounds of author pushback):**
 
 1. **Study the original's real structure before editing.** Export it and
    read the *raw HTML*, not the markdown:
-   ```bash
-   # current live version
+   ```js
+   // Google Drive API calls, not shell — the fence says `js` so the doc
+   // linter shellchecks the shell blocks and leaves these alone.
+   // current live version
    drive.files.export({ fileId, mimeType: 'text/html' })
-   # a prior version (to see what the author actually had)
-   drive.revisions.list({ fileId })            # find the revisionId
-   drive.revisions.get({ fileId, revisionId, fields: 'exportLinks' })  # → text/html link
+   // a prior version (to see what the author actually had)
+   drive.revisions.list({ fileId })            // find the revisionId
+   drive.revisions.get({ fileId, revisionId, fields: 'exportLinks' })  // → text/html link
    ```
    The HTML shows the spacer `<p>` paragraphs, the literal-vs-`<ol>`
    numbering, and the exact per-run colors/weights.

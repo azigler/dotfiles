@@ -299,7 +299,9 @@ Pull the full bead description templates from [handoff-templates.md](../beads/re
 - [/spec](../spec/SKILL.md) — produces the spec bead
 - [/check](../check/SKILL.md) — produces decisions on the spec bead
 - [/test](../test/SKILL.md) — what test agents do
-- [/branch](../../branch/SKILL.md) (if project-scoped) — version-branch workflow
-- [/release](../../release/SKILL.md) (if project-scoped) — tagged release flow
+- `/branch`, `/release` — version-branch workflow and tagged release flow.
+  **Not links on purpose**: these are PROJECT-scoped skills (lb-agent-factory,
+  reef), so there is no file here to point at. Read them in the owning
+  project's own `.claude/skills/`, per that project's CLAUDE.md.
 - [/orchestrator](../orchestrator/SKILL.md) — worktree-subagent dispatch mechanics
 - [/beads reference/handoff-templates.md](../beads/reference/handoff-templates.md) — full per-stage bead templates
