@@ -1,0 +1,96 @@
+# vps-repo-manifest.txt — what "current" means on marketing-vps.
+#
+# Read by vps-repo-refresh.sh (runs ON the VPS) and by vps-preflight.sh (runs on
+# zig-computer). Data, not code: adding a migrating pulse row should be a line
+# here, never a script edit.
+#
+# Scope note (explore-7iz9, architecture (c)): only the FIVE migrating rows'
+# dependencies are listed — friday-deploy, di-research-digest, guest-promo,
+# di-wednesday (dashboard-dev-interrupted) and weekly-report (weekly-reporting).
+# `news-planning` and `di-monday` stay local and are deliberately NOT provisioned.
+#
+# Directives (whitespace separated; ~ and $HOME expand; # starts a comment):
+#
+#   repo      <path> <remote> <branch>
+#       A git checkout the VPS must keep at the branch tip. Fast-forward only.
+#
+#   submodule <repo> <subpath> <branch>
+#       A submodule to init + track at ITS OWN branch tip.
+#       NOT `submodule update` to the umbrella's pinned gitlink — measured
+#       2026-07-26, the umbrella pin lags the submodule tip by days (pin
+#       3ea2ce0 vs tip eb5d93e for dashboard-dev-interrupted), so pinning
+#       would make the VPS run OLDER code than zig-computer, which is the
+#       exact confidently-wrong failure this whole mechanism exists to stop.
+#       Submodules NOT listed here stay deinitialized — agent-factory alone is
+#       4.9 GB and this is a shared box.
+#
+#   readonly  <repo>
+#       Assert this checkout can never author a commit: no user.email / user.name
+#       configured, and no dirty tracked files outside `harvest` paths.
+#       Encodes the standing rule that the VPS is a read-only consumer of git.
+#
+#   beadstore <repo> <path>
+#       Fingerprint a bead store and assert it did not change since the previous
+#       refresh. The VPS NEVER writes beads (explore-7iz9): two diverged stores
+#       plus a remote `br` write produce duplicate ids in the JSONL and brick
+#       `br` on BOTH machines. This is the tripwire for that rule.
+#
+#   harvest   <repo> <path>
+#       A TRACKED file the remote tick legitimately writes (the pulse ledger).
+#       Before pulling, a modified copy is preserved into the harvest dir and the
+#       working copy is reset, so the ff-only pull is never blocked and the row is
+#       never lost. Listed in the receipt; vps-preflight.sh copies it back to
+#       zig-computer. Everything NOT listed here that is dirty is a hard failure.
+#
+#   require   <path>
+#       Must exist and be non-empty after the refresh. Catches the empty-submodule
+#       class: an uninitialized submodule is an empty DIRECTORY, and a tick finding
+#       no refs/pulse.md there looks like an empty project, not an error.
+#
+#   require-oob <path>
+#       Same, but git can NEVER deliver it — it is gitignored or otherwise
+#       local-only, so a failure here means "copy it out of band", not "pull again".
+
+# ---- umbrella checkouts ------------------------------------------------------
+repo      $HOME/dotfiles  origin main
+repo      $HOME/linearb   origin main
+readonly  $HOME/dotfiles
+readonly  $HOME/linearb
+beadstore $HOME/linearb   .beads/issues.jsonl
+
+# ---- the two submodules the five migrating rows actually need ----------------
+submodule $HOME/linearb dashboard-dev-interrupted main
+submodule $HOME/linearb weekly-reporting          main
+readonly  $HOME/linearb/dashboard-dev-interrupted
+readonly  $HOME/linearb/weekly-reporting
+
+# The ledger is TRACKED in both submodules, so a remote tick's proof row would
+# otherwise make the checkout dirty and block the next fast-forward pull.
+harvest   $HOME/linearb/dashboard-dev-interrupted refs/pulse-ledger.jsonl
+harvest   $HOME/linearb/weekly-reporting          refs/pulse-ledger.jsonl
+
+# ---- what a tick must be able to read ----------------------------------------
+require $HOME/dotfiles/agents/skills/pulse/SKILL.md
+require $HOME/dotfiles/agents/scheduler/pulse-inject.sh
+
+require $HOME/linearb/dashboard-dev-interrupted/CLAUDE.md
+require $HOME/linearb/dashboard-dev-interrupted/refs/pulse.md
+require $HOME/linearb/dashboard-dev-interrupted/refs/beats.md
+require $HOME/linearb/dashboard-dev-interrupted/refs/midroll-library.md
+require $HOME/linearb/dashboard-dev-interrupted/.claude/skills/di-friday-deploy-post/SKILL.md
+require $HOME/linearb/dashboard-dev-interrupted/.claude/skills/di-research-curator/SKILL.md
+require $HOME/linearb/dashboard-dev-interrupted/.claude/skills/di-newsletter-post/SKILL.md
+require $HOME/linearb/dashboard-dev-interrupted/.claude/skills/di-marketing-post/SKILL.md
+require $HOME/linearb/dashboard-dev-interrupted/.claude/skills/di-clip-plan/SKILL.md
+require $HOME/linearb/dashboard-dev-interrupted/.claude/skills/di-preamble-and-midroll/SKILL.md
+
+require $HOME/linearb/weekly-reporting/CLAUDE.md
+require $HOME/linearb/weekly-reporting/refs/pulse.md
+require $HOME/linearb/weekly-reporting/.claude/skills/weekly-report/SKILL.md
+
+# The IMC campaign folders are gitignored in the umbrella (.gitignore:21-22), so
+# NO amount of pulling will ever put them on the VPS. refs/beats.md points every
+# beat at `~/linearb/imc-<month>` and guest-promo's /di-marketing-post frames its
+# blurb from that corpus — a tick without it drafts confidently without campaign
+# context. 1.7 MB + 5.4 MB; needs an rsync, or a decision to descope guest-promo.
+require-oob $HOME/linearb/imc-aug26
