@@ -26,7 +26,7 @@ co-located with Claude Code + `/pulse` + nginx — co-location beats a backwards
 cross-tailnet trigger. Name the deviation when you make it.
 
 ## nginx (here, `/etc/nginx/sites-{available,enabled}/`)
-Existing vhosts: `linearb.zig.computer`, `ss14.zig.computer`, `reef-router` (:7575).
+Existing vhosts: `linearb.zig.computer`, `vs14.zig.computer`, `reef-router` (:7575).
 Pattern: per-project `<name>.zig.computer.conf` + certbot TLS; `nginx -t` before
 reload. Use the `/nginx` skill.
 
