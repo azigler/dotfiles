@@ -478,6 +478,52 @@ wc -l ~/.claude/projects/-home-ubuntu-linearb-agent-factory/memory/MEMORY.md
 Fix any drift; MEMORY.md's one-line-per-file index should reference every
 memory file under the same directory.
 
+### 9.10 Documented-example lint (`doc-example-lint`) — NON-BLOCKING
+
+The failure class this catches: **the documented example IS the defect.** Not
+prose that is out of date, but a fenced command that the machine will actually
+refuse, a link that resolves nowhere, a JSON shape the real consumer rejects.
+Four confirmed instances (dotfiles-mlti) — a `git add . && git commit` in
+`/talk` that the fleet's own pre-commit hook blocks; a `2>/dev/null || true`
+in `AGENTS.md` that violated the same file's own rule; a link form in the
+explore practices doc that was broken as written; a `Co-Authored-By` line
+pinning a model version, which silently misattributed every commit made under
+a newer one. Docs are the only artifact in the harness with no compiler, and
+agents execute them verbatim.
+
+`~/dotfiles/agents/doclint/doc-example-lint.py` replays every documented shell
+statement against the machine's LIVE PreToolUse hooks, shellchecks the shell
+blocks, validates JSON examples through their real consumer, and resolves
+relative links.
+
+```bash
+python3 ~/dotfiles/agents/doclint/doc-example-lint.py            # default roots
+python3 ~/dotfiles/agents/doclint/doc-example-lint.py --path ~/explore
+```
+
+**Run it as a standing pass here, and treat the output as a WORK QUEUE, not a
+gate.** Fix what you can in the same session; file the rest as beads. Report
+the error count in the exit tally so the trend is visible — a count that
+climbs is the signal, not any single finding.
+
+**Decision — it stays non-blocking, and is NOT a per-commit gate.** Two
+independent reasons, either of which is sufficient:
+
+1. **Latency.** It takes over two minutes, because replaying documented
+   statements against four live hooks is the whole point of it. That rules it
+   out as a commit gate regardless of how clean the tree gets — a two-minute
+   wait on every commit is how a gate gets routed around (`dotfiles-aj83`,
+   `dotfiles-vo3t`: three separate agents worked around a hook that
+   false-blocked them, and a gate its users route around has stopped being a
+   gate).
+2. **Error count.** Making it blocking before the count has been 0 and STAYED
+   there just blocks unrelated work on a pre-existing backlog.
+
+Revisit only if the count holds at 0 across several passes AND someone finds a
+way to make it fast enough — and even then, prefer a scoped commit-time check
+on the changed files over the full replay. (Baseline: 12 errors / 38 warnings
+over 287 files, 2026-07-26; cleared to 0 under `dotfiles-lmrn`.)
+
 ## Exit Criteria
 
 A housekeeping pass is done when:
@@ -493,6 +539,8 @@ A housekeeping pass is done when:
 - [ ] `systemctl --user is-active` green for every worker and dev-server
 - [ ] No stale worktrees
 - [ ] `MEMORY.md` index matches actual memory files
+- [ ] `doc-example-lint` run and its error count reported (non-blocking —
+      a non-zero count is a work queue to file, not a reason to stop)
 
 Report the tally when done. Incomplete items should be filed as follow-up
 beads, not left open in the exit report.
