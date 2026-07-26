@@ -15,10 +15,10 @@ The wrapper has run these and pasted the output below this prompt:
 
 1. `git -C ~/dotfiles log --oneline --since="1 day ago"`
 2. `git -C ~/explore log --oneline --since="1 day ago"`
-3. `git -C ~/explore/autonovel log --oneline --since="1 day ago"`
+3. `git -C ~/autonoveld log --oneline --since="1 day ago"`
 4. `br --db ~/dotfiles/.beads/beads.db list --status open` (top 20 lines)
 5. `br --db ~/explore/.beads/beads.db list --status open` (top 20 lines, if exists)
-6. `br --db ~/explore/autonovel/.beads/beads.db list --status open` (top 20 lines, if exists)
+6. `br --db ~/autonoveld/.beads/beads.db list --status open` (top 20 lines, if exists)
 
 ## Output format (strict)
 

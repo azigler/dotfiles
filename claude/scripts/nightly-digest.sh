@@ -75,7 +75,7 @@ CCR_MAX_TOKENS="${CLAUDE_NIGHTLY_DIGEST_MAX_TOKENS:-3000}"
 REPOS=(
   "$HOME/dotfiles"
   "$HOME/explore"
-  "$HOME/explore/autonovel"
+  "$HOME/autonoveld"
 )
 
 # Where to file the failure-bead. Hard-coded to dotfiles because that's where

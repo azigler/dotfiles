@@ -52,7 +52,7 @@ fire Read "$TOYBOX_SKILL" "$HOME/explore"
 assert_lines "home-turf read ignored" 1
 
 # 4. Toybox read from an explore child → NOT logged
-fire Read "$TOYBOX_SKILL" "$HOME/explore/autonovel"
+fire Read "$TOYBOX_SKILL" "$HOME/explore/linters"
 assert_lines "explore-child read ignored" 1
 
 # 5. Non-toybox read from another umbrella → NOT logged
