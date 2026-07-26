@@ -110,8 +110,21 @@ One commit per fix. Use :bug: gitmoji. Include `Bead: <BEAD_ID>`.
 After the subagent reports done:
 
 ```bash
-git merge worktree-agent-XXXX --no-edit
-git merge-base --is-ancestor worktree-agent-XXXX HEAD || { echo "ABORT: not merged"; exit 1; }
+BRANCH=worktree-agent-XXXX
+TARGET=main          # the branch that must RECEIVE the work
+
+# Assert the target branch BEFORE merging. `--is-ancestor $BRANCH HEAD` is
+# trivially true when HEAD *is* $BRANCH, so on its own it proves nothing.
+test "$(git branch --show-current)" = "$TARGET" \
+  || { echo "ABORT: on '$(git branch --show-current)', not '$TARGET' — cd to the project root first"; exit 1; }
+
+BEFORE=$(git rev-parse HEAD)
+git merge "$BRANCH" --no-edit || { echo "ABORT: merge failed (conflicts?)"; exit 1; }
+
+test "$(git rev-parse HEAD)" != "$BEFORE" \
+  || { echo "ABORT: $TARGET did not move — the agent committed nothing, or this was already merged"; exit 1; }
+git merge-base --is-ancestor "$BRANCH" "$TARGET" \
+  || { echo "ABORT: $BRANCH is still not in $TARGET"; exit 1; }
 
 br close <BEAD_ID>
 git add .beads/issues.jsonl
@@ -119,9 +132,14 @@ git commit -m ":card_file_box: beads: close <BEAD_ID>"
 
 # --force --force, not -f: single -f overrides modified files but NOT the
 # agent's worktree lock, which can outlive the agent's final reply.
-git worktree remove --force --force .claude/worktrees/agent-XXXX
-git branch -D worktree-agent-XXXX
-git push origin --delete worktree-agent-XXXX 2>/dev/null || true
+git worktree remove --force --force ".claude/worktrees/${BRANCH#worktree-}"
+git branch -D "$BRANCH"
+
+# Remote branch: delete only if it exists — a blanket `2>/dev/null || true` hides
+# real auth/network failures and is blocked by the pre-bash-stderr-guard hook.
+if git remote | grep -qx origin && git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+  git push origin --delete "$BRANCH"
+fi
 ```
 
 ## Step 4: External receipt log (team-specific)

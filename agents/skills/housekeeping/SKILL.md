@@ -381,8 +381,15 @@ factory has unpushed commits or an agent is behind, run `/distribute`.
 echo "factory unpushed: $(git log origin/main..HEAD --oneline | wc -l)"
 for agent in agents/lb-agent-*/; do
   pushd "$agent" > /dev/null
-  git fetch upstream main --quiet 2>/dev/null
-  behind=$(git rev-list --count HEAD..upstream/main)
+  # No blanket `2>/dev/null` on the fetch: it hides auth/network failures, and
+  # `behind` would then silently report a stale count. Probe for the remote
+  # instead — that is the only expected "failure" here.
+  if git remote | grep -qx upstream; then
+    git fetch upstream main --quiet
+    behind=$(git rev-list --count HEAD..upstream/main)
+  else
+    behind=no-upstream
+  fi
   dirty=$(git status --short | grep -v '^??' | wc -l)
   printf '%-24s behind=%s dirty=%s\n' "$(basename "$agent")" "$behind" "$dirty"
   popd > /dev/null

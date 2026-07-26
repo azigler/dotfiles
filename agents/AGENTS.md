@@ -269,17 +269,46 @@ After a worktree subagent finishes, merge, close the bead, commit bead
 state, and clean up:
 
 ```bash
-git merge worktree-agent-XXXX --no-edit
-git merge-base --is-ancestor worktree-agent-XXXX HEAD  # safety: abort if not merged
+BRANCH=worktree-agent-XXXX
+TARGET=main          # the branch that must RECEIVE the work
+
+# Precondition — you must be ON the target. Merging while checked out on $BRANCH
+# is a silent no-op, and `--is-ancestor $BRANCH HEAD` still passes because HEAD
+# *is* $BRANCH. Assert the branch; never infer it.
+test "$(git branch --show-current)" = "$TARGET" \
+  || { echo "ABORT: on '$(git branch --show-current)', not '$TARGET' — cd to the project root first"; exit 1; }
+
+BEFORE=$(git rev-parse HEAD)
+git merge "$BRANCH" --no-edit || { echo "ABORT: merge failed (conflicts?)"; exit 1; }
+
+# The guard: $TARGET must have actually MOVED, and must now contain $BRANCH.
+test "$(git rev-parse HEAD)" != "$BEFORE" \
+  || { echo "ABORT: $TARGET did not move — the agent committed nothing, or this was already merged"; exit 1; }
+git merge-base --is-ancestor "$BRANCH" "$TARGET" \
+  || { echo "ABORT: $BRANCH is still not in $TARGET"; exit 1; }
 
 br close <bead-id>
 git add .beads/issues.jsonl
 git commit -m ":card_file_box: beads: close <bead-id>"
 
-git worktree remove --force --force .claude/worktrees/agent-XXXX
-git branch -D worktree-agent-XXXX
-git push origin --delete worktree-agent-XXXX 2>/dev/null || true
+# ${BRANCH#worktree-} -> agent-XXXX: the worktree dir drops the "worktree-" prefix
+git worktree remove --force --force ".claude/worktrees/${BRANCH#worktree-}"
+git branch -D "$BRANCH"
+
+# Remote branch: delete only if it exists. No blanket `2>/dev/null || true` — that
+# hides a real auth/network failure, violates the stderr rule below, and is blocked
+# by the live pre-bash-stderr-guard hook.
+if git remote | grep -qx origin && git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+  git push origin --delete "$BRANCH"
+fi
 ```
+
+**Why the SHA comparison, not just `--is-ancestor … HEAD`.** The old form was
+sound only under a precondition it never stated (that HEAD is already the merge
+target), and passed vacuously in two real cases: merging while checked out on the
+agent's own branch, and an agent that committed nothing at all. Both reported a
+green check while `main` had not moved. Asserting `$TARGET` and comparing the
+pre/post SHA catches the class, not just the one instance.
 
 `--force --force` (not just `--force`) — the subagent's worktree lock
 (`reason: claude agent <id>`) can briefly outlive the agent's final
