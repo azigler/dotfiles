@@ -158,23 +158,28 @@ _transcripts_apply_size_guard() {
 
 # The locked body of the daily push. Benign errors quiet (note:), real errors loud
 # (WARN:) — OQ-A3. Mirrors _vault_push_locked but with the transcripts guards.
+#
+# RETURN STATUS (dotfiles-t6sd) — identical tier-status contract to
+# _vault_push_locked in vault-lib.sh; keep the two in lockstep:
+#   0 OK | 1 FAILED | 2 BLOCKED | 3 DEFERRED | 4 SKIPPED | 9 INERT
+# This is the tier whose 120 consecutive gate-blocked pushes read as 0/SUCCESS.
 _transcripts_push_locked() {
   local vis out leaked
   vis=$(t_cached_repo_visibility)
   if [ "$vis" != "PRIVATE" ]; then
     echo "note: transcripts push skipped (visibility=$vis)" >&2
-    return 0
+    return 4
   fi
   if ! out=$(tgit add -A 2>&1); then
     echo "WARN: transcripts vault stage failed: $out" >&2
-    return 0
+    return 1
   fi
   # SIZE GUARD (split-on-copy) — replace any oversize staged blob with chunk parts
   # BEFORE the leak guard + commit, so no >100 MiB blob ever reaches the pack/push.
   if ! _transcripts_apply_size_guard; then
     tgit reset -q 2>/dev/null || true
     echo "WARN: transcripts vault REFUSED — size-guard/chunk failure (nothing committed)" >&2
-    return 0
+    return 1
   fi
   # INVERSE LEAK GUARD (mirror of memory's, scrutiny-finding-1 class): an in-tree
   # .gitignore can override core.excludesFile, so re-assert EVERY run that only
@@ -184,7 +189,7 @@ _transcripts_push_locked() {
     tgit reset -q 2>/dev/null || true
     echo "WARN: transcripts vault REFUSED — non-transcript/memory path(s) staged (excludes bypassed?):" >&2
     printf '%s\n' "$leaked" | head >&2
-    return 0
+    return 1
   fi
   # PEER delete-guard (spec lin-i2d.1 OQ-09/OQ-13): on a peer (marker present),
   # never propagate deletions from a sparse/absent work-tree — strip staged
@@ -224,24 +229,32 @@ _transcripts_push_locked() {
       printf 'transcripts vault commit blocked by secret gate %s\n' "$(date -u +%FT%TZ)" \
         > "$HOME/.claude/.secret-alert" 2>/dev/null || true
     fi
-    return 0
+    return 2
   fi
-  # reconcile then best-effort push — bounded by timeout, benign on failure.
+  # reconcile then best-effort push — bounded by timeout, benign on failure but
+  # reported: a deferred push did not reach the remote (dotfiles-t6sd).
   tgit_net pull --rebase --autostash -q origin main >/dev/null 2>&1 || true
   if ! tgit_net push -q origin main >/dev/null 2>&1; then
     echo "note: transcripts push deferred" >&2
+    return 3
   fi
 }
 
-# Daily push entrypoint (§4.3). Best-effort; NEVER fails the caller. ONE flock spans
-# the whole add→guard→commit→pull→push critical section. Inert until bootstrap runs.
+# Daily push entrypoint (§4.3). ONE flock spans the whole add→guard→commit→pull→push
+# critical section. Inert until bootstrap runs.
+#
+# Returns the tier-status code (0/1/2/3/4/9 — see _transcripts_push_locked) rather
+# than the old unconditional 0. Best-effort callers (session-end.sh) already guard
+# with `|| true`; vault-push-transcripts.sh propagates it as its own exit status.
 vault_push_transcripts() {
-  [ -d "$TRANSCRIPTS_GIT" ] || return 0
+  local rc
+  [ -d "$TRANSCRIPTS_GIT" ] || return 9
   mkdir -p "$VAULT_DIR" 2>/dev/null
   find "$TRANSCRIPTS_GIT" -name index.lock -mmin +5 -delete 2>/dev/null
   (
-    flock -w 10 9 || { echo "note: transcripts vault busy (lock timeout)" >&2; exit 0; }
+    flock -w 10 9 || { echo "note: transcripts vault busy (lock timeout)" >&2; exit 3; }
     _transcripts_push_locked
   ) 9>"$TRANSCRIPTS_LOCK"
-  return 0
+  rc=$?
+  return "$rc"
 }

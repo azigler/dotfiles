@@ -78,16 +78,30 @@ cached_repo_visibility() {
 
 # The locked body of the SessionEnd push (the flock is held via fd 9). Benign
 # errors are quiet (note:), real errors are loud (WARN:) — OQ-A3.
+#
+# RETURN STATUS (dotfiles-t6sd) — the tier-status contract shared with
+# transcripts-lib.sh. Every early return used to be `0`, which is what let
+# vault-sync.sh report 0/SUCCESS through 120 consecutive blocked pushes. The
+# codes below let a status-AWARE caller (vault-sync.sh) go red while the
+# best-effort callers (session-end.sh, vault-selftest.sh) stay unaffected —
+# they already guard every call with `|| true`.
+#
+#   0  VAULT_OK        pushed, or nothing to commit
+#   1  VAULT_FAILED    a real error (stage failed / leak-guard refusal)
+#   2  VAULT_BLOCKED   pre-commit gate blocked the commit — needs a human
+#   3  VAULT_DEFERRED  network or lock timeout — transient, retries next fire
+#   4  VAULT_SKIPPED   visibility guard refused to push (fail-closed)
+#   9  VAULT_INERT     vault not bootstrapped — excluded from any verdict
 _vault_push_locked() {
   local vis out slug leaked
   vis=$(cached_repo_visibility)
   if [ "$vis" != "PRIVATE" ]; then
     echo "note: memory push skipped (visibility=$vis)" >&2
-    return 0
+    return 4
   fi
   if ! out=$(mgit add -A 2>&1); then
     echo "WARN: memory vault stage failed: $out" >&2
-    return 0
+    return 1
   fi
   # SAFETY (scrutiny finding 1): re-assert ONLY */memory/** is staged, EVERY run.
   # An in-tree .gitignore OVERRIDES core.excludesFile (documented git precedence:
@@ -100,7 +114,7 @@ _vault_push_locked() {
     mgit reset -q 2>/dev/null || true
     echo "WARN: memory vault REFUSED — non-memory path(s) staged (excludes bypassed?):" >&2
     printf '%s\n' "$leaked" | head >&2
-    return 0
+    return 1
   fi
   # PEER delete-guard (spec lin-i2d.1 OQ-09/OQ-13): on a peer (marker present),
   # NEVER propagate deletions from a sparse/absent work-tree — strip staged
@@ -138,26 +152,39 @@ _vault_push_locked() {
     # a pre-commit-hook block (Layer 1 secret gate) or a real fs failure — loud.
     echo "WARN: memory vault commit blocked/failed:" >&2
     printf '%s\n' "$out" >&2
-    return 0
+    return 2
   fi
   # reconcile then best-effort push — bounded by timeout (finding 3), benign on
-  # failure (OQ-A1/A3: non-fast-forward / offline are quiet).
+  # failure (OQ-A1/A3: non-fast-forward / offline are quiet) but NO LONGER SILENT
+  # to the caller: a deferred push means the commit did not reach the remote, so
+  # it returns 3 and the hourly sync's exit status reflects it (dotfiles-t6sd).
   mgit_net pull --rebase --autostash -q origin main >/dev/null 2>&1 || true
   if ! mgit_net push -q origin main >/dev/null 2>&1; then
     echo "note: memory push deferred" >&2
+    return 3
   fi
 }
 
-# SessionEnd push step (§4.1). Best-effort; NEVER fails the caller. ONE flock
-# spans the whole add→commit→pull→push critical section (OQ-A1/A2).
+# SessionEnd push step (§4.1). ONE flock spans the whole add→commit→pull→push
+# critical section (OQ-A1/A2).
+#
+# Returns the tier-status code documented on _vault_push_locked (0/1/2/3/4/9)
+# instead of the old unconditional 0. It still never *aborts* a caller — every
+# best-effort call site (session-end.sh, vault-selftest.sh) guards with
+# `|| true`, and no caller runs under `set -e` without that guard. Only
+# vault-sync.sh reads the status, and only it turns it into a red unit.
 vault_push_memory() {
-  [ -d "$MEMORY_GIT" ] || return 0             # inert until bootstrap runs
+  local rc
+  [ -d "$MEMORY_GIT" ] || return 9             # inert until bootstrap runs
   mkdir -p "$VAULT_DIR" 2>/dev/null
   # stale-lock sweep (OQ-A2): a SIGKILLed session must not wedge future commits.
   find "$MEMORY_GIT" -name index.lock -mmin +5 -delete 2>/dev/null
   (
-    flock -w 10 9 || { echo "note: memory vault busy (lock timeout)" >&2; exit 0; }
+    # a lock timeout means this run did NOT push — transient (another session is
+    # mid-push), so 3 (deferred), not a silent 0.
+    flock -w 10 9 || { echo "note: memory vault busy (lock timeout)" >&2; exit 3; }
     _vault_push_locked
   ) 9>"$MEMORY_LOCK"
-  return 0
+  rc=$?
+  return "$rc"
 }
