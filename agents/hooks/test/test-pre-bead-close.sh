@@ -9,9 +9,9 @@
 #
 # Stubbed `br`:
 #   - `br lint <id>`  → exit 1 if <id> contains "bogus", else exit 0
-#   - `br show <id>`  → "Type: impl" if <id> has "impl" (else "task");
-#                       a SHIP verdict line if it has "ship", an
-#                       OVERRIDE line if it has "ovr"
+#   - `br show <id>`  → "Type: <impl|bug|spec|epic>" if <id> contains that
+#                       word (else "task"); a SHIP verdict line if it has
+#                       "ship", an OVERRIDE line if it has "ovr"
 #   - any other `br`  → exit 0
 
 set -u
@@ -38,6 +38,9 @@ case "${1:-}" in
   show)
     case "${2:-}" in
       *impl*) echo "Owner: t · Type: impl" ;;
+      *bug*)  echo "Owner: t · Type: bug" ;;
+      *spec*) echo "Owner: t · Type: spec" ;;
+      *epic*) echo "Owner: t · Type: epic" ;;
       *)      echo "Owner: t · Type: task" ;;
     esac
     case "${2:-}" in
@@ -346,6 +349,120 @@ run_case "block: chained --design does not skip the gate" 2 \
 run_case "block: chained --notes does not skip the gate" 2 \
   '{"tool_input":{"command":"br update bd-bogus --notes \"log\" && br close bd-bogus"},"cwd":"/tmp"}' \
   "incomplete template sections"
+
+# --- 34. Fix 3: the chained-`--description` skip must RE-CHECK the value ----
+#
+# The skip existed so `br update X --description "…## Acceptance Criteria…" &&
+# br close X` would not false-block (PreToolUse fires before the update runs,
+# so `br lint` still sees the pre-update state). But it fired UNCONDITIONALLY
+# on seeing the flag and never looked at the value, so an agent that hit the
+# block once and re-issued with prose bought a free close — a discoverable
+# bypass sitting inside the gate (2026-07-26 audit §3.4). The skip now fires
+# only when the command carries the sections `br lint` will demand for that
+# bead's TYPE.
+#
+# NEGATIVE CONTROL (run 2026-07-26): with the unconditional skip restored, this
+# suite scores 58/60 — the two failures are 34a and 34b below. 34c and 34d pass
+# either way (they are ALLOW cases the old skip also allowed) and are kept as
+# regression pins that the narrowing did not turn the clunk-fix back into a
+# false block, not as discriminators.
+
+# 34a. prose description, no Acceptance Criteria → the skip must NOT fire.
+run_case "block: chained --description with prose only (the 3.4 bypass)" 2 \
+  '{"tool_input":{"command":"br update bd-bogus --description \"just some prose about the work\" && br close bd-bogus"},"cwd":"/tmp"}' \
+  "incomplete template sections"
+
+# 34b. a bug bead needs BOTH sections; only one present → still blocked.
+run_case "block: chained --description missing one of a bug's two sections" 2 \
+  '{"tool_input":{"command":"br update bd-bogusbug --description \"## Acceptance Criteria\" && br close bd-bogusbug"},"cwd":"/tmp"}' \
+  "incomplete template sections"
+
+# 34c. …and with both, the skip fires (the dotfiles-90s clunk fix still works).
+run_case "allow: chained --description with a bug's two sections" 0 \
+  '{"tool_input":{"command":"br update bd-bogusbug --description \"## Steps to Reproduce ... ## Acceptance Criteria\" && br close bd-bogusbug"},"cwd":"/tmp"}'
+
+# 34d. a type br templates NOTHING for (spec) — the skip fires on any body,
+#      because `br lint` itself demands nothing there. Symmetry, not laxity.
+run_case "allow: chained --description on a type with no template (spec)" 0 \
+  '{"tool_input":{"command":"br update bd-bogusspec --description \"prose is fine here\" && br close bd-bogusspec"},"cwd":"/tmp"}'
+
+# --- 35. Fix 1: the matcher must fire in the shapes the FLEET actually uses --
+#
+# The gate used to be a `case` glob that fired only when the command STARTED
+# with `br close`, or contained a literal `&& br close` / `; br close`. The
+# fleet's dominant idiom — `cd /home/ubuntu/<proj>` on line 1, `br close <id>`
+# on line 2 — matched none of them. Measured bypass: 0% (Feb) → 48% (May/Jun) →
+# 81% (Jul), 1,043 of 1,044 bypasses being that newline form. The hook reported
+# itself installed the entire time.
+#
+# NEGATIVE CONTROL (run 2026-07-26): with the `case` glob restored, this suite
+# scores 53/60. The seven failures are exactly the shapes the glob could not
+# see: cd+newline, leading whitespace, a multi-line preamble, the for-loop
+# batch, a command substitution, an if-block, and the scrutiny gate reached
+# through the newline form. Every case that existed BEFORE this block passes
+# either way — which is precisely why the bug survived two months: the suite
+# only ever exercised the shape the gate was written in.
+#
+# The pipe and subshell cases below also pass either way (`br close X | tee`
+# starts with the verb, and `(cd /x && br close X)` contains `&& br close`, so
+# the old glob caught both). They are kept as regression pins for the id-scrape
+# terminators, not as discriminators.
+
+# 35a. THE shape: `cd <dir>` on its own line, then the close.
+run_case "block: cd + NEWLINE + br close (the 81% bypass)" 2 \
+  '{"tool_input":{"command":"cd /tmp\nbr close bd-bogus"},"cwd":"/tmp"}' \
+  "Blocked: bead bd-bogus"
+
+run_case "allow: cd + NEWLINE + br close on a clean bead" 0 \
+  '{"tool_input":{"command":"cd /tmp\nbr close bd-iq81"},"cwd":"/tmp"}'
+
+# 35b. leading whitespace / indentation.
+run_case "block: leading whitespace before br close" 2 \
+  '{"tool_input":{"command":"   br close bd-bogus"},"cwd":"/tmp"}' \
+  "Blocked: bead bd-bogus"
+
+# 35c. a multi-line preamble, not just a bare cd.
+run_case "block: multi-line preamble then br close" 2 \
+  '{"tool_input":{"command":"set -e\ncd /tmp\nbr close bd-bogus"},"cwd":"/tmp"}' \
+  "Blocked: bead bd-bogus"
+
+# 35d. for-loop batch close — the ids live in the LOOP HEADER, not after the
+#      verb, so the id scrape needs the loop-header fallback to see them.
+run_case "block: for-loop batch close over literal ids" 2 \
+  '{"tool_input":{"command":"for b in bd-iq81 bd-bogus; do br close $b; done"},"cwd":"/tmp"}' \
+  "Blocked: bead bd-bogus"
+
+run_case "allow: for-loop batch close over clean ids" 0 \
+  '{"tool_input":{"command":"for b in bd-iq81 bd-w6sd; do br close $b; done"},"cwd":"/tmp"}'
+
+# 35e. pipe.
+run_case "block: br close piped into another command" 2 \
+  '{"tool_input":{"command":"br close bd-bogus | tee /dev/null"},"cwd":"/tmp"}' \
+  "Blocked: bead bd-bogus"
+
+# 35f. subshell / command substitution — the scrape must not keep the `)`.
+run_case "block: br close inside a subshell" 2 \
+  '{"tool_input":{"command":"(cd /tmp && br close bd-bogus)"},"cwd":"/tmp"}' \
+  "Blocked: bead bd-bogus"
+
+run_case "block: br close inside a command substitution" 2 \
+  '{"tool_input":{"command":"OUT=$(br close bd-bogus)"},"cwd":"/tmp"}' \
+  "Blocked: bead bd-bogus"
+
+# 35g. an if/then block (the `; br close` glob happened to cover this one).
+run_case "block: br close inside an if block" 2 \
+  '{"tool_input":{"command":"if true; then br close bd-bogus; fi"},"cwd":"/tmp"}' \
+  "Blocked: bead bd-bogus"
+
+# 35h. the scrutiny gate rides the same matcher, so it leaked identically.
+run_case "block: impl bead with no verdict, closed via the newline form" 2 \
+  '{"tool_input":{"command":"cd /tmp\nbr close bd-implbad"},"cwd":"/tmp"}' \
+  "no recorded scrutiny verdict"
+
+# 35i. …and a MENTION of br close in a newline-separated command still does not
+#      count as one (the lexer contract must survive the wider matcher).
+run_case "allow: newline command whose text merely mentions br close" 0 \
+  '{"tool_input":{"command":"cd /tmp\ngit commit -m \"note: the orchestrator will br close bd-bogus later\""},"cwd":"/tmp"}'
 
 # --- Summary ---
 

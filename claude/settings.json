@@ -146,6 +146,11 @@
           },
           {
             "type": "command",
+            "command": "~/.claude/hooks/pre-bead-create.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
             "command": "~/.claude/hooks/pre-merge-worktree.sh",
             "timeout": 10
           },

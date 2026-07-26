@@ -70,6 +70,35 @@
 #   Fail-safe: if awk is missing or errors, this prints nothing and callers
 #   fall back to the raw command (the old over-matching behavior) — a miss
 #   never turns into a missed block.
+# bead_required_headings <issue-type>
+#   Echo, one per line, the template sections `br lint` demands in a bead's
+#   DESCRIPTION BODY for that issue type. Empty output = `br` templates nothing
+#   for the type, so no heading is required.
+#
+#   This is the ONE place the fleet records what `br lint` actually wants, so
+#   the entry gate (pre-bead-create.sh) and the exit gate (pre-bead-close.sh)
+#   cannot drift apart. A bead that satisfies this on create is closeable by
+#   construction — which is the whole point of gating creation (the exit-only
+#   gate is what let 278 of 515 open beads accumulate un-closable, per the
+#   2026-07-26 beads-lifecycle audit).
+#
+#   VERIFIED against br 0.2.16 by creating one bead of every type with an empty
+#   body in a scratch store and reading `br lint --status all`:
+#     task, feature  -> ## Acceptance Criteria
+#     bug            -> ## Steps to Reproduce + ## Acceptance Criteria
+#     epic           -> ## Success Criteria
+#     spec, decision, study, note, test, impl, chore, and every other type
+#                    -> nothing (br applies no template)
+#   Re-run that probe before trusting this on a newer br.
+bead_required_headings() {
+  case "${1:-task}" in
+    task|feature) printf '%s\n' 'Acceptance Criteria' ;;
+    bug)          printf '%s\n' 'Steps to Reproduce' 'Acceptance Criteria' ;;
+    epic)         printf '%s\n' 'Success Criteria' ;;
+    *)            : ;;
+  esac
+}
+
 command_skeleton() {
   printf '%s' "$1" | LC_ALL=C awk '
   { buf = buf $0 "\n" }

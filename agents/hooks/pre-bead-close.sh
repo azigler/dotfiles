@@ -55,10 +55,24 @@ EOF
 fi
 
 # --- 2 + 3. br close: lint gate + scrutiny gate --------------------------
-case "$SKEL" in
-  br\ close*|*"&& br close"*|*"; br close"*) ;;
-  *) exit 0 ;;
-esac
+#
+# This used to be a `case` glob:
+#
+#   case "$SKEL" in br\ close*|*"&& br close"*|*"; br close"*) ;; *) exit 0 ;; esac
+#
+# which fired ONLY when the command started with `br close` or contained a
+# literal `&& br close` / `; br close`. The fleet's dominant idiom is two
+# lines — `cd /home/ubuntu/<proj>` then `br close <id>` — and it matched NONE
+# of them. Measured bypass rate rose 0% (Feb) -> 48% (May/Jun) -> 81% (Jul) as
+# the fleet went multi-project and the `cd` preamble became standard; 1,043 of
+# the 1,044 bypassed closes were that newline form. The gate reported itself
+# installed the whole time, because the alarm IS the hook (dotfiles-cxle class:
+# "exit code != effect" + "the probe tests a different path than the one that
+# matters"). Fixed 2026-07-26 from the beads-lifecycle audit.
+#
+# The replacement is the SAME anchored grep Section 1 above already used and
+# already proved — deliberately not a new matcher.
+echo "$SKEL" | grep -qE '(^|[;&|[:space:]])br[[:space:]]+close([[:space:]]|$)' || exit 0
 
 command -v br &>/dev/null || exit 0
 
@@ -67,9 +81,26 @@ command -v br &>/dev/null || exit 0
 # and the first flag (-r/--reason), so neither a reason string nor a
 # `br close <x>` inside a commit message is mis-scraped as a bead ID
 # (dotfiles-c7j "fleet-wide" + the live commit-message false-block).
-BEAD_IDS=$(echo "$SKEL" | grep -oE 'br close [^&;|]+' | sed 's/^br close //' \
+# ( and ) join &;| as scrape terminators so a close inside a subshell or a
+# command substitution — `(cd /x && br close bd-1)`, `$(br close bd-1)` — still
+# yields a bare id instead of `bd-1)`, which the id regex below would reject.
+BEAD_IDS=$(echo "$SKEL" | grep -oE 'br close [^&;|()]+' | sed 's/^br close //' \
   | awk '{for(i=1;i<=NF;i++){if($i ~ /^-/) break; print $i}}' \
   | grep -E '^[a-z0-9]+-[a-z0-9.]+$')
+
+# Loop form: `for b in <id> <id>; do br close $b; done`. The verb now matches
+# (see above), but the ids live in the LOOP HEADER, not after `br close` — so
+# the scrape above yields only `$b` and the gate would wave the batch through.
+# When the close argument is a variable, recover ids from the `for … in` list.
+# Scoped to that one shape on purpose: a broader "scrape every id-shaped token"
+# would start reading ids out of paths and flags.
+if [ -z "$BEAD_IDS" ] && echo "$SKEL" | grep -qE 'br close +[$]'; then
+  BEAD_IDS=$(echo "$SKEL" \
+    | grep -oE 'for +[A-Za-z_][A-Za-z0-9_]* +in +[^;]*' \
+    | sed -E 's/^for +[A-Za-z_][A-Za-z0-9_]* +in +//' \
+    | tr ' \t' '\n' \
+    | grep -E '^[a-z0-9]+-[a-z0-9.]+$' | sort -u)
+fi
 
 [ -z "$BEAD_IDS" ] && exit 0
 
@@ -104,6 +135,11 @@ fi
 set +e
 FAILED=0
 for ID in $BEAD_IDS; do
+  # `br show` once per bead — the type feeds the chained-update check below and
+  # the body feeds the scrutiny gate at the bottom of the loop.
+  SHOW=$(br show "$ID" 2>/dev/null)
+  BTYPE=$(echo "$SHOW" | grep -oE 'Type:[[:space:]]+[A-Za-z_-]+' | head -1 | sed -E 's/.*Type:[[:space:]]+//')
+
   # The && trap: when the SAME command chains `br update <ID> --description`
   # before `br close <ID>`, the template is being set in this very command —
   # but PreToolUse fires BEFORE the update runs, so `br lint` sees the
@@ -118,8 +154,30 @@ for ID in $BEAD_IDS; do
   # the close through anyway. Same named-vs-accepted mismatch the block message
   # above now spells out, in bypass form (explore-yfn4). Narrowed to the one
   # flag whose chained update can actually satisfy the lint.
+  #
+  # The remaining half of that bypass, closed 2026-07-26 (beads-lifecycle audit
+  # §3.4): the skip used to fire UNCONDITIONALLY on seeing --description and
+  # never looked at the value, so `br update X --description "<prose>" &&
+  # br close X` bought a free close on a bead that still fails lint. Now the
+  # skip only fires when the command actually carries the sections `br lint`
+  # will demand for THIS bead's type (bead_required_headings, verified against
+  # br 0.2.16 — its own match is a case-insensitive phrase match on the
+  # description body, so this mirrors it). Known limit: the phrases are matched
+  # against the whole raw command, not against the --description value alone,
+  # because the value can be a heredoc/substitution the skeleton has blanked.
+  # If the helper lib is unavailable the loop reads nothing and the skip keeps
+  # its old permissive behavior — a degraded helper must not false-block.
+  SKIP_LINT=0
   if echo "$SKEL" | grep -qE "br update +$ID[[:space:]].*--description"; then
-    : # chained `br update <ID> --description ...` sets the template; skip lint
+    SKIP_LINT=1
+    while IFS= read -r NEEDED; do
+      [ -z "$NEEDED" ] && continue
+      printf '%s' "$COMMAND" | grep -qiF "$NEEDED" || SKIP_LINT=0
+    done < <(bead_required_headings "$BTYPE" 2>/dev/null)
+  fi
+
+  if [ "$SKIP_LINT" -eq 1 ]; then
+    : # chained `br update <ID> --description ...` satisfies the template
   else
     OUTPUT=$(br lint "$ID" 2>&1)
     LINT_RC=$?
@@ -152,7 +210,7 @@ for ID in $BEAD_IDS; do
   # marker ("## Scrutiny — OVERRIDE: ..."). Two independent greps over the
   # whole bead used to let prose like "needs scrutiny before we SHIP" pass
   # the gate with no verdict recorded (fixed 2026-06-09).
-  SHOW=$(br show "$ID" 2>/dev/null)
+  # ($SHOW was captured once at the top of the loop.)
   NEEDS_SCRUTINY=0
   echo "$SHOW" | grep -qE 'Type:[[:space:]]+impl([[:space:]]|$)' && NEEDS_SCRUTINY=1
   echo "$SHOW" | grep -qE '^[[:space:]]*Labels:.*scrutinize-required' && NEEDS_SCRUTINY=1
