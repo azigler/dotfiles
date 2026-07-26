@@ -275,6 +275,19 @@ deliberate: dialogs for staffed sessions, beads for unstaffed ticks.)
    systemctl --user daemon-reload
    systemctl --user enable --now pulse-<project>.timer
    ```
+   ⚠️ **RENAMING an existing `Persistent=true` timer? Carry its STAMP FILE.**
+   systemd's persistence state is `~/.local/share/systemd/timers/stamp-<unit>.timer`,
+   **not** the unit file's mtime. A new unit name has no stamp, which reads as an
+   elapsed slot, so it fires an immediate **phantom catch-up tick** on enable:
+   ```bash
+   mv ~/.local/share/systemd/timers/stamp-pulse-<old>.timer \
+      ~/.local/share/systemd/timers/stamp-pulse-<new>.timer
+   systemctl --user daemon-reload
+   systemctl --user list-timers pulse-<new>.timer   # LAST must show the OLD run
+   ```
+   This step is what makes a rename invisible to the loop. Verified on the
+   `pulse-elevate` → `pulse-desk` rename, 2026-07-26 (`explore-mqvu`); the
+   `/daemon` skill carries the same rule for non-pulse timers.
 4. Dry-run the injector once by hand and watch the window:
    ```bash
    ~/dotfiles/agents/scheduler/pulse-inject.sh \

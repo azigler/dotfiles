@@ -207,9 +207,12 @@ Proven on hevyd, empirically verified:
   concurrently, no locking dance. Store raw JSON (lossless) **+** flattened rows
   (fast queries).
 - **DuckDB (CLI) is the analytics engine** the agent queries — `ATTACH
-  'var/x.db' (TYPE sqlite, READ_ONLY)`. DuckDB v1.5.4+ **reads through the SQLite
-  WAL correctly** (no staleness dance needed). Do NOT link DuckDB into the daemon
-  (its Go driver needs CGO + ~50MB).
+  'var/x.db' (TYPE sqlite, READ_ONLY)`. DuckDB **reads through the SQLite
+  WAL correctly** (no staleness dance needed) — but **verified on v1.5.4 ONLY**
+  (the installed version, checked 2026-07-26). That is one measurement, not a
+  range: re-verify on upgrade, because skipping the dance on a version where this
+  is false gives you **stale reads that look fine**. Do NOT link DuckDB into the
+  daemon (its Go driver needs CGO + ~50MB).
 - **Match the tool to the WORKLOAD SHAPE, not the data SIZE.** "It's only a few
   hundred rows, SQLite is fine" is the trap — if the questions are analytical
   (trends, progression, time-series, nested JSON), DuckDB is the right engine

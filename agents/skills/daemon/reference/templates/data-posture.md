@@ -15,7 +15,11 @@ WORKLOAD SHAPE (analytical? nested JSON? time-series? → DuckDB), not the data 
 ## Tier 2 — DuckDB, the analytics engine (the agent's brain)
 - CLI, separate binary (NOT linked into the daemon). Query via
   `ATTACH './var/<project>.db' AS d (TYPE sqlite, READ_ONLY)`.
-- DuckDB v1.5.4+ reads through the SQLite WAL correctly — no checkpoint dance.
+- DuckDB reads through the SQLite WAL correctly — no checkpoint dance.
+  **Verified on v1.5.4 ONLY** (the installed version, checked 2026-07-26). Do not
+  read this as v1.5.4-and-later: it is one measurement, not a range. Re-verify on
+  upgrade before trusting it, because skipping the checkpoint dance on a version
+  where this is false yields STALE READS THAT LOOK FINE.
 - Canned views/macros in `sql/`. **Vet builtins before hand-rolling**
   (`arg_max`, `regr_slope`, `fts`, `vss`, window fns) — see hevyd's
   `refs/duckdb-toolkit.md`.
