@@ -105,6 +105,17 @@ copy-paste starting point is
    `~/andrewzigler3/scripts/daily-build.sh` (consumer, pure so tests drive every
    case). Never `cmd && DID_IT=true`: that was the *prescribed* fix for an instance
    and it reproduced the defect one layer down.
+   **If your daemon triggers an agent through `agents/scheduler/pulse-inject.sh`,
+   it already has a marker — read it, don't re-derive it** (`dotfiles-q0qi`). The
+   injector exits **0** on three different outcomes, so `$?` cannot tell you
+   whether anything was typed; the last line of its **stdout** is
+   `PULSE_INJECT_RESULT=injected | bounced-not-ready |
+   deferred-blocked-on-human | failed-usage | failed-no-dir | failed-no-tmux |
+   failed-no-session | failed` (any `failed*` = hard error). Only `injected`
+   means the agent received the command. This matters most for a **one-shot**
+   trigger (a button press, a webhook) — `/pulse`'s "the next timer retries"
+   contract is what makes bounce/defer survivable, and a one-shot has no next
+   timer, so a deferred press is a dropped request.
 2. **Post-write verification at every write boundary.** Re-read the target and
    compare; don't trust the response. A 200 OK with a frozen `modified_at` is the
    normal failure. Correct shape:

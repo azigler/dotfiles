@@ -27,10 +27,12 @@ DIR=$(mktemp -d)
 SESSION4="pulse-notready-$$"
 SESSION5="pulse-hatch-$$"
 SESSION6="pulse-deadline-$$"
+SESSION7="pulse-verdict-$$"
+SESSION8="pulse-verdictnr-$$"
 # Every session here is a throwaway running an INERT stub (cat / a bash loop) —
 # this suite must never start a real `claude`. Interactive Claude sessions live
 # only in the `work` and `zig-computer` tmux sessions.
-trap '"$TMUX_BIN" kill-session -t "=$SESSION" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION2" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION3" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION4" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION5" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION6" 2>/dev/null; rm -rf "$DIR"' EXIT
+trap '"$TMUX_BIN" kill-session -t "=$SESSION" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION2" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION3" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION4" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION5" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION6" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION7" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION8" 2>/dev/null; rm -rf "$DIR"' EXIT
 
 # The inert launch (`cat`) is NOT a TUI, so the default input-ready marker never
 # appears. Since dotfiles-mrta a readiness timeout BOUNCES instead of injecting,
@@ -363,6 +365,112 @@ _dwait=$(( $(date +%s) - _d0 ))
 if [ "$_dwait" -le 12 ]; then ok; else bad "readiness poll honors its ceiling (total wait ${_dwait}s for a 3s ceiling)"; fi
 "$TMUX_BIN" kill-session -t "=$SESSION6" 2>/dev/null
 rm -rf "$NR_BOUNCE" "$NR_BOUNCE2"
+
+# 16. THE OUTCOME CONTRACT (dotfiles-q0qi). Exit code ≠ effect: this injector
+#     exits 0 when it injected, when it BOUNCED (composer never ready), and when
+#     it DEFERRED (🔔 window) — three different outcomes, one exit code. So every
+#     terminal path must print exactly one `PULSE_INJECT_RESULT=<verdict>` line,
+#     as the LAST line of STDOUT, and the exit codes must be UNCHANGED.
+#
+#     Each assertion below checks all three properties together (verdict + "last
+#     line" + "exactly one"), plus the exit code, because a contract that holds
+#     for the value but not the position is one a consumer still has to guess at.
+#     Every run captures stdout ONLY (stderr to /dev/null) — that is the stream
+#     the header promises, so if a marker ever moved to stderr these go red.
+verdict_last() { printf '%s\n' "$1" | tail -n 1; }
+verdict_count() { printf '%s\n' "$1" | grep -c '^PULSE_INJECT_RESULT='; }
+# assert_verdict <label> <expected-verdict> <expected-rc> <actual-rc> <stdout>
+assert_verdict() {
+  local label=$1 want=$2 want_rc=$3 got_rc=$4 out=$5
+  local last count
+  last=$(verdict_last "$out")
+  count=$(verdict_count "$out")
+  if [ "$last" = "PULSE_INJECT_RESULT=$want" ]; then ok; else bad "$label: marker is the LAST stdout line and reads '$want' (got '$last')"; fi
+  if [ "$count" -eq 1 ]; then ok; else bad "$label: exactly ONE marker line (got $count)"; fi
+  if [ "$got_rc" -eq "$want_rc" ]; then ok; else bad "$label: exit code UNCHANGED at $want_rc (got $got_rc)"; fi
+}
+
+# a. success path -> injected, exit 0 (cold start into its own throwaway session)
+V_OUT=$("$INJECT" --session "$SESSION7" --window pulse --dir "$DIR" --launch cat --cmd "verdict-tick-16a" 2>/dev/null)
+V_RC=$?
+assert_verdict "injected" injected 0 "$V_RC" "$V_OUT"
+sleep 1
+# Session-scoped on PURPOSE: `list-panes -a` lists the whole SERVER and ignores
+# -t, so the older `awk '$1=="pulse"'` idiom above returns whichever session
+# happens to sort first — which by now is $SESSION, not this one. Match the
+# session name explicitly so the assertions below can't be about another pane.
+PANE7=$("$TMUX_BIN" list-panes -a -F '#{session_name} #{window_name} #{pane_id}' 2>/dev/null \
+  | awk -v s="$SESSION7" '$1==s && $2=="pulse"{print $3; exit}')
+# …and the verdict is not a lie: the command really did land in the pane.
+if "$TMUX_BIN" capture-pane -p -t "$PANE7" 2>/dev/null | grep -q "verdict-tick-16a"; then
+  ok
+else
+  bad "the 'injected' verdict corresponds to a command that actually landed"
+fi
+
+# b. 🔔 defer -> deferred-blocked-on-human, still exit 0. THE live instance: a
+#    homeowner button press into a 🔔-blocked operator window used to be
+#    indistinguishable from a delivered one.
+"$TMUX_BIN" rename-window -t "$PANE7" "🔔 pulse"
+V_OUT=$("$INJECT" --session "$SESSION7" --window pulse --dir "$DIR" --launch cat --cmd "must-not-appear-16b" 2>/dev/null)
+V_RC=$?
+assert_verdict "deferred" deferred-blocked-on-human 0 "$V_RC" "$V_OUT"
+if "$TMUX_BIN" capture-pane -p -t "$PANE7" 2>/dev/null | grep -q "must-not-appear-16b"; then
+  bad "the 'deferred' verdict corresponds to a command that was NOT typed"
+else
+  ok
+fi
+"$TMUX_BIN" kill-session -t "=$SESSION7" 2>/dev/null
+
+# c. readiness timeout -> bounced-not-ready, still exit 0 (NEVERTUI from case 13:
+#    alive, holds the pane, never prints the marker).
+V_BOUNCE=$(mktemp -d)
+V_OUT=$(HARNESS_STATE_DIR="$V_BOUNCE" PULSE_READY_MARKER='NEVER-APPEARS-MARKER-QQQ' PULSE_READY_TIMEOUT=3 \
+  "$INJECT" --session "$SESSION8" --window pulse --dir "$DIR" \
+  --launch "bash $NEVERTUI" --cmd "must-not-appear-16c" 2>/dev/null)
+V_RC=$?
+assert_verdict "bounced" bounced-not-ready 0 "$V_RC" "$V_OUT"
+"$TMUX_BIN" kill-session -t "=$SESSION8" 2>/dev/null
+rm -rf "$V_BOUNCE"
+
+# d. the argument + environment guards. These already exited non-zero, so the
+#    marker is redundant for a caller reading `$?` — but a consumer that parses
+#    ONLY the marker (the shape the header prescribes) must never hit a run with
+#    no marker at all, or it cannot tell "failed" from "old injector".
+V_OUT=$("$INJECT" --session "$SESSION" --window pulse --cmd "x" 2>/dev/null); V_RC=$?
+assert_verdict "missing --dir" failed-usage 64 "$V_RC" "$V_OUT"
+
+V_OUT=$("$INJECT" --bogus-flag 2>/dev/null); V_RC=$?
+assert_verdict "unknown arg" failed-usage 64 "$V_RC" "$V_OUT"
+
+V_OUT=$("$INJECT" --dir "$DIR/definitely-not-here" --cmd "x" 2>/dev/null); V_RC=$?
+assert_verdict "--dir missing" failed-no-dir 66 "$V_RC" "$V_OUT"
+
+# PULSE_TMUX_BIN is the test seam that makes the last two terminal paths
+# reachable at all: an absent binary (69) and a tmux that refuses to create the
+# session (70). Without it those two exits could only ever be reasoned about.
+V_OUT=$(PULSE_TMUX_BIN="$DIR/no-such-tmux" "$INJECT" --dir "$DIR" --cmd "x" 2>/dev/null); V_RC=$?
+assert_verdict "tmux absent" failed-no-tmux 69 "$V_RC" "$V_OUT"
+
+FAKETMUX="$DIR/faketmux.sh"
+cat > "$FAKETMUX" <<'EOS'
+#!/bin/bash
+# a tmux that is present and executable but fails every subcommand
+exit 1
+EOS
+chmod +x "$FAKETMUX"
+V_OUT=$(PULSE_TMUX_BIN="$FAKETMUX" "$INJECT" --session "pulse-nope-$$" --dir "$DIR" --cmd "x" 2>/dev/null); V_RC=$?
+assert_verdict "session create fails" failed-no-session 70 "$V_RC" "$V_OUT"
+
+# 17. The verdict marker goes to STDOUT, not stderr — the stream the header
+#     promises and the only one a `OUT="$(pulse-inject.sh …)"` consumer reads.
+#     Asserted head-on: with stdout discarded, stderr must carry NO marker.
+V_ERR=$("$INJECT" --bogus-flag 2>&1 >/dev/null)
+if printf '%s\n' "$V_ERR" | grep -q '^PULSE_INJECT_RESULT='; then
+  bad "the verdict marker is on stdout, never stderr"
+else
+  ok
+fi
 
 # --- Summary ---
 TOTAL=$((PASS + FAIL))

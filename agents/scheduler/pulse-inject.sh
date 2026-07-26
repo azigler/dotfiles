@@ -65,6 +65,50 @@
 #   9. Readiness gate times out -> BOUNCE (record + exit 0), never a blind
 #      inject into a composer that isn't there (dotfiles-mrta).
 #
+# OUTCOME CONTRACT — PULSE_INJECT_RESULT (dotfiles-q0qi).
+#
+#   THE EXIT CODE CANNOT ANSWER "DID ANYTHING GET TYPED?". This script exits 0
+#   on three structurally different outcomes: it really injected; it BOUNCED
+#   because the composer never reported input-ready; it DEFERRED because the
+#   window is 🔔-blocked on Andrew. All three are correct for /pulse (whose
+#   contract is "the next timer retries") and all three are indistinguishable to
+#   a caller reading only `$?` — which is exactly the fleet's #1 defect shape
+#   (dotfiles-cxle, "the reporter keeps saying success"). A ONE-SHOT consumer —
+#   picod's ha-portal 🛎️ button, any daemon with no next timer — has no retry to
+#   paper over the difference: a deferred press is a silently dropped request.
+#
+#   So EVERY terminal path prints exactly ONE machine-readable line, and it is
+#   the LAST line of STDOUT:
+#
+#     PULSE_INJECT_RESULT=injected                    the cmd was typed + Enter sent
+#     PULSE_INJECT_RESULT=bounced-not-ready           readiness gate timed out; typed NOTHING
+#     PULSE_INJECT_RESULT=deferred-blocked-on-human   window is 🔔-blocked; typed NOTHING
+#     PULSE_INJECT_RESULT=failed-usage                bad/missing args (exit 64)
+#     PULSE_INJECT_RESULT=failed-no-dir               --dir does not exist (exit 66)
+#     PULSE_INJECT_RESULT=failed-no-tmux              tmux binary not found (exit 69)
+#     PULSE_INJECT_RESULT=failed-no-session           could not create the tmux session (exit 70)
+#     PULSE_INJECT_RESULT=failed                      any other non-zero exit (crash/EXIT trap)
+#
+#   STREAM: STDOUT, always. note() writes only to $LOG (/tmp/pulse-inject.log) and
+#   the argument guards write their prose to STDERR — neither is the verdict. A
+#   consumer must capture stdout (`OUT="$(pulse-inject.sh … )"`, or `2>&1` if it
+#   also wants the guard prose) and read the marker from it.
+#
+#   PARSING: match the literal `PULSE_INJECT_RESULT=<verdict>`; take the LAST such
+#   line if you see more than one (there is exactly one per run by construction).
+#   Every hard-failure verdict starts with `failed`, so `case "$v" in failed*)` is
+#   a stable "this run errored" test that survives new failure verdicts.
+#
+#   FAIL CLOSED: exit 0 with NO marker means an OLDER injector, or a path that
+#   forgot to report — treat it as NOT injected, never as success. Only
+#   `injected` may set a caller's "delivered" flag. Never `pulse-inject.sh &&
+#   DELIVERED=true`: that is the same defect one layer down.
+#
+#   EXIT CODES ARE UNCHANGED by this contract — it is purely additive, because
+#   every /pulse systemd unit on the box calls this script. Consumer shape:
+#   readme_push_verdict() in ~/andrewzigler3/scripts/daily-build.sh; template in
+#   ~/dotfiles/agents/skills/daemon/reference/templates/verdict-contract.sh.
+#
 # Logs to /tmp/pulse-inject.log, one line per event, appended under an
 # exclusive flock and tagged with this run's pid so simultaneous ticks
 # (pulse-explore — pulse-dive after the rename flip — and pulse-di-thursday
@@ -76,8 +120,15 @@
 set -uo pipefail
 
 LOG=/tmp/pulse-inject.log
-TMUX_BIN=$(command -v tmux 2>/dev/null)
-[ -x "${TMUX_BIN:-}" ] || TMUX_BIN=/usr/bin/tmux
+# PULSE_TMUX_BIN is a TEST SEAM (same idiom as HARNESS_STATE_DIR below): it lets
+# the suite point at an absent binary (exit 69) or a stub that fails (exit 70) so
+# those terminal paths — and their verdict markers — are actually exercised.
+# Unset (production, always) the resolution below is byte-for-byte what it was.
+TMUX_BIN=${PULSE_TMUX_BIN:-}
+if [ -z "$TMUX_BIN" ]; then
+  TMUX_BIN=$(command -v tmux 2>/dev/null)
+  [ -x "${TMUX_BIN:-}" ] || TMUX_BIN=/usr/bin/tmux
+fi
 
 SESSION="work"
 WINDOW="pulse"
@@ -92,6 +143,33 @@ CMD=""
 LOOP=""
 FRESH=0
 
+# emit_result <verdict> — the outcome contract (see the header). ONE line, on
+# STDOUT, on every terminal path.
+#
+# Defined BEFORE argument parsing on purpose: the very first thing that can end
+# this script is `unknown arg` (exit 64), and a path that exits before the
+# emitter exists is a path with no verdict — the exact hole this closes.
+#
+# Idempotent by design. The EXIT trap is a backstop for the paths nobody wrote
+# (an unbound variable under `set -u`, a kill, a future edit that adds an exit
+# and forgets the marker): it emits `failed` only when the run is ending
+# non-zero AND nothing has reported yet. The guard is what keeps "exactly one
+# marker per run" true rather than aspirational — without it the success path
+# would print `injected` and the trap would happily print again.
+INJECT_RESULT_SENT=0
+emit_result() {
+  [ "$INJECT_RESULT_SENT" -eq 1 ] && return 0
+  INJECT_RESULT_SENT=1
+  printf 'PULSE_INJECT_RESULT=%s\n' "$1"
+}
+# shellcheck disable=SC2317  # invoked indirectly, via `trap _on_exit EXIT` below.
+_on_exit() {
+  local rc=$?
+  [ "$rc" -ne 0 ] && emit_result failed
+  exit "$rc"
+}
+trap _on_exit EXIT
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --dir)     DIR=$2; shift 2 ;;
@@ -102,7 +180,7 @@ while [ $# -gt 0 ]; do
     --launch-detect) LAUNCH_DETECT=$2; shift 2 ;;
     --loop)    LOOP=$2; shift 2 ;;
     --fresh)   FRESH=1; shift ;;
-    *) echo "pulse-inject: unknown arg $1" >&2; exit 64 ;;
+    *) echo "pulse-inject: unknown arg $1" >&2; emit_result failed-usage; exit 64 ;;
   esac
 done
 
@@ -159,9 +237,13 @@ record_bounce() {
     || note "bounce-record failed for loop '$LOOP' (reason=$reason, non-fatal)"
 }
 
-[ -n "$DIR" ] && [ -n "$CMD" ] || { echo "pulse-inject: --dir and --cmd are required" >&2; exit 64; }
-[ -d "$DIR" ] || { echo "pulse-inject: --dir $DIR does not exist" >&2; note "FAIL: dir missing: $DIR"; exit 66; }
-[ -x "$TMUX_BIN" ] || { echo "pulse-inject: tmux not found" >&2; exit 69; }
+if [ -z "$DIR" ] || [ -z "$CMD" ]; then
+  echo "pulse-inject: --dir and --cmd are required" >&2
+  emit_result failed-usage
+  exit 64
+fi
+[ -d "$DIR" ] || { echo "pulse-inject: --dir $DIR does not exist" >&2; note "FAIL: dir missing: $DIR"; emit_result failed-no-dir; exit 66; }
+[ -x "$TMUX_BIN" ] || { echo "pulse-inject: tmux not found" >&2; emit_result failed-no-tmux; exit 69; }
 
 # Hand the tick an ABSOLUTE project anchor. A long-lived pulse session's
 # shell cwd can drift (a stray `cd` in one tick persists), so a bare
@@ -185,7 +267,8 @@ note "  caller: ppid=$PPID ($(ps -o comm= -p "$PPID" 2>/dev/null)) [$(_pcmd "$PP
 # 1. Ensure the session exists (detached creation survives reboots —
 #    the window is there when Andrew attaches).
 if ! "$TMUX_BIN" has-session -t "=$SESSION" 2>/dev/null; then
-  "$TMUX_BIN" new-session -d -s "$SESSION" -c "$DIR" || { note "FAIL: cannot create session"; exit 70; }
+  "$TMUX_BIN" new-session -d -s "$SESSION" -c "$DIR" \
+    || { note "FAIL: cannot create session"; emit_result failed-no-session; exit 70; }
   note "created session $SESSION (detached)"
 fi
 
@@ -325,6 +408,11 @@ if [ "$CURRENT_CMD" != "$EXPECT" ]; then
     else
       note "BOUNCED: input-ready marker not seen after ${_ready_elapsed}s — NOT injecting '$CMD'; next timer retries"
       record_bounce "not_ready"
+      # Exit 0 is deliberate (a bounce is a deferral, not a unit failure — see
+      # test case 13), so the VERDICT is the only thing that tells a caller
+      # nothing was typed. record_bounce() is loop-scoped and best-effort; this
+      # marker is unconditional and in-band.
+      emit_result bounced-not-ready
       exit 0
     fi
   else
@@ -354,6 +442,10 @@ if [ "$WIN_NAME" != "${WIN_NAME#🔔}" ]; then
   # "the tick did not get delivered", and one implementation means the two paths
   # cannot drift into different record shapes.
   record_bounce "blocked_on_andrew"
+  # Same reasoning as the not_ready bounce above: exit 0 is right for /pulse and
+  # useless to a one-shot caller, so the verdict carries the outcome. This is the
+  # path that silently ate picod's homeowner button press (dotfiles-q0qi).
+  emit_result deferred-blocked-on-human
   exit 0
 fi
 
@@ -397,4 +489,5 @@ sleep 0.3
 "$TMUX_BIN" send-keys -t "$PANE" Enter
 note "injected into $PANE"
 
+emit_result injected
 exit 0
