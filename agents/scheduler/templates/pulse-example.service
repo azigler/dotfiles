@@ -12,4 +12,13 @@ Type=oneshot
 # The injector ensures the work session + pulse window + interactive
 # Claude session exist, then types the command into it. Interactive
 # session = normal subscription usage, visible + steerable in tmux.
+#
+# Add --fresh to run this loop as "warm process, cold context": the injector
+# sends /clear before the tick, so each tick starts near the ~78k onboard floor
+# instead of re-creating the session's whole accumulated prefix (a warm resume
+# after a >=3h gap re-creates a 443k median — the prompt cache is already dead
+# at any multi-hour cadence). Window, process, and scrollback all survive; only
+# the model's context resets, and /clear re-reads CLAUDE.md + the memory tier
+# from disk. Opt-in per loop; default off. See pulse/SKILL.md "Session
+# durability and context" and bead dotfiles-6ycc.
 ExecStart=%h/dotfiles/agents/scheduler/pulse-inject.sh --loop %p --dir /home/ubuntu/<project-path> --cmd "/pulse tick"

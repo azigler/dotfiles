@@ -22,8 +22,9 @@ fi
 
 SESSION="pulse-test-$$"
 SESSION2="pulse-ready-$$"
+SESSION3="pulse-fresh-$$"
 DIR=$(mktemp -d)
-trap '"$TMUX_BIN" kill-session -t "=$SESSION" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION2" 2>/dev/null; rm -rf "$DIR"' EXIT
+trap '"$TMUX_BIN" kill-session -t "=$SESSION" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION2" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION3" 2>/dev/null; rm -rf "$DIR"' EXIT
 
 # The inert launch (`cat`) is NOT a TUI, so the default input-ready marker never
 # appears; cap the readiness-poll ceiling so cold-start cases fall back fast
@@ -169,10 +170,10 @@ fi
 "$TMUX_BIN" kill-session -t "=$SESSION2" 2>/dev/null
 
 # 9. note() is atomic under concurrent writers (dotfiles-0lm3). Two ticks
-#    firing in the same second (pulse-explore + pulse-di-thursday both fire at
-#    13:00 UTC) must not braid into an unparseable record. Assert: every line
-#    matches `<utc-ts> [pid] <text>`, and each writer's lines are recoverable
-#    as a contiguous group by pid — the property a bare flock does NOT give.
+#     firing in the same second (pulse-explore + pulse-di-thursday both fire at
+#     13:00 UTC) must not braid into an unparseable record. Assert: every line
+#     matches `<utc-ts> [pid] <text>`, and each writer's lines are recoverable
+#     as a contiguous group by pid — the property a bare flock does NOT give.
 CONC_LOG=$(mktemp -d)/pulse-inject.log
 CONC_SRC=$(mktemp -d)/note.sh
 {
@@ -204,6 +205,72 @@ else
   bad "concurrent note(): records stay attributable per writer (pids=$CONC_PIDS counts=$CONC_PERPID)"
 fi
 rm -rf "$(dirname "$CONC_LOG")" "$(dirname "$CONC_SRC")"
+
+# 10. --fresh (dotfiles-6ycc): warm process, cold context. On a WARM pane the
+#    injector sends /clear before the tick command, into the SAME window, and
+#    the command still lands after it. Order matters — /clear must precede.
+"$TMUX_BIN" rename-window -t "$PANE" "pulse"
+"$TMUX_BIN" send-keys -t "$PANE" "FENCE9-fresh-marker" Enter   # scrollback fence
+sleep 0.5
+PULSE_FRESH_SETTLE=1 "$INJECT" --session "$SESSION" --window pulse --dir "$DIR" \
+  --launch cat --cmd "fresh-tick-9" --fresh >/dev/null 2>&1
+sleep 1
+FRESH_TAIL=$("$TMUX_BIN" capture-pane -p -t "$PANE" 2>/dev/null | sed -n '/FENCE9-fresh-marker/,$p')
+if printf '%s\n' "$FRESH_TAIL" | grep -q '/clear'; then ok; else bad "--fresh sends /clear on a warm pane"; fi
+if printf '%s\n' "$FRESH_TAIL" | grep -q 'fresh-tick-9'; then ok; else bad "--fresh still injects the tick command"; fi
+_clear_ln=$(printf '%s\n' "$FRESH_TAIL" | grep -n '/clear' | head -1 | cut -d: -f1)
+_cmd_ln=$(printf '%s\n' "$FRESH_TAIL" | grep -n 'fresh-tick-9' | head -1 | cut -d: -f1)
+if [ -n "$_clear_ln" ] && [ -n "$_cmd_ln" ] && [ "$_clear_ln" -lt "$_cmd_ln" ]; then
+  ok
+else
+  bad "--fresh sends /clear BEFORE the tick command (clear=$_clear_ln cmd=$_cmd_ln)"
+fi
+# …and the window was not duplicated / relaunched.
+WIN_COUNT9=$("$TMUX_BIN" list-windows -t "=$SESSION" -F '#{window_name}' | sed -E 's/^(🧠|✅|🔔|🌀) ?//' | grep -cx "pulse")
+if [ "$WIN_COUNT9" -eq 1 ]; then ok; else bad "--fresh lands in the same durable window (count=$WIN_COUNT9)"; fi
+
+# 11. --fresh is OPT-IN: without the flag, no /clear is ever sent (default
+#     behavior byte-for-byte unchanged for every loop that doesn't ask).
+"$TMUX_BIN" send-keys -t "$PANE" "FENCE10-nofresh-marker" Enter
+sleep 0.5
+"$INJECT" --session "$SESSION" --window pulse --dir "$DIR" --launch cat --cmd "plain-tick-10" >/dev/null 2>&1
+sleep 1
+NOFRESH_TAIL=$("$TMUX_BIN" capture-pane -p -t "$PANE" 2>/dev/null | sed -n '/FENCE10-nofresh-marker/,$p')
+if printf '%s\n' "$NOFRESH_TAIL" | grep -q '/clear'; then
+  bad "no --fresh => no /clear (opt-in, default off)"
+else
+  ok
+fi
+if printf '%s\n' "$NOFRESH_TAIL" | grep -q 'plain-tick-10'; then ok; else bad "default path still injects"; fi
+
+# 12. --fresh is a NO-OP on a cold launch (the context is already fresh) and
+#     must NOT fire on a 🔔-deferred tick (the modal guard wins — clearing
+#     there would feed the dialog and wipe a session blocked on Andrew).
+PULSE_READY_MARKER='' PULSE_FRESH_SETTLE=1 "$INJECT" --session "$SESSION3" --window pulse \
+  --dir "$DIR" --launch cat --cmd "cold-fresh-tick-11" --fresh >/dev/null 2>&1
+sleep 1
+PANE3=$("$TMUX_BIN" list-panes -t "=$SESSION3" -a -F '#{window_name} #{pane_id}' 2>/dev/null | awk '$1=="pulse"{print $2; exit}')
+if "$TMUX_BIN" capture-pane -p -t "$PANE3" 2>/dev/null | grep -q '/clear'; then
+  bad "--fresh is a no-op on a cold launch (no /clear)"
+else
+  ok
+fi
+if "$TMUX_BIN" capture-pane -p -t "$PANE3" 2>/dev/null | grep -q "cold-fresh-tick-11"; then ok; else bad "--fresh cold launch still injects"; fi
+"$TMUX_BIN" rename-window -t "$PANE3" "🔔 pulse"
+PULSE_FRESH_SETTLE=1 "$INJECT" --session "$SESSION3" --window pulse --dir "$DIR" \
+  --launch cat --cmd "should-not-appear-tick-11" --fresh >/dev/null 2>&1
+sleep 1
+if "$TMUX_BIN" capture-pane -p -t "$PANE3" 2>/dev/null | grep -q '/clear'; then
+  bad "🔔 defer beats --fresh (no /clear into a modal dialog)"
+else
+  ok
+fi
+if "$TMUX_BIN" capture-pane -p -t "$PANE3" 2>/dev/null | grep -q "should-not-appear-tick-11"; then
+  bad "🔔 defer beats --fresh (no injection)"
+else
+  ok
+fi
+"$TMUX_BIN" kill-session -t "=$SESSION3" 2>/dev/null
 
 # --- Summary ---
 TOTAL=$((PASS + FAIL))

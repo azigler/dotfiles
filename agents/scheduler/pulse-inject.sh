@@ -33,6 +33,25 @@
 #              the tick as 'bounced' instead of a false 'tick in flight'
 #              (harnessd-gf6). Optional + backward-compatible: omit it and defer
 #              behaves exactly as before (logs, no bounce record).
+#   --fresh    OPT-IN (default OFF): warm process, COLD CONTEXT. When the pane
+#              already runs the launcher, send `/clear` + Enter and settle before
+#              typing the tick command, so the tick starts near the onboard floor
+#              instead of re-creating the session's whole accumulated prefix.
+#              Rationale (dotfiles-6ycc, ~/explore/refs/warm-session-collapse.md):
+#              the prompt cache TTL is ~1h and pulse cadences are hours apart, so
+#              a "warm" session buys ZERO cached tokens and pays full
+#              cache-creation on everything it has accumulated. Measured on the
+#              explore slug since 2026-07-01: warm resumes after a >=3h gap
+#              re-create a 442,914-token median (84% of them re-create >=99% of
+#              their context) against a 78,270 first-turn floor — 5.7x, and it
+#              grows with session age. This decouples process liveness (keep it:
+#              no relaunch race, no SessionStart re-run, scrollback survives)
+#              from context accumulation (drop it). On a COLD launch --fresh is a
+#              no-op: the context is already fresh and /clear would only cost a
+#              round trip. /clear re-reads CLAUDE.md + the memory tier from disk
+#              (verified end-to-end), so a --fresh loop cannot act on a stale
+#              always-loaded snapshot.
+#              PULSE_FRESH_SETTLE (default 2) = seconds to settle after /clear.
 #
 # Behavior contract (tested in test-pulse-inject.sh):
 #   1. No tmux server / no session  -> created detached.
@@ -40,6 +59,9 @@
 #   3. Window exists, launch absent -> launch started, waited for, cmd sent.
 #   4. Window exists, launch alive  -> cmd sent directly.
 #   5. The window name match is lexicon-aware (✅ pulse == pulse).
+#   6. --fresh + warm pane -> /clear sent BEFORE the cmd, same window.
+#   7. --fresh + cold launch -> no /clear (already fresh).
+#   8. --fresh never runs on a 🔔-deferred tick (the guard wins).
 #
 # Logs to /tmp/pulse-inject.log, one line per event, appended under an
 # exclusive flock and tagged with this run's pid so simultaneous ticks
@@ -65,6 +87,7 @@ LAUNCH_DETECT=""
 DIR=""
 CMD=""
 LOOP=""
+FRESH=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -75,6 +98,7 @@ while [ $# -gt 0 ]; do
     --launch)  LAUNCH=$2; shift 2 ;;
     --launch-detect) LAUNCH_DETECT=$2; shift 2 ;;
     --loop)    LOOP=$2; shift 2 ;;
+    --fresh)   FRESH=1; shift ;;
     *) echo "pulse-inject: unknown arg $1" >&2; exit 64 ;;
   esac
 done
@@ -169,6 +193,12 @@ LAUNCH_BASE=$(basename "${LAUNCH%% *}")
 EXPECT="${LAUNCH_DETECT:-$LAUNCH_BASE}"
 CURRENT_CMD=$("$TMUX_BIN" display-message -p -t "$PANE" '#{pane_current_command}' 2>/dev/null)
 
+# Was the launcher ALREADY live when this tick arrived? (i.e. did we take the
+# warm fall-through rather than the cold-launch branch). --fresh keys off this:
+# a session we just launched is already at the onboard floor.
+WAS_WARM=0
+[ "$CURRENT_CMD" = "$EXPECT" ] && WAS_WARM=1
+
 if [ "$CURRENT_CMD" != "$EXPECT" ]; then
   # cd first so a recycled shell pane anchors in the right project.
   "$TMUX_BIN" send-keys -t "$PANE" "cd $(printf '%q' "$DIR")" Enter
@@ -261,6 +291,32 @@ if [ "$WIN_NAME" != "${WIN_NAME#🔔}" ]; then
       || note "bounce-record failed for loop '$LOOP' (non-fatal)"
   fi
   exit 0
+fi
+
+# 3.75 --fresh: warm process, COLD CONTEXT (dotfiles-6ycc).
+#
+#   ORDERING IS LOAD-BEARING — this MUST come after the 🔔 guard above, not
+#   before it (the decision brief's §6 sketch put it before, at the old line
+#   ~199; that is wrong). A 🔔 window is sitting in a modal dialog: send-keys
+#   there feeds the DIALOG, not the composer, and the trailing Enter resolves it
+#   with the default answer. Clearing before the guard would therefore
+#   mis-answer Andrew's open question AND wipe the context of the session that
+#   was waiting on him — strictly worse than the tick we were already deferring.
+#   Deferred ticks must leave the pane untouched, /clear included.
+#
+#   Only fires on a WARM pane: a cold launch is already at the onboard floor.
+#   Sent exactly like the tick command below (text, pause, Enter) — the same
+#   path that delivers `/pulse tick` in production, so the slash-command palette
+#   behaves identically. Nothing about the window changes: same pane, same
+#   scrollback, same process; only the model's context resets.
+if [ "$FRESH" = 1 ] && [ "$WAS_WARM" = 1 ]; then
+  "$TMUX_BIN" send-keys -t "$PANE" -- "/clear"
+  sleep 0.3
+  "$TMUX_BIN" send-keys -t "$PANE" Enter
+  note "fresh: sent /clear to $PANE (warm session -> cold context)"
+  sleep "${PULSE_FRESH_SETTLE:-2}"
+elif [ "$FRESH" = 1 ]; then
+  note "fresh: skipped /clear (cold launch — context already fresh)"
 fi
 
 # 4. Inject the command. Text first, Enter separately — some TUIs

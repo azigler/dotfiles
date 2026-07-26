@@ -140,9 +140,13 @@ the daily cap.)
 
 0. **Honor `.offboard-pending`** if present (retroactive /offboard,
    as /onboard Step 0).
-1. **Cheap onboard** — skip what's already in context (the durable
-   session accumulates it): CLAUDE.md, TOOLKIT digest,
-   `refs/session-handoff.md`, `br list`.
+1. **Cheap onboard** — skip what's already in context: CLAUDE.md, TOOLKIT
+   digest, `refs/session-handoff.md`, `br list`. **Check, don't assume.** A
+   loop running `--fresh` (see "Session durability and context") gets a
+   `/clear` before every tick, so its context holds the always-loaded tier
+   and *nothing else* — the handoff note in particular is NOT in it and must
+   be read. A loop without `--fresh` accumulates across ticks and can skip
+   more. Either way the handoff note is the continuity mechanism, not recall.
 2. **Read `refs/pulse.md` + the ledger.** Refuse politely if no table.
 3. **Evaluate rows by priority**: run each `check`; skip rows whose
    cap is exhausted; the first satisfied row fires. None → quiet tick:
@@ -170,8 +174,12 @@ the daily cap.)
    a `done` commit whose proof doesn't verify. If you cannot produce a
    real proof, log `blocked` or `quiet`, not `done`.
 5. **Wrap**: append the ledger entry (only `done` once 4.5's proof holds);
-   write the handoff note (/offboard Steps 3+5 — the handoff is per-tick; the
-   session persists for the next tick, so don't exit/clear). Resolve the path
+   write the handoff note (/offboard Steps 3+5 — the handoff is per-tick).
+   **Never `/clear` or exit the session yourself**: the window is durable and
+   the injector owns context lifecycle (a self-clear mid-tick kills the tick).
+   Under `--fresh` the *next* tick's `/clear` is sent by the injector before
+   the command arrives — which makes the handoff note load-bearing, not
+   optional, because nothing else survives into that tick. Resolve the path
    via `handoff-path.sh` (`handoff_path "$PULSE_DIR"`), NOT a hardcoded
    `refs/session-handoff.md`: a pulse project that also runs another durable
    session (e.g. `~/explore` has the pulse window AND the elevate window) opts
@@ -280,8 +288,44 @@ last 5 ledger entries, open `human:` beads, timer state
 
 ## Session durability and context
 
-The dedicated window's session receives many ticks and its context
-grows. The compact-awareness guard (wave 4, shipped 2026-06-10:
+**Two independent variables, and only one of them costs anything:** *process
+liveness* (is `claude` running in the pane?) and *context accumulation* (how
+much conversation is that process carrying?). They were conflated for a long
+time — "warm session" was assumed to mean "cheap, the cache is reused". It does
+not: the prompt cache TTL is ~1h and pulse cadences are hours apart, so at
+every scheduled tick the cache is already dead. Measured on the explore slug
+(2026-07-25, `~/explore/refs/warm-session-collapse.md`): a warm resume after a
+≥3h gap re-creates a **443k-token median** prefix — 84% of such resumes
+re-create ≥99% of their context — against a **78k** first-turn floor. A warm
+process buys **zero** cached tokens and pays full cache-creation on everything
+it has accumulated.
+
+**`--fresh` — warm process, cold context (opt-in per loop).** `pulse-inject.sh
+--fresh` sends `/clear` to a warm pane before the tick command. The window,
+the process, and Andrew's scrollback all survive; only the model's context
+resets. There is no relaunch, so the cold-boot readiness race never enters the
+hot path. Enable it in the loop's `.service` `ExecStart`; **default is off**
+and no loop changes behavior without opting in.
+
+Two verified consequences (bead `dotfiles-6ycc`, tested end-to-end 2026-07-25):
+
+- **`/clear` re-resolves the always-loaded tier from DISK.** A sentinel line
+  edited into a project `CLAUDE.md` *after* session start was quoted correctly
+  by the post-`/clear` tick, with no file read in its tool log; same for a
+  `memory/MEMORY.md` created after start. Each `/clear` mints a new session id
+  in the same process. So a `--fresh` loop **cannot** act on a stale
+  always-loaded snapshot — the session-age staleness bug (`explore-6wwu`)
+  simply does not arise for it. (It still stands for durable sessions that do
+  not clear, Andrew's interactive windows included.)
+- **The ledger row survives the clear.** Row attribution comes from
+  `$PULSE_DIR/refs/pulse.md` on disk, not from conversational memory, so a
+  cleared tick names its row exactly as a warm one does. Verified: three
+  consecutive ticks across two `/clear`s, all `"row":"e2e-probe"`.
+
+A loop that clears every tick also **cannot reach the 85% context guard**, so
+for it the human-unblock step below is not a steady-state loop feature.
+
+The compact-awareness guard (wave 4, shipped 2026-06-10:
 `stop-context-guard.sh`) watches the official context % — statusline
 persists it per-session — and at 85% an exit-2 Stop tells the agent
 to /offboard immediately. When that fires mid-tick: finish nothing
