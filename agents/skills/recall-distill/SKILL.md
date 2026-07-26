@@ -174,8 +174,18 @@ gate.
 Append **one line per run** to `refs/recall-distill-ledger.jsonl`:
 
 ```json
-{"ts":"2026-07-08T09:00:00Z","since":"2026-07-01T00:00:00Z","slug":"-home-ubuntu-explore","scanned_sessions":12,"window_sessions":3,"candidates":4,"proposals":2,"proposal_beads":["explore-ab1","explore-ab2"],"note":"2 memory proposals filed"}
+{"ts":"2026-07-08T09:00:00Z","row":"recall-distill","since":"2026-07-01T00:00:00Z","slug":"-home-ubuntu-explore","scanned_sessions":12,"window_sessions":3,"candidates":4,"proposals":2,"proposal_beads":["explore-ab1","explore-ab2"],"note":"2 memory proposals filed"}
 ```
+
+**`row` is MANDATORY and never null.** The canonical row for this loop is
+**`recall-distill`** (declared in the pulse project's routing doc — for
+`~/explore`, `refs/pulse.md` → "Non-pulse ledger rows"). Every ledger line
+names the row it EVALUATED, including a run that proposed nothing: it still
+ran and still spent budget. The only permitted escape hatch is the literal
+`"unattributed"` — never `null`, never a missing key, never a guessed name. A
+null row is invisible to every per-row counter and dashboard, so the run is
+unattributable; this ledger's first two lines were written that way and had to
+be back-filled (`dotfiles-ldag`; the pulse-ledger twin is `explore-qdo5`).
 
 `ts` (UTC, `date -u +%FT%TZ`) is what the **next** run reads as its `--since` —
 that is the primary re-proposal guard: sessions older than the last run are never
