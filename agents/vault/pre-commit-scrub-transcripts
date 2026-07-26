@@ -20,6 +20,18 @@
 # Modified/Renamed) — it is NOT "deleted-only" (that is uppercase `D`). Verified
 # empirically; a scrutiny reviewer misread it, hence this note.
 #
+# ROLE CHANGE (dotfiles-t6sd, 2026-07-26) — this hook is UNCHANGED in behaviour but
+# is no longer the FIRST thing that meets a secret. transcripts-lib.sh now runs
+# scrub-continue.sh before staging: staged content is scanned, hits are redacted in
+# place, and the push continues. By the time this hook runs, the normal case is
+# already clean. What still reaches it is what redaction could NOT fix — an
+# unparseable .jsonl safe_rewrite refuses to rewrite, or a broken redactor — and for
+# that it stays fail-closed, on purpose. Keeping it as-is means there is exactly one
+# enforcement point that can say no; scrub-continue.sh only ever *reduces* what
+# arrives here. (It does mean the staged set is read twice per run — once by the
+# pre-stage scan, once here. That is deliberate defense-in-depth, and cheap: the
+# staged set is the hourly delta, not the 3.7 GB corpus.)
+#
 # Body versioned at ~/dotfiles/agents/vault/pre-commit-scrub-transcripts; installed
 # by bootstrap-transcripts.sh into ~/.claude/vaults/transcripts.git/hooks/pre-commit.
 set -u
@@ -80,9 +92,11 @@ if ! python3 "$SCRUB" scan "${files[@]}"; then
   {
     echo ""
     echo "BLOCKED: claude-transcripts pre-commit — a high-confidence secret was found in"
-    echo "staged transcript content. Nothing committed. Rotate the credential (it is"
-    echo "already on disk / in prior context) and redact the file, then retry."
-    echo "(scrub-secrets / explore-r2iq Layer 1)"
+    echo "staged transcript content AND scrub-continue.sh could not redact it (see the"
+    echo "WARN lines above: an unparseable .jsonl, or a broken redactor). Nothing"
+    echo "committed. Rotate the credential (it is already on disk / in prior context),"
+    echo "then either fix the file so safe_rewrite can rewrite it, or redact it by hand."
+    echo "(scrub-secrets / explore-r2iq Layer 1 backstop; dotfiles-t6sd)"
   } >&2
   exit 1
 fi

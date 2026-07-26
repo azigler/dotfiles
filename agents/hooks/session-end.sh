@@ -123,6 +123,14 @@ fi
 # concurrent sessions; its pre-commit hook (Layer 1) blocks a secret loudly.
 # Output goes to a dedicated log; a real secret problem also trips the Layer-2
 # .secret-alert above, which /onboard surfaces.
+#
+# NOTE the ordering vs. scrub-and-continue (dotfiles-t6sd): the Layer-2 scan above
+# runs FIRST and is READ-ONLY, so it still sees — and still alerts on — a secret
+# that reached the memory tier. The push below then redacts it and continues
+# instead of blocking. That order is deliberate: the human alert is raised from the
+# evidence, and only then is the credential taken out of the vault-bound copy. The
+# marker clears on the next session end once the tier scans clean; the durable
+# record of what was scrubbed is ~/.claude/vault-redactions.jsonl.
 case "$PWD" in
   */.claude/worktrees/*) ;;   # subagent/worktree teardown — skip the vault push
   *)
