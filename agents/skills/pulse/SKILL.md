@@ -115,9 +115,45 @@ LAST fire (18:00 PT) carries a `ts` on the NEXT UTC calendar day, so a naive
 count mis-buckets it forward, and the next day then **refuses its legitimate
 final tick as cap-exhausted**. If the project ships a cap helper, call it
 instead — `~/explore/bin/pulse-cap.py` is the reference implementation
-(`--row <row> --cap <n>`; exit 0 = under cap, exit 1 = skip; `--selftest`
-carries the boundary regression). Diagnosed 2026-07-23 (Zig) on the explore
-`dive` loop (then named `vibe-explore`).
+(`--row <row> --cap <n>`; `--selftest` carries the boundary regression).
+Diagnosed 2026-07-23 (Zig) on the explore `dive` loop (then named
+`vibe-explore`).
+
+**Branch on ALL THREE exit codes — there is no "else" that is safe.** The
+helper distinguishes *under cap*, *at cap*, and *could not tell*, and the
+third one is the whole point: a tick that treats "couldn't read the ledger"
+as "not at cap" fires blind, forever, and nothing trips.
+
+| rc | Meaning | What the tick MUST do |
+|---|---|---|
+| `0` | under cap | **FIRE** the tick normally |
+| `1` | at cap for this row today | **DO NOT FIRE** — log `outcome:"quiet"`, note `cap reached`, end the tick |
+| `2` | **could not determine** (ledger missing/unreadable) | **DO NOT FIRE** — log `outcome:"blocked"`, note the helper's own stderr line, end the tick |
+
+`2` is an error, not a permissive default. Treating a non-zero rc as a plain
+"skip" is *almost* right; treating a non-`1` rc as "go" is the bug — a
+missing ledger would then read as zero fires today and the loop would fire on
+every tick, silently, with no ledger to notice it in.
+
+**Read the helper's stderr — do not suppress it.** The rc `2` path prints
+`pulse-cap: ledger not found: <path>` on **stderr** and nothing on stdout, and
+that line is the only thing that says WHICH path was wrong. Call it plainly:
+
+```bash
+if CAP_OUT=$(python3 ~/explore/bin/pulse-cap.py --ledger refs/pulse-ledger.jsonl --row "$ROW" --cap 2); then
+  :                                   # rc 0 — under cap, fire
+else
+  rc=$?
+  # rc 1 = at cap -> quiet;  rc 2 = unreadable ledger -> blocked.
+  # $CAP_OUT is EMPTY on rc 2 by design; the diagnosis is on stderr, which
+  # is deliberately NOT redirected here so it reaches the tick's transcript.
+  [ "$rc" -eq 1 ] && echo "cap reached — logging quiet" || echo "cap UNDETERMINED (rc=$rc) — logging blocked"
+fi
+```
+
+Never `2>/dev/null` this call. Same reasoning as the canonical count above:
+suppressing the error turns a real failure into an empty result, and an empty
+result reads as permission to fire.
 
 Working ticks commit the ledger with their work; blocked ticks commit
 it alongside the `human:` bead (audit trail); quiet ticks leave it
