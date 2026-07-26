@@ -532,7 +532,7 @@ The flagship case study has 9+ beads tracking spec iterations, slide plan, visua
 | `/gamma` | Every Gamma render — payload shape, cost awareness, layout-workaround references. The default rendering pipeline. |
 | `/openrouter` | Image generation via nano-banana 2 for any inline-URL pattern (Gamma layout workaround #2). Cost-aware. |
 | `/asana` | Routing progress to the planning hub via fleet-proxied plaintext comments. The hub is the human's review surface. |
-| `/explore` | Read-only research compile when the talk needs prior-art mining (other talks at the venue, related papers) |
+| `/dive` | Read-only research compile when the talk needs prior-art mining (other talks at the venue, related papers) |
 | `/triage` | Mid-project bead-state hygiene |
 
 ## See also

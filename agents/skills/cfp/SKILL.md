@@ -189,7 +189,7 @@ Capture, at minimum:
 
 If `refs/` exceeds 10 files, generate `refs/INDEX.md` (see template at `reference/refs-index-template.md`). Update on every refs/ change.
 
-For multi-source web research, fire `/explore` — it fetches in parallel, compiles a structured plaintext report, and (optionally) routes to Asana. Useful for "research these 12 URLs" briefs.
+For multi-source web research, fire `/dive` — it fetches in parallel, compiles a structured plaintext report, and (optionally) routes to Asana. Useful for "research these 12 URLs" briefs.
 
 ## Step 4 — Angle exploration
 
@@ -420,7 +420,7 @@ The bulk of the venue-specific procedural detail lives in `reference/scientific-
 | `/handoff` | Every subagent's pre-final-commit verification |
 | `/zig-voice` | Every external-facing copy pass (and most internal) |
 | `/linearb-brand` | When the proposal references LinearB / APEX / brand context |
-| `/explore` | Multi-source research compile (3+ URLs) — research phase |
+| `/dive` | Multi-source research compile (3+ URLs) — research phase |
 | `/asana` | Routing progress to the planning hub via fleet-proxied comments. **Canonical, not optional** — one comment per meaningful milestone, from bootstrap onward. See Step 2 "Asana planning hub" + the matching anti-pattern. |
 | `/openrouter` | Visual deliverables — talk preview images, paper figures (cost-aware) |
 | `/beads` | Constantly. /cfp is beads-driven from bootstrap onward |

@@ -1,5 +1,5 @@
 ---
-description: Read-only walk of an unfamiliar code area to understand it, BEFORE editing. Ends with an optional typed `study` bead summarizing what was learned, so the next agent doesn't repeat the read. Distinct from /onboard (session-level state discovery), /spec (writing a new spec), and /explore (external-topic research compile vs in-repo code reading).
+description: Read-only walk of an unfamiliar code area to understand it, BEFORE editing. Ends with an optional typed `study` bead summarizing what was learned, so the next agent doesn't repeat the read. Distinct from /onboard (session-level state discovery), /spec (writing a new spec), and /dive (external-topic research compile vs in-repo code reading).
 when_to_use: User says "look at X and tell me what it does", "walk this area", "I need to understand the auth flow", "what does this codebase do here?". Also fire proactively when you (the orchestrator) realize you need to understand something before dispatching work on it.
 argument-hint: "<area or path or topic>"
 ---
@@ -131,7 +131,7 @@ study when:
 - [/spec](../spec/SKILL.md) — formal spec writing (if grok turns
   into "we need to spec this")
 - [/beads](../beads/SKILL.md) — `study` type details
-- [/explore](../explore/SKILL.md) — sibling skill for **external-topic** research compile. `/grok` is for understanding code INSIDE a repo before editing it; `/explore` is for compiling a report on a topic OUTSIDE the repo (URLs, papers, products). They can compose (a `/grok` walk's output can land in an `/explore` folder when the topic spans both), but most invocations are one or the other.
+- [/dive](../dive/SKILL.md) — sibling skill for **external-topic** research compile. `/grok` is for understanding code INSIDE a repo before editing it; `/dive` is for compiling a report on a topic OUTSIDE the repo (URLs, papers, products). They can compose (a `/grok` walk's output can land in a `/dive` folder when the topic spans both), but most invocations are one or the other.
 - Built-in `Explore` subagent — for very large walks where you
   want to keep the orchestrator's context clean. `/grok` is for
   walks small enough to do in the main session.
