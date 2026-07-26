@@ -62,6 +62,8 @@
 #   6. --fresh + warm pane -> /clear sent BEFORE the cmd, same window.
 #   7. --fresh + cold launch -> no /clear (already fresh).
 #   8. --fresh never runs on a 🔔-deferred tick (the guard wins).
+#   9. Readiness gate times out -> BOUNCE (record + exit 0), never a blind
+#      inject into a composer that isn't there (dotfiles-mrta).
 #
 # Logs to /tmp/pulse-inject.log, one line per event, appended under an
 # exclusive flock and tagged with this run's pid so simultaneous ticks
@@ -134,6 +136,27 @@ note() {
   { flock -w 5 9 2>/dev/null
     printf '%s [%s] %s\n' "$(date -u +%FT%TZ)" "${BASHPID:-$$}" "$*" >&9
   } 9>>"$LOG"
+}
+
+# record_bounce <reason>
+#   A tick that did NOT get delivered must leave a machine-readable trace, or
+#   it is indistinguishable from one that never fired — the "fired but no
+#   ledger row" class the stale-loop detector (harnessd-h14z) alerts on.
+#   Written where the state bus reads it, so the tick renders 'bounced'
+#   instead of a false 'tick in flight' (harnessd-gf6).
+#
+#   Loop-scoped: only when --loop was passed (units pass `--loop %p`).
+#   Best-effort and must NEVER fail the caller's exit 0 — a bounce that can't
+#   be recorded is still a bounce, and losing the injector on top of it would
+#   be strictly worse.
+record_bounce() {
+  local reason=$1
+  [ -n "$LOOP" ] || return 0
+  local _bdir="${HARNESS_STATE_DIR:-$HOME/.local/state/harness}"   # override for tests
+  { mkdir -p "$_bdir" 2>/dev/null \
+    && printf '{"ts":"%s","loop":"%s","reason":"%s"}\n' \
+         "$(date -u +%FT%TZ)" "$LOOP" "$reason" >> "$_bdir/pulse-bounces.jsonl" 2>/dev/null ; } \
+    || note "bounce-record failed for loop '$LOOP' (reason=$reason, non-fatal)"
 }
 
 [ -n "$DIR" ] && [ -n "$CMD" ] || { echo "pulse-inject: --dir and --cmd are required" >&2; exit 64; }
@@ -235,28 +258,74 @@ if [ "$CURRENT_CMD" != "$EXPECT" ]; then
   # FAILING boot waited LONGER than the winners — so a bigger fixed sleep is not
   # the fix, and the on-demand button (no next-tick retry to paper over a miss) is
   # just what surfaced the race. FIX: poll the pane for an input-READY marker
-  # (Claude Code's composer footer) before typing, then a small settle. Bounded;
-  # on timeout inject anyway, so a marker miss degrades to "try late" (the old
-  # behavior) rather than "never".
-  #   PULSE_READY_MARKER  — ERE matched against capture-pane. Empty DISABLES the
-  #                         gate (non-TUI launches / tests). Default = CC footer.
-  #   PULSE_READY_TIMEOUT — max seconds to wait for the marker (default 60). The
-  #                         first match returns immediately; this is only a ceiling.
+  # (Claude Code's composer footer) before typing, then a small settle.
+  #
+  # ON TIMEOUT WE NOW BOUNCE, NOT INJECT (dotfiles-mrta). The original gate fell
+  # back to "inject anyway", reasoning that a marker miss should degrade to "try
+  # late" rather than "never". Observed 2026-07-25 on a cold boot: the composer
+  # took ~60s to paint, the gate timed out at its 60s ceiling, typed into an
+  # empty composer, and the tick was EATEN — 0% context, no work, no ledger row.
+  # "Inject anyway" is not "try late": there is nothing to type into, so it is a
+  # SILENT loss, and it is a concrete mechanism for the "fired but no ledger row"
+  # class (harnessd-h14z; the two explore ticks that vanished over 16 days).
+  # Bouncing costs nothing by comparison — pulse-retry.timer fires every 2 min
+  # and the pane is warm by then — and it leaves a record, which is the whole
+  # difference between a tick that produced no work and a tick that never fired.
+  #   PULSE_READY_MARKER     — ERE matched against capture-pane. Empty DISABLES
+  #                            the gate (non-TUI launches / tests). Default = CC
+  #                            composer footer.
+  #   PULSE_READY_TIMEOUT    — ceiling in seconds (default 90; see below). The
+  #                            first match returns immediately.
+  #   PULSE_READY_ON_TIMEOUT — bounce (default) | inject. `inject` restores the
+  #                            pre-mrta behavior. It exists as an escape hatch
+  #                            for exactly one failure mode: Claude Code changing
+  #                            its footer text, which would make the marker never
+  #                            match and bounce EVERY tick. Reach for it to
+  #                            unblock, then fix the marker — do not leave it on.
+  #
+  # THE 60 -> 90 DEFAULT, and what it is (and is not) based on. The honest
+  # answer is that the ceiling is no longer load-bearing: once a timeout bounces
+  # instead of injecting blind, being wrong costs one retry cycle rather than a
+  # lost tick. 90 is chosen as: comfortably past the single observed failure
+  # (~60s, a first-run-in-a-new-project cold boot — the slowest possible case),
+  # while keeping the injector's worst case inside the 120s TimeoutStartSec on
+  # pulse-retry.service, which invokes loop units with a BLOCKING
+  # `systemctl --user start`. It is NOT a measured percentile: /tmp/pulse-inject.log
+  # holds only 3 gated claude cold boots since the gate shipped (two at +2s, one
+  # timing out at 60s), and the remaining 23 `launched 'claude'` entries predate
+  # the gate entirely. Rather than guess harder, the success path below now logs
+  # the OBSERVED seconds, so the distribution accumulates for free and the next
+  # person to touch this number can set it from data.
   READY_MARKER=${PULSE_READY_MARKER-'shift\+tab to cycle|\? for shortcuts|for agents|bypass permissions|accept edits on|plan mode on'}
-  READY_TIMEOUT=${PULSE_READY_TIMEOUT:-60}
+  READY_TIMEOUT=${PULSE_READY_TIMEOUT:-90}
+  READY_ON_TIMEOUT=${PULSE_READY_ON_TIMEOUT:-bounce}
   if [ -n "$READY_MARKER" ]; then
+    # Deadline, not `seq 1 $N` + `sleep 1`: each iteration also pays for a
+    # capture-pane and a grep, so the counting loop overshot its own advertised
+    # ceiling — the 2026-07-25 incident logged "not seen after 60s" 63 seconds
+    # after launch. A wall-clock deadline makes the number in the message true,
+    # which matters now that the same number decides whether to bounce.
+    _ready_t0=$(date +%s)
+    _ready_deadline=$(( _ready_t0 + READY_TIMEOUT ))
     _ready=""
-    for _ in $(seq 1 "$READY_TIMEOUT"); do
+    while [ "$(date +%s)" -lt "$_ready_deadline" ]; do
       if "$TMUX_BIN" capture-pane -p -t "$PANE" 2>/dev/null | grep -Eq "$READY_MARKER"; then
         _ready=1; break
       fi
       sleep 1
     done
+    _ready_elapsed=$(( $(date +%s) - _ready_t0 ))
     if [ -n "$_ready" ]; then
-      note "input-ready marker seen; settling before inject"
+      # The elapsed seconds are the measurement PULSE_READY_TIMEOUT should be
+      # set from; log them so the sample grows without anyone instrumenting.
+      note "input-ready marker seen after ${_ready_elapsed}s (ceiling ${READY_TIMEOUT}s); settling before inject"
       sleep 2
+    elif [ "$READY_ON_TIMEOUT" = "inject" ]; then
+      note "WARN: input-ready marker not seen after ${_ready_elapsed}s — injecting anyway (PULSE_READY_ON_TIMEOUT=inject)"
     else
-      note "WARN: input-ready marker not seen after ${READY_TIMEOUT}s — injecting anyway"
+      note "BOUNCED: input-ready marker not seen after ${_ready_elapsed}s — NOT injecting '$CMD'; next timer retries"
+      record_bounce "not_ready"
+      exit 0
     fi
   else
     sleep 3
@@ -281,16 +350,10 @@ if [ "$WIN_NAME" != "${WIN_NAME#🔔}" ]; then
   note "deferred: window '$WIN_NAME' is blocked on Andrew (🔔) — not injecting '$CMD'; next timer retries"
   # Record the bounce where the state bus can read it (harnessd-gf6). A deferred
   # tick never ran, so the bus must render 'bounced' — not a false 'tick in flight'.
-  # Best-effort + loop-scoped (only when --loop is passed by the unit as `--loop %p`);
-  # confined to this defer path (normal injection below is untouched) and must NEVER
-  # fail the exit 0. The loop id must equal the manifest timer / bus loop id.
-  if [ -n "$LOOP" ]; then
-    _bdir="${HARNESS_STATE_DIR:-$HOME/.local/state/harness}"   # override for tests
-    { mkdir -p "$_bdir" 2>/dev/null \
-      && printf '{"ts":"%s","loop":"%s","reason":"blocked_on_andrew"}\n' \
-           "$(date -u +%FT%TZ)" "$LOOP" >> "$_bdir/pulse-bounces.jsonl" 2>/dev/null ; } \
-      || note "bounce-record failed for loop '$LOOP' (non-fatal)"
-  fi
+  # The writer is shared with the not_ready bounce above (dotfiles-mrta): both are
+  # "the tick did not get delivered", and one implementation means the two paths
+  # cannot drift into different record shapes.
+  record_bounce "blocked_on_andrew"
   exit 0
 fi
 
@@ -315,6 +378,13 @@ if [ "$FRESH" = 1 ] && [ "$WAS_WARM" = 1 ]; then
   sleep 0.3
   "$TMUX_BIN" send-keys -t "$PANE" Enter
   note "fresh: sent /clear to $PANE (warm session -> cold context)"
+  # NOT covered by the readiness gate above, and it cannot be: that gate polls
+  # for the composer FOOTER, and the footer never disappears during a /clear
+  # repaint — the marker matches instantly and proves nothing. So this settle is
+  # still a fixed sleep, i.e. the same unguarded timing race the cold-boot path
+  # had before dotfiles-6ycc. Raise PULSE_FRESH_SETTLE if a --fresh loop starts
+  # losing ticks; closing it properly needs a post-/clear marker that is
+  # distinguishable from the pre-/clear one (dotfiles-mrta, unresolved).
   sleep "${PULSE_FRESH_SETTLE:-2}"
 elif [ "$FRESH" = 1 ]; then
   note "fresh: skipped /clear (cold launch — context already fresh)"

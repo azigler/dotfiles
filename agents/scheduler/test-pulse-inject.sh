@@ -24,11 +24,20 @@ SESSION="pulse-test-$$"
 SESSION2="pulse-ready-$$"
 SESSION3="pulse-fresh-$$"
 DIR=$(mktemp -d)
-trap '"$TMUX_BIN" kill-session -t "=$SESSION" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION2" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION3" 2>/dev/null; rm -rf "$DIR"' EXIT
+SESSION4="pulse-notready-$$"
+SESSION5="pulse-hatch-$$"
+SESSION6="pulse-deadline-$$"
+# Every session here is a throwaway running an INERT stub (cat / a bash loop) —
+# this suite must never start a real `claude`. Interactive Claude sessions live
+# only in the `work` and `zig-computer` tmux sessions.
+trap '"$TMUX_BIN" kill-session -t "=$SESSION" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION2" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION3" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION4" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION5" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION6" 2>/dev/null; rm -rf "$DIR"' EXIT
 
 # The inert launch (`cat`) is NOT a TUI, so the default input-ready marker never
-# appears; cap the readiness-poll ceiling so cold-start cases fall back fast
-# instead of waiting the production default. Case 8 overrides this per-invocation.
+# appears. Since dotfiles-mrta a readiness timeout BOUNCES instead of injecting,
+# so a non-TUI launcher must DISABLE the gate rather than time out through it —
+# which is exactly what the empty marker is documented to do. Cases 8 and 10
+# override both per-invocation to exercise the gate itself.
+export PULSE_READY_MARKER=''
 export PULSE_READY_TIMEOUT=2
 
 ok() { PASS=$((PASS + 1)); }
@@ -271,6 +280,89 @@ else
   ok
 fi
 "$TMUX_BIN" kill-session -t "=$SESSION3" 2>/dev/null
+
+# 13. Readiness TIMEOUT bounces instead of injecting blind (dotfiles-mrta).
+#
+#     Observed 2026-07-25: a cold boot took ~60s to paint its composer, the gate
+#     timed out at its 60s ceiling, typed into an empty composer, and the tick
+#     was EATEN — 0% context, no work, no ledger row. "Inject anyway" is not
+#     "try late" when there is nothing to type into; it is a silent loss, and a
+#     concrete mechanism for the "fired but no ledger row" class.
+#
+#     Stub launcher, never a real claude session: a program that is alive and
+#     holds the pane but NEVER prints the marker — which is exactly the shape of
+#     a TUI that hasn't finished painting.
+NEVERTUI="$DIR/nevertui.sh"
+cat > "$NEVERTUI" <<'EOS'
+# alive, holds the pane, and never prints the readiness marker
+while IFS= read -r line; do printf '%s\n' "$line"; done
+EOS
+NR_BOUNCE=$(mktemp -d)
+HARNESS_STATE_DIR="$NR_BOUNCE" PULSE_READY_MARKER='NEVER-APPEARS-MARKER-QQQ' PULSE_READY_TIMEOUT=3 \
+  "$INJECT" --session "$SESSION4" --window pulse --dir "$DIR" \
+  --launch "bash $NEVERTUI" --cmd "must-not-be-injected-13" --loop pulse-notready-loop >/dev/null 2>&1
+NR_RC=$?
+sleep 1
+PANE4=$("$TMUX_BIN" list-panes -t "=$SESSION4" -a -F '#{window_name} #{pane_id}' 2>/dev/null | awk '$1=="pulse"{print $2; exit}')
+
+# a. the tick is NOT typed into the unready pane
+if "$TMUX_BIN" capture-pane -p -t "$PANE4" 2>/dev/null | grep -q "must-not-be-injected-13"; then
+  bad "readiness timeout must NOT inject into an unready composer"
+else
+  ok
+fi
+# b. …and the bounce is RECORDED, so a tick that produced no work is
+#    distinguishable from one that never fired (the whole point of the bead).
+if grep -q '"reason":"not_ready"' "$NR_BOUNCE/pulse-bounces.jsonl" 2>/dev/null \
+   && grep -q '"loop":"pulse-notready-loop"' "$NR_BOUNCE/pulse-bounces.jsonl" 2>/dev/null; then
+  ok
+else
+  bad "readiness timeout writes a not_ready bounce record"
+fi
+# c. …and it exits 0 — a bounce is a deferral, not a unit failure. Exiting
+#    non-zero would paint the timer red on a condition that resolves itself.
+if [ "$NR_RC" -eq 0 ]; then ok; else bad "readiness-timeout bounce exits 0 (got $NR_RC)"; fi
+"$TMUX_BIN" kill-session -t "=$SESSION4" 2>/dev/null
+
+# 14. The escape hatch restores the old behavior verbatim. It exists for one
+#     failure mode — Claude Code changing its footer text, which would make the
+#     marker never match and bounce EVERY tick — and a guard that cannot be
+#     turned off in an incident is one people rip out instead.
+NR_BOUNCE2=$(mktemp -d)
+HARNESS_STATE_DIR="$NR_BOUNCE2" PULSE_READY_MARKER='NEVER-APPEARS-MARKER-QQQ' PULSE_READY_TIMEOUT=3 \
+  PULSE_READY_ON_TIMEOUT=inject \
+  "$INJECT" --session "$SESSION5" --window pulse --dir "$DIR" \
+  --launch "bash $NEVERTUI" --cmd "hatch-injected-14" --loop pulse-hatch-loop >/dev/null 2>&1
+sleep 1
+PANE5=$("$TMUX_BIN" list-panes -t "=$SESSION5" -a -F '#{window_name} #{pane_id}' 2>/dev/null | awk '$1=="pulse"{print $2; exit}')
+if "$TMUX_BIN" capture-pane -p -t "$PANE5" 2>/dev/null | grep -q "hatch-injected-14"; then
+  ok
+else
+  bad "PULSE_READY_ON_TIMEOUT=inject restores the pre-mrta blind inject"
+fi
+if [ -f "$NR_BOUNCE2/pulse-bounces.jsonl" ]; then
+  bad "the escape hatch injected, so it must NOT also record a bounce"
+else
+  ok
+fi
+"$TMUX_BIN" kill-session -t "=$SESSION5" 2>/dev/null
+
+# 15. The gate honors its advertised ceiling. It used to be `seq 1 $N` + `sleep
+#     1`, but each iteration also pays for a capture-pane and a grep, so the
+#     loop overshot: the 2026-07-25 incident logged "not seen after 60s" a
+#     measured 63 seconds after launch. That drift matters now that the same
+#     number decides whether to bounce, so the poll runs to a wall-clock
+#     deadline. 3s ceiling must not become 5s+ of real waiting.
+_d0=$(date +%s)
+PULSE_READY_MARKER='NEVER-APPEARS-MARKER-QQQ' PULSE_READY_TIMEOUT=3 \
+  "$INJECT" --session "$SESSION6" --window pulse --dir "$DIR" \
+  --launch "bash $NEVERTUI" --cmd "deadline-probe-15" >/dev/null 2>&1
+_dwait=$(( $(date +%s) - _d0 ))
+# Budget: up to 30s liveness poll (the stub is bash, so it flips fast) + the 3s
+# readiness ceiling. Assert the READINESS part did not blow past its ceiling.
+if [ "$_dwait" -le 12 ]; then ok; else bad "readiness poll honors its ceiling (total wait ${_dwait}s for a 3s ceiling)"; fi
+"$TMUX_BIN" kill-session -t "=$SESSION6" 2>/dev/null
+rm -rf "$NR_BOUNCE" "$NR_BOUNCE2"
 
 # --- Summary ---
 TOTAL=$((PASS + FAIL))
