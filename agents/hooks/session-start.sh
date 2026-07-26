@@ -101,6 +101,65 @@ if ! $IN_WORKTREE && [ -f "$HOME/.claude/.secret-alert" ]; then
   fi
 fi
 
+# --- settings.json symlink guard (dotfiles-kdav) ---------------------------
+# ~/.claude/settings.json is supposed to BE the tracked template at
+# ~/dotfiles/claude/settings.json, via a symlink. Claude Code writes global
+# settings atomically (temp file + rename), and rename() REPLACES a symlink
+# with a regular file. Anything that makes it write global settings does this:
+# accepting a permission, changing effort in the menu, toggling fast mode.
+#
+# The break is completely silent and the damage COMPOUNDS: the live file keeps
+# working, so nothing alarms, while the tracked template quietly falls behind.
+# Last time (dotfiles-2wqv) it drifted 5 settings including ANTHROPIC_BASE_URL
+# — the proxy carrying all API traffic — and left `effortLevel: xhigh` in the
+# template, which is the Opus 5 WebSearch-killer, so a fresh machine or a
+# sync.sh restore would have silently reinstalled a broken config.
+#
+# DO NOT AUTO-REPAIR. Re-symlinking blindly destroys whatever the live copy
+# gained since the break; last time live was a SUPERSET by 5 settings. That is
+# the entire lesson of 2wqv. Warn, name the merge, and let a human decide.
+#
+# Cost: one `[ -L ]` test on the happy path. The jq key-diff only runs when the
+# invariant is ALREADY broken, so a healthy session pays nothing measurable.
+if ! $IN_WORKTREE; then
+  _ST_LIVE="$HOME/.claude/settings.json"
+  _ST_TMPL="$HOME/dotfiles/claude/settings.json"
+  if [ -e "$_ST_LIVE" ] && [ ! -L "$_ST_LIVE" ]; then
+    echo ""
+    echo "⚠ ~/.claude/settings.json is a REGULAR FILE, not a symlink to dotfiles."
+    echo "  Claude Code rewrote it (atomic rename replaces the symlink). Every"
+    echo "  setting added since then is now UNTRACKED and will be lost on the"
+    echo "  next fresh install or sync.sh restore."
+    # Name the diverged KEYS so the merge is mechanical rather than
+    # archaeological. Only runs on the already-broken path.
+    if [ -f "$_ST_TMPL" ] && command -v jq &>/dev/null; then
+      if _ST_KEYS=$(jq -rs '
+        (.[0] // {}) as $live | (.[1] // {}) as $tmpl
+        | [ (($live | keys_unsorted) + ($tmpl | keys_unsorted)) | unique | .[]
+            | select(($live[.] // null) != ($tmpl[.] // null)) ]
+        | join(", ")
+      ' "$_ST_LIVE" "$_ST_TMPL" 2>>"$LOG"); then
+        if [ -n "$_ST_KEYS" ]; then
+          echo "  Diverged keys (live vs dotfiles/claude/settings.json): $_ST_KEYS"
+        else
+          echo "  No key differences — the two agree; only the link is gone."
+        fi
+      else
+        # Say so rather than printing the reassuring "no differences" — one of
+        # the two files not parsing is itself worth knowing about.
+        echo "  (could not diff the keys — one of the files is not valid JSON; see $LOG)"
+      fi
+    fi
+    echo "  Fix, MERGE FIRST — do not just re-run sync:"
+    echo "    1. diff ~/.claude/settings.json ~/dotfiles/claude/settings.json"
+    echo "    2. copy anything live-only INTO ~/dotfiles/claude/settings.json, commit it"
+    echo "    3. bash ~/dotfiles/sync.sh claude   # replaces live with a symlink to the template"
+    echo "  Step 3 without step 2 deactivates every live-only setting (sync.sh"
+    echo "  does stash a copy under ~/dotfiles/.backup/<timestamp>/, but nothing"
+    echo "  ever reads it again)."
+  fi
+fi
+
 emit_git_context
 
 # Unabsorbed-submodule guard: if cwd is a submodule of a parent project
