@@ -21,13 +21,30 @@ INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
 [ -z "$COMMAND" ] && exit 0
 
-# escape hatch
+# escape hatch (read off the RAW command — the skeleton below strips comments)
 case "$COMMAND" in *"# allow-suppress"*) exit 0 ;; esac
+
+# Match against the SKELETON (string-literal contents, comments and heredoc
+# bodies removed) so text that merely *mentions* a suppression or a risky verb
+# is never mistaken for one being executed. Without this, writing a bead ABOUT
+# the stderr rule tripped the stderr guard — `br create -d "…never use
+# 2>/dev/null on a git push…"` blocked, and markdown tables in bead bodies made
+# it worse because the segment splitter below splits on `|`, which is what a
+# table row is made of (explore-yfn4).
+#
+# Known limit, deliberate + inherited from command_skeleton: a real command
+# hidden inside a string (`bash -c "git config --global … >/dev/null 2>&1"`,
+# `eval "…"`) is invisible to the guard. This is an accident gate, not a
+# sandbox; zero false blocks on ordinary commands is worth more.
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/hook-helpers.sh" 2>/dev/null
+if ! type command_skeleton >/dev/null 2>&1 || ! SKEL=$(command_skeleton "$COMMAND"); then
+  SKEL="$COMMAND"   # fail toward the old over-matching behavior: never a missed block
+fi
 
 SUPPRESS_RE='2>[[:space:]]*/dev/null|&>[[:space:]]*/dev/null|>[[:space:]]*/dev/null[[:space:]]+2>&1|2>&1[[:space:]]*>[[:space:]]*/dev/null'
 
 # fast bail: no stderr suppression anywhere
-echo "$COMMAND" | grep -Eq "$SUPPRESS_RE" || exit 0
+echo "$SKEL" | grep -Eq "$SUPPRESS_RE" || exit 0
 
 # state-changing / output-bearing verbs where a silent failure is genuinely harmful.
 # Deliberately EXCLUDES read/probe git subcommands (rev-parse, show-ref, cat-file,
@@ -36,7 +53,7 @@ RISKY_RE='(^|[[:space:];&|(])(git[[:space:]]+(config|commit|push|clone|fetch|pul
 
 # split into segments on && || ; | and newlines; flag a segment that has BOTH
 # a risky verb AND suppression (avoids cross-segment false positives).
-SEGMENTS=$(printf '%s\n' "$COMMAND" | sed -E 's/&&/\n/g; s/\|\|/\n/g; s/;/\n/g; s/\|/\n/g')
+SEGMENTS=$(printf '%s\n' "$SKEL" | sed -E 's/&&/\n/g; s/\|\|/\n/g; s/;/\n/g; s/\|/\n/g')
 FLAGGED=""
 while IFS= read -r seg; do
   [ -z "$seg" ] && continue
