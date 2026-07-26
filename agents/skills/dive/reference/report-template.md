@@ -1,6 +1,6 @@
-# /explore report template — canonical section structure
+# /dive report template — canonical section structure
 
-The shape that's been working across this session's /explore runs
+The shape that's been working across this session's /dive runs
 (Talkie, Pi/DeepAgents, Open Models, Mycroft). Use it as the default
 skeleton; deviate only when the topic genuinely demands.
 
@@ -45,7 +45,7 @@ first sentence, then the qualified answer. If the user just said
 
 [ALWAYS include this section. The user gave you N URLs. There are
 adjacent N more that belong in the picture. Name them, link them,
-say briefly why each belongs. This is /explore's signature value-add
+say briefly why each belongs. This is /dive's signature value-add
 — it's the section that proves you went past the brief.]
 
 == Related explorations ==
@@ -70,7 +70,7 @@ relevant to your work".]
 == Novel opportunities ==
 
 [REQUIRED in archival mode. The max-effort ideation output (see
-/explore Effort §: a fresh Workflow agent at effort:'max', unpolluted
+/dive Effort §: a fresh Workflow agent at effort:'max', unpolluted
 by the convergent writeup). Each opportunity: the non-obvious idea /
 connection, the concrete move it implies, rough effort
 (weekend/week/month/research-arc), and the main risk / reason-not-to.
@@ -86,7 +86,7 @@ honest entry; never manufacture a strained tie-back to justify the run.]
 
 == Possible social-post angles ==
 
-[Always include for /explore — the user's content cadence is part of
+[Always include for /dive — the user's content cadence is part of
 their workflow. Suggest STRONGEST → SECONDARY → AVOID. Be honest
 about which angles fit your audience and which are weaker. Don't
 pitch a post you wouldn't write yourself.]

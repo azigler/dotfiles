@@ -65,7 +65,8 @@
 #
 # Logs to /tmp/pulse-inject.log, one line per event, appended under an
 # exclusive flock and tagged with this run's pid so simultaneous ticks
-# (pulse-explore and pulse-di-thursday both fire at 13:00 UTC) stay
+# (pulse-explore — pulse-dive after the rename flip — and pulse-di-thursday
+# both fire at 13:00 UTC) stay
 # attributable instead of braiding into an unreadable record — see note().
 # Exit non-zero on hard failures so the systemd unit records them
 # (journalctl --user -u pulse-*).

@@ -1,8 +1,8 @@
-# Asana fleet proxy — verified cheatsheet for /explore
+# Asana fleet proxy — verified cheatsheet for /dive
 
 The `/asana` skill documents the broader API. This file captures the
-specific subset /explore uses, with gotchas verified during the May 2026
-session that produced /explore.
+specific subset /dive uses, with gotchas verified during the May 2026
+session that produced /dive.
 
 ## Auth + headers (every write)
 
@@ -22,7 +22,7 @@ curl -s -m 5 "$FLEET_URL/api/health"
 The fleet auto-prepends `[claude-code via Marketing Fleet]\n` once per
 write. Don't prepend it yourself.
 
-## Endpoints /explore actually uses
+## Endpoints /dive actually uses
 
 | Method | Path | What it does |
 |--------|------|--------------|
@@ -48,7 +48,7 @@ text. That's all u need.
 
 The /asana skill's existing examples lean on `html_notes` for nested
 structure (h1, h2, ul, li). That's the right call for receipts of work
-where the task IS the deliverable. For /explore, the task description is
+where the task IS the deliverable. For /dive, the task description is
 a research artifact and the comment is copy-paste fodder — both want
 plaintext.
 
@@ -110,7 +110,7 @@ options to resolve:
 - **A**: update /asana skill docs to match (lower-blast-radius)
 - **B**: add a PUT alias on the fleet (more REST-conventional)
 
-Until the bead resolves, /explore uses POST `/update` exclusively.
+Until the bead resolves, /dive uses POST `/update` exclusively.
 
 ## The strict-XML gotchas (relevant when you do use html_*)
 
@@ -137,7 +137,7 @@ is meaningfully stricter than `html_text` (verified 2026-05-07).
   and `<h3>`. Self-closing form on `<br/>` is mandatory; bare `<br>`
   fails with the same XML parse error.
 
-The /explore deliverable pipeline now uses `html_notes` with `<h2>` +
+The /dive deliverable pipeline now uses `html_notes` with `<h2>` +
 `<ul><li>` structure for description updates, and plaintext `text` for
 comments (since the user copy-pastes them to LinkedIn).
 
@@ -149,7 +149,7 @@ target a known parent task GID; tasks WITHOUT a parent that are intended
 for a personal-board section can't be enumerated by section through the
 current fleet routes.
 
-In practice: /explore always operates on a parent task GID provided by
+In practice: /dive always operates on a parent task GID provided by
 the user. We never need to enumerate the personal board. If a future
 flow wanted to ("list every task in 'Posts' section"), it'd require
 fleet route additions.
@@ -158,7 +158,7 @@ fleet route additions.
 
 The `X-Idempotency-Key` header on `POST /api/asana/tasks` guards a
 60-second retry window via fleet's Upstash Redis (if configured). Useful
-for daily-bead-log automation, NOT useful for /explore — each /explore
+for daily-bead-log automation, NOT useful for /dive — each /dive
 run produces a unique deliverable.
 
 For dedupe of "did I already create a subtask for this exploration?",
