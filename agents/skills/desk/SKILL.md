@@ -520,6 +520,15 @@ discriminate (`refs/elevate-proposals-review.md`).
 The controls are frozen so a later change to `/desk` is **re-measured rather
 than re-argued**. Re-run them after any change to the run sequence.
 
+⚠️ **`controls.md` NEVER goes into a Pass A context, and neither do its
+contents.** Every control's PASS condition is that a pass finds the case
+*unaided*; showing Pass A the answer converts each control into a tautology a
+grep-only design would pass, which is the `/ab` planted-case failure one level
+up. The same prohibition is why `refs/desk/axes.md`'s seeded axes carry their
+question only — see the withholding notes there, and do not "helpfully" restore
+the worked examples to either file. **The orchestrator scores the controls
+against Pass A's return; Pass A never reads them.**
+
 ## Rules that bite
 
 - **An empty week still produces a valid memo.** With no new findings, the
