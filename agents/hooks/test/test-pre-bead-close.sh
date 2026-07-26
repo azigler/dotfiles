@@ -271,6 +271,43 @@ run_case "block: bogus id still blocks after a spaced cd" 2 \
 # (BR_PWD_LOG stays exported — the EXIT trap still needs it, and no further
 # cases run. The stub ignores it when unset.)
 
+# --- command_skeleton lexing: a MENTION of `br close` is not a `br close` ---
+#
+# dotfiles-aj83 was found here: an odd number of `"` in a commit message left
+# the blanking span misaligned, so `br close` inside the MESSAGE was seen as a
+# real invocation and the worktree guard blocked the commit. The agent's
+# workaround was to write commit messages containing no quote characters at
+# all — the exact "trained to route around the gate" failure this fixes.
+
+skel_payload() { jq -cn --arg c "$1" --arg d "$WT" '{tool_input:{command:$c},cwd:$d}'; }
+
+# 27. aj83, the original symptom: an escaped `"` makes the quote count odd.
+run_case "allow: escaped quotes in a commit message do not expose br close" 0 \
+  "$(skel_payload 'git commit -m "he said \" then asked me to br close bd-x1"')"
+
+# 28. aj83, the shape seen live: an odd `"` inside a HEREDOC commit body.
+run_case "allow: odd quote in a heredoc commit body does not expose br close" 0 \
+  "$(skel_payload 'git commit -m "$(cat <<'"'"'EOF'"'"'
+:bug: hooks: the 5" rule, and br close gating stays untouched
+
+Bead: dotfiles-vo3t
+EOF
+)"')"
+
+# 29. …and the guard is NOT weakened: a real `br close` from a worktree still
+#     blocks, including from inside a command substitution.
+run_case "block: a real br close from a worktree still blocks" 2 \
+  "$(skel_payload 'br close bd-x1')" \
+  "from inside a worktree"
+
+run_case "block: br close inside a command substitution still blocks" 2 \
+  "$(skel_payload 'echo $(br close bd-x1)')" \
+  "from inside a worktree"
+
+# 30. a `#` comment mentioning br close is a comment, not a command.
+run_case "allow: br close named in a trailing comment" 0 \
+  "$(skel_payload 'git status   # the orchestrator will br close bd-x1 later')"
+
 # --- Summary ---
 
 TOTAL=$((PASS + FAIL))

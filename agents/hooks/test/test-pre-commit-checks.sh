@@ -292,6 +292,95 @@ run_case_in "$SPACELEDGER" "block: unproven done in a spaced ledger path" 2 \
   "no valid proof token"
 rm -rf "$SPACELEDGER"
 
+# --- command_skeleton lexing: false blocks vs. real blocks (vo3t / aj83) ---
+#
+# These run against the REAL hook, not the helper, because the defect that
+# matters is the hook's verdict. The unit-level contract for the lexer itself
+# is in test-hook-helpers.sh.
+#
+# Both directions are asserted deliberately. The bug was a gate refusing
+# legitimate commands (which taught three separate agents to route around it),
+# and the tempting fix — strip more — silently removes real violations from
+# the gate's view. Every "allow" case below is paired with a "block" case in
+# the same syntactic position.
+
+# Build a payload from an arbitrary (possibly multi-line, quote-laden) command.
+pl() { jq -cn --arg c "$1" '{tool_input:{command:$c},cwd:"/tmp"}'; }
+
+# 27. dotfiles-vo3t, THE headline case: /commit SKILL.md:71 documents this
+#     line, and the hook refused it — matching the flag inside the very
+#     comment that warns agents not to use the flag.
+run_case "allow: the documented /commit line with its NEVER-git-add-A comment" 0 \
+  "$(pl 'git add <specific-files>                       # NEVER git add -A')"
+
+# 28-32. A GENUINE all-staging command stays blocked from every position.
+run_case "block: git add -A after &&" 2 \
+  "$(pl 'git status && git add -A')" "never 'git add ."
+
+run_case "block: git add --all after ;" 2 \
+  "$(pl 'git status ; git add --all')" "never 'git add ."
+
+# `$( … )` and backticks were a REAL HOLE before this fix: the old skeleton
+# left `$(` glued to the verb, so no hook's word-boundary ever matched and the
+# command was silently allowed. Verified against the pre-fix hook.
+run_case "block: git add -A inside a command substitution" 2 \
+  "$(pl 'echo $(git add -A)')" "never 'git add ."
+
+run_case "block: git add -A inside a backtick substitution" 2 \
+  "$(pl 'echo `git add -A`')" "never 'git add ."
+
+run_case "block: git add -A as the second command in a pipeline" 2 \
+  "$(pl 'printf x | git add -A')" "never 'git add ."
+
+# 33-35. A MENTION of the flag is not a command.
+run_case "allow: the flag inside a double-quoted string" 0 \
+  "$(pl 'echo "do not run git add -A here" && git status')"
+
+run_case "allow: the flag inside a single-quoted string" 0 \
+  "$(pl "echo 'do not run git add -A here' && git status")"
+
+run_case "allow: the flag after a # that opens a real comment" 0 \
+  "$(pl 'git status   # do not git add -A ever')"
+
+# 36. A `#` INSIDE a quoted string is not a comment — so the rest of the
+#     string stays blanked and a later real command is still seen.
+run_case "block: quoted # does not turn the rest of the line into a comment" 2 \
+  "$(pl 'echo "a # b" && git add -A')" "never 'git add ."
+
+# 37-38. dotfiles-vo3t, confirmed live: heredoc BODIES are data. The hook
+#     blocked the very command that filed the bug report, because the report's
+#     prose named the flag inside a quoted heredoc.
+run_case "allow: heredoc body naming the flag (the bug report that got blocked)" 0 \
+  "$(pl 'br create -p 1 "hooks: skeleton bug" -d "$(cat <<'"'"'EOF'"'"'
+The 5" rule aside: the hook matches git add -A inside the warning comment.
+EOF
+)"')"
+
+run_case "allow: plain heredoc body naming the flag" 0 \
+  "$(pl 'cat > refs/rules.md <<EOF
+Stage by name; never git add -A in this repo.
+EOF')"
+
+# 39. …but code AFTER the heredoc terminator is still code.
+run_case "block: git add -A after a heredoc terminator" 2 \
+  "$(pl 'cat > refs/rules.md <<EOF
+body
+EOF
+git add -A')" "never 'git add ."
+
+# 40. dotfiles-aj83: an ODD number of `"` characters in a commit message used
+#     to misalign the blanking span and expose the text after it. Here the
+#     third quote is an ESCAPED one, so the message is a single well-formed
+#     argument — the old pairing read it as two and left the tail bare.
+run_case "allow: odd-quote commit message does not expose the flag" 0 \
+  "$(pl 'git commit -m "he said \" then claimed git add -A is fine"')"
+
+# 41. The other half of that: a quote that genuinely CLOSES the string leaves
+#     what follows as real code, and the gate must still see it. (This is what
+#     bash does too — an unterminated tail is a syntax error, not a hiding place.)
+run_case "block: text after a genuinely closed quote is still code" 2 \
+  "$(pl 'git commit -m "note" && git add -A')" "never 'git add ."
+
 # --- Summary ---
 
 TOTAL=$((PASS + FAIL))
