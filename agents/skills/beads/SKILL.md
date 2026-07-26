@@ -292,6 +292,17 @@ bead is closed:
   This is needed because `br update --notes` is REPLACE-only
   (verified br 0.2.5 → 0.2.15) — you must read existing, concat, re-submit.
 
+  ⚠️ **`br show <id> --json` returns a LIST, not an object** (br 0.2.16).
+  `json.load(sys.stdin)['description']` therefore raises `TypeError: list
+  indices must be integers`. If that read is inside a `$(...)` whose output
+  feeds the very `br update` that follows, the failure is **silent and
+  destructive**: the substitution collapses to the empty string, the command
+  still runs, and the field is replaced by only the new text. This clobbered a
+  4,722-character description on 2026-07-26 and was recovered from git history.
+  Index `[0]` (or `rows[0] if isinstance(rows, list) else rows`), and prefer
+  writing the read to a file you can inspect before the update runs. The same
+  trap applies to `--description` and `--design`, not just `--notes`.
+
 - **The new bead's `--description`** opens with `## Supersedes bd-XXXX`
   in its Context section, so the graph is traversable both ways.
 
