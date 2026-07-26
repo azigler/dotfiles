@@ -73,6 +73,23 @@ PATTERNS: dict[str, re.Pattern] = {
     "slack-token": re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"),
     "gitlab-pat": re.compile(r"glpat-[A-Za-z0-9_-]{20}"),
     "bearer-token": re.compile(r"Bearer [A-Za-z0-9._~+/=-]{40,}"),
+    # Rails signed session/remember cookies. The COOKIE NAME is the
+    # high-confidence marker — the value is an opaque base64 blob with no
+    # distinctive prefix of its own, so name-anchoring is the only way to catch
+    # this class without dropping to entropy (which redact mode forbids).
+    # `_otwarchive_session` is AO3's; `remember_user_token` is stock Devise and
+    # is the more dangerous of the pair — it re-establishes a session on its own,
+    # so possession is account access until it expires or the user logs out
+    # everywhere. Added 2026-07-26 after a live AO3 pair was pasted into a
+    # session and this scanner reported 0 matches on the transcript 25 minutes
+    # before the hourly vault sync would have committed it to git history.
+    "rails-session-cookie": re.compile(
+        r"(?:_[a-z0-9_]*session|_?session_id|remember_[a-z0-9_]*token)"
+        # Separator class includes quotes so the JSON-serialised shape
+        # ("_session_id": "<blob>") matches too — a transcript stores cookies
+        # that way far more often than as a bare `name value` pair.
+        r"[\"'=:\s]+[A-Za-z0-9%._-]{40,}"
+    ),
 }
 # for bearer we keep the "Bearer " prefix and only redact the token part:
 _BEARER_KEEP = re.compile(r"(Bearer )[A-Za-z0-9._~+/=-]{40,}")
@@ -282,9 +299,7 @@ def run_gitleaks(paths, excl) -> tuple[list[dict], str | None]:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(
-        description="detect/redact high-confidence secrets"
-    )
+    ap = argparse.ArgumentParser(description="detect/redact high-confidence secrets")
     ap.add_argument("mode", choices=["scan", "redact"])
     ap.add_argument("paths", nargs="+")
     ap.add_argument(
