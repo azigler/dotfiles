@@ -4,21 +4,24 @@
 # Schedule is IDENTICAL to the timer it replaces — a rename, not a cadence change.
 # It sits between the 06:00 and 12:00 dive fires so the two loops never overlap.
 #
-# NOT INSTALLED. Installing it is a LIVE pulse-schedule change and needs Zig's
-# confirmation (dotfiles-q702). Install sequence, in this order:
-#   1. land the /desk skill + the explore refs/pulse.md `desk` row + the
-#      "Archived rows" table (which keeps the historical `elevate` ledger rows
-#      linting clean) FIRST
-#   2. systemctl --user disable --now pulse-elevate.timer
-#   3. mv the stamp so the renamed timer inherits its run history and does NOT
-#      fire a phantom catch-up tick (agents/infra.md "Timer-rename gotcha"):
-#      mv ~/.local/share/systemd/timers/stamp-pulse-elevate.timer \
-#         ~/.local/share/systemd/timers/stamp-pulse-desk.timer
-#   4. install these two units, `systemctl --user daemon-reload`,
-#      `systemctl --user enable --now pulse-desk.timer`
-#   5. update ~/harnessd/refs/harness-manifest.json in the SAME change
-#      (timer + ledger_row), or the dashboard reports a phantom stale loop
-#   6. verify: systemd-analyze calendar 'Fri *-*-* 10:00:00 America/Los_Angeles'
+# ✅ INSTALLED 2026-07-26. All six steps of the flip completed and verified:
+#   1. /desk skill + refs/pulse.md `desk` row + "Archived rows" table  ✓
+#   2. pulse-elevate.timer disabled                                     ✓
+#   3. stamp CARRIED ACROSS — stamp-pulse-desk.timer dated Fri 2026-07-24
+#      17:00 (the old elevate run), so NO phantom catch-up tick fired.
+#      This is the mechanism that matters: systemd's persistence state is
+#      /var/lib|~/.local/share/systemd/timers/stamp-<unit>.timer, NOT the
+#      unit file's mtime — a new unit name has no stamp, which reads as an
+#      elapsed slot and fires immediately on enable.
+#      (agents/infra.md "Timer-rename gotcha")                          ✓
+#   4. units installed, daemon-reload, enable --now                     ✓
+#   5. ~/harnessd/refs/harness-manifest.json updated (timer+ledger_row) ✓
+#   6. systemd-analyze calendar verified                                ✓
+#
+# FIRST FIRE: Fri 2026-07-31 — /desk has never actually run. The skill was
+# re-architected before that fire (explore-f7m7): the single-context design was
+# rejected on review and replaced by Pass A (wide, proposes) -> Pass B (narrow,
+# corpus-free, verifies + writes). See refs/lab-open-questions.md.
 #
 # explore-b47q: the old elevate pulse is ARCHIVED, not migrated. Its ledger rows
 # stay under `"row":"elevate"` as history; `desk` starts a FRESH row.

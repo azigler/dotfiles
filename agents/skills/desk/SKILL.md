@@ -1,7 +1,7 @@
 ---
-description: The research lab's ALLOCATOR — a weekly whole-corpus pass that emits a <=1,200-word chief-of-research resourcing memo to Andrew: what to fund, what to stop, what the corpus knows that no single tick can see.
+description: The research lab's ALLOCATOR — a weekly two-pass whole-corpus review that emits a <=1,200-word chief-of-research resourcing memo to Andrew: what to fund, what to stop, what the corpus knows that no single tick can see.
 when_to_use: The weekly desk pass fires (pulse-desk.timer, Fri); or Andrew asks "what should the lab work on next", "run the desk", "what's ripe in the compendium". NOT first-pass research (use /dive). NOT one-subject fresh eyes (use /elevate). NOT correctness (use /scrutinize).
-argument-hint: "[project dir, default ~/explore] [--full]"
+argument-hint: "[project dir, default ~/explore] [--wide]"
 ---
 
 # /desk — the lab's allocator
@@ -17,12 +17,14 @@ TRANSITIVE VERB.** You sit at the desk; you `/dive` a lead.
 write half. `~/explore` produces ~4 explorations a day and had no loop that
 ever read across them. Every producer tick sees exactly one card, so
 cross-exploration facts — two findings that contradict each other, an open
-bead a later finding silently answered, a theme that hit critical mass —
+bead a later finding silently answered, a confirmed defect no bead tracks —
 were structurally invisible.
 
 **"Lab" names the INSTITUTION, never a loop.** No loop may be called lab.
 (Naming decision 2026-07-26, bead `explore-mqvu`; spec `explore-oodx`;
-transition constraints `explore-b47q`.)
+transition constraints `explore-b47q`. The spec review's OQ1 answer of
+`/lab` and OQ4's `pulse-lab.timer` are **superseded** by that rename — the
+loop is `/desk` and the live unit is `pulse-desk.timer`.)
 
 ## The load-bearing requirement: a destination, not a report
 
@@ -41,69 +43,210 @@ Two consequences that are NOT negotiable:
    ranked menu is a status report wearing a memo's clothes. Pick, argue,
    and name the honest counter-case.
 
-## Cost discipline — the constraint IS the spec
+## The architecture: WIDE proposes, NARROW verifies and writes
 
-`dotfiles-uxj9` established that cache-read cost = context_size × turns,
-and it is the dominant term (~55%). `/desk` is deliberately **BIG-CONTEXT,
-FEW-TURNS**.
+This is the load-bearing mechanism, and it is the one thing about this
+skill that was rewritten after review (`refs/lab-open-questions.md`,
+Amendment 2). The original design asked **one** context to load the corpus,
+compare it, judge it, *and* write the memo. That is wrong for two
+independent reasons, and only one of them is about cost.
 
-    HARD BUDGET: <= 20 assistant turns total.
-    Load the corpus in <= 4 BULK tool calls (concatenated reads), never
-    file-by-file.
+**Pass A — WIDE. Proposes. Never writes.**
+Fresh agent, no history. Loads the corpus in ≤4 bulk reads. Emits **only** a
+structured candidate list — ids, paths, **quoted spans**, ~2k tokens. No
+prose, no memo, no beads, no verdicts. ~6 turns.
 
-A file-by-file walk over ~130 findings would be ~130 turns × ~480k context
-and would cost roughly **7×** the entire weekly research loop it is meant
-to summarize. If you find yourself reading one FINDINGS.md at a time, stop
-— you are running the expensive version of this skill.
+**Pass B — NARROW. Verifies and writes. Never holds the corpus.**
+A **fresh** agent holding **no corpus**. Reads the candidate list and the
+axis register, then opens *only* the specific files each candidate names,
+re-reads the quoted span in place, and writes the memo. ~40 turns against a
+~40k context.
 
-Measured preconditions (2026-07-25, `explore-nq1i`): corpus ≈ 127
-FINDINGS.md (313k words, ~423k tok) + open bead descriptions (~60k tok) ≈
-**483k tokens — one 1M context.** Cost of a pass ≈ 0.045% of the explore
-slug's 30-day spend (`dotfiles-uxj9`). Revisit incremental loading only
-past ~600k tokens (~18 months out at current intake).
+**Why the split is forced, not merely permitted:**
 
-## Input (the <= 4 bulk reads)
+- **Cost.** Cache-read = context × turns, the dominant term (`dotfiles-uxj9`).
+  Verifying inside Pass A costs 483k × 40 ≈ **19.3M** — over the spec's 15M
+  gate. Split: (483k × 6) + (40k × 40) ≈ **4.5M** core. *Cheaper and
+  verified.* `refs/warm-session-collapse.md` corroborates: a fresh context
+  costs a median **40,352** tokens of cache-creation; a warm one re-creates a
+  median **478k**. Two fresh contexts beat one long-lived session doing both
+  jobs.
+- **Over-anchoring — the reason that matters more.** `~/explore/CLAUDE.md`
+  prohibits loading every bead body precisely because they are dense with the
+  same handful of tie-backs (`iaf` / `len0` / `cdby` / …), and loading them
+  all is *the mechanical cause* of the over-anchoring this compendium keeps
+  fighting. Under the split, **the agent that writes the memo never holds the
+  corpus.** It cannot reflexively anchor to attractors it has not read. This
+  is "crawl, don't dump" applied at *verification* time — Pass B is a
+  crawler, following exactly the edges Pass A pointed at.
 
-a. every `*/FINDINGS.md` in full
-b. every open bead: id, type, priority, title, description, age
-c. `refs/desk/<previous>.md` — the last memo, so you do not re-pitch a
-   program he already declined (the golem phantom-backlog failure,
-   memory `project_golem_phantom_backlog`). Also read the **last archived
-   `refs/elevate/sweep-*.md`** on the first few runs — that is this loop's
-   pre-rename history and it holds declined programs too.
-d. `git log` since the last memo — what actually landed.
+**The honest cost of the split** (state it; do not pretend it is free): one
+more place to fail, and **Pass B is structurally unable to notice anything
+Pass A did not propose** — a weak Pass A silently caps the memo's ceiling.
+That is a *visible* failure against a design whose failures were previously
+invisible, which is why it is accepted.
+
+**What would overturn this.** A measurement that a single Opus-5 pass over
+483k tokens *reliably* recovers a planted cross-cluster, zero-shared-
+vocabulary contradiction — run three times with the pair rotated, scored on
+landing in the top 3 rather than merely being findable when asked directly.
+Nobody has run it; it is one afternoon. Until then Amendment 2 is the
+design, and this paragraph is the standing invitation to falsify it.
+
+## The axis register — closed questions, not open synthesis
+
+`refs/desk/axes.md` (Amendment 1). A small, durable, rotating set of
+**claim-types the corpus repeatedly takes positions on** — e.g. *"may an
+opaque learned representation drive a harness decision?"*, *"what must a
+no-build verdict establish?"*
+
+Pass A answers these **closed**: *"list every finding that takes a position
+on axis A, quote it, flag disagreement."* That is a linear scan with an
+accumulator — what long-context attention genuinely does well — and it is
+**checkable**. An *open* question over this corpus returns `iaf` / `len0` /
+`cdby` every single week.
+
+**The register is also the dedup `/elevate` never had, and it is the reason
+the memo does not repeat.** Salience is stable: week 2's top-salience pair
+is week 1's. Enumeration matters not for one memo but for a memo *series*.
+**Once an axis is resolved it is struck**, and the next pass is forced below
+the waterline.
+
+Maintenance rules:
+- An axis is added only when Pass A finds ≥2 findings taking positions on it.
+- An axis is struck when its question has a recorded answer — with the memo
+  date that resolved it, so the strike is auditable.
+- The register is hand-maintained and **can rot** — the same class of object
+  `context-engineering-claude-5` §3 flags as "a conflict generator by
+  construction." Re-read it against reality on every `--wide` pass.
+
+## Cadence — weekly memo, monthly wide pass (OQ2)
+
+**Split by section, not by memo.**
+
+| Sections | Refreshed from | Cadence |
+|---|---|---|
+| §1 ASK, §2 STOP, §4 CONNECTION, §5 DOOR | the week's delta + the standing axis register | **weekly** |
+| §3 SIGNALS FROM THE FLOOR | a full-corpus **wide** Pass A | **monthly** (carried as a standing register in between) |
+
+The arithmetic: ~26 new explorations/week ≈ 96k words ≈ 130k tokens —
+roughly **a quarter of the corpus by volume**, so the weekly delta is *not*
+thin, and "what to fund / what to stop" are genuinely weekly decisions. What
+*is* thin weekly is §3's corpus-level structure: contradictions between
+2026-05 findings do not change because 26 new ones landed. Hence the split —
+which also cuts the wide-pass cost ~4×.
+
+**Trigger the wide pass** when `--wide` is passed, or when `refs/desk/axes.md`
+records no wide refresh in the last 28 days. Weekly runs reuse the standing
+register and read only the delta.
+
+## Pass A — the wide proposal pass
+
+Two lenses, dispatched as **parallel fresh agents**, both emitting candidate
+lists only.
+
+**A1 — the axis scan.** Whole corpus (on a wide run) or the week's delta
+(weekly), against `refs/desk/axes.md`. Closed questions, linear scan,
+`effort:'high'` — this is an accumulator, not a divergence problem, and max
+effort buys nothing here while costing a great deal at 483k.
+
+**A2 — the opportunity lens.** The `/elevate` technique — fresh unpolluted
+agents at **`effort:'max'` via Workflow** (the bare `Agent` tool has no
+effort param), divergent lenses over the week's delta plus **2–3 rotating
+`INDEX.md` clusters**. Track the cursor in the memo. **Aim it**: consume one
+edge from `INDEX.md`'s "Biggest unconnected opportunities" seed list each
+run, strike drawn/tabled edges, propose replacements — so that list is a
+live work queue the loop both drains and replenishes.
+
+A2 runs at max on a *small* context (~130k, not 483k), which is what makes
+max affordable here. Full cost model, weekly vs monthly:
+
+    A1 wide    483k ctx × ~6 turns   ≈ 2.9M    (monthly only)
+    A2         ~130k ctx × ~10 turns ≈ 1.3M
+    Pass B     ~40k ctx  × ~40 turns ≈ 1.6M
+    refuter    small                 ≈ 0.3M
+    ------------------------------------------
+    weekly     ≈ 3.2M        monthly ≈ 6.1M     (spec gate: <15M)
 
 **Bead context is the one place to be careful.** `br list` (text, titles
 only) is the cheap index — use it freely. **NEVER `br list --json` the
-backlog into a subagent**: its JSON inlines every bead's full description
-(~250 KB / ~60k tokens for ~100 open explore beads), which blows the budget
+backlog into an agent**: its JSON inlines every bead's full description
+(~250 KB / ~60k tokens for ~145 open explore beads), which blows the budget
 AND, because every body is dense with the same handful of tie-backs,
 *manufactures* the over-anchoring this loop exists to counter. Titles in;
 bodies (`br show <id>`) only for the beads a real seam actually touches.
 
-## Output — `refs/desk/YYYY-MM-DD.md`, HARD CAP 1,200 words
+Pass A's other bulk inputs (≤4 calls, concatenated — never file-by-file):
+`*/FINDINGS.md`; `refs/desk/<previous>.md` (so you do not re-pitch a program
+he already declined — the golem phantom-backlog failure, memory
+`project_golem_phantom_backlog`; on early runs also the last archived
+`refs/elevate/sweep-*.md`, this loop's pre-rename history); and `git log`
+since the last memo.
 
-Register: chief of research pitching the lab owner on a resourcing
-decision. Urgency, signal, expected return, ROI, honest risk. Not a
-summary. Not a status report. Assume he does not know the premise; explain
-it from scratch, briefly (memory: `pitch-as-partner`,
-`plain-language-explanations`).
+## Pass B — the narrow verify-and-write pass
 
-**§1 THE ASK** — always first. 1–3 programs to fund next week. Each with
-all five fields: *what it is | the signal that it's ripe | expected return |
+Fresh. **Holds no corpus.** Its inputs are the candidate list, the axis
+register, and `refs/desk/<previous>.md`.
+
+1. **Verify every candidate.** Open only the file the candidate names.
+   Re-read the quoted span *in place*. A candidate whose quote does not
+   verify is **dropped**, and the drop is noted in the memo footer with a
+   count. This is the step that makes citation real rather than decorative.
+2. **Dedup** every surviving candidate against open bead titles *and* the
+   axis register, before anything is written.
+3. **Apply the artifact caps** (below) — they bind before the word cap does.
+4. **Write the memo.**
+
+## Output — `refs/desk/YYYY-MM-DD.md`
+
+**Two caps, and the second is the one that actually binds.**
+
+    HARD CAP: 1,200 words
+    HARD CAP: <= 3 asks · <= 1 stop · <= 1 connection · <= 2 new beads
+
+Word count is the wrong governor for the failure this loop was built to
+prevent: **a 1,200-word memo can file 65 beads a quarter.** The binding
+constraint is on *durable artifacts emitted* (Amendment 3 / OQ7). **A memo
+that wants to file a third bead must retire one instead.**
+
+1,200 words is right and stays: ~26 explorations/week ≈ 96k words → **80:1**,
+the right neighbourhood of `explore-jdgk`'s 100:1 target. And every prior
+artifact in this family that was allowed to grow, did — the predecessor
+sweep went **1,460 → 1,666 → 2,190** words and became part of the
+comprehension rot it was built to prevent.
+
+Register: chief of research pitching the lab owner on a resourcing decision.
+Urgency, signal, expected return, ROI, honest risk. Not a summary. Assume he
+does not know the premise; explain it from scratch, briefly (memory:
+`pitch-as-partner`, `plain-language-explanations`).
+
+**§1 THE ASK** — always first. 1–3 programs to fund next week. Each with all
+five fields: *what it is | the signal that it's ripe | expected return |
 honest risk | the concrete ask* (a Vibes card? a build? an hour of Zig's
 time?).
 
 **§2 WHAT TO STOP** — MANDATORY, ≥1 candidate to defund / close / table,
-with reasoning. A chief who only proposes new programs is not doing the
-job. This section is the loop's real **drain**.
+with reasoning. A chief who only proposes new programs is not doing the job.
+This section is the loop's real **drain**. It explicitly admits
+**per-exploration stop candidates**: a week's exploration that drifted or
+overclaimed is a defunding candidate in exactly this register (OQ3). `/desk`
+**retains the authority to dispatch a `/scrutinize`** on such an
+exploration — `/desk` is the opportunity gate, `/scrutinize` is the
+correctness gate; hand off, don't improvise. Without this paragraph the
+delegated structural review (`refs/pulse.md`) has no home at all.
 
-**§3 SIGNALS FROM THE FLOOR** — the whole-corpus facts no tick can see:
-- **contradictions** — two findings that now disagree (cite both paths)
-- **beads silently answered** — open beads a later finding already
-  resolved, listed by id with a proposed close (this is how accumulation
-  becomes closure). **Propose, never auto-close**: closure is an allocation
-  call and allocation is the owner's job.
+**§3 SIGNALS FROM THE FLOOR** — the whole-corpus facts no tick can see.
+Refreshed monthly by a wide pass; carried as a standing register between.
+**All three sub-items are BIDIRECTIONAL:**
+- **contradictions** — two findings that now disagree (cite both paths, quote
+  both sides). Resolution is often *"the axis is under-specified,"* not
+  *"pick a side"* — say so when that is the honest read.
+- **beads silently answered** — open beads a later finding already resolved
+  — **AND confirmed defects with no bead**: something a finding *raised*,
+  confirmed at a `/scrutinize` gate, that `br ready` and `/triage` cannot
+  see because it exists only as prose inside one FINDINGS.md. The spec looked
+  in one direction only and missed the live instance; both directions are
+  required.
 - **clusters at critical mass** — a theme heavy enough to write up, build,
   or pitch.
 
@@ -112,21 +255,45 @@ explorations. Not a list. Lists are how the rot started.
 
 **§5 THE DOOR** — the human checkpoint, kept terse so it is never buried:
 - the week's N new explorations, one line each, and explicitly **which (if
-  any) need his eyes** — anything that reads drifted, overclaimed, or thin
-  (a conclusion the sources don't support, a forced tie-back, a card that
-  got a shrug not a crawl). **DISPATCH a `/scrutinize` on any such
-  exploration** — `/desk` is the opportunity gate, `/scrutinize` is the
-  correctness gate; hand off, don't improvise. "All clean, nothing flagged"
-  is a valid and welcome line.
+  any) need his eyes** — anything that reads drifted, overclaimed, or thin.
+  "All clean, nothing flagged" is a valid and welcome line.
 - **queue health**, one line: unworked Vibes depth, `📬`-mailboxed count,
   oldest-`📬` age, and the NAMES of any unworked card older than ~3 weeks.
-- **mailbox digest**: a one-line verdict per `📬` card of the week, so he
-  can complete them in one pass instead of re-reading each. (Auto-completing
-  old `📬` cards was **declined by Andrew 2026-07-17** — human-gated stays.
-  His 2026-06-12 `📬`-not-complete decision stands.)
+- **mailbox digest**: a one-line verdict per `📬` card of the week, so he can
+  complete them in one pass instead of re-reading each. (Auto-completing old
+  `📬` cards was **declined by Andrew 2026-07-17** — human-gated stays. His
+  2026-06-12 `📬`-not-complete decision stands.)
 
 **§6 PORTFOLIO STATE** — ≤5 lines of numbers: corpus size, new this week,
-open programs, backlog delta, token spend vs last week.
+open programs, backlog delta, token spend vs last week, **and the input-
+context fraction** (for the succession trigger below).
+
+**Footer** — the refuter verdict, the count of candidates dropped for failing
+quote verification, and the A2 cluster cursor.
+
+## Propose, never close (OQ6)
+
+§3's silently-answered beads and §2's stop candidates are **proposals**. The
+usual reason given — "allocation is the owner's job" — is true but too weak;
+if it governed, `/triage` would be illegitimate too. The reason that actually
+holds is the unattended-loop rule from `context-engineering-claude-5` §6:
+
+> prefer a prohibition wherever a wrong call is (i) silent, (ii) consumes a
+> bounded resource, or (iii) **writes to shared durable state that a later
+> tick will read as fact.**
+
+A wrongly-closed bead is (i) and (iii) exactly: the idea disappears and
+**nothing ever notices**. Worse, *"a later finding answered this bead"* is a
+semantic judgment made by the same pass that is optimising to produce a
+satisfying memo — the self-grading nodding loop. The known failure direction
+of this family is documented (the golem phantom-backlog re-proposed
+already-shipped work); the inverse — closing unshipped work — is strictly
+worse and strictly less visible.
+
+**Required form of every proposal:** bead id + FINDINGS path + the **quoted
+span** that answers it, rendered as a copy-pasteable `br close` block Zig
+runs in one line. Proposing without paying the citation cost is how a
+propose-only loop degenerates into a rubber stamp.
 
 ## Anti-overclaim — the gate that protects trust
 
@@ -134,27 +301,33 @@ Every factual claim cites a FINDINGS path or a bead id **inline**. A claim
 with no citation is a spec violation. A bad pitch spends the owner's trust,
 which costs more than a missed opportunity (`explore-grjy`).
 
+**Do not claim to have enumerated what you sampled.** A drift-over-time claim
+across dozens of documents cannot be exhaustively resolved in one memo; land
+the *axis* plus 2–3 verified instances and let the register carry the rest
+below the waterline. A memo claiming it resolved all of them is exhibiting
+the exact failure this design was rewritten to prevent.
+
 Before delivery, run **ONE refuter pass**: a fresh agent at `effort:'max'`,
 prompted to argue that the **§1 top program is NOT worth funding**. If it
-lands a hit, demote or reframe the ask. Scope the refuter to §1 only — that
-keeps the gate cheap while covering the one section that spends trust.
-Record its verdict in the memo footer.
+lands a hit, demote or reframe the ask. Scope it to §1 only — that keeps the
+gate cheap while covering the one section that spends trust. Record its
+verdict in the footer.
 
 ## Where the opportunity can land — lead with curiosity, not a tie-back
 
-**Over-anchoring to Andrew's real projects is how the novel opportunity
-gets missed** (Zig, 2026-07-13). If every finding has to cash out as "a
-move for LinearB / the harness / a live `~/` arc," the pass collapses to the
-modal tie-back. Range across **all** of the following with **no default
-ranking**. (Mirrors `/dive`'s and `/elevate`'s section of the same name;
-keep all three in sync.)
+**Over-anchoring to Andrew's real projects is how the novel opportunity gets
+missed** (Zig, 2026-07-13). If every finding has to cash out as "a move for
+LinearB / the harness / a live `~/` arc," the pass collapses to the modal
+tie-back. Range across **all** of the following with **no default ranking**.
+(Mirrors `/dive`'s and `/elevate`'s section of the same name; keep all three
+in sync.)
 
 - **An entirely NEW idea** the corpus sparked, tied to nothing already here.
   First-class output, not a consolation prize.
 - **An interlink that forms a deeper context** — between explorations AND
-  with open-ended beads (`explore:` / `desk:` / legacy `elevate:` /
-  `human:` threads). A finding that hands an open bead its missing piece is
-  worth more than either alone.
+  with open-ended beads (`explore:` / `desk:` / legacy `elevate:` / `human:`
+  threads). A finding that hands an open bead its missing piece is worth more
+  than either alone.
 - **An application to Andrew's active work — when it's real.** Derive the
   active set empirically each run (git activity + mtimes across `~/`,
   `~/explore`, `~/linearb`, `~/explore/aaif`). One valid landing, not the
@@ -166,11 +339,13 @@ keep all three in sync.)
 - **Don't manufacture a tie-back.** Honest "new idea, no home yet" beats a
   forced connection.
 - **"NO adopt" is not "NO build."** "Don't adopt *this artifact*" (immature
-  repo, WASM lib, commercial tool, runtime mismatch) must not silently
-  become "nothing to build here." Ask *separately* whether a transferable
-  method / pattern / primitive dodges the artifact's wall. A wall for the
-  tool is rarely a wall for the pattern. (Caught 2026-07-13: reflexive "NO
-  harness build" buried ~3 buildable experiments.)
+  repo, WASM lib, commercial tool, runtime mismatch) must not silently become
+  "nothing to build here." Ask *separately* whether a transferable method /
+  pattern / primitive dodges the artifact's wall. A wall for the tool is
+  rarely a wall for the pattern. (Caught 2026-07-13: reflexive "NO harness
+  build" buried ~3 buildable experiments. The guidance demonstrably did not
+  take — 44 of 128 findings still carry a bare no-build verdict, which is why
+  it is now a standing axis rather than prose.)
 - **The build PROJECTS are tabled — the CONCEPTS are not.** Hermes /
   MUD-golem / local-coding-models are tabled (2026-06-29); the concepts they
   touched (agent-sim, simulation, memory, loops) are **active**. Never write
@@ -178,57 +353,69 @@ keep all three in sync.)
 
 ## The run
 
-1. **Bulk-load** the four inputs (≤4 calls). Note the turn count as you go.
-2. **Opportunity pass** — fan out max-effort fresh agents over slices
-   (by `INDEX.md` cluster), using the `/elevate` technique: Workflow
-   `agent(…, {effort:'max'})`, unpolluted context, divergent lenses. Rotate
-   **2–3 clusters per pass** and track the cursor in the memo; a
-   full-compendium remix runs only on `--full`. **Aim it**: consume ONE edge
-   from `INDEX.md`'s "Biggest unconnected opportunities" seed list each run,
-   strike drawn/tabled edges, and propose replacements — so that list is a
-   live work queue the loop both drains and replenishes.
-3. **Write the memo** (§1–§6, ≤1,200 words, every claim cited).
+1. **Decide the shape.** Wide (`--wide`, or no wide refresh in
+   `refs/desk/axes.md` for 28 days) or weekly-delta. Note which in §6.
+2. **Dispatch Pass A** — A1 (axis scan, `effort:'high'`) and A2 (opportunity
+   lens, `effort:'max'` via Workflow) in parallel, both fresh. Each returns a
+   **candidate list only**: id / path / quoted span / axis. Reject any Pass A
+   return that contains prose verdicts — that is Pass A doing Pass B's job.
+3. **Pass B** — fresh, corpus-free. Verify every quote in place; drop what
+   does not verify; dedup against open bead titles + the axis register; apply
+   the artifact caps; write §1–§6.
 4. **Refuter pass** on §1. Record the verdict in the footer.
-5. **File + interlink the beads.** One bead per real opportunity, title
-   prefix `desk:`, in the umbrella's `.beads/`. **Not Asana** — beads are
-   the durable store. **Interlink every bead**: name the beads/explorations
-   it connects **by id**, and `br dep add` real dependencies. Report the
-   edge count in the ledger note (`"8 beads, 11 edges"`). Zero edges on a
-   multi-bead pass is the tell that this step was skipped.
-   Record consciously-rejected candidates in
+5. **Update the axis register.** Add axes that earned entry (≥2 positions),
+   strike resolved ones with the memo date, record the wide-refresh date.
+6. **File + interlink the beads** — **≤2**, title prefix `desk:`, in the
+   umbrella's `.beads/`. **Not Asana.** **Interlink every bead**: name the
+   beads/explorations it connects **by id**, and `br dep add` real
+   dependencies. Report the edge count in the ledger note (`"2 beads, 5
+   edges"`). Zero edges on a multi-bead pass is the tell that this step was
+   skipped. Record consciously-rejected candidates in
    `~/explore/refs/vibes-candidates.md`'s **Dropped** table (or the bead
    `close_reason`) so a "no" is durable and not re-derivable forever.
-6. **Append the field delta.** `refs/desk/field-notes.md` (append-only): a
+7. **Append the field delta.** `refs/desk/field-notes.md` (append-only): a
    short block per pass — which `INDEX.md` clusters GREW, which themes
-   accelerated, new convergence points ("Nth independent instance of X"),
-   and a one-line direction read. After ~4 passes this file IS the emergent
-   trend layer.
-7. **Write opportunities back into the FINDINGS files** — for each
+   accelerated, new convergence points ("Nth independent instance of X"), and
+   a one-line direction read. After ~4 passes this file IS the emergent trend
+   layer.
+8. **Write opportunities back into the FINDINGS files** — for each
    exploration examined, append (never rewrite) a dated section:
    ```
    ## Novel opportunities (desk pass YYYY-MM-DD)
    - <opportunity> — <effort> — <risk>[ — <harness/active-arc move, ONLY if genuine>]
    ```
    The harness move is **optional**; a new idea tied to nothing is
-   first-class. This is the BACKFILL for the ~40 pre-2026-06-29
-   explorations that predate the required-section rule.
-8. **Append the pulse-ledger row.** `/desk` is a pulse loop, so it MUST
-   leave a row (no ledger-less ticks; the dashboard reads it). Append to
+   first-class. This is the BACKFILL for the ~40 pre-2026-06-29 explorations
+   that predate the required-section rule.
+9. **Append the pulse-ledger row.** `/desk` is a pulse loop, so it MUST leave
+   a row (no ledger-less ticks; the dashboard reads it). Append to
    `~/explore/refs/pulse-ledger.jsonl` with `"row":"desk"` and a `kind:cmd`
    proof the commit hook RE-RUNS (bare `artifact` is rejected fleet-wide,
    `explore-len0`):
    ```json
-   {"ts":"<date -u +%FT%TZ>","row":"desk","outcome":"done","proof":{"kind":"cmd","cmd":"test $(wc -w < refs/desk/<date>.md) -le 1200 && grep -q '## §1 THE ASK' refs/desk/<date>.md && grep -q '## §2 WHAT TO STOP' refs/desk/<date>.md"},"note":"desk pass — N asks, M beads/E edges; reviewed W new explorations (F flagged); field-delta appended"}
+   {"ts":"<date -u +%FT%TZ>","row":"desk","outcome":"done","proof":{"kind":"cmd","cmd":"D=refs/desk/<date>.md; test $(wc -w < $D) -le 1200 && grep -qF '## §1 THE ASK' $D && grep -qF '## §2 WHAT TO STOP' $D && test $(grep -c '^### ask' $D) -le 3"},"note":"desk pass (wide|delta) — N asks, M beads/E edges; C candidates dropped on quote-verify; reviewed W new explorations (F flagged); field-delta appended"}
    ```
-   A pass that found nothing new logs `"outcome":"quiet"` (no proof needed)
-   — but see the empty-week rule below: "nothing to report" is a failure,
-   not a quiet tick.
-9. **Deliver.** Commit + push the memo, field-notes, beads, ledger, and any
-   touched FINDINGS. Then `PushNotification` naming the **top ask + the
-   file PATH** (Zig is on SSH+tmux — no clickable links, no file-send). On
-   *"Mobile push not sent (Remote Control inactive)"* the push did NOT
-   reach him; because `/desk` is autonomous it does **not** escalate to
-   AskUserQuestion — file a P1 `human:` bead instead and end the pass.
+   A pass that found nothing new logs `"outcome":"quiet"` (no proof needed) —
+   but see the empty-week rule below: "nothing to report" is a failure, not a
+   quiet tick.
+10. **Deliver.** Commit + push the memo, axes, field-notes, beads, ledger, and
+    any touched FINDINGS. Then `PushNotification` naming the **top ask + the
+    file PATH** (Zig is on SSH+tmux — no clickable links, no file-send). On
+    *"Mobile push not sent (Remote Control inactive)"* the push did NOT reach
+    him; because `/desk` is autonomous it does **not** escalate to
+    AskUserQuestion — file a P1 `human:` bead instead and end the pass.
+
+## Regression controls
+
+`refs/desk/controls.md` freezes the **real** cases this design was validated
+against — not fixtures. A fixture tests that the mechanism finds a
+contradiction *you planted*, which is a much weaker claim; this compendium
+already paid for that lesson when the `/ab` rig's validity check failed
+because both variants scored 5/5 on planted cases that were too easy to
+discriminate (`refs/elevate-proposals-review.md`).
+
+The controls are frozen so a later change to `/desk` is **re-measured rather
+than re-argued**. Re-run them after any change to the run sequence.
 
 ## Rules that bite
 
@@ -238,10 +425,8 @@ keep all three in sync.)
   the pass, not a property of the week.
 - **`/desk` never blocks on AskUserQuestion.** It is a scheduled loop: it
   notifies, files beads, and ends.
-- **Word cap is enforced, not aspirational.** The predecessor sweep grew
-  1,460 → 1,666 → 2,190 words and became part of the comprehension-rot
-  problem it was built to prevent (`explore-jdgk`). The proof command in
-  the ledger row checks it.
+- **Both caps are enforced, not aspirational.** The proof command in the
+  ledger row checks them.
 - **The ledger row is `desk`, and it starts fresh.** The archived `elevate`
   rows stay under their old name as history — they key the old cap counters
   and must not be rewritten (`explore-b47q`). Never migrate them.
@@ -249,36 +434,49 @@ keep all three in sync.)
 ## The succession trigger (watch for it, don't act on it)
 
 The deferred `lab-<moniker>` lineage plan (`~/explore/refs/lab-lineage-plan.md`)
-has exactly one evidence gate: **a desk pass whose input exceeds 60% of
+has exactly one evidence gate: **a wide pass whose input exceeds 60% of
 context on three consecutive runs.** That is the point at which the desk can
-no longer see the whole portfolio — which is the only thing it is for. Log
-the input-context fraction in §6 PORTFOLIO STATE every run so the trigger is
-observable. When it fires three times, say so in §1 and let Zig decide;
-do not start a new repo autonomously.
+no longer see the whole portfolio — which is the only thing it is for. Log the
+input-context fraction in §6 every run so the trigger is observable. When it
+fires three times, say so in §1 and let Zig decide; do not start a new repo
+autonomously.
 
 ## Anti-patterns
 
+- ❌ **One context that loads, judges, AND writes** — 19.3M, over the gate,
+  and the writer anchors to what it read. This is the design that was
+  rejected on review; do not quietly restore it.
+- ❌ **A Pass A that returns verdicts or prose** — Pass A proposes candidates
+  with quoted spans. Judgment is Pass B's job, after verification.
+- ❌ **A Pass B that opens the corpus** — the moment it does, the
+  over-anchoring defense is gone and so is the cost model.
 - ❌ **File-by-file corpus reads** — ~7× the cost of the loop it summarizes.
-- ❌ **`br list --json` on the whole backlog** — 60k tokens of tie-backs
-  that manufacture over-anchoring.
+- ❌ **`br list --json` on the whole backlog** — ~60k tokens of tie-backs that
+  manufacture over-anchoring.
+- ❌ **Open synthesis instead of closed axis questions** — returns the same
+  three attractors every week.
 - ❌ **A memo with no §2** — a chief who only proposes is not allocating.
 - ❌ **A ranked menu instead of a position** — that's a status report.
-- ❌ **Auto-closing the silently-answered beads** — propose; allocation is
-  the owner's job.
-- ❌ **Uncited claims** — a bad pitch spends trust that costs more than a
-  missed opportunity.
+- ❌ **Auto-closing the silently-answered beads** — propose; a wrong close is
+  silent and permanent.
+- ❌ **Uncited claims, or claiming enumeration over a sample** — a bad pitch
+  spends trust that costs more than a missed opportunity.
 - ❌ **Migrating the old `elevate` ledger rows** — archived history, left
   alone.
-- ❌ **Output onto Asana** — beads + the memo + a push, never the Vibes
-  board (the fleet proxy has no section-add route anyway).
+- ❌ **Output onto Asana** — beads + the memo + a push, never the Vibes board
+  (the fleet proxy has no section-add route anyway).
 
 ## See also
 
+- `refs/lab-open-questions.md` — the review that produced this design, the
+  three amendments, and the seven OQ decisions (bead `explore-oodx`)
+- `refs/desk/axes.md` — the axis register; `refs/desk/controls.md` — frozen
+  regression controls
 - `/dive` — the executor this desk allocates to
-- `/elevate` — max-effort fresh eyes on ONE finished thing; its technique
-  is what step 2 dispatches
-- `/scrutinize` — the correctness gate §5 hands off to
+- `/elevate` — max-effort fresh eyes on ONE finished thing; its technique is
+  what Pass A's A2 lens dispatches
+- `/scrutinize` — the correctness gate §2 and §5 hand off to
 - `~/explore/refs/pulse.md` — the routing table (row `desk`)
-- `~/explore/refs/lab-lineage-plan.md` — the deferred lineage design and
-  its trigger
+- `~/explore/refs/lab-lineage-plan.md` — the deferred lineage design and its
+  trigger
 - `refs/elevate/sweep-*.md` — archived pre-rename history of this loop
