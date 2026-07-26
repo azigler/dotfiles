@@ -37,6 +37,13 @@ Orchestrator/subagent pattern · beads prefix `<project>` · gitmoji + `Bead:`
 trailer · refs/ = reference material · MEMORY.md = coaching memory · scale
 ceremony to the change (the daemon's contract deserves real tests).
 
+**Unattended-reporting contract (non-negotiable, `dotfiles-cxle`).** Every script
+here whose result another script/ledger consumes prints `<NAME>_RESULT=<verdict>` on
+**every** terminal path, and its caller treats exit-0-without-a-marker as FAILURE.
+Writes are verified by re-read, not by the response code. Batch jobs report
+`processed/total`. Cursors/hashes advance only on verified outcome. No check is
+believed until it has been made to fail on purpose.
+
 ## refs/ index
 <one line per ref doc>
 

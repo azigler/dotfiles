@@ -78,6 +78,70 @@ copy from nowhere: the original "stripped-down sibling … do NOT launch a sessi
 comment that *rationalized* the gap. Staying light is not worth a trigger that
 silently never fires.
 
+## The dominant failure class: the reporter keeps saying success
+
+The trigger pitfall above is **one instance of a bigger class** — it logged
+`skip: window … absent` and **exited 0**. The class: *a step stops doing its job
+while the thing reporting on it keeps saying success* — no alarm fires, because the
+alarm is downstream of the lie. It is the fleet's #1 defect shape (`dotfiles-cxle`,
+15 confirmed instances), and **daemons are its highest-risk host**: unattended, on a
+timer, nobody reading the output. One fleet audit (2026-07-26) found it in three
+separate daemons — a nightly build that exited 0 for 8 days while deploying nothing;
+a receiver whose auth was fixed at the nginx *edge* while the service stayed open to
+the tailnet; a distiller that covered 1 of 67 inputs and logged a normal-looking row.
+
+Four generators: **exit code ≠ effect** · **the flag is written where nothing
+reads** · **the gate advances on intent, not outcome** · **the probe tests a
+different path than the one that matters.** Five rules, all checkable; the
+copy-paste starting point is
+[`reference/templates/verdict-contract.sh`](reference/templates/verdict-contract.sh).
+
+1. **Reporting contract.** Any script whose success is *consumed by another script*
+   prints an explicit verdict marker on **every terminal path**
+   (`<NAME>_RESULT=ok|no-change|absent|failed`), and the consumer treats **exit 0
+   with no marker as FAILURE** — fail-closed, `unknown` is never success. Working
+   implementation to copy: `~/andrewzigler3/src/scripts/push-github-readme.sh`
+   (emitter, marker on all three exits) + `readme_push_verdict()` in
+   `~/andrewzigler3/scripts/daily-build.sh` (consumer, pure so tests drive every
+   case). Never `cmd && DID_IT=true`: that was the *prescribed* fix for an instance
+   and it reproduced the defect one layer down.
+2. **Post-write verification at every write boundary.** Re-read the target and
+   compare; don't trust the response. A 200 OK with a frozen `modified_at` is the
+   normal failure. Correct shape:
+   `~/linearb/agent-factory/agents/lb-agent-fleet/lib/gdoc/handlers.ts` ("Proof,
+   not trust" — returns **502** when the re-read doesn't show the write).
+3. **Coverage self-check.** A daemon that processes N inputs reports **how many it
+   actually processed against how many exist** (`processed/total`, plus what it
+   dropped and why) and treats a large gap as failure. `explore-j2p9`: sorting by
+   session id then truncating to 200 silently dropped 66 of 67 sessions, across
+   three runs that all read as "a quiet week."
+4. **Never advance a gate on intent.** Move the cursor / hash / watermark **only
+   after the effect is verified**. `bd-troe`: a *failed* push still advanced the
+   content hash, so the artifact stayed stale and nothing ever retried. No verified
+   success ⇒ state stays retryable.
+5. **Probe the path that matters.** Assert the invariant *inside the service* —
+   `curl` the loopback port directly, not only the public vhost. An auth fix at the
+   reverse proxy leaves the service itself open while every external probe says
+   "authenticated."
+
+Then negative-control the check itself (go-live step 2). Two instances of this class
+were *fixes for the class* — the only reliable defense is a check whose own failure
+mode you have watched happen.
+
+## Intermittent dependencies: absence is not an incident
+
+Some upstreams are legitimately away for days — a personal travel laptop (`metis`),
+a phone, a game box that's off. Design for **batch-drain, never poll-and-alarm**:
+
+- **Absent ≠ failed.** Unreachable is an expected state with its own verdict
+  (`absent`), logged, never notified, never counted as an error, cursor untouched.
+- **Drain on appearance, not on a schedule.** When the peer shows up, process the
+  whole backlog since the last cursor in one pass and report `drained N of M` — so a
+  half-finished drain isn't indistinguishable from a quiet peer. The cursor is what
+  makes a week of absence cost nothing; a retry-every-5-min loop only makes noise.
+- **Alarm only on staleness against a threshold the human set** ("no sync in 30
+  days"), and word it *absent since `<date>`*, not *failed*.
+
 ## When to use / not
 
 - **Use** when the vision is "an always-on thing that captures X, and an agent I
@@ -173,8 +237,9 @@ Wire deps so blocked items don't show in `br ready`.
 Code → **worktree subagent** (`subagent_type: "subagent"`, `isolation:
 "worktree"`) with a crisp contract loaded into the bead. Gate the merge with an
 adversarial **/scrutinize** pass (the daemon's invariants — ack-before-work,
-auth-can't-silently-open, idempotency — deserve real verification). Then merge,
-close the bead with the verdict recorded, clean up the worktree.
+auth-can't-silently-open, idempotency — deserve real verification), and require the
+verdict to cite a **negative control**, not a green suite. Then merge, close the
+bead with the verdict recorded, clean up the worktree.
 
 ## Go-live sequence (what gates the human step)
 
@@ -185,10 +250,49 @@ close the bead with the verdict recorded, clean up the worktree.
    number is internal/arbitrary — pick high + uncommon so the daemon never collides
    with a dev loop or an outbound ephemeral allocation. **Never a dev-default like
    8080/3000** (that's what every ad-hoc loop grabs).
-2. nginx vhost `<name>` → `127.0.0.1:<port>` + certbot TLS, reloaded & reachable.
-3. **Only then** the human points the upstream at `https://<name>/<path>` (+ any
+2. **Negative-control every check before trusting it.** For each new test /
+   assertion / verdict path: **break what it guards — `git stash` the fix, delete
+   the gate line, revoke the token — re-run, and watch it FAIL.** A green suite
+   proves nothing about a test that would pass anyway; two audit agents caught real
+   defects this way, one a test that still passed with its own gate deleted, one a
+   detector that would have missed the exact case it was built for. If it can't
+   fail, it isn't a check. Record the negative-control result in the bead's
+   scrutiny notes — that IS the proof, not "tests green."
+3. nginx vhost `<name>` → `127.0.0.1:<port>` + certbot TLS, reloaded & reachable.
+4. **Only then** the human points the upstream at `https://<name>/<path>` (+ any
    auth header/secret). Don't repoint earlier — events would 404-and-retry.
-4. Decommission the old deployment after cutover.
+5. Decommission the old deployment after cutover.
+
+## Timer & unit hygiene (every bullet cost a live loop something)
+
+- **A renamed `Persistent=true` timer must carry its stamp file.** Persistence state
+  lives in `~/.local/share/systemd/timers/stamp-<unit>.timer` — **not** in the unit
+  file's mtime. `mv` the stamp with the rename, or `enable` fires a phantom
+  catch-up tick immediately. Check the schedule you *think* you wrote with
+  `systemd-analyze calendar '<OnCalendar>'`.
+- **Name run artifacts per-RUN, not per-period.** `vs14d-l0t`: a branch named
+  `…/<date>-<sha>` collided on a same-day retry and the loop **halted** — which is
+  exactly the after-a-failure path. Append the run id (`YYYYMMDD-HHMMSS`). A loop
+  that halts on its own retry path goes quiet after its first failure and never
+  says why.
+- **Every ledger line names the row it evaluated** — never `null`, never a guessed
+  name; the only escape hatch is the literal `"unattributed"` (see `/pulse`). Null
+  rows made 30 real ticks uncountable, so the dashboard read "no problem" rather
+  than "no data."
+- **Bind tailnet-local (or loopback), never `0.0.0.0`** — and treat it as a
+  **post-deploy assertion you actually run** (`ss -tlnH | grep ":<port>"` shows the
+  intended address), not an intention recorded in a config file.
+- **Secrets by pointer, never a literal.** No key in a unit file, a config, or a
+  template — they live in `~/.secrets` (600) / an env store, referenced by name.
+  systemd: `EnvironmentFile=%h/.secrets`. If a job needs them another way (launchd
+  has no `EnvironmentFile`), wrap so the secret is in neither the unit nor the
+  config:
+  ```sh
+  #!/usr/bin/env bash
+  set -euo pipefail
+  set -a; . "$HOME/.secrets"; set +a
+  exec /path/to/<project>d "$@"
+  ```
 
 ## Optional arc — a PWA cockpit with cross-platform push + badges
 

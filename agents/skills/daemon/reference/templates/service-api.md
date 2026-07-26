@@ -33,4 +33,8 @@ confirmed with a real call — account, tier, data exists>.
 ## Build implications
 - Real-time path: webhook → ack fast → hydrate → upsert.
 - Reconciliation path: `events?since=<cursor>` on a timer (edits/deletes/backfill).
+  Advance `<cursor>` **only after the batch is verified** — never on attempt.
+- **Writes to this upstream: re-read and compare. Never trust a 2xx** (a 200 OK with
+  a frozen `modified_at` is the normal failure mode; note here what the re-read call
+  is and which field proves the write landed).
 - **Don't guess** undocumented behavior (rate limits, retry semantics) — say so.
