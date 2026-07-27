@@ -259,12 +259,26 @@ $(sed 's/^/    /' <<<"$dirt")
     and MUST be reverted: git -C $repo checkout -- .beads/ (see explore-7iz9 —
     two diverged bead stores produce duplicate ids and brick 'br' on BOTH boxes)." ;;
   esac
-  # Committer identity: deliberately UNSET so `git commit` on this box refuses to
-  # run at all. The /vps skill lists `git config --global user.name/email` as a
-  # prerequisite; under architecture (c) that is exactly backwards — the unset
-  # identity is a free, load-bearing guard and setting it would remove it.
-  ident=$(git -C "$repo" config user.email 2>/dev/null)
-  [ -z "$ident" ] || note_fail "$repo has a committer identity configured ($ident). The VPS must not be able to author commits (explore-7iz9). Remedy: git -C $repo config --unset user.email; git -C $repo config --unset user.name"
+  # NO committer-identity assertion. It used to fail the refresh whenever the box
+  # had user.email set, on the theory that an unset identity makes `git commit`
+  # refuse and is therefore a free guard. Removed 2026-07-27 (Zig) for two reasons:
+  #
+  # 1. It was a PROXY for the wrong thing. The harm is a DIVERGED CHECKOUT — the
+  #    box holding commits or edits that a pull cannot reconcile. Two assertions
+  #    above already detect that directly: modified-tracked-files, and HEAD !=
+  #    published tip. Both fired on their own the night the box first diverged;
+  #    the identity check added no detection, only a second complaint about a
+  #    capability. Forbidding the capability is not the same as detecting the harm,
+  #    and only one of those is worth blocking a tick over.
+  # 2. It was UNENFORCEABLE where it mattered. The identity arrives from the
+  #    fleet-wide dotfiles `git/.gitconfig`, symlinked to ~/.gitconfig on every
+  #    machine. "Unset it on the box" therefore meant either stripping Zig's
+  #    identity from EVERY machine or de-linking the box's gitconfig and breaking
+  #    its dotfiles sync. A guard whose only remedy is worse than the thing it
+  #    guards gets worked around, not obeyed.
+  #
+  # What still holds the line: the box must MATCH the published tip and carry no
+  # tracked modifications. It may have an identity; it may not have divergence.
 done
 
 # --- (d) umbrella repos: live remote query, fetch, ff-only ------------------

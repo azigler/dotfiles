@@ -53,10 +53,10 @@ fixture() {
   git -C "$CASE/seed" push -q origin main
 
   git clone -q "$UPSTREAM" "$CLONE"
-  # The VPS checkout must have NO committer identity — that unset state is the
-  # guard that makes `git commit` there impossible.
-  git -C "$CLONE" config --unset user.email 2>/dev/null
-  git -C "$CLONE" config --unset user.name  2>/dev/null
+  # The box MAY carry a committer identity (it arrives from the fleet-wide
+  # dotfiles gitconfig). What it may not carry is DIVERGENCE — see case 7.
+  git -C "$CLONE" config user.email vps@example.com
+  git -C "$CLONE" config user.name  "VPS Box"
 
   cat > "$MANIFEST" <<EOF
 repo      $CLONE origin main
@@ -149,15 +149,30 @@ check "no receipt"             "$([ -f "$STATE/receipt.json" ] && echo y || echo
 check "names read-only rule"   "$(grep -c 'read-only consumer of git' "$CASE/err")" 1
 
 # =============================================================================
-echo "case 7: a committer identity on the box is a hard failure"
-# The /vps skill lists `git config user.name/email` as a prerequisite. Under
-# architecture (c) that is backwards: the UNSET identity is what makes `git
-# commit` on the shared box impossible, and it is free.
+echo "case 7: a committer identity is ALLOWED — divergence is what blocks"
+# Relaxed 2026-07-27 (Zig). The old assertion failed the refresh whenever
+# user.email was set, on the theory that an unset identity makes `git commit`
+# refuse. It was a proxy for the wrong thing and unenforceable where it mattered:
+# the identity arrives from the fleet-wide dotfiles gitconfig symlinked to
+# ~/.gitconfig, so "unset it on the box" meant stripping Zig's identity from every
+# machine. The HARM is a diverged checkout, and the two assertions that detect it
+# directly (modified tracked files, HEAD != published tip) both already fire.
 fixture c7
 git -C "$CLONE" config user.email vps@example.com
 run; rc=$?
-check "exit non-zero"        "$([ "$rc" -ne 0 ] && echo y || echo n)" y
-check "names the identity"   "$(grep -c 'committer identity' "$CASE/err")" 1
+check "clean checkout + identity PASSES" "$([ "$rc" -eq 0 ] && echo y || echo n)" y
+check "no identity complaint"            "$(grep -c 'committer identity' "$CASE/err")" 0
+
+echo "case 7b: an identity does NOT excuse a real divergence"
+# The pairing that makes the relaxation safe to ship: having an identity must not
+# let a diverged checkout through. If this ever passes, the relaxation opened a
+# hole rather than closing a false positive.
+fixture c7b
+git -C "$CLONE" config user.email vps@example.com
+echo "local edit" >> "$CLONE/refs/pulse-ledger.jsonl"
+run; rc=$?
+check "diverged checkout still FAILS"  "$([ "$rc" -ne 0 ] && echo y || echo n)" y
+check "names the read-only rule"       "$(grep -c 'read-only consumer of git' "$CASE/err")" 1
 
 # =============================================================================
 echo "case 8: a tick-written tracked ledger row is harvested, not lost, not blocking"
