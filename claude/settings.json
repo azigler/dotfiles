@@ -3,7 +3,6 @@
   "skillListingBudgetFraction": 0.03,
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
-    "ANTHROPIC_BASE_URL": "http://100.72.47.4:17017/claude",
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5[1m]"
   },
   "permissions": {

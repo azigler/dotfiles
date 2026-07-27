@@ -146,7 +146,14 @@ sync() {
         "gnupg")
             sync_source "$SCRIPT_DIR/gnupg/common.conf" "$HOME/.gnupg/common.conf"
             sync_source "$SCRIPT_DIR/gnupg/gpg.conf" "$HOME/.gnupg/gpg.conf"
-            echo "pinentry-program $(brew --prefix)/bin/pinentry-mac" > "$HOME/.gnupg/gpg-agent.conf"
+            # pinentry-mac is macOS-only, and so is brew. Unguarded, this line
+            # ran on Linux too and wrote a literal
+            #   pinentry-program /bin/pinentry-mac
+            # (brew not found -> empty prefix) into a gpg-agent.conf that then
+            # points at a binary which will never exist on the box.
+            if [[ "$OSTYPE" == "darwin"* ]] && command -v brew >/dev/null; then
+                echo "pinentry-program $(brew --prefix)/bin/pinentry-mac" > "$HOME/.gnupg/gpg-agent.conf"
+            fi
             ;;
         "nix")
             sync_source "$SCRIPT_DIR/nix/nix.conf" "$HOME/.config/nix/nix.conf"
@@ -183,6 +190,16 @@ sync() {
             sync_source "$SCRIPT_DIR/tmux/tmux.conf" "$HOME/.tmux.conf"
             sync_source "$SCRIPT_DIR/tmux/start.sh" "$HOME/.local/share/tmux/start.sh"
             sync_source "$SCRIPT_DIR/tmux/plugins" "$HOME/.tmux/plugins"
+            # Linux: own the tmux server from the user manager rather than from
+            # whichever login session happened to start it. Symlink ONLY —
+            # enabling and starting the unit restarts the server and kills every
+            # existing session, so that stays a deliberate manual step:
+            #   systemctl --user daemon-reload
+            #   systemctl --user enable tmux.service   # boot-time ownership
+            #   systemctl --user start  tmux.service   # takes effect now (disruptive)
+            if [[ "$OSTYPE" == "linux-gnu"* ]] && command -v systemctl >/dev/null; then
+                sync_source "$SCRIPT_DIR/tmux/tmux.service" "$HOME/.config/systemd/user/tmux.service"
+            fi
             ;;
         "ts4")
             source "$SCRIPT_DIR/ts4/sync.sh" "${@:2}"
@@ -214,6 +231,10 @@ sync() {
         "zsh")
             sync_source "$SCRIPT_DIR/zsh/ohmyzsh" "$HOME/.oh-my-zsh"
             [[ ! -f "$SCRIPT_DIR/zsh/.$(hostname -s).zsh" ]] || sync_source "$SCRIPT_DIR/zsh/.$(hostname -s).zsh" "$HOME/.$(hostname -s).zsh"
+            # Per-host NON-interactive env (the .zshenv tier). Without this the
+            # fleet-wide zsh/.zshenv silently reverts a box's remote-automation
+            # PATH every time sync runs.
+            [[ ! -f "$SCRIPT_DIR/zsh/.$(hostname -s).zshenv" ]] || sync_source "$SCRIPT_DIR/zsh/.$(hostname -s).zshenv" "$HOME/.$(hostname -s).zshenv"
             sync_source "$SCRIPT_DIR/zsh/.zlogin" "$HOME/.zlogin"
             sync_source "$SCRIPT_DIR/zsh/.zlogout" "$HOME/.zlogout"
             sync_source "$SCRIPT_DIR/zsh/.zprofile" "$HOME/.zprofile"

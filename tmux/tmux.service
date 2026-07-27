@@ -1,0 +1,42 @@
+[Unit]
+# The Linux counterpart to tmux/com.zig.tmux.plist (the macOS LaunchAgent).
+#
+# WHY THIS EXISTS. Without it, the tmux server is started by whichever login
+# shell happened to run tmux/start.sh first, so it lands in that login's
+# scope — e.g. /user.slice/user-1002.slice/session-140.scope. It then survives
+# logout only because logind's KillUserProcesses defaults to `no` and the user
+# has Linger=yes. That is policy, not ownership: flip the logind default, or
+# `loginctl terminate-session <n>`, and every session dies with it.
+#
+# Started by the user manager instead, the server is owned by
+# user@<uid>.service, comes up at boot (linger required — see Install note),
+# and is structurally independent of any login. Verify with:
+#   systemctl --user show tmux.service -p ControlGroup
+#
+# NOTE ON PANES: tmux 3.6 here is linked against libsystemd, so it moves each
+# pane into its own transient user@.service/tmux-spawn-<uuid>.scope. Panes are
+# therefore NOT in this unit's cgroup — which is exactly why ExecStop has to be
+# an explicit `kill-server` rather than relying on cgroup teardown.
+Description=tmux server (owned by the user manager, not a login session)
+Documentation=man:tmux(1)
+
+[Service]
+# Type=oneshot + RemainAfterExit, NOT Type=forking. tmux daemonizes and writes
+# no pidfile, so forking-mode PID guessing is unreliable here — and a wrong
+# guess plus Restart= spawns a second server. oneshot leaves the unit
+# "active (exited)" with the server running, which is both accurate and stable.
+Type=oneshot
+RemainAfterExit=yes
+
+# Idempotent: adopt an existing `work` session rather than failing on
+# "duplicate session". Mirrors the has-session guard in tmux/start.sh.
+# 2>/dev/null is fine here — has-session is a pure existence check whose exit
+# code is the whole point (per the AGENTS.md stderr rule). # allow-suppress
+ExecStart=/bin/sh -c '/usr/bin/tmux has-session -t work 2>/dev/null || /usr/bin/tmux new-session -d -s work'
+ExecStop=/usr/bin/tmux kill-server
+
+[Install]
+# Requires `loginctl enable-linger andrew` for the boot-time start to happen
+# at all (already set on this box; re-verify with
+# `loginctl show-user andrew --property=Linger`).
+WantedBy=default.target
