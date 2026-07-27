@@ -541,6 +541,46 @@ print(f"registration OK: {loop_id} row={row} state={l['state']} — {l['detail']
 PYEOF
 ```
 
+**⚠️ The manual regen is a FALSE GREEN if you just edited the manifest.** `harnessd` is a
+running daemon (`systemctl --user is-active harnessd`) that loads
+`harness-manifest.json` **at service start** and regenerates `state.json` on its own
+cadence from that in-memory copy. Running `harness_state.py` by hand re-reads the file
+fresh, so **your assertion passes while the dashboard keeps publishing the broken
+value.** Verified 2026-07-27: a hand run reported `daily-digest / blocked` (correct) while
+the daemon, started 44 minutes before the manifest edit, kept emitting
+`ledger_row: null / stale` into the same file minutes later. This is the always-loaded-tier
+staleness class (`explore-0z6r`) one layer down.
+
+So if you touched the manifest, **restart the daemon and then assert against what IT
+publishes** — not against your own regen:
+
+```bash
+systemctl --user restart harnessd
+# wait for the daemon's OWN next regen, then confirm state.json is newer than the manifest
+until [ "$(stat -c %Y ~/.local/state/harness/state.json)" -gt "$(stat -c %Y ~/harnessd/refs/harness-manifest.json)" ]; do sleep 10; done
+```
+…and only then run the assertion block above.
+
+**⚠️ The manual regen is a FALSE GREEN if you just edited the manifest.** `harnessd` is a
+running daemon (`systemctl --user is-active harnessd`) that loads
+`harness-manifest.json` **at service start** and regenerates `state.json` on its own
+cadence from that in-memory copy. Running `harness_state.py` by hand re-reads the file
+fresh, so **your assertion passes while the dashboard keeps publishing the broken
+value.** Verified 2026-07-27: a hand run reported `daily-digest / blocked` (correct) while
+the daemon, started 44 minutes before the manifest edit, kept emitting
+`ledger_row: null / stale` into the same file minutes later. This is the always-loaded-tier
+staleness class (`explore-0z6r`) one layer down.
+
+So if you touched the manifest, **restart the daemon and then assert against what IT
+publishes** — not against your own regen:
+
+```bash
+systemctl --user restart harnessd
+# wait for the daemon's OWN next regen, then confirm state.json is newer than the manifest
+until [ "$(stat -c %Y ~/.local/state/harness/state.json)" -gt "$(stat -c %Y ~/harnessd/refs/harness-manifest.json)" ]; do sleep 10; done
+```
+…and only then run the assertion block above.
+
 A failure here is **not** a reason to rewrite the row — the row is fine. Fix
 `~/harnessd/refs/harness-manifest.json` (it lives in a *different repo*, which is why it
 is the piece most easily forgotten), re-run, and commit the manifest with the run.
