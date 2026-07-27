@@ -501,6 +501,57 @@ in sync.)
    A pass that found nothing new logs `"outcome":"quiet"` (no proof needed) —
    but see the empty-week rule below: "nothing to report" is a failure, not a
    quiet tick.
+#### The registration assertion — run it right after appending the row
+
+Appending a well-formed row is **not** the same as the row being *readable*. Every gate
+in this stack checks the row you WRITE — `pulse-ledger-lint.py` checks the name is
+canonical, `pre-commit-checks.sh` re-runs the `done` proof — and **nothing checks that the
+dashboard can find it.** A registration defect (a `harness-manifest.json` entry whose
+`ledger_row` does not match what this loop actually writes, or a `null` there) is
+invisible while every local gate passes green: `ledger_streak.load_rows(path, None)`
+returns **zero** rows, so the loop reads `stale` / *"no ledger row within grace (exit-0
+lie)"* immediately after writing one.
+
+That is not a cosmetic desync. On 2026-07-26 the digest loop correctly logged
+`outcome:"blocked"` with a P1 `human:` bead — a genuine parked-on-Zig signal — and the
+dashboard rendered it as an infrastructure alarm for 12 hours because its manifest entry
+had `ledger_row: null`. **A needs-Zig signal was masked as a plumbing failure.** Bug
+`explore-4x39`.
+
+So assert it, every run, immediately after the append:
+
+```bash
+LOOP_ID=pulse-desk   # the systemd timer stem
+ROW=desk                          # the row THIS loop writes
+
+python3 ~/harnessd/bin/harness_state.py >/dev/null
+python3 - "$LOOP_ID" "$ROW" <<'PYEOF'
+import json, sys
+loop_id, row = sys.argv[1], sys.argv[2]
+state = json.load(open('/home/ubuntu/.local/state/harness/state.json'))
+m = [l for l in state['loops'] if l['id'] == loop_id]
+assert m, f"REGISTRATION GAP: {loop_id} is not in harness-manifest.json at all"
+l = m[0]
+assert l['ledger_row'] == row, (
+    f"REGISTRATION GAP: manifest says ledger_row={l['ledger_row']!r}, "
+    f"this loop writes {row!r} — the dashboard is reading nothing")
+assert l['last_ledger_ts'], (
+    f"REGISTRATION GAP: {loop_id} reads no ledger row despite one just being written")
+print(f"registration OK: {loop_id} row={row} state={l['state']} — {l['detail']}")
+PYEOF
+```
+
+A failure here is **not** a reason to rewrite the row — the row is fine. Fix
+`~/harnessd/refs/harness-manifest.json` (it lives in a *different repo*, which is why it
+is the piece most easily forgotten), re-run, and commit the manifest with the run.
+
+**The sibling failure, for a row that is new rather than mis-registered:** a brand-new row
+name has no history behind it, so a carried-over systemd stamp file makes `last_fire` point
+at the *predecessor* loop's run with zero rows of its own — reading `stale` before it has
+ever fired. The fix is the seed row the `/pulse` relocation checklist already prescribes:
+append one `outcome:"quiet"` row saying exactly that, *before* the first real fire. This is
+what bit `desk` after the 2026-07-26 rename.
+
 10. **Deliver.** Commit + push the memo, axes, signals, field-notes, beads, ledger, and
     any touched FINDINGS. Then `PushNotification` naming the **top ask + the
     file PATH** (Zig is on SSH+tmux — no clickable links, no file-send). On
