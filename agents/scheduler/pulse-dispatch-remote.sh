@@ -856,6 +856,21 @@ fi
 if [ "$DRY_RUN" = 1 ]; then
   say "DRY RUN: all four preflight assertions passed."
   say "  would stage:   $HOST:$REMOTE_WORK/DISPATCH.md"
+  if [ "$WITH_TOKEN" = 1 ]; then
+    # Names only — never a value, not even a length. Brokering itself happens
+    # after this exit, so a dry run must at least show WHICH credentials a real
+    # run would carry and which the project file is missing.
+    _dr_have=""; _dr_miss=""
+    for _v in FLEET_API_TOKEN SITE_PASSWORD SLACK_BOT_TOKEN SLACK_NEWS_PLANNING_CHANNEL_ID; do
+      if [ "$_v" = FLEET_API_TOKEN ]; then
+        { [ -n "${FLEET_API_TOKEN:-}" ] || grep -q "^export ${_v}=" "$HOME/.secrets" 2>/dev/null; } \
+          && _dr_have="$_dr_have $_v" || _dr_miss="$_dr_miss $_v"
+      elif grep -q "^${_v}=" "$DIR/.env.local" 2>/dev/null; then _dr_have="$_dr_have $_v"
+      else _dr_miss="$_dr_miss $_v"; fi
+    done
+    say "  would broker: ${_dr_have:-（none）}"
+    [ -n "$_dr_miss" ] && say "  MISSING:      $_dr_miss  (a row needing these fails on the box)"
+  fi
   if [ "$FRESH" = 1 ] && [ "$PANE_WARM" = 1 ]; then
     say "  would clear:   /clear into $PANE first (--fresh, pane is warm)"
   elif [ "$FRESH" = 1 ]; then
