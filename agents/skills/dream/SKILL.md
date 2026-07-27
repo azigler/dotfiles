@@ -1,16 +1,28 @@
 ---
-description: A propose-only "sleep-time" pulse tick that mines recent sessions (via /recall) for durable harness learnings and drafts HUMAN-GATED proposal beads (MEMORY.md entries / skill hardening). It NEVER writes MEMORY.md and NEVER auto-promotes — its only output is proposal beads a human reviews. The slow write-path of the claude-vault arc; the read primitive (/recall) it builds on already ships.
-when_to_use: A scheduled "/recall-distill tick" fires (a pulse row) and you distill the window of sessions since the last run into candidate learnings, then file proposal beads for the ones worth a MEMORY entry. NOT for interactive/inline use — this is a slow, scheduled, propose-only loop. Also invoked for "/recall-distill status" (ledger + open proposals).
+description: The harness's weekly SLEEP-TIME CONSOLIDATION loop — a propose-only pulse tick that mines recent sessions (via /recall) for durable harness learnings and drafts HUMAN-GATED proposal beads (MEMORY.md entries / skill hardening). It NEVER writes MEMORY.md and NEVER auto-promotes — its only output is proposal beads a human reviews. The slow write-path of the claude-vault arc; the read primitive (/recall) it builds on already ships.
+when_to_use: A scheduled "/dream tick" fires (Sun 04:13 PT, pulse-dream.timer, the `dream` window) and you consolidate the window of sessions since the last run into candidate learnings, then file proposal beads for the ones worth a MEMORY entry. NOT for interactive/inline use — this is a slow, scheduled, propose-only loop. Also invoked for "/dream status" (ledger + open proposals).
 ---
 
-# /recall-distill — the propose-only learning loop
+# /dream — the propose-only learning loop
 
-`/recall-distill` is the harness's standing **sleep-time distiller** (spec
+`/dream` is the harness's standing **sleep-time consolidation** loop (spec
 `explore-76oc` §4.4, the Phase-4 close of the claude-vault arc). Once per
 scheduled tick it mines the sessions that ran **since its last run** for durable
 harness learnings — reusable preferences, corrections, gotchas, confirmed
 approaches — and drafts **human-gated proposal beads**. A human (Zig / the
 orchestrator) reviews each proposal and promotes-or-rejects it.
+
+**The name is the mechanism.** It replays the week's experience while nothing
+else is running, keeps the fragments worth keeping, and wakes with *suggestions*
+— never with an edited memory. It was called `/recall-distill` until 2026-07-27
+(`explore-w1mn`); Zig renamed it because "distill" describes a step and "dream"
+describes the loop. Every artifact moved with the name: the unit
+(`pulse-dream.{service,timer}`), the tmux window (`dream`), the ledger row
+(`dream` in `refs/dream-ledger.jsonl`), and the handoff note
+(`refs/session-handoff--dream.md`). If you find `recall-distill` in a live doc,
+that reference is stale — **except** in dated history (digests, ledgers of other
+loops, bead bodies, sweep records), which keeps the name it was written with. And
+`mud-distill.{service,timer}` is an unrelated loop that was never part of this.
 
 It is the slow write-path the memory cluster named as a real gap. The read
 primitive it stands on — `/recall` — already ships (§4.2); this loop is its first
@@ -33,7 +45,7 @@ MEMORY.md" — that is exactly the temptation the invariant exists to stop.
 
 ## Scope: the CURRENT slug only (confidential-safe MVP)
 
-The tick distills **only the slug it runs in** (`distill.py` defaults to the
+The tick distills **only the slug it runs in** (`dream.py` defaults to the
 current-cwd slug). It does **not** sweep other slugs.
 
 This is deliberate and load-bearing: a proposal bead lands in a git-pushed
@@ -65,35 +77,35 @@ touchpoint; they wait in the tracker, they don't block a window.
 
 ### a. Window selection
 
-Distill only the sessions **newer than the last distill run**, tracked via the
+Consolidate only the sessions **newer than the last run**, tracked via the
 ledger (below):
 
 ```bash
-LEDGER="$PULSE_DIR/refs/recall-distill-ledger.jsonl"   # anchor to the ABSOLUTE $PULSE_DIR (never a bare relative path)
+LEDGER="$PULSE_DIR/refs/dream-ledger.jsonl"   # anchor to the ABSOLUTE $PULSE_DIR (never a bare relative path)
 SINCE=$(test -s "$LEDGER" && jq -r '.ts' "$LEDGER" | tail -1 || true)
 ```
 
 - **Subsequent runs:** `--since <the last run's ts>` — only sessions active since
-  then are scanned (`distill.py`'s session-level window; a session is in-window if
+  then are scanned (`dream.py`'s session-level window; a session is in-window if
   any of its files was modified after `since`).
-- **First run** (no ledger): omit `--since` and let `distill.py` apply its bounded
+- **First run** (no ledger): omit `--since` and let `dream.py` apply its bounded
   **7-day lookback** (`--lookback-days`), so the first tick does not distill all
   history at once.
 
 ### b. Candidate gathering (the deterministic helper)
 
-Run `distill.py` — the stdlib-only helper — to surface candidate durable-learning
+Run `dream.py` — the stdlib-only helper — to surface candidate durable-learning
 turns via `/recall` over the window:
 
 ```bash
-python3 "$SKILL_DIR/distill.py" --since "$SINCE" --slug="$SLUG" \
+python3 "$SKILL_DIR/dream.py" --since "$SINCE" --slug="$SLUG" \
   > "$SCRATCH/candidates.json"
 # first run: drop --since (7-day lookback kicks in)
 ```
 
-`distill.py` (i) lists in-window sessions, (ii) runs `recall.py` once per curated
+`dream.py` (i) lists in-window sessions, (ii) runs `recall.py` once per curated
 **learning-signal pattern** (correction / preference / gotcha / confirmed / rule —
-see `distill.py`'s `SIGNALS`, each with a documented rationale), and (iii)
+see `dream.py`'s `SIGNALS`, each with a documented rationale), and (iii)
 dedupes + emits candidate turns as JSON:
 
 ```json
@@ -163,7 +175,7 @@ body, but "Proposed MEMORY entry" becomes "Proposed skill change" naming the
 `SKILL.md` and the concrete edit.
 
 Label every proposal so they're a scannable review surface:
-`br update <id> --add-label recall-distill-proposal`.
+`br update <id> --add-label dream-proposal`.
 
 **Never** edit `MEMORY.md`, never open an AskUserQuestion, never mark a proposal
 as accepted yourself. The bead IS the proposal; the human's promote/reject IS the
@@ -171,14 +183,14 @@ gate.
 
 ### e. Ledger + dedupe (the phantom-backlog guard)
 
-Append **one line per run** to `refs/recall-distill-ledger.jsonl`:
+Append **one line per run** to `refs/dream-ledger.jsonl`:
 
 ```json
-{"ts":"2026-07-08T09:00:00Z","row":"recall-distill","since":"2026-07-01T00:00:00Z","slug":"-home-ubuntu-explore","scanned_sessions":12,"window_sessions":3,"candidates":4,"proposals":2,"proposal_beads":["explore-ab1","explore-ab2"],"note":"2 memory proposals filed"}
+{"ts":"2026-07-08T09:00:00Z","row":"dream","since":"2026-07-01T00:00:00Z","slug":"-home-ubuntu-explore","scanned_sessions":12,"window_sessions":3,"candidates":4,"proposals":2,"proposal_beads":["explore-ab1","explore-ab2"],"note":"2 memory proposals filed"}
 ```
 
 **`row` is MANDATORY and never null.** The canonical row for this loop is
-**`recall-distill`** (declared in the pulse project's routing doc — for
+**`dream`** (declared in the pulse project's routing doc — for
 `~/explore`, `refs/pulse.md` → "Non-pulse ledger rows"). Every ledger line
 names the row it EVALUATED, including a run that proposed nothing: it still
 ran and still spent budget. The only permitted escape hatch is the literal
@@ -209,27 +221,31 @@ re-proposes forever). Two layers, both mandatory:
    the same "describe the RESIDUAL, don't re-file as unshipped" discipline the
    phantom-backlog fix installed.)
 
-## `/recall-distill status`
+## `/dream status`
 
-Read-only: last 5 ledger lines, count of open `recall-distill-proposal` beads, and
+Read-only: last 5 ledger lines, count of open `dream-proposal` beads, and
 the `since` the next tick would use. No writes.
 
-## Scheduling (a documented follow-up — NOT wired here)
+## Scheduling — WIRED, weekly, Sun 04:13 PT
 
-This skill does **not** install a systemd timer or edit `refs/pulse.md`; Zig opts
-the loop into the pulse cadence when he's ready. To wire it later, add a `/pulse`
-row (see `/pulse` "The contract"), e.g.:
+`pulse-dream.timer` is **enabled** and fires `OnCalendar=Sun *-*-* 04:13:00
+America/Los_Angeles` with `Persistent=true`. `pulse-dream.service` injects
+`/dream tick` into the durable **`dream`** tmux window (`work:dream`, cwd
+`~/explore`), unjailed — this loop reads transcript history, not the web, so it
+sits outside the untrusted-input threat the `bwrap` jail addresses.
 
-```markdown
-| 5 | recall-distill | time: daily | `[ "$(date +%u)" -le 7 ]` | /recall-distill tick | 1/day |
-```
+It has fired 2026-07-13, 07-19 and 07-26 (all under the old name). Templates live
+at `~/dotfiles/agents/scheduler/templates/pulse-dream.{service,timer}`; the loop
+is registered in `~/harnessd/refs/harness-manifest.json` (weekly, 180-minute
+grace) and declared in `~/explore/refs/pulse.md`.
 
-A **daily** cadence fits the sleep-time framing (it pairs naturally with the
-transcripts vault's daily push, §4.3 OQ-C4). Keep the cap at 1/day: this is a
-slow distiller, not a firehose. Because it emits human-review work, honor the
-`/pulse` structural-review nudge (every 5th `done` tick, surface the last few
-proposals for Zig to sample) — that keeps the human capable of saying "no" before
-comprehension rot (the cognitive-surrender guard).
+**Weekly, not daily.** The original sketch here proposed daily; Zig chose weekly
+and it has stayed weekly. A distiller that mines "sessions since its last run"
+wants a window with something in it, and the output is *human-review work* — a
+daily cadence spends Zig's attention faster than it earns it. Because it emits
+review work, honor the `/pulse` structural-review nudge (surface the last few
+proposals for Zig to sample periodically) — that keeps the human capable of
+saying "no" before comprehension rot (the cognitive-surrender guard).
 
 ## Anti-patterns
 
@@ -253,7 +269,7 @@ comprehension rot (the cognitive-surrender guard).
 ## See also
 
 - `/recall` (`~/.claude/skills/recall/SKILL.md`) — the read primitive this loop
-  calls; `distill.py` invokes `recall.py` via subprocess.
+  calls; `dream.py` invokes `recall.py` via subprocess.
 - `/pulse` — the tick discipline (ledger, offboard, never-AskUserQuestion) this
   loop follows.
 - Spec + decisions: `br show explore-76oc` (§4.4; the propose-only trust-ladder

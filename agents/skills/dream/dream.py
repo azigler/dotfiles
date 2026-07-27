@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""recall-distill helper — surface candidate durable-learning turns for the tick.
+"""dream helper — surface candidate durable-learning turns for the tick.
 
 Spec: ``explore-76oc`` §4.4 (Phase 4). This is the **deterministic** half of the
-``recall-distill`` learning loop. It does the mechanical work — window selection,
+``dream`` learning loop. It does the mechanical work — window selection,
 signal-pattern grepping (via ``/recall``), and dedupe — and emits candidate turns
 as JSON. It makes **no judgment** about whether a candidate is a durable learning
 and it files **nothing**: the LLM tick reads this output, judges conservatively,
@@ -21,7 +21,7 @@ Pipeline (matches the deliverable contract):
 Determinism: no wall clock is consulted when ``--since`` is given (tests always
 pass it); the only clock use is the first-run default lookback when ``--since`` is
 omitted. The projects root AND the recall.py path are overridable (``--root`` /
-``CLAUDE_PROJECTS_ROOT`` and ``--recall`` / ``RECALL_DISTILL_RECALL``) so the whole
+``CLAUDE_PROJECTS_ROOT`` and ``--recall`` / ``DREAM_RECALL``) so the whole
 pipeline runs against a fixture tree in tests.
 
 Exit: 0 = ran and emitted JSON (candidates may be empty — a valid quiet run);
@@ -125,7 +125,7 @@ SIGNALS: list[Signal] = [
 ]
 
 
-class DistillError(Exception):
+class DreamError(Exception):
     """A recoverable error that maps to exit code 2 (bad recall run / bad input)."""
 
 
@@ -171,7 +171,7 @@ def resolve_root(arg_root: str | None) -> Path:
 def resolve_recall(arg_recall: str | None) -> Path:
     if arg_recall is not None:
         return Path(arg_recall)
-    env_recall = os.environ.get("RECALL_DISTILL_RECALL")
+    env_recall = os.environ.get("DREAM_RECALL")
     if env_recall:
         return Path(env_recall)
     return DEFAULT_RECALL_PATH
@@ -228,7 +228,7 @@ def run_recall(
 ) -> list[dict]:
     """Invoke ``recall.py`` for one signal pattern over ``slug`` and return its
     ``--json`` hits. recall exit 1 (no hits) still prints ``[]`` -> empty list;
-    exit 2 (recall error) -> ``DistillError``."""
+    exit 2 (recall error) -> ``DreamError``."""
     cmd = [
         python,
         str(recall_path),
@@ -240,7 +240,7 @@ def run_recall(
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if proc.returncode == 2:
-        raise DistillError(
+        raise DreamError(
             f"recall.py failed (exit 2) for pattern {pattern!r}: "
             f"{proc.stderr.strip() or '(no stderr)'}"
         )
@@ -250,9 +250,9 @@ def run_recall(
     try:
         data = json.loads(out)
     except json.JSONDecodeError as exc:
-        raise DistillError(f"recall.py emitted invalid JSON: {exc}") from exc
+        raise DreamError(f"recall.py emitted invalid JSON: {exc}") from exc
     if not isinstance(data, list):
-        raise DistillError("recall.py --json did not emit a JSON array")
+        raise DreamError("recall.py --json did not emit a JSON array")
     return data
 
 
@@ -344,9 +344,9 @@ def build_output(
 # --------------------------------------------------------------------------- #
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="distill.py",
+        prog="dream.py",
         description=(
-            "Surface candidate durable-learning turns for the recall-distill tick "
+            "Surface candidate durable-learning turns for the dream tick "
             "(spec explore-76oc §4.4). Propose-only: emits candidates, files nothing."
         ),
     )
@@ -382,7 +382,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--recall",
         default=None,
-        help="path to recall.py (overrides RECALL_DISTILL_RECALL; default "
+        help="path to recall.py (overrides DREAM_RECALL; default "
         "~/.claude/skills/recall/recall.py)",
     )
     return p
@@ -394,15 +394,15 @@ def main(argv: list[str] | None = None) -> int:
     root = resolve_root(args.root)
     if not root.is_dir():
         sys.stderr.write(
-            f"distill: projects root does not exist or is not a directory: {root}\n"
+            f"dream: projects root does not exist or is not a directory: {root}\n"
         )
         return 2
 
     recall_path = resolve_recall(args.recall)
     if not recall_path.is_file():
         sys.stderr.write(
-            f"distill: recall.py not found at {recall_path} "
-            "(set --recall or RECALL_DISTILL_RECALL)\n"
+            f"dream: recall.py not found at {recall_path} "
+            "(set --recall or DREAM_RECALL)\n"
         )
         return 2
 
@@ -410,7 +410,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             since_dt = parse_since(args.since)
         except ValueError:
-            sys.stderr.write(f"distill: unparseable --since: {args.since!r}\n")
+            sys.stderr.write(f"dream: unparseable --since: {args.since!r}\n")
             return 2
     else:
         since_dt = datetime.now(UTC) - timedelta(days=args.lookback_days)
@@ -426,8 +426,8 @@ def main(argv: list[str] | None = None) -> int:
             sys.executable,
             args.max_candidates,
         )
-    except DistillError as exc:
-        sys.stderr.write(f"distill: {exc}\n")
+    except DreamError as exc:
+        sys.stderr.write(f"dream: {exc}\n")
         return 2
 
     out = build_output(

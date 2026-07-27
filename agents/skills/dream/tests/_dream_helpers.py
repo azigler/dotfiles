@@ -1,6 +1,6 @@
-"""Shared builders + subprocess invoker for the recall-distill test suite.
+"""Shared builders + subprocess invoker for the dream test suite.
 
-The tests drive the REAL pipeline: they invoke ``distill.py`` via subprocess,
+The tests drive the REAL pipeline: they invoke ``dream.py`` via subprocess,
 which in turn invokes the REAL ``recall.py`` — both steered at a FAKE fixture
 projects tree via ``--root`` / ``--recall`` so nothing touches the live
 ``~/.claude/projects``. This mirrors recall's own fixture-first test style and
@@ -20,10 +20,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-# distill.py lives one dir up from tests/.
-DISTILL_PY = Path(__file__).resolve().parents[1] / "distill.py"
+# dream.py lives one dir up from tests/.
+DREAM_PY = Path(__file__).resolve().parents[1] / "dream.py"
 
-# recall.py: the real one distill depends on. Overridable via RECALL_PY for CI /
+# recall.py: the real one dream depends on. Overridable via RECALL_PY for CI /
 # relocation; defaults to the global install. Tests skip if it is absent.
 RECALL_PY = Path(
     os.environ.get(
@@ -138,7 +138,7 @@ def invoke(
 ) -> Result:
     args = [
         sys.executable,
-        str(DISTILL_PY),
+        str(DREAM_PY),
         *flags,
         f"--root={root}",
         f"--recall={recall}",
