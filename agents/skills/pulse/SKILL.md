@@ -185,8 +185,28 @@ project and crosses ledgers. (Observed 2026-06-19: an explore tick whose
 cwd had drifted read the local-coding-models ledger and nearly double-fired
 the daily cap.)
 
-0. **Honor `.offboard-pending`** if present (retroactive /offboard,
-   as /onboard Step 0).
+0. **Honor the offboard-pending marker** if present (retroactive /offboard, as
+   /onboard Step 0). ⚠️ **Resolve it with the helper — the marker is
+   WINDOW-SCOPED, so the bare filename is the wrong file in exactly the
+   projects that run a pulse loop.** A per-window project's marker is
+   `.offboard-pending--<window>` (e.g. `.offboard-pending--dive`), and a tick
+   that tests `[ -f .offboard-pending ]` finds nothing and reports a clean
+   start:
+
+   ```bash
+   _HP="$HOME/dotfiles/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
+   type offboard_pending_path >/dev/null 2>&1 || offboard_pending_path() { printf '%s/.offboard-pending' "${1:-.}"; }
+   PENDING=$(offboard_pending_path "$PULSE_DIR")
+   [ -f "$PENDING" ] || [ -f "$PULSE_DIR/.offboard-pending" ]   # check BOTH, as /onboard does
+   ```
+
+   Missed live on 2026-07-27 in `~/explore`: the tick checked the bare path,
+   found nothing, and ran a full tick while `.offboard-pending--dive` sat
+   beside it — surfacing only at offboard, when the helper deleted a marker
+   nobody had honored. Same failure as this skill's Step 5 handoff path
+   (fixed 2026-07-26): a path that looks right, resolves wrong, and reports
+   success. `/onboard` Step 0 already does this correctly — copy it, don't
+   re-derive it.
 1. **Cheap onboard** — skip what's already in context: CLAUDE.md, TOOLKIT
    digest, `refs/session-handoff.md`, `br list`. **Check, don't assume.** A
    loop running `--fresh` (see "Session durability and context") gets a
