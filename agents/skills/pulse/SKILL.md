@@ -209,7 +209,8 @@ the daily cap.)
    the ledger spec above) on the `done` line; `pre-commit-checks.sh` blocks
    a `done` commit whose proof doesn't verify. If you cannot produce a
    real proof, log `blocked` or `quiet`, not `done`.
-5. **Wrap**: append the ledger entry (only `done` once 4.5's proof holds);
+5. **Wrap**: append the ledger entry (only `done` once 4.5's proof holds), then
+   **assert the row is REGISTERED** (5.5 below);
    write the handoff note (/offboard Steps 3+5 — the handoff is per-tick).
    **Never `/clear` or exit the session yourself**: the window is durable and
    the injector owns context lifecycle (a self-clear mid-tick kills the tick).
@@ -240,6 +241,70 @@ the daily cap.)
    overclaimed / recommends a build) rather than a tally — see the explore
    pulse table. Prefer a signal- or absence-keyed review to the count where
    one exists.
+5.5. **Assert the row is REGISTERED, not just well-formed.** Everything up to here
+   checks the row you WRITE — `pulse-ledger-lint.py` checks the name is canonical,
+   `pre-commit-checks.sh` re-runs the `done` proof. **Nothing checks that the dashboard
+   can FIND it.** A registration defect — a `~/harnessd/refs/harness-manifest.json` entry
+   whose `ledger_row` doesn't match what this loop actually writes, or `null` there — is
+   invisible while every local gate passes green: the matcher returns **zero** rows, so
+   the loop reads `stale` / *"no ledger row within grace (exit-0 lie)"* immediately after
+   writing one.
+
+   That is not cosmetic. On 2026-07-26 the `daily-digest` loop correctly logged
+   `outcome:"blocked"` with a P1 `human:` bead — a genuine parked-on-Zig signal — and the
+   dashboard rendered it as an infrastructure alarm for **12 hours**, because its manifest
+   entry had `ledger_row: null`. **A needs-Zig signal was masked as a plumbing failure.**
+   (`explore-4x39`.) The failure mode is doubly bad: a false alarm on a healthy loop trains
+   you to discount the alarm that will matter.
+
+   ```bash
+   LOOP_ID=pulse-<project>          # the systemd timer stem
+   ROW=<the row this tick just wrote>
+
+   python3 ~/harnessd/bin/harness_state.py >/dev/null
+   python3 - "$LOOP_ID" "$ROW" <<'PYEOF'
+   import json, sys
+   loop_id, row = sys.argv[1], sys.argv[2]
+   state = json.load(open('/home/ubuntu/.local/state/harness/state.json'))
+   m = [l for l in state['loops'] if l['id'] == loop_id]
+   assert m, f"REGISTRATION GAP: {loop_id} is not in harness-manifest.json at all"
+   l = m[0]
+   assert l['ledger_row'] == row, (
+       f"REGISTRATION GAP: manifest says ledger_row={l['ledger_row']!r}, "
+       f"this loop writes {row!r} — the dashboard is reading nothing")
+   assert l['last_ledger_ts'], (
+       f"REGISTRATION GAP: {loop_id} reads no ledger row despite one just being written")
+   print(f"registration OK: {loop_id} row={row} state={l['state']} — {l['detail']}")
+   PYEOF
+   ```
+
+   **A failure here is NOT a reason to rewrite the row** — the row is fine. Fix the
+   manifest (it lives in a *different repo*, which is why the `/pulse` relocation checklist
+   already calls it "the piece most easily forgotten"), then re-assert.
+
+   ⚠️ **If you edited the manifest, the hand-run above is a FALSE GREEN.** `harnessd` is a
+   running daemon that loads the manifest **at service start** and regenerates `state.json`
+   from that in-memory copy, so your own regen reads the fix while the daemon keeps
+   publishing the broken value into the same file. Measured 2026-07-27: a hand run reported
+   the corrected row while the daemon's regen *seconds later* wrote the stale one. Restart
+   it and assert against what **it** publishes:
+
+   ```bash
+   systemctl --user restart harnessd
+   until [ "$(stat -c %Y ~/.local/state/harness/state.json)" -gt "$(stat -c %Y ~/harnessd/refs/harness-manifest.json)" ]; do sleep 10; done
+   ```
+
+   (Tracked as `harnessd-rtx8` — once the daemon re-stats the manifest per regen, the
+   restart step becomes belt-and-braces, but the assertion stays: it also catches a row
+   name that drifts from the manifest, which no daemon fix covers.)
+
+   **The sibling failure, for a row that is NEW rather than mis-registered:** a brand-new
+   row name has no history behind it, so a carried-over systemd stamp file (see the rename
+   warning in `/pulse setup` step 3) makes `last_fire` point at the *predecessor* loop's run
+   with zero rows of its own — reading `stale` before it has ever fired. Fix is the seed row
+   the relocation checklist prescribes: append one `outcome:"quiet"` row saying exactly
+   that, **before** the first real fire. This bit `desk` after the 2026-07-26 rename.
+
 6. **End with a one-line state report** ("tick: weekly-report fired,
    wr-abc closed, pushed; next eligible rows: inbox").
 
