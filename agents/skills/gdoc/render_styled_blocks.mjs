@@ -159,7 +159,6 @@ async function pickTransportName() {
 
 // Comfortably past Google's ~1.02M-character document ceiling, and small enough
 // to stay a plain int32 (the API rejects absurd magnitudes differently).
-const PROBE_INDEX = 2_000_000;
 
 function makeProxyTransport() {
   const call = async (path, { method = 'GET', body, tolerate400 = false } = {}) => {
@@ -214,38 +213,38 @@ function makeProxyTransport() {
     },
 
     /**
-     * The fleet proxy has no raw `documents.get` route (tracked as bd-2ntm), so
-     * the segment's end index — which `deleteContentRange` needs — is recovered
-     * from the Docs API's own out-of-bounds error, which names it:
+     * The segment's end index, which `deleteContentRange` needs before a
+     * re-render clears the tab.
      *
-     *   Invalid requests[0].insertText: Index 2000000 must be less than the end
-     *   index of the referenced segment, 2.
+     * HISTORY, because the previous shape is a trap worth naming: the proxy had
+     * no raw `documents.get`, so this fired a deliberately out-of-bounds
+     * insertText and regexed the answer out of Google's REJECTION message
+     * ("Index 2000000 must be less than the end index of the referenced
+     * segment, 2"). It was non-destructive and failed loudly, but it depended
+     * on an ERROR STRING staying stable — a dependency nothing would have
+     * warned us about until a render deleted the wrong range.
      *
-     * The probe is non-destructive by construction: an insert at an index past
-     * the segment end can never apply, and Docs `batchUpdate` is atomic, so the
-     * rejected batch changes nothing. If the message shape ever drifts this
-     * fails LOUDLY rather than guessing an index and deleting the wrong range.
+     * bd-2ntm added GET /api/gdoc/docs/:docId/raw, so we now ask directly, and
+     * re-derive the index from the returned content rather than trusting a
+     * single reported field.
      */
     async segmentEnd(docId, scope) {
-      const r = await call(`/api/gdoc/docs/${docId}/batch`, {
-        method: 'POST',
-        tolerate400: true,
-        body: { requests: [{ insertText: { location: { index: PROBE_INDEX, ...scope }, text: 'x' } }] },
-      });
-      if (!r?.httpError) {
-        fail(
-          `the segment-end probe was ACCEPTED (inserting at index ${PROBE_INDEX} should be impossible). ` +
-            'Refusing to continue — the document may now hold a stray "x".',
-        );
+      // Was: fire a deliberately out-of-bounds insertText and regex the segment
+      // end out of Google's REJECTION message, because the proxy had no raw
+      // read. That depended on an ERROR STRING staying stable. The raw route
+      // (bd-2ntm) removed the need, so ask directly and re-derive from the
+      // content rather than trusting a single reported field.
+      const q = scope?.tabId ? `?tabId=${encodeURIComponent(scope.tabId)}` : '';
+      const d = await call(`/api/gdoc/docs/${docId}/raw${q}`);
+      const content = d?.body?.content;
+      if (Array.isArray(content) && content.length > 0) {
+        return content.reduce((m, e) => Math.max(m, e.endIndex ?? 0), 1);
       }
-      const m = /end index of the referenced segment,\s*(\d+)/.exec(r.text);
-      if (!m) {
-        fail(
-          `could not recover the segment end index from the proxy's error response. ` +
-            `Expected Google's "end index of the referenced segment, <n>" message; got HTTP ${r.httpError}: ${r.text.slice(0, 800)}`,
-        );
-      }
-      return Number(m[1]);
+      if (typeof d?.segmentEndIndex === 'number') return d.segmentEndIndex;
+      fail(
+        `could not determine the segment end index from /api/gdoc/docs/${docId}/raw${q} — ` +
+          'the response carried neither body.content nor segmentEndIndex.',
+      );
     },
 
     async batch(docId, requests) {
