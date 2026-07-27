@@ -61,10 +61,11 @@ case "$last" in
   *"rev-parse HEAD"*)         printf '%s\n' "${REMOTE_VAULT_HEAD:-deadbeefdeadbeef}"; exit 0 ;;
   *"br sync --import-only"*)  exit "${REMOTE_IMPORT_RC:-0}" ;;
   *"br sync --status --json"*) printf '%s\n' "${REMOTE_BEAD_JSON-{\"jsonl_content_hash\":\"BEADSHA\",\"jsonl_newer\":false\}}"; exit 0 ;;
-  *"window_id #{window_name}"*) printf '%s\n' "${WIN_LIST-}"; exit 0 ;;   # empty => window absent
+  *"list-windows"*)           printf '%s\n' "${WIN_LIST-}"; exit 0 ;;   # empty => window absent
   *"new-window"*)             printf '%s\n' "${NEW_WIN_ID:-@7}"; exit 0 ;;
   *"pane_id"*)                printf '%s\n' "${PANE_ID:-%3}"; exit 0 ;;
   *"pane_current_command"*)   printf '%s\n' "${PANE_CMD:-zsh}"; exit 0 ;;
+  *"reply with exactly: PONG"*) printf '%s\n' "${A7_BODY-PONG}"; exit 0 ;;
   *"claude-probe.txt"*)       printf '%s\n' "${PROBE_BODY-/home/andrew/.local/bin/claude
 PROBE_RC=0}"; exit 0 ;;
   *"capture-pane"*)           printf '%s\n' "${PANE_CAPTURE:-? for shortcuts}"; exit 0 ;;
@@ -102,8 +103,8 @@ cat > "$PROJ/refs/pulse.md" <<'EOF'
 
 | priority | name | trigger | check | action | cap |
 |---|---|---|---|---|---|
-| 1 | friday-deploy | time: Fri | `true` | do the thing | 1/week |
-| 2 | guest-promo | time: Tue | `true` | do the other thing | 1/week |
+| 1 | di-friday | time: Fri | `true` | do the thing | 1/week |
+| 2 | di-tuesday | time: Tue | `true` | do the other thing | 1/week |
 EOF
 : > "$PROJ/refs/pulse-ledger.jsonl"
 git init -q -b main "$PROJ" && git -C "$PROJ" add -A && git -C "$PROJ" commit -qm fixture
@@ -130,7 +131,7 @@ run_dry() {
   PULSE_DISPATCH_VAULT=/nonexistent-local-vault \
   PULSE_DISPATCH_STATE="$STATE" \
   HOME="$ROOT/home" \
-    "$DISPATCH" --row friday-deploy --dir "$PROJ" --dry-run --poll 1 --timeout 3 2>&1
+    "$DISPATCH" --row di-friday --dir "$PROJ" --dry-run --poll 1 --timeout 3 2>&1
 }
 mkdir -p "$ROOT/home"
 
@@ -140,7 +141,7 @@ check_verdict "missing --row is failed-usage" "$OUT" failed-usage
 
 OUT=$(PULSE_DISPATCH_SSH="$STUB/ssh" "$DISPATCH" --row not-a-real-row --dir "$PROJ" --dry-run 2>&1)
 check_verdict "row absent from pulse.md is failed-row" "$OUT" failed-row
-case "$OUT" in *"friday-deploy"*) ok "failed-row names the valid rows" ;;
+case "$OUT" in *"di-friday"*) ok "failed-row names the valid rows" ;;
   *) bad "failed-row names the valid rows" "valid-row list missing from the message" ;; esac
 
 echo
@@ -294,7 +295,7 @@ run_live() {
   PULSE_DISPATCH_STATE="$STATE" \
   INJECT_LOG="$ROOT/inject.log" \
   HOME="$ROOT/home" \
-    "$DISPATCH" --row friday-deploy --dir "$PROJ" --poll 1 --timeout 3 2>&1
+    "$DISPATCH" --row di-friday --dir "$PROJ" --poll 1 --timeout 3 2>&1
 }
 BASE=('PANE_CMD=claude' "REMOTE_MEM_SHA=$MEMSHA" "REMOTE_BEAD_JSON=$BEADJSON")
 
@@ -306,16 +307,16 @@ else bad "timeout surfaces locally" "nothing was injected into the local window"
 if [ ! -s "$PROJ/refs/pulse-ledger.jsonl" ]; then ok "a timeout writes NO ledger row"
 else bad "timeout writes no ledger row" "a row was written for a tick that never reported"; fi
 
-OUT=$(run_live "${BASE[@]}" 'RESULT_JSON={"row":"guest-promo","outcome":"done","proof":{"kind":"cmd","cmd":"true"}}')
+OUT=$(run_live "${BASE[@]}" 'RESULT_JSON={"row":"di-tuesday","outcome":"done","proof":{"kind":"cmd","cmd":"true"}}')
 check_verdict "payload row != dispatched row -> failed-payload" "$OUT" failed-payload
 
 OUT=$(run_live "${BASE[@]}" 'RESULT_JSON={"row":null,"outcome":"done"}')
 check_verdict "payload with a null row -> failed-payload" "$OUT" failed-payload
 
-OUT=$(run_live "${BASE[@]}" 'RESULT_JSON={"row":"friday-deploy","outcome":"done","note":"n"}')
+OUT=$(run_live "${BASE[@]}" 'RESULT_JSON={"row":"di-friday","outcome":"done","note":"n"}')
 check_verdict "outcome=done with no proof -> failed-payload" "$OUT" failed-payload
 
-OUT=$(run_live "${BASE[@]}" 'RESULT_JSON={"row":"friday-deploy","outcome":"finished","note":"n"}')
+OUT=$(run_live "${BASE[@]}" 'RESULT_JSON={"row":"di-friday","outcome":"finished","note":"n"}')
 check_verdict "outcome outside done|quiet|blocked -> failed-payload" "$OUT" failed-payload
 
 if [ ! -s "$PROJ/refs/pulse-ledger.jsonl" ]; then ok "no rejected payload ever reached the ledger"
@@ -324,10 +325,10 @@ else bad "rejected payloads stay out of the ledger" "ledger was written by a rej
 echo
 echo "== the completed path =="
 : > "$ROOT/inject.log"
-OUT=$(run_live "${BASE[@]}" 'RESULT_JSON={"row":"friday-deploy","outcome":"done","note":"drafted and parked","proof":{"kind":"cmd","cmd":"true"},"artifacts":["gid-1"]}')
+OUT=$(run_live "${BASE[@]}" 'RESULT_JSON={"row":"di-friday","outcome":"done","note":"drafted and parked","proof":{"kind":"cmd","cmd":"true"},"artifacts":["gid-1"]}')
 check_verdict "valid payload -> completed" "$OUT" completed
 LINE=$(tail -1 "$PROJ/refs/pulse-ledger.jsonl")
-if printf '%s' "$LINE" | jq -e '.row=="friday-deploy" and .outcome=="done" and .proof.cmd=="true"' >/dev/null 2>&1
+if printf '%s' "$LINE" | jq -e '.row=="di-friday" and .outcome=="done" and .proof.cmd=="true"' >/dev/null 2>&1
 then ok "ledger row written HERE with row/outcome/proof carried from the payload"
 else bad "ledger row content" "got: $(printf '%.160s' "$LINE")"; fi
 if printf '%s' "$LINE" | jq -e '.dispatch.remote==true and (.dispatch.run_id|length>0)' >/dev/null 2>&1
@@ -341,7 +342,7 @@ else bad "clean tick stays quiet" "injected without a surface/bead request"; fi
 echo
 echo "== the surface callback (Zig's 2026-07-27 extension) =="
 : > "$ROOT/inject.log"
-OUT=$(run_live "${BASE[@]}" 'RESULT_JSON={"row":"friday-deploy","outcome":"done","note":"needs him","proof":{"kind":"cmd","cmd":"true"},"surface_request":{"reason":"pod weekly empty","question":"Populate it?","options":["Yes","Later"]}}')
+OUT=$(run_live "${BASE[@]}" 'RESULT_JSON={"row":"di-friday","outcome":"done","note":"needs him","proof":{"kind":"cmd","cmd":"true"},"surface_request":{"reason":"pod weekly empty","question":"Populate it?","options":["Yes","Later"]}}')
 check_verdict "surface_request still completes the dispatch" "$OUT" completed
 if grep -q 'REMOTE PULSE SURFACE' "$ROOT/inject.log"; then ok "surface_request injects into the LOCAL window"
 else bad "surface_request injects locally" "nothing injected"; fi
@@ -357,17 +358,17 @@ else bad "surface staged" "no surface.json at ${RUNDIR}"; fi
 # Fail-closed on the injector's verdict: pulse-inject exits 0 on injected,
 # bounced AND deferred, so only the marker may be believed.
 : > "$ROOT/inject.log"
-OUT=$(INJECT_VERDICT=deferred-blocked-on-human run_live "${BASE[@]}" 'RESULT_JSON={"row":"friday-deploy","outcome":"done","proof":{"kind":"cmd","cmd":"true"},"surface_request":{"reason":"r","question":"q"}}')
+OUT=$(INJECT_VERDICT=deferred-blocked-on-human run_live "${BASE[@]}" 'RESULT_JSON={"row":"di-friday","outcome":"done","proof":{"kind":"cmd","cmd":"true"},"surface_request":{"reason":"r","question":"q"}}')
 case "$OUT" in *"surface NOT delivered"*) ok "a DEFERRED injection is reported as NOT delivered (fail closed)" ;;
   *) bad "deferred injection" "a deferred inject was treated as delivered" ;; esac
-OUT=$(INJECT_VERDICT=bounced-not-ready run_live "${BASE[@]}" 'RESULT_JSON={"row":"friday-deploy","outcome":"done","proof":{"kind":"cmd","cmd":"true"},"surface_request":{"reason":"r","question":"q"}}')
+OUT=$(INJECT_VERDICT=bounced-not-ready run_live "${BASE[@]}" 'RESULT_JSON={"row":"di-friday","outcome":"done","proof":{"kind":"cmd","cmd":"true"},"surface_request":{"reason":"r","question":"q"}}')
 case "$OUT" in *"surface NOT delivered"*) ok "a BOUNCED injection is reported as NOT delivered (fail closed)" ;;
   *) bad "bounced injection" "a bounced inject was treated as delivered" ;; esac
 
 echo
 echo "== bead requests are staged, never filed by the script =="
 : > "$ROOT/inject.log"
-OUT=$(run_live "${BASE[@]}" 'RESULT_JSON={"row":"friday-deploy","outcome":"done","note":"escalated","proof":{"kind":"cmd","cmd":"true"},"bead_request":{"priority":1,"title":"human: populate the pod weekly"}}')
+OUT=$(run_live "${BASE[@]}" 'RESULT_JSON={"row":"di-friday","outcome":"done","note":"escalated","proof":{"kind":"cmd","cmd":"true"},"bead_request":{"priority":1,"title":"human: populate the pod weekly"}}')
 check_verdict "bead_request still completes" "$OUT" completed
 RUNDIR=$(ls -dt "$STATE"/*/ 2>/dev/null | head -1)
 if [ -s "${RUNDIR}bead-request.json" ]; then ok "bead request staged to disk"
@@ -383,11 +384,11 @@ import sys; sys.exit(1)
 EOF
 chmod +x "$STUB/lint-reject"
 BEFORE=$(wc -l < "$PROJ/refs/pulse-ledger.jsonl")
-OUT=$(write_knobs "${BASE[@]}" 'RESULT_JSON={"row":"friday-deploy","outcome":"done","proof":{"kind":"cmd","cmd":"true"}}'
+OUT=$(write_knobs "${BASE[@]}" 'RESULT_JSON={"row":"di-friday","outcome":"done","proof":{"kind":"cmd","cmd":"true"}}'
   PULSE_DISPATCH_SSH="$STUB/ssh" PULSE_DISPATCH_PREFLIGHT="$STUB/preflight" \
   PULSE_DISPATCH_INJECT="$STUB/inject" PULSE_DISPATCH_MANIFEST=/nonexistent-manifest PULSE_DISPATCH_VAULT=/nonexistent \
   PULSE_DISPATCH_LINT="$STUB/lint-reject" PULSE_DISPATCH_STATE="$STATE" HOME="$ROOT/home" \
-    "$DISPATCH" --row friday-deploy --dir "$PROJ" --poll 1 --timeout 3 2>&1)
+    "$DISPATCH" --row di-friday --dir "$PROJ" --poll 1 --timeout 3 2>&1)
 check_verdict "lint rejects the row -> failed-ledger" "$OUT" failed-ledger
 AFTER=$(wc -l < "$PROJ/refs/pulse-ledger.jsonl")
 if [ "$BEFORE" = "$AFTER" ]; then ok "the rejected row was ROLLED BACK (ledger unchanged)"
@@ -426,7 +427,7 @@ run_oob() { # extra env assignments passed through by the caller
     PULSE_DISPATCH_VAULT=/nonexistent-local-vault \
     PULSE_DISPATCH_STATE="$STATE" \
     HOME="$ROOT/home" \
-      "$DISPATCH" --row friday-deploy --dir "$PROJ" --dry-run --poll 1 --timeout 3 2>&1
+      "$DISPATCH" --row di-friday --dir "$PROJ" --dry-run --poll 1 --timeout 3 2>&1
 }
 
 # (a) declared but ABSENT locally -> refuse, do not dispatch silently
@@ -484,6 +485,17 @@ run_row_out() { # same, but returns the dispatcher's output
     "$DISPATCH" --row "$_row" --dir "$PROJ" --dry-run --poll 1 --timeout 3 "$@" 2>&1
 }
 
+# (a3.3) A7 — claude must COMPLETE A REQUEST, not merely resolve. A4 passed all of
+#        2026-07-27 while the box's inherited ANTHROPIC_BASE_URL made every claude
+#        call fail; only a live request can tell those apart.
+OUT=$(A7_BODY='Error: connect ECONNREFUSED 100.x.x.x:443' run_row_out di-tuesday)
+check_verdict "A7 fails when claude cannot reach the API" "$OUT" failed-no-claude
+case "$OUT" in *"ANTHROPIC_BASE_URL"*) ok "the A7 failure names the gateway to check" ;;
+  *) bad "A7 failure names the gateway" "no ANTHROPIC_BASE_URL hint in the message" ;; esac
+OUT=$(run_row_out di-tuesday)
+case "$OUT" in *"preflight A7: OK"*) ok "A7 passes on a working box" ;;
+  *) bad "A7 passes on a working box" "no A7 OK line"; esac
+
 # (a3.4) --fresh: clear a WARM remote pane before dispatching, so a weekly row
 #        does not resume last week's conversation. No-op when cold-launched.
 : > "$ROOT/ssh.log"; OUT_FRESH=$(run_row_out di-tuesday --fresh)
@@ -502,12 +514,21 @@ case "$OUT_NOFRESH" in *"would clear:"*) bad "no --fresh means no /clear" "repor
 # would be pure cost. This is the case that made --fresh opt-in rather than always.
 : > "$ROOT/ssh.log"
 write_knobs 'PANE_CMD=zsh'
-SSH_LOG="$ROOT/ssh.log" PULSE_DISPATCH_SSH="$STUB/ssh" PULSE_DISPATCH_PREFLIGHT="$STUB/preflight" \
-PULSE_DISPATCH_INJECT="$STUB/inject" PULSE_DISPATCH_MANIFEST=/nonexistent-manifest \
-PULSE_DISPATCH_VAULT=/nonexistent-local-vault PULSE_DISPATCH_STATE="$STATE" HOME="$ROOT/home" \
-  OUT_COLD=$("$DISPATCH" --row di-tuesday --dir "$PROJ" --dry-run --fresh --poll 1 --timeout 3 2>&1 || true)
+# Reset the knobs: this case runs after ones that set failure knobs (a stale
+# REMOTE_VAULT_RC made it die at failed-vault, nowhere near the code under test).
+_mem=$(cd "$ROOT/home/.claude/projects/$(printf '%s' "$PROJ" | tr '/' '-')/memory" \
+       && find -L . -type f | LC_ALL=C sort | xargs -r sha256sum | sha256sum | cut -d' ' -f1)
+write_knobs 'PANE_CMD=zsh' "REMOTE_MEM_SHA=$_mem" \
+  "REMOTE_BEAD_JSON={\"jsonl_content_hash\":\"${LSHA:-BEADSHA}\",\"jsonl_newer\":false}"
+# `VAR=x OUT=$(cmd)` attaches the prefixes to the ASSIGNMENT, not to cmd, so the
+# subshell never sees them and the dispatcher runs without its stubs. Use `env`.
+OUT_COLD=$(env SSH_LOG="$ROOT/ssh.log" PULSE_DISPATCH_SSH="$STUB/ssh" \
+  PULSE_DISPATCH_PREFLIGHT="$STUB/preflight" PULSE_DISPATCH_INJECT="$STUB/inject" \
+  PULSE_DISPATCH_MANIFEST=/nonexistent-manifest PULSE_DISPATCH_VAULT=/nonexistent-local-vault \
+  PULSE_DISPATCH_STATE="$STATE" HOME="$ROOT/home" \
+  "$DISPATCH" --row di-tuesday --dir "$PROJ" --dry-run --fresh --poll 1 --timeout 3 2>&1 || true)
 case "$OUT_COLD" in *"would clear:   nothing"*) ok "--fresh is a no-op on a cold pane" ;;
-  *) bad "--fresh is a no-op on a cold pane" "expected the no-op line; got: $(printf '%s' "$OUT_COLD" | grep 'would clear' | head -1)" ;; esac
+  *) bad "--fresh is a no-op on a cold pane" "expected the no-op line; got: $(printf '%s' "$OUT_COLD" | tail -1)" ;; esac
 
 # (a3.5) ONE SESSION, ONE WINDOW PER ROW — `work:di-monday`, `work:di-tuesday`, …
 #        mirroring the local layout (Zig, 2026-07-27). A window is still its own
@@ -536,7 +557,7 @@ if grep -q "custom-sess" "$ROOT/ssh.log"
   else bad "--remote-session overrides" "explicit session was ignored"; fi
 # Credential teardown must be REFCOUNTED: rows share one session env, so an
 # unconditional unset would strip credentials from a row still mid-tick.
-: > "$ROOT/ssh.log"; run_row di-tuesday
+: > "$ROOT/ssh.log"; FLEET_API_TOKEN=t run_row di-tuesday --with-fleet-token
 if grep -q "inflight" "$ROOT/ssh.log"
   then ok "the dispatch claims a credential refcount marker"
   else bad "credential refcount is claimed" "no inflight marker in the ssh calls"; fi

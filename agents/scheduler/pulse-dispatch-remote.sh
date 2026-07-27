@@ -21,7 +21,7 @@
 #                     BOTH machines — which is why no skill needs a hostname
 #                     branch.
 #   2. refresh        ALL FOUR freshness tiers, dispatch-triggered (see below).
-#   3. preflight      six hard assertions, below. Nothing is dispatched unless
+#   3. preflight      seven hard assertions, below. Nothing is dispatched unless
 #                     all six pass.
 #   4. dispatch       stage DISPATCH.md, send-keys `/pulse tick <remote-dir>` into
 #                     the box's tmux.
@@ -852,6 +852,32 @@ PANE_CMD=${PANE_CMD//$'\r'/}
 note "remote pane_current_command='$PANE_CMD'"
 
 PANE_WARM=0
+# ---------------------------------------------------------------------------
+# A7 — can claude actually COMPLETE A REQUEST on the box?
+#
+# A4 below only ever proved the BINARY RESOLVES (`command -v claude`), or that a
+# claude process is running. Neither says the API is reachable. On 2026-07-27 the
+# box had inherited zig-computer's ANTHROPIC_BASE_URL pointing at a tailnet
+# gateway it cannot reach, so every claude invocation there failed — and A4 went
+# green through all of it, because a binary that resolves and a binary that works
+# are different claims. Every run that day was --dry-run, which stops before
+# injecting, so nothing ever exercised the difference. A live tick would have
+# burned its window and produced nothing.
+#
+# So: make one bounded, trivial request. It costs a handful of tokens on a weekly
+# row and it is the only assertion that can actually fail on a broken gateway.
+A7_OUT=$(rsh "cd ~ && timeout 90 claude -p 'reply with exactly: PONG' 2>&1 | tail -2" 2>>"$LOCAL_STATE/remote.err")
+A7_OUT=${A7_OUT//$'\r'/}
+case "$A7_OUT" in
+  *PONG*) say "preflight A7: OK (claude completed a live request on $HOST)" ;;
+  *) fail failed-no-claude 74 "A7 FAILED: claude on $HOST did not complete a trivial request.
+    got: $(printf '%s' "${A7_OUT:-<no output>}" | tr '\n' ' ' | cut -c1-300)
+    The binary may resolve while the API is unreachable — check ANTHROPIC_BASE_URL
+    on the box (it must NOT inherit zig-computer's tailnet gateway), and that the
+    company-seat login is still valid: ssh $HOST 'claude -p hi'.
+    NOT dispatching: a tick with no working model burns its window and writes nothing." ;;
+esac
+
 if [ "$PANE_CMD" = "claude" ]; then
   PANE_WARM=1
   say "preflight A4: OK (claude is already the pane's running process)"
@@ -890,7 +916,7 @@ fi
 # point: a dry run that skipped the assertions would prove nothing about them.
 # ---------------------------------------------------------------------------
 if [ "$DRY_RUN" = 1 ]; then
-  say "DRY RUN: all four preflight assertions passed."
+  say "DRY RUN: all preflight assertions passed."
   say "  would stage:   $HOST:$REMOTE_WORK/DISPATCH.md"
   if [ "$WITH_TOKEN" = 1 ]; then
     # Names only — never a value, not even a length. Brokering itself happens
