@@ -62,9 +62,27 @@ Merge target: `<branch>` (NOT main, unless project doesn't use /branch).
 - [Project-specific quality gate per CLAUDE.md]
 - /handoff checklist clears
 
+## Commit + push
+- **Your worktree branch: COMMIT, do NOT push.** The orchestrator merges and
+  pushes; a pushed `worktree-agent-*` branch is a stale remote the cleanup
+  block then has to delete.
+- **Any OTHER repo you touched (e.g. `~/dotfiles`): commit AND push.** It is
+  not a worktree, so nobody else is going to push it for you.
+
 ## Final summary format
 [Reference /handoff Step 4 — the message the orchestrator parses on return]
 ```
+
+⚠️ **Why the push block is in the template rather than left to judgment.** The
+orchestrator writes "commit and push" reflexively, because that is the rule
+everywhere else (AGENTS.md: *commit AND push as you go, in every project*). In a
+worktree dispatch that instruction **contradicts `/commit`'s worktree
+exception**, and the agent is then holding two rules and told to follow the
+wrong one. Measured 2026-07-27: three consecutive worktree subagents were given
+"push both repos", and all three correctly refused the worktree half and flagged
+the divergence rather than complying — a well-behaved agent catching its
+orchestrator, three times, on the same line. Stating it here is the fix; relying
+on the agent to catch it is not.
 
 ### Bead permissions — paste verbatim when the task creates beads
 
