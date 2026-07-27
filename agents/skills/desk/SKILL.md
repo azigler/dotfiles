@@ -299,9 +299,9 @@ does not know the premise; explain it from scratch, briefly (memory:
 **The heading convention is MANDATORY** — it is what makes the caps machine-
 checkable, and an uncheckable cap is decoration. Exactly these forms, uppercase:
 `## §1 THE ASK`, then one `### ASK n` per program; `## §2 WHAT TO STOP` with one
-`### STOP` per candidate; `### CONNECTION` under §4; `### CANDIDATE QUEUE` under
-§5. The ledger proof greps these literals, so a memo that free-styles its
-headings fails its own gate.
+`### STOP` per candidate; `### CONNECTION` under §4; `### CANDIDATE QUEUE` and
+`### EVIDENCE LAYER` under §5. The ledger proof greps these literals, so a memo
+that free-styles its headings fails its own gate.
 
 ⚠️ **`### CANDIDATE QUEUE` was added 2026-07-27 (`explore-qwtt`) and it is the
 reason to distrust "the skill says so" as an enforcement story.** The §5
@@ -312,7 +312,9 @@ is the *exact* write-half/read-half asymmetry the report was filed to fix
 (`explore-00qa`), reappearing one layer up at the proof. The lesson generalizes
 past this line: **when you add an instruction to a loop, ask what would notice if
 it silently stopped happening** — if the answer is "nothing," you have written
-documentation, not a mechanism.
+documentation, not a mechanism. `### EVIDENCE LAYER` (`explore-b2j8`, the day
+after) is the same lesson applied on the way in: the read half and its grep
+clause landed in one change, because a reader with no gate is the bug.
 
 **§1 THE ASK** — always first. 1–3 programs to fund next week, each under its own
 `### ASK n`. Each with all five fields: *what it is | the signal that it's ripe |
@@ -365,6 +367,19 @@ explorations. Not a list. Lists are how the rot started.
   other), **never as extra asks stapled on after the cap**. A week with nothing
   past the threshold reports the counts and stops. Promotion stays human-gated:
   the pass never creates the Asana card. A "no" goes to **Dropped** (run step 6).
+- **evidence layer** — under the MANDATORY literal heading `### EVIDENCE LAYER`
+  (the proof greps it too). One line, from `python3 bin/check-captures-declared.py
+  --corpus` (run it; do not estimate): how many entries have **settled** their
+  capture claim vs are **unsettled**, the qualifier distribution, and the NAMES of
+  any **majority-derived** entry — one holding more `(derived)` files than real
+  captures, i.e. an entry built mostly from agent-synthesized secondary research
+  rather than mirrors of sources. That is a *different evidence claim* from a
+  partial mirror, and until `explore-b2j8` nothing in the fleet read `*/refs/*`
+  across the corpus at all: `/desk` reads the FINDINGS layer, `/dream` reads
+  transcripts, and the evidence layer had **no reader**. It is a REPORT — the
+  script always exits 0, changes no verdict, and names no defect. Report the
+  numbers; a named majority-derived entry is a §2 stop-candidate or a
+  `/scrutinize` dispatch only if the memo genuinely judges it so.
 - **mailbox digest**: a one-line verdict per `📬` card of the week, so he can
   complete them in one pass instead of re-reading each. (Auto-completing old
   `📬` cards was **declined by Andrew 2026-07-17** — human-gated stays. His
@@ -471,7 +486,9 @@ in sync.)
 3. **Pass B** — fresh, corpus-free. Verify every quote in place (normalizing
    markdown emphasis first); drop what does not verify; dedup against open bead
    titles + the axis register; `br show` every carried `signals.md` bead and
-   drop the closed ones; apply the artifact caps; write §1–§6.
+   drop the closed ones; run `python3 bin/check-captures-declared.py --corpus`
+   for §5's evidence-layer line (one cheap read, no subprocess fan-out, always
+   exits 0); apply the artifact caps; write §1–§6.
 4. **Refuter pass** on §1. Record the verdict in the footer.
 5. **Update the two registers.** `axes.md`: add axes that earned entry (≥2
    positions), strike resolved ones with the memo date, record the wide-refresh
@@ -521,7 +538,7 @@ in sync.)
    proof the commit hook RE-RUNS (bare `artifact` is rejected fleet-wide,
    `explore-len0`):
    ```json
-   {"ts":"<date -u +%FT%TZ>","row":"desk","outcome":"done","proof":{"kind":"cmd","cmd":"D=refs/desk/<date>.md; test $(wc -w < $D) -le 1200 && grep -qF '## §1 THE ASK' $D && grep -qF '## §2 WHAT TO STOP' $D && test $(grep -c '^### ASK ' $D) -le 3 && test $(grep -c '^### ASK ' $D) -ge 1 && test $(grep -c '^### STOP' $D) -le 1 && test $(grep -c '^### STOP' $D) -ge 1 && test $(grep -c '^### CONNECTION' $D) -le 1 && grep -qF '### CANDIDATE QUEUE' $D && test $(git diff HEAD~1 -- .beads/issues.jsonl | grep -c '\"title\":\"desk:') -le 2"},"note":"desk pass (wide|delta) — N asks, M beads/E edges; C candidates dropped on quote-verify; corpus_bytes N of M; reviewed W new explorations (F flagged); field-delta appended"}
+   {"ts":"<date -u +%FT%TZ>","row":"desk","outcome":"done","proof":{"kind":"cmd","cmd":"D=refs/desk/<date>.md; test $(wc -w < $D) -le 1200 && grep -qF '## §1 THE ASK' $D && grep -qF '## §2 WHAT TO STOP' $D && test $(grep -c '^### ASK ' $D) -le 3 && test $(grep -c '^### ASK ' $D) -ge 1 && test $(grep -c '^### STOP' $D) -le 1 && test $(grep -c '^### STOP' $D) -ge 1 && test $(grep -c '^### CONNECTION' $D) -le 1 && grep -qF '### CANDIDATE QUEUE' $D && grep -qF '### EVIDENCE LAYER' $D && test $(git diff HEAD~1 -- .beads/issues.jsonl | grep -c '\"title\":\"desk:') -le 2"},"note":"desk pass (wide|delta) — N asks, M beads/E edges; C candidates dropped on quote-verify; corpus_bytes N of M; reviewed W new explorations (F flagged); field-delta appended"}
    ```
    A pass that found nothing new logs `"outcome":"quiet"` (no proof needed) —
    but see the empty-week rule below: "nothing to report" is a failure, not a
