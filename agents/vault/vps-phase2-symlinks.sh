@@ -7,7 +7,8 @@ set -euo pipefail
 WT="$HOME/.claude/projects"
 
 # active native<->canonical pairs (suffix shared; -home-andrew-X -> -home-ubuntu-X)
-SUFFIXES=( "linearb" "linearb-marketing-vps" "linearb-imc-july26" "linearb-imc-aug26" )
+SUFFIXES=( "linearb" "linearb-marketing-vps" "linearb-imc-july26" "linearb-imc-aug26" \
+           "linearb-dashboard-dev-interrupted" )
 
 echo "=== create canonical targets (if absent) + symlink native -> canonical ==="
 for suf in "${SUFFIXES[@]}"; do
