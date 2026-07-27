@@ -195,10 +195,14 @@ When the task is to bring an intriguing topic into this compendium (recent examp
 
    ```bash
    python3 bin/check-frontmatter.py <topic>   # advisory — absolutes the body qualifies (4a)
-   python3 bin/verify-quotes.py <topic>       # FAIL = a quoted span with no match in refs/
+   python3 bin/verify-quotes.py <topic>       # FAIL = a quoted span matching no refs/ capture AND no cited bead
    ```
 
    These are cheap and local, and that is the point: they let the mandatory `/scrutinize` pass spend its effort on interpretation and premise instead of re-fetching sources to string-match quotes.
+
+   **Reading their output honestly — both are noisier than their exit codes suggest:**
+   - `verify-quotes` resolves a quote against `refs/` first, then against the **bodies of beads the entry cites** (printed as `matched bead:<id>`) — so interlinking with a bead quotation is no longer a FAIL. It degrades to WARN, never a false FAIL, if `br` is unavailable; `--no-beads` restores the old refs-only behaviour. Its WARN tier is dominated by a known apostrophe-splitting false positive (`explore-yqtm`), and **the wider corpus is currently red for reasons that are not about your entry** (`explore-w4zd`: 103 of 117 entries FAIL, mostly older partial captures that were never `capture: extract`-marked). Judge YOUR entry's FAILs on their merits; do not take a non-zero corpus as licence to ignore your own.
+   - `check-frontmatter` is **advisory only and must never gate** — measured precision is about 1 real catch in 11 flags. It is silent on most entries; when it does fire, adjudicate in five seconds from the body span it prints and move on.
 
    **4c. Run the mandatory `/scrutinize` pass** — a fresh, read-only adversarial reviewer on the corpus / method / interpretation (the explore CLAUDE.md scrutiny gate). **Three clauses are STANDING in that dispatch — include them every time, not when you happen to think of it:**
    - **"Verify the frontmatter is as careful as the body."** Give the reviewer the `what:` / `index_bullet` fields explicitly and tell it these propagate verbatim into `CHILDREN.md` / `INDEX.md` with no hedge following, so a hedge present in the body but stripped from the metadata is a **real finding**, not a nitpick. Both 2026-07-27 catches happened *only* because the dispatch said this; it was ad-hoc both times.
