@@ -500,9 +500,24 @@ if [ "$SKIP_SYNC" != 1 ] && [ -r "$MANIFEST" ]; then
     if ! command -v "$RSYNC_BIN" >/dev/null 2>&1; then
       fail failed-preflight 73 "rsync not found, but the manifest declares ${#_oob[@]} require-oob path(s) that git cannot deliver"
     fi
-    for _rel in "${_oob[@]}"; do
-      [ -e "$HOME/$_rel" ] || fail failed-preflight 73 \
-        "manifest declares require-oob '\$HOME/$_rel' but it does not exist on zig-computer either — fix the manifest or restore the path"
+    for _pat in "${_oob[@]}"; do
+      # GLOB-expanded, so `imc-*` covers next month's campaign folder with no
+      # manifest edit. A pattern matching nothing is a failure, exactly like a
+      # missing literal — "declared but absent" must never be silent.
+      shopt -s nullglob
+      # shellcheck disable=SC2206  # deliberate word-split: this is the glob expansion
+      _matches=( $HOME/$_pat )
+      shopt -u nullglob
+      [ "${#_matches[@]}" -gt 0 ] || fail failed-preflight 73 \
+        "manifest declares require-oob '\$HOME/$_pat' but nothing matches it on zig-computer either — fix the manifest or restore the path"
+      for _abs in "${_matches[@]}"; do
+      # nullglob only suppresses patterns that CONTAIN a metacharacter; a literal
+      # path with no `*` survives expansion even when it does not exist. So the
+      # per-match existence check is what actually catches a declared-but-absent
+      # literal — the array being non-empty proves nothing.
+      [ -e "$_abs" ] || fail failed-preflight 73 \
+        "manifest declares require-oob '\$HOME/$_pat' but '$_abs' does not exist on zig-computer either — fix the manifest or restore the path"
+      _rel=${_abs#"$HOME"/}
       say "sync T0: pushing out-of-band $_rel -> $HOST"
       "$RSYNC_BIN" -az --delete \
         --exclude='.git/' --exclude='node_modules/' --exclude='.next/' \
@@ -511,8 +526,9 @@ if [ "$SKIP_SYNC" != 1 ] && [ -r "$MANIFEST" ]; then
         --exclude='.claude/worktrees/' \
         --exclude='.env' --exclude='.env.*' --exclude='*.env.local' \
         --exclude='.google-service-account.json' --exclude='*service-account*.json' \
-        "$HOME/$_rel/" "$HOST:$_rel/" 2>>"$LOCAL_STATE/rsync.err" \
+        "$_abs/" "$HOST:$_rel/" 2>>"$LOCAL_STATE/rsync.err" \
         || fail failed-preflight 73 "rsync of out-of-band path '$_rel' to $HOST failed (see $LOCAL_STATE/rsync.err)"
+      done
     done
   fi
 fi

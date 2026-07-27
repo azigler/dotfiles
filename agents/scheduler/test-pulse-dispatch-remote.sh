@@ -406,6 +406,7 @@ chmod +x "$STUB/rsync"
 OOB_MAN="$ROOT/oob-manifest.txt"
 printf 'require-oob $HOME/oobdir\n' > "$OOB_MAN"
 
+run_oob_with() { OOB_MAN_OVERRIDE="$1" run_oob; }
 run_oob() { # extra env assignments passed through by the caller
   # Reuse the happy-path A5/A6 fixture so this section tests the T0 push only.
   local _mem _bead
@@ -417,7 +418,7 @@ run_oob() { # extra env assignments passed through by the caller
     PULSE_DISPATCH_SSH="$STUB/ssh" \
     PULSE_DISPATCH_PREFLIGHT="$STUB/preflight" \
     PULSE_DISPATCH_INJECT="$STUB/inject" \
-    PULSE_DISPATCH_MANIFEST="$OOB_MAN" \
+    PULSE_DISPATCH_MANIFEST="${OOB_MAN_OVERRIDE:-$OOB_MAN}" \
     PULSE_DISPATCH_RSYNC="$STUB/rsync" \
     PULSE_DISPATCH_VAULT=/nonexistent-local-vault \
     PULSE_DISPATCH_STATE="$STATE" \
@@ -431,6 +432,24 @@ OUT=$(run_oob)
 check_verdict "require-oob missing on zig-computer -> failed-preflight" "$OUT" failed-preflight
 case "$OUT" in *"does not exist on zig-computer"*) ok "the message says which side is missing it" ;;
   *) bad "the message says which side is missing it" "unexpected: $(printf '%s' "$OUT" | tail -2)" ;; esac
+
+# (a2) a GLOB that matches nothing is also a failure — not a silent skip.
+#      nullglob makes the array empty here, which is a DIFFERENT code path from
+#      the literal case above, so both need proving.
+printf 'require-oob $HOME/nomatch-*\n' > "$ROOT/glob-manifest.txt"
+OUT=$(OOB_MAN="$ROOT/glob-manifest.txt" run_oob_with "$ROOT/glob-manifest.txt")
+check_verdict "require-oob glob matching nothing -> failed-preflight" "$OUT" failed-preflight
+
+# (a3) a glob that DOES match pushes every match.
+mkdir -p "$ROOT/home/camp-one" "$ROOT/home/camp-two"
+echo x > "$ROOT/home/camp-one/a"; echo y > "$ROOT/home/camp-two/b"
+printf 'require-oob $HOME/camp-*\n' > "$ROOT/glob2-manifest.txt"
+: > "$ROOT/rsync.log"
+OUT=$(run_oob_with "$ROOT/glob2-manifest.txt")
+check_verdict "require-oob glob with matches -> dispatch proceeds" "$OUT" dry-run-ok
+if grep -q "camp-one" "$ROOT/rsync.log" && grep -q "camp-two" "$ROOT/rsync.log"
+  then ok "a glob pushes EVERY match, not just the first"
+  else bad "a glob pushes every match" "rsync log: $(cat "$ROOT/rsync.log")"; fi
 
 # (b) present -> it is actually pushed, and credentials are excluded
 mkdir -p "$ROOT/home/oobdir"; echo x > "$ROOT/home/oobdir/brief.md"

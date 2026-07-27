@@ -93,4 +93,7 @@ require $HOME/linearb/weekly-reporting/.claude/skills/weekly-report/SKILL.md
 # beat at `~/linearb/imc-<month>` and guest-promo's /di-marketing-post frames its
 # blurb from that corpus — a tick without it drafts confidently without campaign
 # context. 1.7 MB + 5.4 MB; needs an rsync, or a decision to descope guest-promo.
-require-oob $HOME/linearb/imc-aug26
+# GLOB: every campaign folder, present and future. imc-* is gitignored in the
+# umbrella and is NOT a submodule, so git can never deliver it — and adding one
+# to the umbrella would only create a gitlink the box cannot resolve.
+require-oob $HOME/linearb/imc-*

@@ -372,7 +372,20 @@ check_req() {
   REQ_JSON+=("{\"path\":\"$p\",\"oob\":$([ "$oob" = 1 ] && echo true || echo false),\"ok\":$ok}")
 }
 for p in "${REQS[@]}";    do check_req "$p" 0; done
-for p in "${REQ_OOB[@]}"; do check_req "$p" 1; done
+# require-oob entries may be GLOBS (e.g. imc-*), so next month's campaign folder
+# is covered without a manifest edit. Expand here; a pattern that matches nothing
+# is checked as its literal self, which fails — "declared but absent" stays loud.
+for p in "${REQ_OOB[@]}"; do
+  shopt -s nullglob
+  # shellcheck disable=SC2206  # deliberate word-split: this is the glob expansion
+  _m=( $p )
+  shopt -u nullglob
+  if [ "${#_m[@]}" -gt 0 ]; then
+    for _one in "${_m[@]}"; do check_req "$_one" 1; done
+  else
+    check_req "$p" 1
+  fi
+done
 
 # ---------------------------------------------------------------------------
 # Receipt. Written ONLY when nothing failed.
