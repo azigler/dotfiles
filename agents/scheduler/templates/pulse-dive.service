@@ -5,8 +5,11 @@
 # WINDOW ROTATION COMPLETE (2026-07-26, Zig's call). The tmux window was renamed
 # explore -> dive, so this unit injects into `--window dive`. Rotated with it:
 # the identity key in ~/explore/.claude/identity.yml, the per-window handoff file
-# (refs/session-handoff--explore.md -> --dive.md), pulse-recall-distill.service
-# (which shares this window), and the now-deleted pulse-explore.{service,timer}.
+# (refs/session-handoff--explore.md -> --dive.md), the learning loop that then
+# shared this window, and the now-deleted pulse-explore.{service,timer}.
+# That learning loop has since LEFT: on 2026-07-27 (explore-w1mn)
+# pulse-recall-distill.service was renamed pulse-dream.service and repointed to
+# its own `dream` window, so `dive` is now this unit's alone.
 # harnessd's manifest needed NO change — its `key` is a project slug keyed on
 # path, not a tmux window name.
 #
