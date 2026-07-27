@@ -84,6 +84,37 @@ Put each result under the handoff's **Decisions made this session** section
 (Step 3). If none, the section says "none this session." These are a durable
 ADR log — leave them open unless a later decision supersedes one.
 
+## Step 2.6: Promote any proposed STANDING practice out of the handoff
+
+The handoff note is a **per-session snapshot** — Step 3 overwrites it, and a
+`/clear` (or a `--fresh` tick) leaves nothing else behind. So a practice
+proposed only here is **homeless**: one session later it is indistinguishable
+from a practice that was actually adopted, except that nothing enforces it and
+nobody will ever read it again.
+
+The handoff's job — "what the next run needs to know" — is exactly the shape of
+a proposed standing practice, so the temptation lands here every time. Before
+writing the note, scan what you're about to write for anything phrased as
+durable: *worth adopting*, *should become*, *going forward*, *from now on*,
+*always*, *the standing X*, *next run should*. **Every hit needs a home that is
+not this file:**
+
+| The proposal is… | Its home |
+|---|---|
+| mechanical and unambiguous | edit the SKILL / contract / registry **now**, this session |
+| a judgment call, or bigger than this session | `br create` a bead **now**, and cite its id |
+| genuinely one-run-only ("re-check X tomorrow") | fine to leave in the note — it isn't standing |
+
+Then record the disposition in the handoff's **Proposed practices** section
+(Step 3) — each line naming *where it landed*, not what it is. That section is a
+**receipt, not an inbox**: an entry with no destination means the promotion
+didn't happen, which is the bug. If nothing was proposed, it says "none this
+session."
+
+(Filed as `explore-zl07` after exactly this failure: a "standing second check"
+lived in one loop's handoff for a day, was never promoted, and survived only
+because the next run happened to read the note.)
+
 ## Step 3: Write the session handoff note
 
 Write the handoff note (overwrite, don't append — it's a snapshot, not a
@@ -128,6 +159,12 @@ Write the markdown below to `$HANDOFF`:
 
 ## Decisions made this session (autonomous decide-and-proceed calls)
 - <the `-t decision` beads harvested in Step 2.5, one bullet each; or "none this session">
+
+## Proposed practices — where each one landed (Step 2.6)
+- <one line per standing proposal, naming its DESTINATION: "X → written into
+  <skill/contract/registry>" or "Y → filed as `<bead-id>`"; or "none this session">
+- <a line with no destination means it did not get promoted — that is the bug,
+  not a note. This section is a receipt, not an inbox.>
 
 ## What's next
 - <the next 1–3 actions the next session should take>

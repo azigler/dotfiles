@@ -251,6 +251,21 @@ the daily cap.)
    the `desk` window) opts in with `refs/.handoff-per-window`, and the handoff
    is then `refs/session-handoff--<window>.md` so the two sessions don't
    clobber each other's resume doc. Anchor it to `$PULSE_DIR`, like the ledger.
+
+   **A STANDING proposal must not live only in the handoff — promote it here,
+   or it evaporates.** Run **/offboard Step 2.6** as part of this wrap; it is
+   not optional for a loop. The per-tick handoff is the one artifact that
+   *looks* durable while being overwritten every tick, so a practice proposed
+   in it ("worth adopting as the standing second check…") reads, one tick
+   later, exactly like a practice that was adopted — except nothing enforces
+   it. Under `--fresh` it is worse, not better: the note is all that survives,
+   so an unpromoted proposal dies the moment a tick doesn't happen to re-read
+   it. Every hit goes into the loop's own contract / SKILL if mechanical, or a
+   bead if it's a judgment call, **during this tick**; the handoff then records
+   only *where it landed*. It fails in the same silent way the four loop costs
+   do — nothing errors, nothing trips, and a practice everyone assumes is
+   running was in fact never adopted (`explore-zl07`).
+
    **Structural review cadence.** Human review is a *permanent* loop
    feature, not only the blocked-tick exception (Loop Engineering §XI.C:
    "keep one door open") — it keeps Andrew capable of saying "no" before
