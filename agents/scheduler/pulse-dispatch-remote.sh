@@ -257,7 +257,7 @@ PORT=7100
 ROW=""
 DIR=""
 REMOTE_DIR=""
-REMOTE_SESSION=""   # defaults to pulse-dispatch-<row> after parsing; see below
+REMOTE_SESSION="work"   # ONE session on the box; the ROW names the window
 SESSION="work"
 WINDOW="di"
 TIMEOUT=3600
@@ -334,7 +334,23 @@ done
 # collision (Wed 06:00 digest + Wed 07:00 di-wednesday are an hour apart against a
 # 3600s poll timeout). One session per row restores the local semantics exactly:
 # durable across weeks for the same row, isolated between rows.
-[ -n "$REMOTE_SESSION" ] || REMOTE_SESSION="pulse-dispatch-${ROW}"
+# ONE remote session, ONE WINDOW PER ROW — `work:di-monday`, `work:di-tuesday`,
+# ... — mirroring the LOCAL layout exactly (Zig, 2026-07-27). The earlier shape
+# was a session per row; windows are what the local model actually uses, and one
+# `tmux attach -t work` on the box then shows every row side by side.
+#
+# Isolation is unchanged: a tmux WINDOW is its own pane and its own Claude
+# session, so rows still cannot bleed context into each other. What DOES become
+# shared is the tmux ENVIRONMENT — `setenv` is per-session, not per-window — which
+# is why the credential teardown below is refcounted rather than unconditional.
+REMOTE_WINDOW="$ROW"
+# tmux `setenv` is per-SESSION and all rows now share `work`, so an unconditional
+# unset at teardown would strip the credentials out from under a row still mid-tick
+# (di-tuesday 07:00 and weekly-report 09:00 are the same session, and the poll
+# timeout is an hour). Refcount instead: each dispatch claims a marker, teardown
+# releases it, and only the LAST one out unsets. Markers are empty files on the
+# box, never the values.
+INFLIGHT_DIR="\$HOME/work/pulse-dispatch/.inflight"
 
 # ---------------------------------------------------------------------------
 # Argument validation
@@ -378,8 +394,12 @@ cleanup() {
     if [ "$WITH_TOKEN" = 1 ]; then
       # Unset before the socket dies: the token must not outlive the tunnel.
       "$SSH_BIN" -S "$CTL" -o BatchMode=yes "$HOST" \
-        "for v in FLEET_API_TOKEN SITE_PASSWORD SLACK_BOT_TOKEN SLACK_NEWS_PLANNING_CHANNEL_ID; do tmux setenv -u -t '$REMOTE_SESSION' \$v; done" >/dev/null 2>>"$LOCAL_STATE/teardown.err" || \
-        warn "could not unset FLEET_API_TOKEN in the remote tmux env (see $LOCAL_STATE/teardown.err)"
+        "rm -f '$INFLIGHT_DIR/$ROW'; \
+         if [ -z \"\$(ls -A '$INFLIGHT_DIR' 2>/dev/null)\" ]; then \
+           for v in FLEET_API_TOKEN SITE_PASSWORD SLACK_BOT_TOKEN SLACK_NEWS_PLANNING_CHANNEL_ID; do tmux setenv -u -t '$REMOTE_SESSION' \$v; done; \
+           echo unset; \
+         else echo held; fi" >/dev/null 2>>"$LOCAL_STATE/teardown.err" || \
+        warn "could not release the remote credential refcount (see $LOCAL_STATE/teardown.err)"
     fi
     "$SSH_BIN" -S "$CTL" -O exit "$HOST" >/dev/null 2>>"$LOCAL_STATE/teardown.err" || \
       warn "control-master exit returned non-zero; check for a stray ssh to $HOST"
@@ -790,9 +810,25 @@ say "preflight A3: OK (200 through the tunnel)"
 #     bash -lc`: that is a different shell with a different PATH, and passing
 #     there while the pane fails is precisely the login/non-login footgun.
 # ---------------------------------------------------------------------------
-rsh "tmux has-session -t '=$REMOTE_SESSION' || tmux new-session -d -s '$REMOTE_SESSION' -c '$REMOTE_DIR'" \
+rsh "tmux has-session -t '=$REMOTE_SESSION' || tmux new-session -d -s '$REMOTE_SESSION' -n '$REMOTE_WINDOW' -c '$REMOTE_DIR'" \
   >/dev/null 2>>"$LOCAL_STATE/remote.err" \
   || fail failed-no-claude 74 "could not create/find tmux session '$REMOTE_SESSION' on $HOST (see $LOCAL_STATE/remote.err)"
+
+# The row's WINDOW inside that session. Exact-match on the name, and create it if
+# absent — same contract as pulse-inject.sh locally. Matching on #{window_name}
+# rather than an index keeps this base-index independent (marketing-vps sets
+# base-index 1), which is the same trap that broke pane resolution earlier today.
+WIN_ID=$(rsh "tmux list-windows -t '=$REMOTE_SESSION' -F '#{window_id} #{window_name}' | awk -v n='$REMOTE_WINDOW' '\$2==n{print \$1; exit}'" 2>>"$LOCAL_STATE/remote.err")
+WIN_ID=${WIN_ID//$'\r'/}
+if [ -z "$WIN_ID" ]; then
+  WIN_ID=$(rsh "tmux new-window -d -P -F '#{window_id}' -t '=$REMOTE_SESSION' -n '$REMOTE_WINDOW' -c '$REMOTE_DIR'" 2>>"$LOCAL_STATE/remote.err")
+  WIN_ID=${WIN_ID//$'\r'/}
+  note "created remote window $REMOTE_SESSION:$REMOTE_WINDOW ($WIN_ID)"
+fi
+case "$WIN_ID" in
+  @[0-9]*) : ;;
+  *) fail failed-no-claude 74 "could not resolve a window id for '$REMOTE_SESSION:$REMOTE_WINDOW' on $HOST (got '$WIN_ID'; see $LOCAL_STATE/remote.err)" ;;
+esac
 
 # Resolve the pane by its tmux-assigned unique id (%N), NOT by "session:0.0".
 # Index bases are a per-server option: marketing-vps sets `base-index 1` AND
@@ -804,11 +840,11 @@ rsh "tmux has-session -t '=$REMOTE_SESSION' || tmux new-session -d -s '$REMOTE_S
 # marketing-vps, the `=` exact-match prefix makes display-message print NOTHING
 # and still exit 0 — a silent wrong answer, the exact failure class this script
 # exists to refuse. list-panes answers the question directly.
-PANE=$(rsh "tmux list-panes -t '$REMOTE_SESSION' -F '#{pane_id}' | head -1" 2>>"$LOCAL_STATE/remote.err")
+PANE=$(rsh "tmux list-panes -t '$WIN_ID' -F '#{pane_id}' | head -1" 2>>"$LOCAL_STATE/remote.err")
 PANE=${PANE//$'\r'/}
 case "$PANE" in
   %[0-9]*) : ;;
-  *) fail failed-no-claude 74 "could not resolve a pane id for tmux session '$REMOTE_SESSION' on $HOST (got '$PANE'; see $LOCAL_STATE/remote.err)" ;;
+  *) fail failed-no-claude 74 "could not resolve a pane id for '$REMOTE_SESSION:$REMOTE_WINDOW' on $HOST (got '$PANE'; see $LOCAL_STATE/remote.err)" ;;
 esac
 note "remote pane resolved to $PANE"
 PANE_CMD=$(rsh "tmux display-message -p -t '$PANE' '#{pane_current_command}'" 2>>"$LOCAL_STATE/remote.err")
@@ -843,7 +879,7 @@ else
     The box's claude/node live behind an INTERACTIVE ZSH LOGIN profile; a pane started
     as a plain or non-login shell cannot see them. Remedy: recreate the session so its
     pane runs a login shell, e.g.
-      ssh $HOST \"tmux kill-session -t $REMOTE_SESSION; tmux new-session -d -s $REMOTE_SESSION -c $REMOTE_DIR 'zsh -l'\"
+      ssh $HOST \"tmux kill-window -t $REMOTE_SESSION:$REMOTE_WINDOW\"   # just this row's window; other rows keep theirs
     Dispatching now would type /pulse tick into a shell that answers 'command not found'." ;;
   esac
 fi
@@ -903,6 +939,8 @@ if [ "$WITH_TOKEN" = 1 ]; then
     fail failed-inject 75 "could not broker FLEET_API_TOKEN into the remote tmux env (see $LOCAL_STATE/remote.err)"
   fi
   unset TOK
+  rsh "mkdir -p '$INFLIGHT_DIR' && touch '$INFLIGHT_DIR/$ROW'" >/dev/null 2>>"$LOCAL_STATE/remote.err" \
+    || warn "could not claim the credential refcount marker; teardown may unset while another row runs"
   say "credential: FLEET_API_TOKEN brokered into tmux env for this run only (never written to the box's disk)"
 
   # PROJECT SECRETS the fleet proxy does NOT cover. Audited 2026-07-27 across all

@@ -61,13 +61,15 @@ case "$last" in
   *"rev-parse HEAD"*)         printf '%s\n' "${REMOTE_VAULT_HEAD:-deadbeefdeadbeef}"; exit 0 ;;
   *"br sync --import-only"*)  exit "${REMOTE_IMPORT_RC:-0}" ;;
   *"br sync --status --json"*) printf '%s\n' "${REMOTE_BEAD_JSON-{\"jsonl_content_hash\":\"BEADSHA\",\"jsonl_newer\":false\}}"; exit 0 ;;
+  *"window_id #{window_name}"*) printf '%s\n' "${WIN_LIST-}"; exit 0 ;;   # empty => window absent
+  *"new-window"*)             printf '%s\n' "${NEW_WIN_ID:-@7}"; exit 0 ;;
   *"pane_id"*)                printf '%s\n' "${PANE_ID:-%3}"; exit 0 ;;
   *"pane_current_command"*)   printf '%s\n' "${PANE_CMD:-zsh}"; exit 0 ;;
   *"claude-probe.txt"*)       printf '%s\n' "${PROBE_BODY-/home/andrew/.local/bin/claude
 PROBE_RC=0}"; exit 0 ;;
   *"capture-pane"*)           printf '%s\n' "${PANE_CAPTURE:-? for shortcuts}"; exit 0 ;;
   *"result.json"*)            printf '%s' "${RESULT_JSON:-}"; exit 0 ;;
-  *"has-session"*|*"send-keys"*|*"mkdir -p"*|*"setenv"*|*"DISPATCH.md"*) exit 0 ;;
+  *"has-session"*|*"send-keys"*|*"mkdir -p"*|*"setenv"*|*"DISPATCH.md"*|*"inflight"*|*"kill-window"*) exit 0 ;;
 esac
 exit 0
 STUBEOF
@@ -480,6 +482,7 @@ run_row_out() { # same, but returns the dispatcher's output
   PULSE_DISPATCH_INJECT="$STUB/inject" PULSE_DISPATCH_MANIFEST=/nonexistent-manifest \
   PULSE_DISPATCH_VAULT=/nonexistent-local-vault PULSE_DISPATCH_STATE="$STATE" HOME="$ROOT/home" \
     "$DISPATCH" --row "$_row" --dir "$PROJ" --dry-run --poll 1 --timeout 3 "$@" 2>&1
+}
 
 # (a3.4) --fresh: clear a WARM remote pane before dispatching, so a weekly row
 #        does not resume last week's conversation. No-op when cold-launched.
@@ -506,25 +509,37 @@ PULSE_DISPATCH_VAULT=/nonexistent-local-vault PULSE_DISPATCH_STATE="$STATE" HOME
 case "$OUT_COLD" in *"would clear:   nothing"*) ok "--fresh is a no-op on a cold pane" ;;
   *) bad "--fresh is a no-op on a cold pane" "expected the no-op line; got: $(printf '%s' "$OUT_COLD" | grep 'would clear' | head -1)" ;; esac
 
-# (a3.5) PER-ROW REMOTE SESSION. A shared pane means row B's tick opens on top of
-#        row A's conversation, and two rows an hour apart collide against a 3600s
-#        poll. Locally each row has its own WINDOW; this is the remote equivalent.
-}
-: > "$ROOT/ssh.log"; run_row guest-promo
-if grep -q "pulse-dispatch-guest-promo" "$ROOT/ssh.log"
-  then ok "remote session is namespaced per row"
-  else bad "remote session is namespaced per row" "no pulse-dispatch-guest-promo in ssh calls"; fi
-: > "$ROOT/ssh.log"; run_row friday-deploy
-if grep -q "pulse-dispatch-friday-deploy" "$ROOT/ssh.log"
-  then ok "a different row gets a DIFFERENT session"
-  else bad "a different row gets a different session" "friday-deploy reused another session"; fi
-if grep -q "pulse-dispatch-guest-promo" "$ROOT/ssh.log"
-  then bad "rows do not share a session" "friday-deploy touched guest-promo's session"
-  else ok "rows do not share a session"; fi
-: > "$ROOT/ssh.log"; run_row guest-promo --remote-session custom-sess
+# (a3.5) ONE SESSION, ONE WINDOW PER ROW — `work:di-monday`, `work:di-tuesday`, …
+#        mirroring the local layout (Zig, 2026-07-27). A window is still its own
+#        pane and its own Claude session, so rows cannot bleed context; what IS
+#        shared is the tmux ENVIRONMENT, which is why teardown is refcounted.
+: > "$ROOT/ssh.log"; run_row di-tuesday
+if grep -q "=work" "$ROOT/ssh.log"
+  then ok "the box uses ONE session named work"
+  else bad "the box uses ONE session named work" "no work-session call in the ssh log"; fi
+if grep -q "di-tuesday" "$ROOT/ssh.log"
+  then ok "the row names its WINDOW"
+  else bad "the row names its window" "no di-tuesday window in the ssh calls"; fi
+: > "$ROOT/ssh.log"; run_row di-friday
+if grep -q "di-tuesday" "$ROOT/ssh.log"
+  then bad "a different row targets a different window" "di-friday touched di-tuesday's window"
+  else ok "a different row targets a different window"; fi
+# An EXISTING window must be reused, not duplicated — otherwise a weekly row grows
+# a new window every week and --fresh clears the wrong one.
+: > "$ROOT/ssh.log"; WIN_LIST='@4 di-tuesday' run_row di-tuesday
+if grep -q "new-window" "$ROOT/ssh.log"
+  then bad "an existing window is REUSED, not recreated" "created a second di-tuesday window"
+  else ok "an existing window is REUSED, not recreated"; fi
+: > "$ROOT/ssh.log"; OUT=$(run_row_out di-tuesday --remote-session custom-sess)
 if grep -q "custom-sess" "$ROOT/ssh.log"
-  then ok "--remote-session still overrides the per-row default"
+  then ok "--remote-session still overrides the session name"
   else bad "--remote-session overrides" "explicit session was ignored"; fi
+# Credential teardown must be REFCOUNTED: rows share one session env, so an
+# unconditional unset would strip credentials from a row still mid-tick.
+: > "$ROOT/ssh.log"; run_row di-tuesday
+if grep -q "inflight" "$ROOT/ssh.log"
+  then ok "the dispatch claims a credential refcount marker"
+  else bad "credential refcount is claimed" "no inflight marker in the ssh calls"; fi
 
 # (a4) THE SECRET GATE. A denylist is a list of things someone thought of; the
 #      scanner is the actual guarantee, and under the complement rule any new
