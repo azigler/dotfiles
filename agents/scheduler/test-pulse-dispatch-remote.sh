@@ -60,6 +60,7 @@ case "$last" in
   *"rev-parse HEAD"*)         printf '%s\n' "${REMOTE_VAULT_HEAD:-deadbeefdeadbeef}"; exit 0 ;;
   *"br sync --import-only"*)  exit "${REMOTE_IMPORT_RC:-0}" ;;
   *"br sync --status --json"*) printf '%s\n' "${REMOTE_BEAD_JSON-{\"jsonl_content_hash\":\"BEADSHA\",\"jsonl_newer\":false\}}"; exit 0 ;;
+  *"pane_id"*)                printf '%s\n' "${PANE_ID:-%3}"; exit 0 ;;
   *"pane_current_command"*)   printf '%s\n' "${PANE_CMD:-zsh}"; exit 0 ;;
   *"claude-probe.txt"*)       printf '%s\n' "${PROBE_BODY-/home/andrew/.local/bin/claude
 PROBE_RC=0}"; exit 0 ;;

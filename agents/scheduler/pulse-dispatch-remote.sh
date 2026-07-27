@@ -668,7 +668,19 @@ rsh "tmux has-session -t '=$REMOTE_SESSION' || tmux new-session -d -s '$REMOTE_S
   >/dev/null 2>>"$LOCAL_STATE/remote.err" \
   || fail failed-no-claude 74 "could not create/find tmux session '$REMOTE_SESSION' on $HOST (see $LOCAL_STATE/remote.err)"
 
-PANE="$REMOTE_SESSION:0.0"
+# Resolve the pane by its tmux-assigned unique id (%N), NOT by "session:0.0".
+# Index bases are a per-server option: marketing-vps sets `base-index 1` AND
+# `pane-base-index 1`, so ":0.0" names a window/pane that can never exist there
+# and every send-keys fails with "can't find window: 0". Measured 2026-07-27 —
+# five preflight assertions passed and A4 failed on this alone. A pane id is
+# base-independent and unambiguous, so it is correct on any tmux config.
+PANE=$(rsh "tmux display-message -p -t '=$REMOTE_SESSION' '#{pane_id}'" 2>>"$LOCAL_STATE/remote.err")
+PANE=${PANE//$'\r'/}
+case "$PANE" in
+  %[0-9]*) : ;;
+  *) fail failed-no-claude 74 "could not resolve a pane id for tmux session '$REMOTE_SESSION' on $HOST (got '$PANE'; see $LOCAL_STATE/remote.err)" ;;
+esac
+note "remote pane resolved to $PANE"
 PANE_CMD=$(rsh "tmux display-message -p -t '$PANE' '#{pane_current_command}'" 2>>"$LOCAL_STATE/remote.err")
 PANE_CMD=${PANE_CMD//$'\r'/}
 note "remote pane_current_command='$PANE_CMD'"
