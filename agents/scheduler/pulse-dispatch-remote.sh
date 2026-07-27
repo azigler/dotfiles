@@ -674,7 +674,11 @@ rsh "tmux has-session -t '=$REMOTE_SESSION' || tmux new-session -d -s '$REMOTE_S
 # and every send-keys fails with "can't find window: 0". Measured 2026-07-27 —
 # five preflight assertions passed and A4 failed on this alone. A pane id is
 # base-independent and unambiguous, so it is correct on any tmux config.
-PANE=$(rsh "tmux display-message -p -t '=$REMOTE_SESSION' '#{pane_id}'" 2>>"$LOCAL_STATE/remote.err")
+# `list-panes`, NOT `display-message -t '=name'`: measured 2026-07-27 on
+# marketing-vps, the `=` exact-match prefix makes display-message print NOTHING
+# and still exit 0 — a silent wrong answer, the exact failure class this script
+# exists to refuse. list-panes answers the question directly.
+PANE=$(rsh "tmux list-panes -t '$REMOTE_SESSION' -F '#{pane_id}' | head -1" 2>>"$LOCAL_STATE/remote.err")
 PANE=${PANE//$'\r'/}
 case "$PANE" in
   %[0-9]*) : ;;
