@@ -200,7 +200,15 @@ When the task is to bring an intriguing topic into this compendium (recent examp
 
    These are cheap and local, and that is the point: they let the mandatory `/scrutinize` pass spend its effort on interpretation and premise instead of re-fetching sources to string-match quotes.
 
-   **4b-i. Declare your captures complete — this is what makes the check mean anything.** `verify-quotes` is **advisory by default**: a quote matching no capture is a WARN (`unverified`), not a FAIL. An entry opts INTO hard-FAIL semantics by dropping a `refs/.captures-complete` marker file (same idiom as `refs/.handoff-per-window`). **A `/dive` archival entry SHOULD declare it**, because you just captured every source verbatim in Step 1 — that is precisely the claim the marker makes. Add it once `verify-quotes` is clean, and from then on a FAIL in your entry is a real defect rather than a shrug.
+   **4b-i. Settle what you claim about your captures — this is what makes the check mean anything, and it is GATED.** `verify-quotes` is **advisory by default**: a quote matching no capture is a WARN (`unverified`), not a FAIL. An entry opts INTO hard-FAIL semantics by dropping a `refs/.captures-complete` marker file (same idiom as `refs/.handoff-per-window`). **A `/dive` archival entry SHOULD declare it**, because you just captured every source verbatim in Step 1 — that is precisely the claim the marker makes. Add it once `verify-quotes` is clean, and from then on a FAIL in your entry is a real defect rather than a shrug.
+
+   If a source genuinely could not be mirrored, you mark that capture `capture: extract` instead (Step 1) and do **not** declare — that is equally settled, and the two are mutually exclusive. What is NOT acceptable is asserting neither, because `verify-quotes` structurally cannot fail an entry that claims nothing, however thin its archive. Check with:
+
+   ```bash
+   python3 bin/check-captures-declared.py <topic>   # 0 = settled · 1 = asserts nothing · 2 = contradictory
+   ```
+
+   This is in the `dive` **done-proof** (`refs/pulse.md`), so a tick cannot log `done` without settling it. The ~86 unsettled historical entries are deliberately untouched — the backlog is measured, not fixed (`explore-gi0p`).
 
    Why the default is advisory (`explore-w4zd`, measured 2026-07-27): across the 117 entries with a `refs/`, **95% of the old FAILs were the author's own words** — coined thesis lines, Vibes-card and bead titles, quotes from internal docs, paraphrase-with-emphasis — not fabricated source quotations. Nothing syntactic separates those from a real quote, and quote length does not either (median 9 words passing vs 7 failing). So a no-match means *unverifiable*, not *wrong*, unless you have asserted your captures are complete. **Do not "fix" a WARN backlog by adding the marker to old entries or by backfilling `capture: extract` — both are the bypass.** `--strict` audits the whole backlog in one flag (3,365 spans corpus-wide today); that number is a measurement, not a target.
 
