@@ -876,6 +876,16 @@ if [ "$WITH_TOKEN" = 1 ]; then
   say "credential: FLEET_API_TOKEN brokered into tmux env for this run only (never written to the box's disk)"
 fi
 
+# A NON-SECRET marker so a skill can tell it is running on the dispatch box
+# rather than on zig-computer. di-wednesday needs this: its Fable positioning vet
+# normally ssh-hops to marketing-vps via the /vps concierge, which would be a
+# self-hop when the tick already runs there. Inferring from hostname was the
+# alternative and it is worse — the box's hostname is vps-8a9eb245 while the ssh
+# ALIAS is marketing-vps, so the obvious check is wrong in a way that fails
+# silently. An explicit signal from the dispatcher cannot drift.
+rsh "tmux setenv -t '$REMOTE_SESSION' PULSE_DISPATCH_REMOTE 1" >/dev/null 2>>"$LOCAL_STATE/remote.err" \
+  || warn "could not set PULSE_DISPATCH_REMOTE in the remote tmux env (a skill that branches on it will take the local path)"
+
 # ---------------------------------------------------------------------------
 # Step 6 — stage DISPATCH.md: the remote tick's contract.
 #
