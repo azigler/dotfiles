@@ -249,7 +249,7 @@ PORT=7100
 ROW=""
 DIR=""
 REMOTE_DIR=""
-REMOTE_SESSION="pulse-dispatch"
+REMOTE_SESSION=""   # defaults to pulse-dispatch-<row> after parsing; see below
 SESSION="work"
 WINDOW="di"
 TIMEOUT=3600
@@ -314,6 +314,17 @@ while [ $# -gt 0 ]; do
     *) echo "pulse-dispatch: unknown arg $1" >&2; emit_result failed-usage; exit 64 ;;
   esac
 done
+
+# PER-ROW remote session. Was a single shared "pulse-dispatch" session, with the
+# pane resolved as `list-panes | head -1` — so EVERY row landed in the SAME pane,
+# and row B's tick opened on top of row A's entire conversation. Locally this
+# never bit us because pulse-inject.sh gives each row its own tmux WINDOW, which
+# is its own Claude session; the remote side had no equivalent. Two failures fell
+# out of that: context bleed (a tick reasoning over the previous row's work) and
+# collision (Wed 06:00 digest + Wed 07:00 di-wednesday are an hour apart against a
+# 3600s poll timeout). One session per row restores the local semantics exactly:
+# durable across weeks for the same row, isolated between rows.
+[ -n "$REMOTE_SESSION" ] || REMOTE_SESSION="pulse-dispatch-${ROW}"
 
 # ---------------------------------------------------------------------------
 # Argument validation

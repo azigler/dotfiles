@@ -48,6 +48,7 @@ cat > "$STUB/ssh" <<'STUBEOF'
 # shellcheck disable=SC1090
 [ -n "${STUB_KNOBS:-}" ] && [ -f "$STUB_KNOBS" ] && . "$STUB_KNOBS"
 args=("$@"); last="${args[${#args[@]}-1]}"
+[ -n "${SSH_LOG:-}" ] && printf '%s\n' "$*" >> "$SSH_LOG"
 # rsh() ships the remote command through `printf %q`, so spaces arrive as "\ ".
 # Strip backslashes before matching — the real ssh never sees these patterns.
 last="${last//\\/}"
@@ -450,6 +451,42 @@ check_verdict "require-oob glob with matches -> dispatch proceeds" "$OUT" dry-ru
 if grep -q "camp-one" "$ROOT/rsync.log" && grep -q "camp-two" "$ROOT/rsync.log"
   then ok "a glob pushes EVERY match, not just the first"
   else bad "a glob pushes every match" "rsync log: $(cat "$ROOT/rsync.log")"; fi
+
+# (a3.5) PER-ROW REMOTE SESSION. A shared pane means row B's tick opens on top of
+#        row A's conversation, and two rows an hour apart collide against a 3600s
+#        poll. Locally each row has its own WINDOW; this is the remote equivalent.
+run_row() { # run_row <row> [extra args...]
+  local _row=$1; shift
+  # Full happy-path fixture: A5/A6 run BEFORE pane resolution, so a knobs-light
+  # run fails at the memory assertion and never reaches the tmux session at all.
+  local _mem _bead
+  _mem=$(cd "$ROOT/home/.claude/projects/$(printf '%s' "$PROJ" | tr '/' '-')/memory" \
+         && find -L . -type f | LC_ALL=C sort | xargs -r sha256sum | sha256sum | cut -d' ' -f1)
+  _bead="{\"jsonl_content_hash\":\"${LSHA:-BEADSHA}\",\"jsonl_newer\":false}"
+  write_knobs 'PANE_CMD=claude' "REMOTE_MEM_SHA=$_mem" "REMOTE_BEAD_JSON=$_bead"
+  SSH_LOG="$ROOT/ssh.log" \
+  PULSE_DISPATCH_SSH="$STUB/ssh" \
+  PULSE_DISPATCH_PREFLIGHT="$STUB/preflight" \
+  PULSE_DISPATCH_INJECT="$STUB/inject" PULSE_DISPATCH_MANIFEST=/nonexistent-manifest \
+  PULSE_DISPATCH_VAULT=/nonexistent-local-vault \
+  PULSE_DISPATCH_STATE="$STATE" HOME="$ROOT/home" \
+    "$DISPATCH" --row "$_row" --dir "$PROJ" --dry-run --poll 1 --timeout 3 "$@" >/dev/null 2>&1
+}
+: > "$ROOT/ssh.log"; run_row guest-promo
+if grep -q "pulse-dispatch-guest-promo" "$ROOT/ssh.log"
+  then ok "remote session is namespaced per row"
+  else bad "remote session is namespaced per row" "no pulse-dispatch-guest-promo in ssh calls"; fi
+: > "$ROOT/ssh.log"; run_row friday-deploy
+if grep -q "pulse-dispatch-friday-deploy" "$ROOT/ssh.log"
+  then ok "a different row gets a DIFFERENT session"
+  else bad "a different row gets a different session" "friday-deploy reused another session"; fi
+if grep -q "pulse-dispatch-guest-promo" "$ROOT/ssh.log"
+  then bad "rows do not share a session" "friday-deploy touched guest-promo's session"
+  else ok "rows do not share a session"; fi
+: > "$ROOT/ssh.log"; run_row guest-promo --remote-session custom-sess
+if grep -q "custom-sess" "$ROOT/ssh.log"
+  then ok "--remote-session still overrides the per-row default"
+  else bad "--remote-session overrides" "explicit session was ignored"; fi
 
 # (a4) THE SECRET GATE. A denylist is a list of things someone thought of; the
 #      scanner is the actual guarantee, and under the complement rule any new
