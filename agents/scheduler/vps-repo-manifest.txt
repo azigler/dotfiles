@@ -4,10 +4,16 @@
 # zig-computer). Data, not code: adding a migrating pulse row should be a line
 # here, never a script edit.
 #
-# Scope note (explore-7iz9, architecture (c)): only the FIVE migrating rows'
-# dependencies are listed — friday-deploy, di-research-digest, guest-promo,
-# di-wednesday (dashboard-dev-interrupted) and weekly-report (weekly-reporting).
-# `news-planning` and `di-monday` stay local and are deliberately NOT provisioned.
+# Scope note (explore-7iz9, architecture (c); AMENDED 2026-07-27): ALL SEVEN
+# rows are provisioned — friday-deploy, di-research-digest, guest-promo,
+# di-wednesday, di-monday, news-planning (dashboard-dev-interrupted) and
+# weekly-report (weekly-reporting).
+#
+# di-monday and news-planning were originally left local because both must raise
+# a bell to Zig and a dialog on an unattended shared box is worthless. Zig's call
+# 2026-07-27 supersedes that: they run remote, and a payload `surface_request`
+# fires BACK to the work:di window here so the LOCAL session raises the
+# AskUserQuestion. The bell still rings on this machine; only the drafting moved.
 #
 # Directives (whitespace separated; ~ and $HOME expand; # starts a comment):
 #
@@ -82,7 +88,14 @@ require $HOME/linearb/dashboard-dev-interrupted/.claude/skills/di-research-curat
 require $HOME/linearb/dashboard-dev-interrupted/.claude/skills/di-newsletter-post/SKILL.md
 require $HOME/linearb/dashboard-dev-interrupted/.claude/skills/di-marketing-post/SKILL.md
 require $HOME/linearb/dashboard-dev-interrupted/.claude/skills/di-clip-plan/SKILL.md
+require $HOME/linearb/dashboard-dev-interrupted/.claude/skills/di-clip-post/SKILL.md
 require $HOME/linearb/dashboard-dev-interrupted/.claude/skills/di-preamble-and-midroll/SKILL.md
+# di-monday + news-planning (added 2026-07-27 when both rows moved remote).
+require $HOME/linearb/dashboard-dev-interrupted/.claude/skills/di-tiein-audit/SKILL.md
+require $HOME/linearb/dashboard-dev-interrupted/.claude/skills/news-planning/SKILL.md
+# Every row's Google Docs access now goes through this helper rather than the
+# local SA key / OAuth adapter, so a tick without it cannot write a tab at all.
+require $HOME/linearb/dashboard-dev-interrupted/scripts/gdoc_proxy.mjs
 
 require $HOME/linearb/weekly-reporting/CLAUDE.md
 require $HOME/linearb/weekly-reporting/refs/pulse.md

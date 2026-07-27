@@ -451,6 +451,34 @@ if grep -q "camp-one" "$ROOT/rsync.log" && grep -q "camp-two" "$ROOT/rsync.log"
   then ok "a glob pushes EVERY match, not just the first"
   else bad "a glob pushes every match" "rsync log: $(cat "$ROOT/rsync.log")"; fi
 
+# (a4) THE SECRET GATE. A denylist is a list of things someone thought of; the
+#      scanner is the actual guarantee, and under the complement rule any new
+#      untracked folder ships automatically. So a hit must REFUSE, not warn.
+cat > "$STUB/scrub-hit" <<'SCEOF'
+#!/bin/bash
+echo "scan: 1 files with matches, 1 secret matches" >&2
+exit 1
+SCEOF
+cat > "$STUB/scrub-clean" <<'SCEOF'
+#!/bin/bash
+exit 0
+SCEOF
+chmod +x "$STUB/scrub-hit" "$STUB/scrub-clean"
+
+mkdir -p "$ROOT/home/oobdir"; echo x > "$ROOT/home/oobdir/a"
+: > "$ROOT/rsync.log"
+OUT=$(run_oob PULSE_DISPATCH_SCRUB="$STUB/scrub-hit")
+check_verdict "scanner finds a secret -> failed-preflight" "$OUT" failed-preflight
+case "$OUT" in *"REFUSING to push"*) ok "the refusal names the push it blocked" ;;
+  *) bad "the refusal names the push" "unexpected: $(printf '%s' "$OUT" | tail -2)" ;; esac
+if grep -q "oobdir" "$ROOT/rsync.log"
+  then bad "a scanner hit blocks the push BEFORE rsync runs" "rsync ran anyway"
+  else ok "a scanner hit blocks the push BEFORE rsync runs"; fi
+
+: > "$ROOT/rsync.log"
+OUT=$(run_oob PULSE_DISPATCH_SCRUB="$STUB/scrub-clean")
+check_verdict "scanner clean -> dispatch proceeds" "$OUT" dry-run-ok
+
 # (b) present -> it is actually pushed, and credentials are excluded
 mkdir -p "$ROOT/home/oobdir"; echo x > "$ROOT/home/oobdir/brief.md"
 : > "$ROOT/rsync.log"

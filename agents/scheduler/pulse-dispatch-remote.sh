@@ -236,6 +236,7 @@ SSH_BIN="${PULSE_DISPATCH_SSH:-ssh}"
 PREFLIGHT="${PULSE_DISPATCH_PREFLIGHT:-$HERE/vps-preflight.sh}"
 INJECT="${PULSE_DISPATCH_INJECT:-$HERE/pulse-inject.sh}"
 MANIFEST="${PULSE_DISPATCH_MANIFEST:-$HERE/vps-repo-manifest.txt}"
+SCRUB="${PULSE_DISPATCH_SCRUB:-$HOME/.claude/skills/scrub-secrets/scrub.py}"
 RSYNC_BIN="${PULSE_DISPATCH_RSYNC:-rsync}"
 LEDGER_LINT="${PULSE_DISPATCH_LINT:-$HERE/pulse-ledger-lint.py}"
 STATE_ROOT="${PULSE_DISPATCH_STATE:-$HOME/.local/state/pulse-dispatch}"
@@ -541,13 +542,34 @@ if [ "$SKIP_SYNC" != 1 ] && [ -r "$MANIFEST" ]; then
       [ -e "$_abs" ] || fail failed-preflight 73 \
         "manifest declares require-oob '\$HOME/$_pat' but '$_abs' does not exist on zig-computer either — fix the manifest or restore the path"
       _rel=${_abs#"$HOME"/}
+      # POSITIVE GATE, not just a pattern denylist. The --exclude list below is a
+      # list of things someone thought of; `.envrc` alone is not matched by
+      # `.env.*`, and *.pem / *.key / credentials.json / id_rsa were all absent
+      # from it. Under the complement rule ANY new untracked folder ships
+      # automatically, so a hand-written denylist is the wrong guarantee. Scan
+      # what is about to leave the machine and REFUSE on a hit — the box is a
+      # SHARED team disk and holds no secrets by design (explore-7iz9).
+      if [ -x "$SCRUB" ] || [ -f "$SCRUB" ]; then
+        # Honor an executable scanner directly; the shipped scrub.py is mode 644
+        # with a python3 shebang, so it needs the interpreter.
+        if [ -x "$SCRUB" ]; then _scan=( "$SCRUB" ); else _scan=( python3 "$SCRUB" ); fi
+        if ! "${_scan[@]}" scan --quiet "$_abs" >>"$LOCAL_STATE/scrub.log" 2>&1; then
+          fail failed-preflight 73 "REFUSING to push '$_rel' to $HOST — the secret scanner found a high-confidence secret in it.
+    See $LOCAL_STATE/scrub.log. Move the credential to ~/.secrets (or an .env the
+    exclusions cover) and re-run. The box is a shared disk and must hold no secrets."
+        fi
+      else
+        warn "scrub-secrets not found at $SCRUB — pushing '$_rel' on the exclusion patterns alone"
+      fi
       say "sync T0: pushing out-of-band $_rel -> $HOST"
       "$RSYNC_BIN" -az --delete \
         --exclude='.git/' --exclude='node_modules/' --exclude='.next/' \
         --exclude='target/' --exclude='.venv/' --exclude='dist/' \
         --exclude='.ruff_cache/' --exclude='__pycache__/' \
         --exclude='.claude/worktrees/' \
-        --exclude='.env' --exclude='.env.*' --exclude='*.env.local' \
+        --exclude='.env' --exclude='.env.*' --exclude='.envrc' --exclude='*.env.local' \
+        --exclude='*.pem' --exclude='*.key' --exclude='id_rsa*' \
+        --exclude='credentials.json' --exclude='token.json' \
         --exclude='.google-service-account.json' --exclude='*service-account*.json' \
         "$_abs/" "$HOST:$_rel/" 2>>"$LOCAL_STATE/rsync.err" \
         || fail failed-preflight 73 "rsync of out-of-band path '$_rel' to $HOST failed (see $LOCAL_STATE/rsync.err)"
