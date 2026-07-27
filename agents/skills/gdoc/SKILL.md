@@ -21,7 +21,10 @@ like every other doc in the fleet.
 ## Prerequisites
 
 1. **A Google service account key** — set `GDOC_SA_KEY` to its path,
-   or place it at `~/.config/gcloud/service-account.json`.
+   or place it at `~/.config/gcloud/service-account.json`. (Required by
+   `gdoc.sh` and by the renderer's *direct* transport. A box with no
+   credentials can still render styled tabs through the fleet proxy —
+   see [Transport](#transport-local-key-or-the-fleet-proxy).)
 2. **bun** installed (the connector is TypeScript, run via bun).
 3. **The target document shared** with the service account's
    `client_email` (in the key file — typically
@@ -162,9 +165,34 @@ don't stand out, headings are plain. Never hand-write markdown into a doc/tab.
 ```bash
 # tab (SA_KEY = a service-account json with Docs write on the doc)
 SA_KEY=/path/sa.json bun ~/.claude/skills/gdoc/render_styled_blocks.mjs spec.json
-# shareable Word doc (+ pdf)
+# tab, from a box with NO credentials (fleet proxy over the reverse tunnel)
+GDOC_TRANSPORT=proxy bun ~/.claude/skills/gdoc/render_styled_blocks.mjs spec.json
+# shareable Word doc (+ pdf) — pure local, needs no credential at all
 python3 ~/.claude/skills/gdoc/build_styled_docx.py spec.json out.docx --pdf
 ```
+
+### Transport: local key OR the fleet proxy
+
+The renderer emits raw Docs `batchUpdate` requests, so *where* it posts them is
+a transport detail. `build_styled_docx.py` is unaffected — it never talks to
+Google, so the `.docx`/PDF half already works anywhere.
+
+| `GDOC_TRANSPORT` | Behavior |
+|---|---|
+| `auto` (default) | probe `FLEET_URL/api/health`; use the proxy, else fall back to `$SA_KEY` with the reason on stderr |
+| `proxy` | proxy only — a dead proxy is exit 1, never a silent fall back to local credentials |
+| `direct` | `googleapis` + `$SA_KEY`, exactly as before |
+
+`FLEET_URL` (default `http://localhost:7100`), `FLEET_API_TOKEN`, and
+`GDOC_AGENT_NAME` (default `zig-agent-copy`) configure the proxy path. This is
+what lets a credential-less worker such as `marketing-vps` render a themed tab:
+`localhost:7100` is a valid address there too, over the reverse SSH tunnel.
+
+One wrinkle worth knowing: the proxy exposes no raw `documents.get`, so the
+segment end index that `clear` needs is recovered from the Docs API's own
+out-of-bounds error (which names it). The probe cannot apply — `batchUpdate` is
+atomic and the rejected request is an insert past the end — and if the message
+shape ever drifts the renderer fails loudly instead of guessing an index.
 
 **Spec schema** (`spec.json`):
 ```jsonc
