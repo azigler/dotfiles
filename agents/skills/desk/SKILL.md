@@ -343,6 +343,14 @@ explorations. Not a list. Lists are how the rot started.
   "All clean, nothing flagged" is a valid and welcome line.
 - **queue health**, one line: unworked Vibes depth, `📬`-mailboxed count,
   oldest-`📬` age, and the NAMES of any unworked card older than ~3 weeks.
+- **candidate queue**, one line — the read half of `~/explore/refs/vibes-candidates.md`,
+  which nothing else reads: the **Pending** row count, the oldest row's date +
+  age, and the NAMES of any row older than ~3 weeks. Those named rows are the
+  go/no-go set — put them to Zig **inside §1's ≤3 asks** (a Pending row is a
+  program seeking funding, so it competes for an `### ASK n` slot like any
+  other), **never as extra asks stapled on after the cap**. A week with nothing
+  past the threshold reports the counts and stops. Promotion stays human-gated:
+  the pass never creates the Asana card. A "no" goes to **Dropped** (run step 6).
 - **mailbox digest**: a one-line verdict per `📬` card of the week, so he can
   complete them in one pass instead of re-reading each. (Auto-completing old
   `📬` cards was **declined by Andrew 2026-07-17** — human-gated stays. His
@@ -463,7 +471,10 @@ in sync.)
    edges"`). Zero edges on a multi-bead pass is the tell that this step was
    skipped. Record consciously-rejected candidates in
    `~/explore/refs/vibes-candidates.md`'s **Dropped** table (or the bead
-   `close_reason`) so a "no" is durable and not re-derivable forever.
+   `close_reason`) so a "no" is durable and not re-derivable forever. **Read
+   that file's Pending table on the same visit** — it has no other reader — and
+   report it per §5's *candidate queue* line; any Pending row you want promoted
+   spends one of §1's ≤3 ask slots, it does not add a fourth.
 7. **Append the field delta.** `refs/desk/field-notes.md` (append-only), written
    **from Pass A's `FIELD DELTA` block plus a one-line direction read** — do not
    synthesize it from the candidate list, which cannot support it. Clusters that
