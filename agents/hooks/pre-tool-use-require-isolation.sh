@@ -20,6 +20,25 @@
 # read-only types (Explore, Plan, general-purpose used for /scrutinize) run in
 # the orchestrator cwd deliberately and are ALLOWED without isolation.
 #
+# ⚠️ WHAT THIS HOOK DOES NOT COVER — CROSS-REPO DISPATCH (dotfiles-xype,
+# 2026-07-27, found live dispatching from ~/hevyd into ~/harnessd).
+# The worktree is created from the ORCHESTRATOR'S repo. When the work lives in a
+# DIFFERENT repo, satisfying this hook produces a worktree the agent never uses
+# while it writes directly into the other repo's shared checkout — precisely the
+# hazard this hook exists to prevent, now invisible to it. The dispatch reads as
+# guarded and is not.
+#
+# Deliberately NOT fixed by scanning the prompt for foreign repo paths: a prompt
+# routinely MENTIONS other repos ("read ~/explore/.claude/skills/INDEX.md"), so a
+# path-scanning blocker would false-positive on ordinary dispatches — a guard that
+# cries wolf gets worked around, which is worse than a documented gap. The posture
+# is therefore: this hook guards SAME-REPO dispatch, and cross-repo concurrency is
+# the orchestrator's responsibility (see the message below and the Delegation
+# section of ~/.claude/CLAUDE.md).
+#
+# One cross-repo agent is safe — there is no second writer. TWO targeting the same
+# foreign repo would race silently and this hook would pass both.
+#
 # Behavior:
 #   - exit 0 = allow the tool call
 #   - exit 2 = BLOCK and surface stderr to the agent
@@ -63,5 +82,12 @@ Fix: re-dispatch with BOTH parameters:
 
 (If you truly need a read-only agent in the current dir, use a built-in type
 like Explore or general-purpose instead of "subagent".)
+
+SCOPE — this guard covers SAME-REPO dispatch only (dotfiles-xype). The worktree
+is cut from the ORCHESTRATOR'S repo, so if the work lives in a DIFFERENT repo the
+agent gets a worktree it will not use and writes into that repo's shared checkout
+instead. This hook cannot see that and will pass it. One such agent is safe (no
+second writer); TWO targeting the same foreign repo race silently. If you are
+dispatching cross-repo, run them ONE AT A TIME and say so in the prompt.
 EOF
 exit 2

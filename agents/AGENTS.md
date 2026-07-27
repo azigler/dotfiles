@@ -348,6 +348,27 @@ linting hooks, commit conventions, and bead tracking. Built-in types
 (`Explore`, `Plan`, etc.) are for **read-only research** only — they
 lack hooks and cannot commit.
 
+⚠️ **CROSS-REPO DISPATCH IS NOT ISOLATED — SERIALIZE IT YOURSELF**
+(`dotfiles-xype`, 2026-07-27, found live dispatching from `~/hevyd` into
+`~/harnessd`). The worktree is cut from the **orchestrator's** repo. When
+the work lives in a *different* repo, the agent gets a worktree it never
+uses and writes straight into that repo's shared checkout — the exact
+hazard isolation exists to prevent, and
+`pre-tool-use-require-isolation.sh` **cannot see it and will pass the
+dispatch**. It guards same-repo work only; a green dispatch is not a
+guarantee here.
+- **One** cross-repo agent is safe — there is no second writer.
+- **Two** targeting the same foreign repo race silently, exactly like the
+  2026-07-13 incident that motivated the hook.
+
+So when the work is in another repo: dispatch them **one at a time**; tell
+the agent in its prompt that its worktree is incidental and to `cd` to the
+real repo; and have it stage precisely (never `git add -A`), since that
+checkout may hold another session's WIP. The hook was deliberately NOT
+taught to prompt-scan for foreign paths — prompts routinely *mention* other
+repos, so a path-matching blocker would false-positive on ordinary
+dispatches, and a guard that cries wolf gets worked around.
+
 **Omit `name`** on dispatched fire-and-forget worktree subagents so they self-terminate when
 done; naming one makes a lingering, addressable teammate with no force-kill.
 
