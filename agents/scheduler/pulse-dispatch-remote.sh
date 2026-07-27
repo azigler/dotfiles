@@ -235,6 +235,8 @@ LOG=/tmp/pulse-dispatch-remote.log
 SSH_BIN="${PULSE_DISPATCH_SSH:-ssh}"
 PREFLIGHT="${PULSE_DISPATCH_PREFLIGHT:-$HERE/vps-preflight.sh}"
 INJECT="${PULSE_DISPATCH_INJECT:-$HERE/pulse-inject.sh}"
+MANIFEST="${PULSE_DISPATCH_MANIFEST:-$HERE/vps-repo-manifest.txt}"
+RSYNC_BIN="${PULSE_DISPATCH_RSYNC:-rsync}"
 LEDGER_LINT="${PULSE_DISPATCH_LINT:-$HERE/pulse-ledger-lint.py}"
 STATE_ROOT="${PULSE_DISPATCH_STATE:-$HOME/.local/state/pulse-dispatch}"
 # The local vault entrypoint — the same script claude-vault-sync.timer runs.
@@ -473,6 +475,48 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Step 2a — T0 PUSH the out-of-band tier (gitignored / local-only).
+#
+# `require-oob` in the manifest marks a path git can NEVER deliver: the IMC
+# campaign folders are gitignored in the umbrella, so no amount of pulling puts
+# them on the box, and refs/beats.md points every beat at ~/linearb/imc-<month>.
+# A tick without that corpus drafts confidently WITHOUT campaign context —
+# wrong output, not missing output, which is the failure a weekly harvest cannot
+# catch.
+#
+# So the manifest is the single control surface: declare a path `require-oob`
+# once and it travels on every dispatch. Nobody has to remember an rsync.
+# Credentials are excluded by pattern — the box holds NO secrets by design
+# (explore-7iz9 brokers them over the tunnel instead), and a sweep of the box
+# on 2026-07-27 confirmed 0 .env* and 0 service-account files.
+# ---------------------------------------------------------------------------
+if [ "$SKIP_SYNC" != 1 ] && [ -r "$MANIFEST" ]; then
+  _oob=()
+  while read -r _d _p _rest; do
+    [ "$_d" = "require-oob" ] || continue
+    _oob+=("${_p#\$HOME/}")
+  done < "$MANIFEST"
+  if [ "${#_oob[@]}" -gt 0 ]; then
+    if ! command -v "$RSYNC_BIN" >/dev/null 2>&1; then
+      fail failed-preflight 73 "rsync not found, but the manifest declares ${#_oob[@]} require-oob path(s) that git cannot deliver"
+    fi
+    for _rel in "${_oob[@]}"; do
+      [ -e "$HOME/$_rel" ] || fail failed-preflight 73 \
+        "manifest declares require-oob '\$HOME/$_rel' but it does not exist on zig-computer either — fix the manifest or restore the path"
+      say "sync T0: pushing out-of-band $_rel -> $HOST"
+      "$RSYNC_BIN" -az --delete \
+        --exclude='.git/' --exclude='node_modules/' --exclude='.next/' \
+        --exclude='target/' --exclude='.venv/' --exclude='dist/' \
+        --exclude='.ruff_cache/' --exclude='__pycache__/' \
+        --exclude='.claude/worktrees/' \
+        --exclude='.env' --exclude='.env.*' --exclude='*.env.local' \
+        --exclude='.google-service-account.json' --exclude='*service-account*.json' \
+        "$HOME/$_rel/" "$HOST:$_rel/" 2>>"$LOCAL_STATE/rsync.err" \
+        || fail failed-preflight 73 "rsync of out-of-band path '$_rel' to $HOST failed (see $LOCAL_STATE/rsync.err)"
+    done
+  fi
+fi
+
 # Step 2b — T1 REFRESH + A1/A2 GATE, via vps-preflight.sh.
 #
 # Not reimplemented here. vps-preflight already drives vps-repo-refresh on the

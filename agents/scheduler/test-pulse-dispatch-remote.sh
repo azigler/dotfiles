@@ -123,7 +123,7 @@ run_dry() {
   write_knobs "$@"
   PULSE_DISPATCH_SSH="$STUB/ssh" \
   PULSE_DISPATCH_PREFLIGHT="$STUB/preflight" \
-  PULSE_DISPATCH_INJECT="$STUB/inject" \
+  PULSE_DISPATCH_INJECT="$STUB/inject" PULSE_DISPATCH_MANIFEST=/nonexistent-manifest \
   PULSE_DISPATCH_VAULT=/nonexistent-local-vault \
   PULSE_DISPATCH_STATE="$STATE" \
   HOME="$ROOT/home" \
@@ -285,7 +285,7 @@ run_live() {
   write_knobs "$@"
   PULSE_DISPATCH_SSH="$STUB/ssh" \
   PULSE_DISPATCH_PREFLIGHT="$STUB/preflight" \
-  PULSE_DISPATCH_INJECT="$STUB/inject" \
+  PULSE_DISPATCH_INJECT="$STUB/inject" PULSE_DISPATCH_MANIFEST=/nonexistent-manifest \
   PULSE_DISPATCH_VAULT=/nonexistent-local-vault \
   PULSE_DISPATCH_LINT=/nonexistent-lint \
   PULSE_DISPATCH_STATE="$STATE" \
@@ -382,13 +382,71 @@ chmod +x "$STUB/lint-reject"
 BEFORE=$(wc -l < "$PROJ/refs/pulse-ledger.jsonl")
 OUT=$(write_knobs "${BASE[@]}" 'RESULT_JSON={"row":"friday-deploy","outcome":"done","proof":{"kind":"cmd","cmd":"true"}}'
   PULSE_DISPATCH_SSH="$STUB/ssh" PULSE_DISPATCH_PREFLIGHT="$STUB/preflight" \
-  PULSE_DISPATCH_INJECT="$STUB/inject" PULSE_DISPATCH_VAULT=/nonexistent \
+  PULSE_DISPATCH_INJECT="$STUB/inject" PULSE_DISPATCH_MANIFEST=/nonexistent-manifest PULSE_DISPATCH_VAULT=/nonexistent \
   PULSE_DISPATCH_LINT="$STUB/lint-reject" PULSE_DISPATCH_STATE="$STATE" HOME="$ROOT/home" \
     "$DISPATCH" --row friday-deploy --dir "$PROJ" --poll 1 --timeout 3 2>&1)
 check_verdict "lint rejects the row -> failed-ledger" "$OUT" failed-ledger
 AFTER=$(wc -l < "$PROJ/refs/pulse-ledger.jsonl")
 if [ "$BEFORE" = "$AFTER" ]; then ok "the rejected row was ROLLED BACK (ledger unchanged)"
 else bad "ledger rollback" "ledger grew from $BEFORE to $AFTER lines"; fi
+
+echo
+echo "== T0: the out-of-band (gitignored) push, driven by the manifest =="
+# `require-oob` marks a path git can NEVER deliver (the IMC folders are
+# gitignored). If it silently did not travel, a tick drafts without campaign
+# context -- WRONG output, which a weekly harvest cannot catch. So both the
+# push and its refusal must be proven.
+cat > "$STUB/rsync" <<'RSEOF'
+#!/bin/bash
+printf '%s\n' "$*" >> "${RSYNC_LOG:-/dev/null}"
+exit "${RSYNC_RC:-0}"
+RSEOF
+chmod +x "$STUB/rsync"
+
+OOB_MAN="$ROOT/oob-manifest.txt"
+printf 'require-oob $HOME/oobdir\n' > "$OOB_MAN"
+
+run_oob() { # extra env assignments passed through by the caller
+  # Reuse the happy-path A5/A6 fixture so this section tests the T0 push only.
+  local _mem _bead
+  _mem=$(cd "$ROOT/home/.claude/projects/$(printf '%s' "$PROJ" | tr '/' '-')/memory" \
+         && find -L . -type f | LC_ALL=C sort | xargs -r sha256sum | sha256sum | cut -d' ' -f1)
+  _bead="{\"jsonl_content_hash\":\"${LSHA:-BEADSHA}\",\"jsonl_newer\":false}"
+  write_knobs 'PANE_CMD=claude' "REMOTE_MEM_SHA=$_mem" "REMOTE_BEAD_JSON=$_bead"
+  env RSYNC_LOG="$ROOT/rsync.log" "$@" \
+    PULSE_DISPATCH_SSH="$STUB/ssh" \
+    PULSE_DISPATCH_PREFLIGHT="$STUB/preflight" \
+    PULSE_DISPATCH_INJECT="$STUB/inject" \
+    PULSE_DISPATCH_MANIFEST="$OOB_MAN" \
+    PULSE_DISPATCH_RSYNC="$STUB/rsync" \
+    PULSE_DISPATCH_VAULT=/nonexistent-local-vault \
+    PULSE_DISPATCH_STATE="$STATE" \
+    HOME="$ROOT/home" \
+      "$DISPATCH" --row friday-deploy --dir "$PROJ" --dry-run --poll 1 --timeout 3 2>&1
+}
+
+# (a) declared but ABSENT locally -> refuse, do not dispatch silently
+rm -rf "$ROOT/home/oobdir"; : > "$ROOT/rsync.log"
+OUT=$(run_oob)
+check_verdict "require-oob missing on zig-computer -> failed-preflight" "$OUT" failed-preflight
+case "$OUT" in *"does not exist on zig-computer"*) ok "the message says which side is missing it" ;;
+  *) bad "the message says which side is missing it" "unexpected: $(printf '%s' "$OUT" | tail -2)" ;; esac
+
+# (b) present -> it is actually pushed, and credentials are excluded
+mkdir -p "$ROOT/home/oobdir"; echo x > "$ROOT/home/oobdir/brief.md"
+: > "$ROOT/rsync.log"
+OUT=$(run_oob)
+check_verdict "require-oob present -> dispatch proceeds" "$OUT" dry-run-ok
+if grep -q "oobdir" "$ROOT/rsync.log"; then ok "the out-of-band path was actually rsynced"
+  else bad "the out-of-band path was actually rsynced" "rsync stub never saw it"; fi
+if grep -q -- "--exclude=.env" "$ROOT/rsync.log" && grep -q -- "service-account" "$ROOT/rsync.log"
+  then ok "credentials are excluded from the push"
+  else bad "credentials are excluded from the push" "exclusion flags absent from the rsync call"; fi
+
+# (c) rsync itself fails -> refuse, never proceed on a partial push
+: > "$ROOT/rsync.log"
+OUT=$(run_oob RSYNC_RC=1)
+check_verdict "rsync failure -> failed-preflight" "$OUT" failed-preflight
 
 echo
 echo "== outcome contract =="
