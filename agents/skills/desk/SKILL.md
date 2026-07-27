@@ -299,8 +299,20 @@ does not know the premise; explain it from scratch, briefly (memory:
 **The heading convention is MANDATORY** — it is what makes the caps machine-
 checkable, and an uncheckable cap is decoration. Exactly these forms, uppercase:
 `## §1 THE ASK`, then one `### ASK n` per program; `## §2 WHAT TO STOP` with one
-`### STOP` per candidate; `### CONNECTION` under §4. The ledger proof greps these
-literals, so a memo that free-styles its headings fails its own gate.
+`### STOP` per candidate; `### CONNECTION` under §4; `### CANDIDATE QUEUE` under
+§5. The ledger proof greps these literals, so a memo that free-styles its
+headings fails its own gate.
+
+⚠️ **`### CANDIDATE QUEUE` was added 2026-07-27 (`explore-qwtt`) and it is the
+reason to distrust "the skill says so" as an enforcement story.** The §5
+candidate-queue report shipped the day before as skill prose only — and §5 had
+no mandated literal, so there was nothing to grep even in principle. A pass could
+omit the whole Pending report and still log `done` against a passing proof. That
+is the *exact* write-half/read-half asymmetry the report was filed to fix
+(`explore-00qa`), reappearing one layer up at the proof. The lesson generalizes
+past this line: **when you add an instruction to a loop, ask what would notice if
+it silently stopped happening** — if the answer is "nothing," you have written
+documentation, not a mechanism.
 
 **§1 THE ASK** — always first. 1–3 programs to fund next week, each under its own
 `### ASK n`. Each with all five fields: *what it is | the signal that it's ripe |
@@ -343,9 +355,11 @@ explorations. Not a list. Lists are how the rot started.
   "All clean, nothing flagged" is a valid and welcome line.
 - **queue health**, one line: unworked Vibes depth, `📬`-mailboxed count,
   oldest-`📬` age, and the NAMES of any unworked card older than ~3 weeks.
-- **candidate queue**, one line — the read half of `~/explore/refs/vibes-candidates.md`,
-  which nothing else reads: the **Pending** row count, the oldest row's date +
-  age, and the NAMES of any row older than ~3 weeks. Those named rows are the
+- **candidate queue** — under the MANDATORY literal heading `### CANDIDATE QUEUE`
+  (the proof greps it; see the heading convention above). One line: the read half
+  of `~/explore/refs/vibes-candidates.md`, which nothing else reads — the
+  **Pending** row count, the oldest row's date + age, and the NAMES of any row
+  older than ~3 weeks. Those named rows are the
   go/no-go set — put them to Zig **inside §1's ≤3 asks** (a Pending row is a
   program seeking funding, so it competes for an `### ASK n` slot like any
   other), **never as extra asks stapled on after the cap**. A week with nothing
@@ -507,7 +521,7 @@ in sync.)
    proof the commit hook RE-RUNS (bare `artifact` is rejected fleet-wide,
    `explore-len0`):
    ```json
-   {"ts":"<date -u +%FT%TZ>","row":"desk","outcome":"done","proof":{"kind":"cmd","cmd":"D=refs/desk/<date>.md; test $(wc -w < $D) -le 1200 && grep -qF '## §1 THE ASK' $D && grep -qF '## §2 WHAT TO STOP' $D && test $(grep -c '^### ASK ' $D) -le 3 && test $(grep -c '^### ASK ' $D) -ge 1 && test $(grep -c '^### STOP' $D) -le 1 && test $(grep -c '^### STOP' $D) -ge 1 && test $(grep -c '^### CONNECTION' $D) -le 1 && test $(git diff HEAD~1 -- .beads/issues.jsonl | grep -c '\"title\":\"desk:') -le 2"},"note":"desk pass (wide|delta) — N asks, M beads/E edges; C candidates dropped on quote-verify; corpus_bytes N of M; reviewed W new explorations (F flagged); field-delta appended"}
+   {"ts":"<date -u +%FT%TZ>","row":"desk","outcome":"done","proof":{"kind":"cmd","cmd":"D=refs/desk/<date>.md; test $(wc -w < $D) -le 1200 && grep -qF '## §1 THE ASK' $D && grep -qF '## §2 WHAT TO STOP' $D && test $(grep -c '^### ASK ' $D) -le 3 && test $(grep -c '^### ASK ' $D) -ge 1 && test $(grep -c '^### STOP' $D) -le 1 && test $(grep -c '^### STOP' $D) -ge 1 && test $(grep -c '^### CONNECTION' $D) -le 1 && grep -qF '### CANDIDATE QUEUE' $D && test $(git diff HEAD~1 -- .beads/issues.jsonl | grep -c '\"title\":\"desk:') -le 2"},"note":"desk pass (wide|delta) — N asks, M beads/E edges; C candidates dropped on quote-verify; corpus_bytes N of M; reviewed W new explorations (F flagged); field-delta appended"}
    ```
    A pass that found nothing new logs `"outcome":"quiet"` (no proof needed) —
    but see the empty-week rule below: "nothing to report" is a failure, not a
