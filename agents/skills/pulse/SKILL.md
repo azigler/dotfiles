@@ -236,12 +236,21 @@ the daily cap.)
    Under `--fresh` the *next* tick's `/clear` is sent by the injector before
    the command arrives — which makes the handoff note load-bearing, not
    optional, because nothing else survives into that tick. Resolve the path
-   via `handoff-path.sh` (`handoff_path "$PULSE_DIR"`), NOT a hardcoded
-   `refs/session-handoff.md`: a pulse project that also runs another durable
-   session (e.g. `~/explore` has the pulse window AND the elevate window) opts
-   in with `refs/.handoff-per-window`, and the handoff is then
-   `refs/session-handoff--<window>.md` so the two sessions don't clobber each
-   other's resume doc. Anchor it to `$PULSE_DIR`, like the ledger.
+   with the shared helper — **`~/dotfiles/agents/lib/handoff-path.sh`**, the
+   same one /onboard and /offboard source (it is under `agents/lib/`, NOT
+   `agents/scheduler/` with the other pulse machinery; a tick that guesses from
+   the "See also" list below gets exit 127):
+
+   ```bash
+   _HP="$HOME/dotfiles/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
+   handoff_path "$PULSE_DIR"
+   ```
+
+   NOT a hardcoded `refs/session-handoff.md`: a pulse project that also runs
+   another durable session (e.g. `~/explore` runs the `dive` pulse window AND
+   the `desk` window) opts in with `refs/.handoff-per-window`, and the handoff
+   is then `refs/session-handoff--<window>.md` so the two sessions don't
+   clobber each other's resume doc. Anchor it to `$PULSE_DIR`, like the ledger.
    **Structural review cadence.** Human review is a *permanent* loop
    feature, not only the blocked-tick exception (Loop Engineering §XI.C:
    "keep one door open") — it keeps Andrew capable of saying "no" before
@@ -532,6 +541,7 @@ AskUserQuestion is the load-bearing summon.
 - Spec + decisions: `cd ~/dotfiles && br show dotfiles-mhn`
 - [scheduler/pulse-inject.sh](../../scheduler/pulse-inject.sh) — the injection primitive (tested)
 - [scheduler/pulse-ledger-lint.py](../../scheduler/pulse-ledger-lint.py) — the ledger attribution gate (`--project <dir>`; row names discovered from that project's `refs/pulse.md`, never hardcoded)
+- [lib/handoff-path.sh](../../lib/handoff-path.sh) — resolves the per-tick handoff note path (`handoff_path "$PULSE_DIR"`). Note the directory: **`agents/lib/`**, not `agents/scheduler/` like the three above — it is shared with /onboard and /offboard rather than being pulse machinery.
 - [/onboard](../onboard/SKILL.md), [/offboard](../offboard/SKILL.md) — the per-tick brackets
 - [/orchestrator](../orchestrator/SKILL.md), [/scrutinize](../scrutinize/SKILL.md) — the work discipline inside a tick
 - autonovel `/heartbeat` — the parent pattern (retires after migration)

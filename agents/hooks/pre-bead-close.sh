@@ -15,6 +15,61 @@
 #      finding-bead opt in — e.g. explore deliverables.)
 #
 # Exit 2 = block the call and feed errors to the agent.
+#
+# `--selftest` runs the scrutiny-gate acceptance matrix and exits (0 = all
+# green). Run it after ANY edit to the verdict regexes below.
+
+# Scrutiny-gate matchers. Hoisted so --selftest and the gate itself share one
+# definition — the 2026-06-09 over-tightening shipped because the pattern was
+# inline with no regression test to contradict it.
+SCRUTINY_VERDICT_RE='(Verdict:[[:space:]]*(.*[^[:alnum:]])?(SHIP|OVERRIDE)[[:punct:][:space:]]*$|[Ss]crutin[a-z]*[^[:alnum:]]+(SHIP|OVERRIDE))'
+SCRUTINY_NEGATED_RE='\b[Nn][Oo][Tt][[:space:]]+(SHIP|OVERRIDE)\b'
+
+# Returns 0 when $1 records an accepted scrutiny verdict.
+# NOTE the negation filter is applied LINE-WISE (grep over the already-matched
+# lines), so a "do not ship" elsewhere in the notes cannot veto a real verdict.
+scrutiny_verdict_ok() {
+  echo "$1" | grep -E "$SCRUTINY_VERDICT_RE" | grep -qvE "$SCRUTINY_NEGATED_RE"
+}
+
+if [ "$1" = "--selftest" ]; then
+  # ⚠️ Run this under BASH. `grep -qv` on EMPTY input exits 0 under zsh and 1
+  # under bash, so a zsh-run harness reports the no-verdict cases as ACCEPTED
+  # and hides a real false-accept. This hook is #!/bin/bash; test it as bash.
+  _fails=0
+  while IFS='|' read -r _want _s; do
+    [ -z "$_want" ] && continue
+    if scrutiny_verdict_ok "$_s"; then _got=PASS; else _got=FAIL; fi
+    if [ "$_got" = "$_want" ]; then _v="  ok"; else _v="BROKEN"; _fails=$((_fails+1)); fi
+    printf '%s  want=%-4s got=%-4s | %s\n' "$_v" "$_want" "$_got" "$_s"
+  done <<'MATRIX'
+PASS|## Scrutiny — 2026-07-27: Verdict: SHIP
+PASS|## Scrutiny — OVERRIDE: no reviewer available
+PASS|Verdict: SHIP
+PASS|Verdict: OVERRIDE
+PASS|Verdict: FIX-FIRST → addressed → SHIP
+PASS|## Scrutiny — 2026-07-27: Verdict: FIX-FIRST → addressed → SHIP
+PASS|  Verdict: SHIP
+FAIL|## Scrutiny — 2026-07-27: Verdict: REJECT
+FAIL|Verdict: REJECT
+FAIL|Verdict: FIX-FIRST
+FAIL|Verdict:
+FAIL|## Scrutiny — 2026-07-27: Verdict:
+FAIL|needs scrutiny before we SHIP this
+FAIL|we should scrutinize this and then decide whether to SHIP
+FAIL|Verdict: do NOT SHIP
+FAIL|no verdict recorded here at all
+MATRIX
+  # The empty-bead case, kept out of the table because the reader strips it.
+  if scrutiny_verdict_ok ""; then
+    echo "BROKEN  want=FAIL got=PASS | <empty bead body>"; _fails=$((_fails+1))
+  else
+    echo "  ok  want=FAIL got=FAIL | <empty bead body>"
+  fi
+  echo "----- pre-bead-close --selftest: $_fails broken -----"
+  [ "$_fails" -eq 0 ] || exit 1
+  exit 0
+fi
 
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
@@ -205,22 +260,41 @@ for ID in $BEAD_IDS; do
   # when it is EITHER (a) an -t impl bead OR (b) carries the
   # `scrutinize-required` label — the opt-in marker a finding-bead (e.g. an
   # explore deliverable) sets so its close is gated like an impl's.
-  # Accept an anchored "Verdict: SHIP|OVERRIDE" line (the recorded format
-  # under a "## Scrutiny" header) or the verdict directly after the scrutiny
-  # marker ("## Scrutiny — OVERRIDE: ..."). Two independent greps over the
-  # whole bead used to let prose like "needs scrutiny before we SHIP" pass
-  # the gate with no verdict recorded (fixed 2026-06-09).
+  # Accept EITHER a "Verdict:" line that RESOLVES to SHIP|OVERRIDE — including
+  # the inline heading form this hook's own error message prescribes
+  # ("## Scrutiny — <date>: Verdict: SHIP") and a remediation chain
+  # ("Verdict: FIX-FIRST -> addressed -> SHIP") — OR the verdict directly after
+  # the scrutiny marker ("## Scrutiny — OVERRIDE: ...").
+  #
+  # Two independent greps over the whole bead used to let prose like "needs
+  # scrutiny before we SHIP" pass with no verdict recorded (fixed 2026-06-09).
+  # The 2026-06-09 fix then over-tightened: it required SHIP|OVERRIDE to sit
+  # IMMEDIATELY after "Verdict:", so the exact string the error message tells
+  # you to write was REJECTED, and the only working forms were a bare
+  # line-initial "Verdict: SHIP" or the OVERRIDE marker. The compliant path
+  # erroring while the OVERRIDE bypass worked trained agents toward the bypass
+  # (explore-x8mj; hit on every explore dive tick). Fixed 2026-07-27.
+  #
+  # A "Verdict:" line ending in SHIP|OVERRIDE is the accept condition; REJECT
+  # and an unresolved FIX-FIRST still fail, as does a negated "do NOT SHIP".
+  # Matchers + the line-wise negation filter live in scrutiny_verdict_ok() at
+  # the top of this file; `--selftest` runs the acceptance matrix against it.
   # ($SHOW was captured once at the top of the loop.)
   NEEDS_SCRUTINY=0
   echo "$SHOW" | grep -qE 'Type:[[:space:]]+impl([[:space:]]|$)' && NEEDS_SCRUTINY=1
   echo "$SHOW" | grep -qE '^[[:space:]]*Labels:.*scrutinize-required' && NEEDS_SCRUTINY=1
   if [ "$NEEDS_SCRUTINY" -eq 1 ]; then
-    if ! echo "$SHOW" | grep -qE '(^[[:space:]]*Verdict:[[:space:]]*(SHIP|OVERRIDE)|[Ss]crutin[a-z]*[^[:alnum:]]+(SHIP|OVERRIDE))'; then
+    if ! scrutiny_verdict_ok "$SHOW"; then
       echo "Blocked: bead $ID has no recorded scrutiny verdict." >&2
       echo "An -t impl bead — or one labeled 'scrutinize-required' — closes" >&2
-      echo "only after /scrutinize returns SHIP. Record the verdict in --notes" >&2
-      echo "('## Scrutiny — <date>: Verdict: SHIP'), or an explicit" >&2
-      echo "'## Scrutiny — OVERRIDE: <reason>'. See /scrutinize, /impl Step 5.0." >&2
+      echo "only after /scrutinize returns SHIP. Record it in --notes; any of:" >&2
+      echo "  ## Scrutiny — <date>: Verdict: SHIP" >&2
+      echo "  Verdict: SHIP                      (on its own line)" >&2
+      echo "  Verdict: FIX-FIRST -> addressed -> SHIP   (review + remediation)" >&2
+      echo "A REJECT or an unresolved FIX-FIRST does NOT close — fix, then re-run" >&2
+      echo "the review. Last resort, and it is a BYPASS, not a verdict:" >&2
+      echo "  ## Scrutiny — OVERRIDE: <reason>" >&2
+      echo "See /scrutinize, /impl Step 5.0." >&2
       FAILED=1
     fi
   fi
