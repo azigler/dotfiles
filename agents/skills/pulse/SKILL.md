@@ -208,7 +208,26 @@ the daily cap.)
    success. `/onboard` Step 0 already does this correctly — copy it, don't
    re-derive it.
 1. **Cheap onboard** — skip what's already in context: CLAUDE.md, TOOLKIT
-   digest, `refs/session-handoff.md`, `br list`. **Check, don't assume.** A
+   digest, **the handoff note (resolve it, see below)**, `br list`.
+
+   ⚠️ **Resolve the note with `handoff_read_path`, never the bare
+   `refs/session-handoff.md`.** Step 5 *writes* through the helper and explains
+   the per-window rule; this step used to *read* a hardcoded literal — a
+   read/write asymmetry inside one skill. In a per-window project the bare file
+   **does not exist at all** (`~/explore` has five: `--dive`, `--desk`,
+   `--digest`, `--dream`, `--elevate`, and no plain one), so a tick following
+   the literal finds nothing and concludes there is no prior handoff — or, in a
+   project mid-transition, reads *another window's* session. The reader helper
+   prefers the scoped file and falls back to the legacy path, which is exactly
+   what /onboard uses:
+
+   ```bash
+   _HP="$HOME/dotfiles/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
+   type handoff_read_path >/dev/null 2>&1 || handoff_read_path() { printf '%s/refs/session-handoff.md' "${1:-.}"; }
+   handoff_read_path "$PULSE_DIR"
+   ```
+
+   **Check, don't assume.** A
    loop running `--fresh` (see "Session durability and context") gets a
    `/clear` before every tick, so its context holds the always-loaded tier
    and *nothing else* — the handoff note in particular is NOT in it and must
