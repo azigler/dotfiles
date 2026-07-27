@@ -13,8 +13,8 @@ frontmatter) is injected by the harness at **process start** and is a
 Consequences that bite:
 - `/offboard` + `/onboard` do **not** refresh it. Only a `/clear` (or a new
   process) does.
-- Four pulse windows (`explore`, `digest`, `elevate`, `recall-distill`) hold
-  sessions for **days**. They act on rules that may no longer exist on disk.
+- The durable pulse windows (`dive`, `digest`, `desk`, `dream`) hold sessions
+  for **days**. They act on rules that may no longer exist on disk.
   Stale-snapshot is the *normal* operating state, not an edge case.
 - So: after changing a rule that a live loop depends on, either `/clear` the
   affected window or accept a lag of up to that window's lifetime.

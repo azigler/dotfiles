@@ -512,6 +512,7 @@ full body; descriptions below are just the prompt-toolkit summary.
 - `/zig-voice` — Andrew Zigler's writing voice + anti-patterns
 - `/randomize` — force real-entropy diversity in creative generation (seed → modulo → choice, with a provenance block)
 - `/recall` — grep + type-keyed render over transcript history (sessions + subagents + tool-results); fails LOUD on anything unrenderable; a stdlib CLI callable by other skills (the read half of the claude-vault arc, spec explore-76oc)
+- `/dream` — the **write half** of that same arc: a weekly sleep-time consolidation tick (`pulse-dream.timer`, Sun 04:13 PT, the `dream` window) that mines the week's sessions via `/recall` and drafts **human-gated** proposal beads for MEMORY entries + skill hardening. It NEVER writes `MEMORY.md` and never auto-promotes — a human is the gate. Scheduled only, never inline. (Renamed from `/recall-distill` 2026-07-27, `explore-w1mn`.)
 
 ## Skill libraries outside the global set
 
