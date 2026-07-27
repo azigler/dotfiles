@@ -177,6 +177,16 @@ body, but "Proposed MEMORY entry" becomes "Proposed skill change" naming the
 Label every proposal so they're a scannable review surface:
 `br update <id> --add-label dream-proposal`.
 
+⚠️ **The label has two spellings in the wild.** Proposals filed before the
+2026-07-27 rename carry `recall-distill-proposal`, and they were deliberately
+NOT relabelled — bead bodies are the historical record. New proposals take
+`dream-proposal`. So anywhere you *read* the label — the dedupe check below,
+`/dream status`, any review sweep — **query both**, e.g.
+`br list --label dream-proposal; br list --label recall-distill-proposal`.
+Querying only the new one silently under-reports open proposals, which is
+exactly the dedupe failure the phantom-backlog guard exists to prevent. Drop the
+old spelling only once no open bead carries it.
+
 **Never** edit `MEMORY.md`, never open an AskUserQuestion, never mark a proposal
 as accepted yourself. The bead IS the proposal; the human's promote/reject IS the
 gate.
@@ -223,8 +233,9 @@ re-proposes forever). Two layers, both mandatory:
 
 ## `/dream status`
 
-Read-only: last 5 ledger lines, count of open `dream-proposal` beads, and
-the `since` the next tick would use. No writes.
+Read-only: last 5 ledger lines, count of open proposal beads (**both** the
+`dream-proposal` and legacy `recall-distill-proposal` labels — see the warning
+above), and the `since` the next tick would use. No writes.
 
 ## Scheduling — WIRED, weekly, Sun 04:13 PT
 
