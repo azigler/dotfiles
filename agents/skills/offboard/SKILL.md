@@ -52,8 +52,9 @@ step just skips.
 
 Autonomous "decide-and-proceed" calls are logged as `-t decision` beads
 during the session (see AGENTS.md "when you decide-and-proceed, leave a
-durable record"). Collect the ones created since the last offboard so they
-land in the handoff instead of dissolving in compaction:
+durable record"). Collect the ones created since the last offboard —
+**open AND closed** — so they land in the handoff instead of dissolving in
+compaction:
 
 ```bash
 _HP="$HOME/dotfiles/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
@@ -61,7 +62,20 @@ type last_offboard_path >/dev/null 2>&1 || last_offboard_path() { printf '%s/.cl
 # Pass data via env vars — NOT `br … | python3 - <<HEREDOC` (the pipe and the
 # heredoc both claim stdin, so python reads the JSON as its program). Verified.
 export SINCE_EPOCH=$(stat -c %Y "$(last_offboard_path .)" 2>/dev/null || date -d 'today 00:00' +%s)
-export DECISIONS_JSON=$(br list --type decision --json 2>/dev/null)
+# `-a` is LOAD-BEARING: `br list` excludes closed by default, so a decision
+# created AND closed inside this session — the cleanly-resolved kind, the most
+# worth recording — is invisible without it (`explore-7ogz`). And it fails
+# SILENTLY: the harvest just prints nothing, which reads like "no decisions."
+# `-s open -s closed` is an equivalent union form. Do NOT reach for
+# `--status all`: it is not a status, matches nothing, and exits 0 with an empty
+# result — same silent-empty failure, one layer deeper (br 0.2.16).
+# Project to id/title/created_at/status: the raw `--json` inlines every bead's
+# full description (99 KB vs 5 KB on a real store, and it only grows with `-a`),
+# which ~/explore/CLAUDE.md's bead-context-hygiene rule forbids carrying around.
+export DECISIONS_JSON=$(br list --type decision -a --json 2>/dev/null \
+  | jq -c '[.issues[]? | {id, title, created_at, status}]' 2>/dev/null)
+# fallback if jq is absent — correct, just fatter
+[ -n "$DECISIONS_JSON" ] || export DECISIONS_JSON=$(br list --type decision -a --json 2>/dev/null)
 python3 <<'PY'
 import os, json, datetime as dt
 cut = int(os.environ["SINCE_EPOCH"])
@@ -70,19 +84,31 @@ try:
 except Exception:
     rows = []
 rows = rows if isinstance(rows, list) else rows.get("issues", [])
+hits = 0
 for r in rows:
     ca = (r.get("created_at") or "").replace("Z", "+00:00")
     try:
         if ca and dt.datetime.fromisoformat(ca).timestamp() >= cut:
-            print(f"- `{r.get('id')}` — {r.get('title','')}")
+            closed = " _(closed this session)_" if r.get("status") == "closed" else ""
+            print(f"- `{r.get('id')}` — {r.get('title','')}{closed}")
+            hits += 1
     except ValueError:
         pass
+print(f"# {hits} decision bead(s) since the last offboard "
+      f"({len(rows)} scanned, open+closed)")
 PY
 ```
 
+The trailing `# N decision bead(s) …` line is the receipt: `0 … (0 scanned)`
+means the query itself came back empty and should be re-run before you believe
+it, while `0 … (37 scanned)` genuinely means no decisions this session.
+
 Put each result under the handoff's **Decisions made this session** section
 (Step 3). If none, the section says "none this session." These are a durable
-ADR log — leave them open unless a later decision supersedes one.
+ADR log — leave the **open** ones open unless a later decision supersedes one;
+a decision already closed within this session still belongs in the handoff
+(mark it `(closed this session)`), because the record is what matters, not the
+bead's remaining lifecycle.
 
 ## Step 2.6: Promote any proposed STANDING practice out of the handoff
 
@@ -159,6 +185,10 @@ Write the markdown below to `$HANDOFF`:
 
 ## Decisions made this session (autonomous decide-and-proceed calls)
 - <the `-t decision` beads harvested in Step 2.5, one bullet each; or "none this session">
+- <INCLUDING the ones created AND closed inside this session — mark those
+  `(closed this session)`. A decision that was made, acted on, and closed is
+  exactly as worth recording here as one left open; it is the cleanly-resolved
+  ones this section used to drop (`explore-7ogz`).>
 
 ## Proposed practices — where each one landed (Step 2.6)
 - <one line per standing proposal, naming its DESTINATION: "X → written into
