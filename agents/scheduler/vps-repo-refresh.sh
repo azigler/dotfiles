@@ -129,6 +129,10 @@ while read -r kind a b c _rest; do
     harvest)     HARVESTS+=("$(expand "$a")|$b") ;;
     require)     REQS+=("$(expand "$a")") ;;
     require-oob) REQ_OOB+=("$(expand "$a")") ;;
+    # The complement tier is PUSHED by pulse-dispatch-remote.sh (which alone knows
+    # what git owns on zig-computer). Here we only assert the parent landed, so an
+    # unknown-directive death cannot take the whole refresh down.
+    require-oob-untracked) REQ_OOB+=("$(expand "$a")") ;;
     *) die "manifest: unknown directive '$kind' in $MANIFEST" 65 ;;
   esac
 done < "$MANIFEST"

@@ -96,4 +96,4 @@ require $HOME/linearb/weekly-reporting/.claude/skills/weekly-report/SKILL.md
 # GLOB: every campaign folder, present and future. imc-* is gitignored in the
 # umbrella and is NOT a submodule, so git can never deliver it — and adding one
 # to the umbrella would only create a gitlink the box cannot resolve.
-require-oob $HOME/linearb/imc-*
+require-oob-untracked $HOME/linearb

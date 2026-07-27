@@ -493,8 +493,31 @@ fi
 if [ "$SKIP_SYNC" != 1 ] && [ -r "$MANIFEST" ]; then
   _oob=()
   while read -r _d _p _rest; do
-    [ "$_d" = "require-oob" ] || continue
-    _oob+=("${_p#\$HOME/}")
+    case "$_d" in
+      require-oob) _oob+=("${_p#\$HOME/}") ;;
+      require-oob-untracked)
+        # THE COMPLEMENT RULE (Zig, 2026-07-27: "why not sync the whole
+        # ~/linearb"). Answer: git already owns 14 of its 18 top-level entries,
+        # and rsyncing OVER a tracked checkout dirties it relative to HEAD —
+        # which trips the manifest's own `readonly` assertion and breaks the
+        # freshness guarantee. Git and rsync would fight over the same files.
+        # So push exactly the COMPLEMENT: every top-level child git does not
+        # own. Anything new and untracked travels with no manifest edit, and
+        # nothing git manages is touched.
+        _base=${_p#\$HOME/}
+        [ -d "$HOME/$_base" ] || fail failed-preflight 73 \
+          "manifest declares require-oob-untracked '\$HOME/$_base' but that directory does not exist on zig-computer"
+        while IFS= read -r _child; do
+          [ -n "$_child" ] || continue
+          _oob+=("$_base/$_child")
+        done < <(cd "$HOME/$_base" && for _c in */; do
+                   _c=${_c%/}
+                   git ls-files --error-unmatch "$_c" >/dev/null 2>&1 && continue
+                   grep -q "path = $_c" .gitmodules 2>/dev/null && continue
+                   printf '%s\n' "$_c"
+                 done)
+        ;;
+    esac
   done < "$MANIFEST"
   if [ "${#_oob[@]}" -gt 0 ]; then
     if ! command -v "$RSYNC_BIN" >/dev/null 2>&1; then
