@@ -87,6 +87,17 @@ authored the very file/commit the checker inspects, so they prove *progress*, no
 *done*. A report-only done with no gradeable deliverable uses `cmd` with a minimal
 `test -s <path>`.
 
+**A `cmd` proof's CONTENT must have distance too, or it is `artifact` wearing a
+permitted label.** At least one clause must run something that reaches a verdict
+the tick did not author — a test, a linter, a validator, a `--selftest`. A `cmd`
+whose every clause only re-reads the tick's own output (`test -s <the thing I
+just wrote>`, `<my CLI> | grep -q '<the string I just wrote>'`) is refused for
+the same reason `artifact` is, and passing the `kind` check does not save it.
+Evidence: autonoveld's tick 1 (`refs/pulse-tick1-postmortem.md` §5c) shipped a
+three-clause `cmd` proof where **two clauses had zero distance** — and it still
+re-ran green from a clean checkout, because re-runnability and independence are
+different axes. Only its pytest clause could have caught a wrong result.
+
 `ts` is UTC (`date -u +%FT%TZ`). Caps count **only `outcome:"done"`**
 entries for the row in the current day/week — a blocked or quiet tick
 did no work and must NOT consume a research slot. And because `ts` is
@@ -186,7 +197,15 @@ the daily cap.)
 2. **Read `refs/pulse.md` + the ledger.** Refuse politely if no table.
 3. **Evaluate rows by priority**: run each `check`; skip rows whose
    cap is exhausted; the first satisfied row fires. None → quiet tick:
-   append ledger, say one line, STOP.
+   say one line, STOP.
+   **Decide the row first; write ONE ledger line, at step 5.** Do not append
+   mid-evaluation. A row can pass its `check` and still do no work — its
+   action scans and finds nothing — and a lower-priority row then fires
+   instead, which makes the line you already wrote wrong. (Observed:
+   autonoveld's tick 1 appended a `mail`/`quiet` line here and had to delete
+   it when `voice-correction` turned out to be the firing row.) One tick, one
+   line, written last, naming the row that did the work — or, if nothing
+   fired, the last row evaluated.
 4. **Execute the action with full discipline** — beads for the work,
    worktree subagents for code, /scrutinize gate on impl, commit AND
    push (always-push), exactly as an interactive session would. ONE
