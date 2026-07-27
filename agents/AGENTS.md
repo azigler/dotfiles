@@ -68,6 +68,28 @@ harness used to quote is from the **Opus 4.7** page, not Opus 5's.)
   subagents. Spending less here *funds* the moments that deserve max.
   On Opus 5 the low end is unusually strong — cheap is not dumb.
 
+**First-party confirmation (2026-07-27).** Anthropic's official Opus 5
+prompting guide now says this in vendor words, so the policy above is no
+longer only locally derived:
+<https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5>
+- *"use `low` and `medium` liberally as your primary control for token
+  cost… step up to `xhigh` for demanding coding and agentic work"* —
+  which is the medium/low and xhigh rows above, unchanged.
+- thinking *"can be disabled only at effort `high` or below"* — the
+  documented 400 below is the API enforcing exactly that sentence.
+- *"thinking enabled at `low` effort performs better than thinking
+  disabled at similar cost"* — first-party backing for the corollary
+  rule: **the cheap lever is lower effort with thinking ON, never
+  thinking off.**
+
+**Re-run the effort sweep when you carry a default across models.** The
+guide's own guidance, and the one thing this section did not previously
+encode: an effort level tuned on one model is not a constant, it's a
+calibration. When the fleet's default model changes, the levels here are
+a *hypothesis* again — re-measure before assuming `high`/`low` still sit
+where they did. (The 2026-07-25 A/B that produced this section is the
+shape of that sweep; `/ab` is the tool for it.)
+
 ⚠️ **Why `high` and not `xhigh` — the Opus 5 400.** Opus 5 rejects
 `output_config.effort` of `xhigh`/`max` whenever **thinking is
 disabled**:
@@ -82,8 +104,10 @@ pinned to `xhigh` has **no working web search on Opus 5**. Verified by
 controlled A/B on 2026-07-25 (same host, same proxy, 4 minutes apart:
 `xhigh` → 400, `high` → real results), against 24 HTTP 400s in the
 agentgateway log that all began the minute Opus 5 became the default
-model. The corollary rule: the cheap lever is always **lower effort
-with thinking ON**, never thinking off.
+model — and, since 2026-07-27, confirmed first-party by the prompting
+guide's *"can be disabled only at effort `high` or below."* The corollary
+rule: the cheap lever is always **lower effort with thinking ON**, never
+thinking off.
 
 **This failure is silent in a scheduled loop.** A `/pulse` tick that
 loses search doesn't error — it answers from in-weights knowledge and
@@ -136,6 +160,52 @@ it's far cheaper to find on a quiet morning than via a production incident.
 "Build the loop like someone who intends to stay the engineer." Keep one
 checkpoint where a human can still walk in — not because they always will,
 but because the door being open is what keeps the loop trustworthy.
+
+## Verification: no self-checking, but always evidence at the checkpoint
+
+**Do not read this as license to delete `/scrutinize`.** Two different
+things get called "verification," they pull in opposite directions, and
+conflating them makes the loop worse, not leaner:
+
+| | **Per-task self-checking** | **Separate fresh-context adversarial review** |
+|---|---|---|
+| Who | the SAME agent, inside its own task | a DIFFERENT agent, no authorship stake |
+| Asks | "re-read your output, double-check it before finishing" | "disprove that this is done" |
+| Fixes | nothing Opus 5 doesn't already do natively | the **conflicted-judge problem** — an author is structurally incented to declare its own work sound |
+| Verdict | **REMOVE** — costs tokens, can degrade output (Opus 5 prompting guide) | **KEEP** — `/scrutinize`, `/check`, `/handoff`, `~/explore`'s scrutiny gate + `scrutinize-required` label |
+
+The guide measures the first and says to strip it. It never measures the
+second. A reviewer that never wrote the thing is not the author
+double-checking itself with extra steps — it's the only reader in the loop
+whose incentives aren't already committed to "ship."
+
+**The other half, and it arrived the same morning from the opposite
+direction.** The Neuron's 2026-07-27 "25-minute agent sweep" (Ryan Carson)
+makes **"evidence that it works"** a REQUIRED field in every checkpoint
+report — alongside status, what completed, blocker-or-decision, and
+recommended next action — plus an escalation rule that blocks on exactly
+four categories: **destructive, irreversible, security-sensitive, or
+changes agreed scope**. That is fully compatible with the guide, and it
+gives the rule its usable form:
+
+> **Don't ask an agent to double-check itself mid-task. DO demand evidence
+> at the checkpoint.**
+
+Removing self-verification instructions must NOT become removing the
+evidence requirement — those are opposite moves. Dropping the evidence
+field would deepen verification debt (the first row of the table above)
+while looking like a token saving. Running a test suite, curling the
+artifact, re-deriving a number, re-reading a target after a write: that is
+**empirical evidence-gathering**, not model self-checking, and it stays —
+it's what makes the pulse `done`-gate's proof token a proof rather than a
+self-report.
+
+Zig's call, 2026-07-27, bead `explore-8hs7`. Prompt-wording only, fully
+reversible. The audit behind it found the harness already near-clean: the
+only genuine per-task self-check instructions in the whole skill tree were
+in `/research` Step 3.5, where they sat directly beside a paragraph saying
+"self-scrutiny by the producer is self-sycophancy with a checklist." Those
+were stripped; nothing else matched.
 
 ## Don't blanket-suppress stderr
 
@@ -255,6 +325,22 @@ call that's genuinely Zig's, or his intent itself is ambiguous; decide-and-
 record when you can act and merely need the trail.
 
 ## Delegation
+
+### Opus 5's three delegation tendencies — counter them in the dispatch
+
+Anthropic's Opus 5 prompting guide names three behavior shifts that land
+squarely on an orchestrator. None is a bug; each is a default that needs a
+counterweight written into the dispatch, not discovered after the fact:
+
+| Tendency | What it looks like here | The counterweight |
+|---|---|---|
+| **Delegates more readily** | a wave of 6 agents where 2 would do; agents that themselves want to fan out | **Cap spawns.** State the agent count in the plan and the "never delegate" rule in every dispatch (it's already in `/dispatch`'s mandatory blocks — that block is now load-bearing, not boilerplate). |
+| **Expands scope more readily** | the agent ships the bead *plus* three adjacent improvements you now have to review | **Constrain scope explicitly.** Name the out-of-scope adjacent work in the dispatch, and say "file a bead, don't do it." |
+| **Writes longer files to disk** | a 900-line skill edit where 40 lines were asked for; memos that blow their word cap | **Calibrate expected length up front** — give a target ("≤1,200 words", "surgical edits, don't restructure") and prefer caps that a hook or a proof command can actually check. |
+
+The common thread: all three inflate *reviewable surface*, which is
+comprehension-rot fuel. Bound them at dispatch time — that is far cheaper
+than trimming the output afterward.
 
 For any task that writes code, use `subagent_type: "subagent"` with
 `isolation: "worktree"`. This gives each agent its own repo copy with

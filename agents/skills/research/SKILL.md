@@ -365,9 +365,12 @@ been doing FOR you — catching things like:
   inconvenient? have you checked workarounds?" (often pivots
   "blocker" → "documented limitation with workaround")
 
-**You should be doing this scrutiny pass yourself, not waiting for the
-user to catch it.** The discipline is to model what the user would
-say if they read the report cold.
+**Route this pass to an independent reviewer — do not run it on
+yourself.** What the pass needs is not more care (Opus 5 already
+re-reads its own output natively, and Anthropic's Opus 5 prompting
+guide says to stop spending prompt tokens instructing it to). What it
+needs is **disinterest**: the agent that produced the finding is the
+one with a stake in it holding. See Option A below.
 
 ### Independent scrutiny is the DEFAULT for anything entering canon
 
@@ -384,11 +387,12 @@ should default to "refuted" when uncertain.** Costs ~5-10 min of
 agent time. Record the verdict (Confirmed / Refined / Reversed) on
 the finding's bead so the gate is inspectable later.
 
-**Option B — Inline self-scrutiny (low-stakes intermediate notes
-ONLY).** Read the report yourself with adversarial intent using
-`reference/scrutiny-checklist.md`. Acceptable only for findings that
-won't be folded to canon this iteration — working notes, hypotheses
-queued for verification, intermediate state.
+**Option B — No gate (low-stakes intermediate notes ONLY).** Findings
+that won't be folded to canon this iteration — working notes,
+hypotheses queued for verification, intermediate state — ship
+ungated. Do NOT substitute an instructed self-audit here: that is a
+token cost, not a control, and it produces the *appearance* of a gate
+where there is none. Ungated is the honest label.
 
 Why this polarity: the agent that just spent budget producing a
 finding is structurally motivated to fold it and move on —
@@ -399,7 +403,10 @@ a bad judge of which of your own findings are "high-stakes"; the
 fold-to-canon boundary is the objective trigger, not your assessment
 of stakes.
 
-### Scrutiny checklist (apply mentally OR via subagent)
+### Scrutiny checklist (the reviewer's questions)
+
+These are the questions the Option-A reviewer answers about
+**someone else's** report. They are not a self-audit rubric.
 
 1. **Source coverage** — did the agent miss any obviously relevant
    source? (Check the references list against what you know about the
@@ -431,8 +438,10 @@ of stakes.
 | "NousResearch/autonovel is Hermes-based" | But git log shows direct Anthropic API; first commit predates user's adoption of Hermes for autonovel | Corrected: ancestor pipeline, NOT Hermes substrate |
 | "Hermes ships 29 providers, zero for local Ollama or MLX" | But `custom` (one of the 29) IS the bundled OpenAI-compat adapter for local | Reframed: `.13` is convenience layer, not basic-capability |
 
-The user caught all four of these. The discipline is **you should be
-catching them yourself.**
+The user caught all four of these. The discipline is that an
+**independent reviewer** should be catching them before the user does
+— which is what Option A buys, and what no amount of self-review by
+the finding's author would have.
 
 ### Output of scrutiny step
 

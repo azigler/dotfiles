@@ -1,11 +1,14 @@
 # Scrutiny checklist (Step 3.5 of /research)
 
-Apply this mentally to every research report BEFORE folding to canon.
-Goal: catch the kind of reasoning gap, hidden assumption, or
-definitional drift that the user would catch on a careful read.
+The questions an **independent reviewer** answers about a research
+report before it is folded to canon. Goal: catch the kind of reasoning
+gap, hidden assumption, or definitional drift that the user would catch
+on a careful read.
 
-The discipline is **model what the user would say if they read this
-report cold.**
+**This is a reviewer's rubric, not a self-audit.** It is meant to be
+read by an agent that did not write the report — the author of a
+finding is structurally motivated to pass it. See `/research` Step 3.5
+Option A for the dispatch.
 
 ## The 8 questions
 
