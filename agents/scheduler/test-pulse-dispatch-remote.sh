@@ -452,9 +452,6 @@ if grep -q "camp-one" "$ROOT/rsync.log" && grep -q "camp-two" "$ROOT/rsync.log"
   then ok "a glob pushes EVERY match, not just the first"
   else bad "a glob pushes every match" "rsync log: $(cat "$ROOT/rsync.log")"; fi
 
-# (a3.5) PER-ROW REMOTE SESSION. A shared pane means row B's tick opens on top of
-#        row A's conversation, and two rows an hour apart collide against a 3600s
-#        poll. Locally each row has its own WINDOW; this is the remote equivalent.
 run_row() { # run_row <row> [extra args...]
   local _row=$1; shift
   # Full happy-path fixture: A5/A6 run BEFORE pane resolution, so a knobs-light
@@ -471,6 +468,47 @@ run_row() { # run_row <row> [extra args...]
   PULSE_DISPATCH_VAULT=/nonexistent-local-vault \
   PULSE_DISPATCH_STATE="$STATE" HOME="$ROOT/home" \
     "$DISPATCH" --row "$_row" --dir "$PROJ" --dry-run --poll 1 --timeout 3 "$@" >/dev/null 2>&1
+}
+run_row_out() { # same, but returns the dispatcher's output
+  local _row=$1; shift
+  local _mem _bead
+  _mem=$(cd "$ROOT/home/.claude/projects/$(printf '%s' "$PROJ" | tr '/' '-')/memory" \
+         && find -L . -type f | LC_ALL=C sort | xargs -r sha256sum | sha256sum | cut -d' ' -f1)
+  _bead="{\"jsonl_content_hash\":\"${LSHA:-BEADSHA}\",\"jsonl_newer\":false}"
+  write_knobs 'PANE_CMD=claude' "REMOTE_MEM_SHA=$_mem" "REMOTE_BEAD_JSON=$_bead"
+  SSH_LOG="$ROOT/ssh.log" PULSE_DISPATCH_SSH="$STUB/ssh" PULSE_DISPATCH_PREFLIGHT="$STUB/preflight" \
+  PULSE_DISPATCH_INJECT="$STUB/inject" PULSE_DISPATCH_MANIFEST=/nonexistent-manifest \
+  PULSE_DISPATCH_VAULT=/nonexistent-local-vault PULSE_DISPATCH_STATE="$STATE" HOME="$ROOT/home" \
+    "$DISPATCH" --row "$_row" --dir "$PROJ" --dry-run --poll 1 --timeout 3 "$@" 2>&1
+
+# (a3.4) --fresh: clear a WARM remote pane before dispatching, so a weekly row
+#        does not resume last week's conversation. No-op when cold-launched.
+: > "$ROOT/ssh.log"; OUT_FRESH=$(run_row_out di-tuesday --fresh)
+# send-keys payloads are base64'd onto the ssh command line (that is how a literal
+# with spaces/slashes survives the hop), so the plain string never appears. Assert
+# on the ENCODED form — grepping "/clear" here fails while the code is correct.
+# --dry-run deliberately stops BEFORE dispatching, so no /clear ever reaches the
+# wire here; assert on the reported DECISION, which is the logic under test.
+case "$OUT_FRESH" in *"would clear:   /clear into"*) ok "--fresh clears a warm remote pane" ;;
+  *) bad "--fresh clears a warm remote pane" "dry-run did not report a clear: $(printf '%s' "$OUT_FRESH" | grep 'would' | head -2)" ;; esac
+: > "$ROOT/ssh.log"; run_row di-tuesday
+OUT_NOFRESH=$(run_row_out di-tuesday)
+case "$OUT_NOFRESH" in *"would clear:"*) bad "no --fresh means no /clear" "reported a clear unasked" ;;
+  *) ok "no --fresh means no /clear" ;; esac
+# cold pane: PANE_CMD unset -> the dispatcher launches claude itself, so a /clear
+# would be pure cost. This is the case that made --fresh opt-in rather than always.
+: > "$ROOT/ssh.log"
+write_knobs 'PANE_CMD=zsh'
+SSH_LOG="$ROOT/ssh.log" PULSE_DISPATCH_SSH="$STUB/ssh" PULSE_DISPATCH_PREFLIGHT="$STUB/preflight" \
+PULSE_DISPATCH_INJECT="$STUB/inject" PULSE_DISPATCH_MANIFEST=/nonexistent-manifest \
+PULSE_DISPATCH_VAULT=/nonexistent-local-vault PULSE_DISPATCH_STATE="$STATE" HOME="$ROOT/home" \
+  OUT_COLD=$("$DISPATCH" --row di-tuesday --dir "$PROJ" --dry-run --fresh --poll 1 --timeout 3 2>&1 || true)
+case "$OUT_COLD" in *"would clear:   nothing"*) ok "--fresh is a no-op on a cold pane" ;;
+  *) bad "--fresh is a no-op on a cold pane" "expected the no-op line; got: $(printf '%s' "$OUT_COLD" | grep 'would clear' | head -1)" ;; esac
+
+# (a3.5) PER-ROW REMOTE SESSION. A shared pane means row B's tick opens on top of
+#        row A's conversation, and two rows an hour apart collide against a 3600s
+#        poll. Locally each row has its own WINDOW; this is the remote equivalent.
 }
 : > "$ROOT/ssh.log"; run_row guest-promo
 if grep -q "pulse-dispatch-guest-promo" "$ROOT/ssh.log"

@@ -184,6 +184,14 @@
 #   --window         LOCAL tmux window for the surface callback (default di)
 #   --timeout        seconds to wait for the remote result (default 3600)
 #   --poll           seconds between result polls (default 30)
+#   --fresh          warm process, COLD CONTEXT: when the remote pane already runs
+#                    claude, send `/clear` and settle BEFORE the tick, so a weekly
+#                    row does not open on top of last week's conversation. No-op on
+#                    a cold launch (already fresh). Same semantics as
+#                    pulse-inject.sh --fresh; PULSE_FRESH_SETTLE (default 2) tunes
+#                    the settle. Matters MORE here than locally: each row now owns a
+#                    durable per-row session on the box, so without this a weekly
+#                    tick reliably resumes a 7-day-old context.
 #   --with-fleet-token  broker FLEET_API_TOKEN into the remote tick's tmux env
 #   --allow-unpushed    passed through to vps-preflight (hand-fires only)
 #   --no-refresh        passed through to vps-preflight (diagnostics only)
@@ -256,6 +264,7 @@ TIMEOUT=3600
 POLL=30
 DRY_RUN=0
 WITH_TOKEN=0
+FRESH=0
 ALLOW_UNPUSHED=0
 NO_REFRESH=0
 SKIP_SYNC=0
@@ -305,6 +314,7 @@ while [ $# -gt 0 ]; do
     --timeout)         TIMEOUT=$2; shift 2 ;;
     --poll)            POLL=$2; shift 2 ;;
     --loop)            LOOP=$2; shift 2 ;;
+    --fresh)           FRESH=1; shift ;;
     --with-fleet-token) WITH_TOKEN=1; shift ;;
     --allow-unpushed)  ALLOW_UNPUSHED=1; shift ;;
     --no-refresh)      NO_REFRESH=1; shift ;;
@@ -368,7 +378,7 @@ cleanup() {
     if [ "$WITH_TOKEN" = 1 ]; then
       # Unset before the socket dies: the token must not outlive the tunnel.
       "$SSH_BIN" -S "$CTL" -o BatchMode=yes "$HOST" \
-        "tmux setenv -u -t '$REMOTE_SESSION' FLEET_API_TOKEN" >/dev/null 2>>"$LOCAL_STATE/teardown.err" || \
+        "for v in FLEET_API_TOKEN SITE_PASSWORD SLACK_BOT_TOKEN SLACK_NEWS_PLANNING_CHANNEL_ID; do tmux setenv -u -t '$REMOTE_SESSION' \$v; done" >/dev/null 2>>"$LOCAL_STATE/teardown.err" || \
         warn "could not unset FLEET_API_TOKEN in the remote tmux env (see $LOCAL_STATE/teardown.err)"
     fi
     "$SSH_BIN" -S "$CTL" -O exit "$HOST" >/dev/null 2>>"$LOCAL_STATE/teardown.err" || \
@@ -846,6 +856,11 @@ fi
 if [ "$DRY_RUN" = 1 ]; then
   say "DRY RUN: all four preflight assertions passed."
   say "  would stage:   $HOST:$REMOTE_WORK/DISPATCH.md"
+  if [ "$FRESH" = 1 ] && [ "$PANE_WARM" = 1 ]; then
+    say "  would clear:   /clear into $PANE first (--fresh, pane is warm)"
+  elif [ "$FRESH" = 1 ]; then
+    say "  would clear:   nothing (--fresh, but the pane is cold — already fresh)"
+  fi
   say "  would inject:  /pulse tick $REMOTE_DIR  (into $HOST tmux $PANE)"
   say "  would poll:    $HOST:$REMOTE_WORK/result.json  (up to ${TIMEOUT}s)"
   say "  would write:   $DIR/refs/pulse-ledger.jsonl   (row=$ROW)"
@@ -874,6 +889,45 @@ if [ "$WITH_TOKEN" = 1 ]; then
   fi
   unset TOK
   say "credential: FLEET_API_TOKEN brokered into tmux env for this run only (never written to the box's disk)"
+
+  # PROJECT SECRETS the fleet proxy does NOT cover. Audited 2026-07-27 across all
+  # five DI rows; everything else a skill names is either proxied or local-only:
+  #   ASANA_ACCESS_TOKEN  -> proxied (/api/asana)
+  #   GOOGLE_CLIENT_*/REFRESH_TOKEN -> the LOCAL-FALLBACK identity only; over the
+  #                          proxy the write runs as the service account
+  #   GITHUB_TOKEN, ANTHROPIC_KEY -> named only in .env.local doc blocks; no live
+  #                          call (the playbook is read from the synced repo, and
+  #                          the tick IS the model)
+  # These three are the real gap, and each fails in a DIFFERENT way if missing:
+  #   SITE_PASSWORD                  -> /api/research/* returns 401 (VERIFIED:
+  #                                     401 with no password AND with a wrong one),
+  #                                     so di-wednesday's research unit dies.
+  #   SLACK_BOT_TOKEN                -> the skills construct WebClient directly;
+  #                                     the fleet only proxies INBOUND /api/slack/
+  #                                     events, so there is no outbound route.
+  #   SLACK_NEWS_PLANNING_CHANNEL_ID -> not secret, but the post has no target.
+  # Read from the PROJECT's .env.local (never argv), brokered over stdin like the
+  # fleet token, unset at teardown. Missing ones warn rather than fail: a row that
+  # does not need Slack should still dispatch.
+  if [ -f "$DIR/.env.local" ]; then
+    for _v in SITE_PASSWORD SLACK_BOT_TOKEN SLACK_NEWS_PLANNING_CHANNEL_ID; do
+      _val=$(grep -m1 "^${_v}=" "$DIR/.env.local" 2>/dev/null | cut -d= -f2- | sed 's/^"//;s/"$//' | cut -d'#' -f1 | sed 's/[[:space:]]*$//')
+      if [ -z "$_val" ]; then
+        note "project secret $_v not found in $DIR/.env.local — a row needing it will fail on the box"
+        continue
+      fi
+      if ! printf '%s' "$_val" | "$SSH_BIN" -S "$CTL" -o BatchMode=yes "$HOST" \
+            "read -r t; tmux setenv -t '$REMOTE_SESSION' $_v \"\$t\"" \
+            2>>"$LOCAL_STATE/remote.err"; then
+        fail failed-inject 75 "could not broker $_v into the remote tmux env (see $LOCAL_STATE/remote.err)"
+      fi
+      BROKERED="${BROKERED:+$BROKERED }$_v"
+    done
+    unset _val
+    [ -n "${BROKERED:-}" ] && say "credential: brokered $BROKERED for this run only (never written to the box's disk)"
+  else
+    note "no $DIR/.env.local — project secrets (SITE_PASSWORD, SLACK_*) not brokered"
+  fi
 fi
 
 # A NON-SECRET marker so a skill can tell it is running on the dispatch box
@@ -1015,6 +1069,26 @@ if [ "$PANE_WARM" != 1 ]; then
     Watch it with: $SSH_BIN $HOST 'tmux attach -t $REMOTE_SESSION'"
   say "remote: composer ready after $(( $(date +%s) - _t0 ))s"
   sleep 2
+fi
+
+# --fresh: warm process, cold context. Only meaningful when the pane was ALREADY
+# running claude — a cold launch is fresh by construction and a /clear there just
+# costs a round trip. The prompt cache TTL is ~1h and these rows are a WEEK apart,
+# so a resumed session buys zero cached tokens and pays full cache-creation on
+# everything it accumulated (dotfiles-6ycc). Per-row sessions made this the normal
+# case rather than the exception, so it is opt-in per unit but wanted on all of them.
+if [ "$FRESH" = 1 ] && [ "$PANE_WARM" = 1 ]; then
+  CLR_B64=$(printf '%s' '/clear' | base64 | tr -d '\n')
+  rsh "tmux send-keys -t '$PANE' -l \"\$(printf %s '$CLR_B64' | base64 -d)\"" \
+    >/dev/null 2>>"$LOCAL_STATE/remote.err" \
+    || fail failed-inject 75 "--fresh: send-keys of /clear failed (see $LOCAL_STATE/remote.err)"
+  sleep 1
+  rsh "tmux send-keys -t '$PANE' Enter" >/dev/null 2>>"$LOCAL_STATE/remote.err" \
+    || fail failed-inject 75 "--fresh: send-keys of Enter after /clear failed — the pane may hold an unsent /clear"
+  sleep "${PULSE_FRESH_SETTLE:-2}"
+  say "fresh: cleared the remote context before dispatching (pane was warm)"
+elif [ "$FRESH" = 1 ]; then
+  note "fresh: pane was cold-launched, so no /clear needed"
 fi
 
 # ONE line — a newline inside send-keys -l submits the composer, so the contract
