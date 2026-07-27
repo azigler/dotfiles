@@ -176,6 +176,60 @@ files; manual runs should do the same.
 | clippy | `clippy.toml` | Repo root |
 | golangci-lint | `.golangci.yml` or `.golangci.yaml` | Repo root or `configs/` |
 
+### Pin the linter EXACTLY, or its config will drift out from under it
+
+**The failure mode:** biome's `biome.json` hardcodes a *versioned* schema URL —
+`https://biomejs.dev/schemas/2.4.16/schema.json` — while `package.json` usually
+declares a **caret range** (`"@biomejs/biome": "^2.4.0"`). The schema is pinned;
+the CLI is not. Any `bun install` / `npm install` can resolve the CLI to a
+different version, and biome then refuses the config:
+
+```
+biome.json:2:13 deserialize
+  i The configuration schema version does not match the CLI version 2.4.6
+  i   Expected: 2.4.6   Found: 2.4.13
+```
+
+That error is **counted as an error by `biome check`**, so the whole `check`
+gate goes red for a config reason — and a real lint regression can no longer be
+distinguished from the standing noise. It degrades silently: nobody upgraded
+anything, a lockfile simply resolved somewhere else.
+
+**The rule: pin formatters and linters to an EXACT version** — no caret, no
+tilde — and keep `$schema` on that same version. You want byte-identical
+formatting across every machine and CI anyway; a range buys you nothing and
+costs you this. Same reasoning applies to ruff (`ruff.toml` has no schema
+version, but a range still means two machines format differently) and to
+`golangci-lint`.
+
+**When you do bump, measure the cost before choosing the target.** Run the
+candidate versions against the repo and count, rather than assuming a minor bump
+is free:
+
+```bash
+# no install needed — run a candidate directly
+bunx --bun @biomejs/biome@<version> check . 2>&1 | grep -E '^(Checked|Found)'
+```
+
+Real numbers from a 2026-07-27 fix on a twelve-package TypeScript monorepo, same
+code, only the biome version varying: **2.4.6 → 8 errors** (plus the
+deserialize), **2.4.16 → 8 errors** (deserialize gone), **2.5.5 → 12 errors**.
+Moving within the minor was free; the next minor added four new findings *per
+package*. That is the difference between a config fix and a work item, and you
+only see it by measuring.
+
+**Check for drift with:**
+
+```bash
+# declared schema vs actually-installed CLI, for every biome.json in a tree
+for f in $(find . -name biome.json -not -path '*/node_modules/*'); do
+  d=$(dirname "$f")
+  printf '%-50s schema=%-8s installed=%s\n' "$d" \
+    "$(grep -oP '(?<=schemas/)[0-9.]+' "$f")" \
+    "$(jq -r .version "$d/node_modules/@biomejs/biome/package.json" 2>/dev/null || echo -)"
+done
+```
+
 **Commit configs.** Don't ignore them. Configs are source of truth for
 "which rules apply to this project." If you find yourself disabling
 the same rule inline three times, that's a config change.
