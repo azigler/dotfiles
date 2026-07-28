@@ -7,11 +7,22 @@
 # The memo is a DESTINATION Zig walks into after the tick has ended (explore-b47q),
 # so the artifact on disk — not the tick's transcript — is the deliverable.
 #
-# tmux WINDOW IS DELIBERATELY UNCHANGED (`elevate`). Zig sits in these windows;
-# renaming one is a separate, Zig-gated step (explore-b47q item 1). If/when the
-# window is renamed `desk`, change `--window elevate` below AND the identity key
-# in ~/explore/.claude/identity.yml AND expect the per-window handoff file to move
-# from refs/session-handoff--elevate.md to refs/session-handoff--desk.md.
+# tmux WINDOW: `desk` since 2026-07-27. Zig's call on explore-lsnr is ONE DURABLE
+# WINDOW PER LOOP — each loop with its own ledger row and its own offboard/handoff.
+# This unit previously injected into `elevate`, which it SHARED with Zig's manual
+# /elevate working session; that window is now his alone and he expects to retire
+# it when his current work there is done.
+#
+# What moved with the flip (2026-07-27):
+#   - `--window elevate` -> `--window desk` (this file; machine-local, uncommitted)
+#   - identity key `desk:` added to ~/explore/.claude/identity.yml (grants: [llm])
+#   - refs/session-handoff--desk.md SEEDED from refs/session-handoff--elevate.md.
+#     Seeded, not moved: the elevate note stays with Zig's live session. The desk
+#     window is created fresh by pulse-inject on the next fire, so without the seed
+#     the tick would onboard from the (nonexistent) legacy refs/session-handoff.md.
+# What did NOT move: the ledger row is still `desk` (rows key on the `row` field,
+#   never on the window), so no ledger seed is needed and none was written. The
+#   timer, its schedule, and the carried-across stamp are untouched.
 #
 # Inspect runs: journalctl --user -u pulse-desk.service -n 20
 [Unit]
@@ -19,4 +30,4 @@ Description=Pulse tick: weekly /desk pass (explore lab resourcing memo)
 
 [Service]
 Type=oneshot
-ExecStart=%h/dotfiles/agents/scheduler/pulse-inject.sh --loop %p --dir /home/ubuntu/explore --session work --window elevate --cmd "/desk /home/ubuntu/explore"
+ExecStart=%h/dotfiles/agents/scheduler/pulse-inject.sh --loop %p --dir /home/ubuntu/explore --session work --window desk --cmd "/desk /home/ubuntu/explore"
