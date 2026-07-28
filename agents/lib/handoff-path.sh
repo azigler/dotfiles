@@ -54,6 +54,21 @@ unset _handoff_self _handoff_dir
 # legacy behavior — a bare/untargeted display-message would return the CLIENT's
 # focused window, so we never do that).
 _handoff_key() {
+  # 0. EXPLICIT OVERRIDE — for a session with no tmux server to ask.
+  #    A confined pulse tick (tools/tick-jail/tick-jailed.sh) runs under bwrap with
+  #    no tmux binary and no socket, so every resolution path below fails. Without
+  #    this seam _handoff_suffix silently returns "" and handoff_path yields the
+  #    BARE refs/session-handoff.md — which, in a per-window project whose notes are
+  #    all scoped (--dive, --desk, --digest, --dream, --elevate) and where no bare
+  #    file exists, would CREATE one and become the fallback every future unresolved
+  #    reader picks up, ahead of all five real notes. The 2026-07-27 dive tick spotted
+  #    that and deliberately wrote no handoff at all; this is the fix that lets it
+  #    write the right one instead (explore-nvi5 sibling gap).
+  #    The launcher sets it from the real window name BEFORE entering the jail.
+  if [ -n "${HANDOFF_WINDOW:-}" ]; then
+    printf '%s' "$HANDOFF_WINDOW" | sed -E 's/^(🧠|✅|🔔|🌀|📬) ?//'
+    return 0
+  fi
   if command -v tmux_resolve_window >/dev/null 2>&1; then
     tmux_resolve_window
     return
