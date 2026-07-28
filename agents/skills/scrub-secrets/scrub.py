@@ -4,8 +4,17 @@
 system (explore-r2iq). Stdlib-only (the optional gitleaks backend is a subprocess).
 
 Modes:
-  scan    <paths...>            report files + per-pattern match counts; exit 1 if any found
-  redact  <paths...> [--apply]  replace each secret with a dated marker (dry-run unless --apply)
+  scan     <paths...>            report files + per-pattern match counts; exit 1 if any found
+  redact   <paths...> [--apply]  replace each secret with a dated marker (dry-run unless --apply)
+  denylist                       print the live-value denylist decision table (NAMES only)
+
+Two detectors run in BOTH scan and redact:
+  1. PATTERNS   — the high-confidence prefix/shape regexes (below). Unchanged.
+  2. DENYLIST   — the LIVE VALUE denylist: every `export NAME=VALUE` in ~/.secrets
+                  (override: --secrets-file / $SCRUB_SECRETS_FILE), admitted by the
+                  shape rule in `denylist_verdict`, matched VERBATIM. Computed at
+                  runtime and discarded; never persisted, never printed as a value —
+                  hits are reported as `secrets-file:NAME`. Disable: --no-denylist.
 
 Scan-only extras (never touch redact):
   --entropy    ALSO report high-entropy token runs, ALLOWLIST-filtered (see ALLOWLIST).
@@ -27,11 +36,18 @@ Safety (redact):
   - --exclude <path> skips a file (e.g. the active session, mid-write).
   - --dry-run (default) never writes; --apply performs the replace.
 
-Only HIGH-CONFIDENCE patterns (distinctive secret prefixes + BEGIN-PRIVATE-KEY +
-long Bearer tokens). Deliberately NOT entropy-based in redact: at 2GB transcript
-scale a raw entropy scan false-positives on doc-ids/base64, and a false positive in
-REDACT mode corrupts real content. Entropy stays a scan-only concern (--entropy),
-handled by review.
+The PATTERNS detector is HIGH-CONFIDENCE only (distinctive secret prefixes +
+BEGIN-PRIVATE-KEY + long Bearer tokens). Deliberately NOT entropy-based in redact:
+at 2GB transcript scale a raw entropy scan false-positives on doc-ids/base64, and a
+false positive in REDACT mode corrupts real content. Entropy stays a scan-only
+concern (--entropy), handled by review.
+
+The DENYLIST detector is the complement: it covers credentials with NO distinctive
+shape (the ones prefix patterns structurally cannot see) by comparing against the
+values that actually exist on this box. Because the comparison is verbatim equality
+with a known credential, it has no false-positive risk, which is why — unlike
+entropy — it is safe in redact mode too. That matters: a gate that can only DETECT
+a secret it cannot REDACT stalls the vault forever; this one closes the loop.
 """
 
 from __future__ import annotations
@@ -152,6 +168,150 @@ def entropy_hits(text: str) -> list[str]:
     return hits
 
 
+# ---------------------------------------------------------------------------- #
+# LIVE VALUE DENYLIST (explore-wmlc) — the second detector, on by default in BOTH
+# scan and redact.
+#
+# WHY IT EXISTS. The PATTERNS above are prefix/shape-anchored, so they can only see
+# credentials whose issuer stamped a recognisable prefix on them. Measured
+# 2026-07-28 against the real ~/.secrets: 22 exported variables, 3 pattern matches.
+# The gate consumed that exit code and called the other 19 "clean" — and because the
+# gate and the redactor share the detector, redacting the 3 visible ones would have
+# turned a correctly-BLOCKED transcript into a PASSING one still carrying the rest,
+# straight into permanent git history. A narrow detector wired to an admission gate
+# is a false-confidence machine, not a gate.
+#
+# WHAT IT DOES. At run time, read ~/.secrets (or $SCRUB_SECRETS_FILE /
+# --secrets-file), parse `export NAME=VALUE`, keep the values that pass the shape
+# rule below, and test whether any appears VERBATIM in the scanned text.
+#
+# THE PRIVACY CONTRACT — this is the part to not break:
+#   * the list is built in memory and discarded when the process exits;
+#   * it is NEVER written to disk, a temp file, a ledger, or a log;
+#   * a hit is reported as the KEY `secrets-file:<NAME>` — the variable NAME and a
+#     count. No value, no prefix, no length, ever reaches stdout/stderr from a hit.
+#   * `denylist` mode prints the decision table (name + length + verdict) so the
+#     rule is inspectable — still never a value.
+#
+# THE SHAPE RULE (denylist_verdict). A value is ADMITTED iff it is not obviously a
+# non-credential that would false-positive on ordinary content:
+#   too-short   len < DENY_MIN_LEN (20)   — short ids/handles collide with prose
+#   integer     all digits                — HEVY_TOKEN_EXPIRES_AT, counters
+#   url         scheme://…                — CDN_BASE_URL and friends
+#   whitespace  contains any whitespace   — a phrase, not a token
+#   pointer     $VAR / ${VAR} / ~/… / /…  — a reference, not a literal (the GOOD
+#                                           pattern; see the memory convention)
+# Everything else is admitted. The rule is shape-based on purpose: it does not
+# consult the variable NAME, so it cannot be fooled by a credential that happens to
+# be called `..._ID` (R2_ACCESS_KEY_ID is a real credential; R2_ACCOUNT_ID is a
+# quasi-public identifier and IS admitted). Erring that way is deliberate: a
+# false positive here costs one redacted identifier in a private vault; a false
+# negative costs a live credential in permanent git history.
+#
+# THE ALLOWLIST IS DELIBERATELY NOT APPLIED HERE. `is_allowlisted` exists to tame a
+# HEURISTIC (entropy) — its `git-sha` rule matches any 40/64-hex run, and three of
+# the real credentials in ~/.secrets are exactly 64 hex characters. Running the
+# denylist through it would silently discard them. Verbatim equality with a known
+# credential needs no taming.
+# ---------------------------------------------------------------------------- #
+DENY_MIN_LEN = 20
+SECRETS_FILE_DEFAULT = "~/.secrets"
+
+# `export NAME=VALUE`; `export` optional so a plain .env works too.
+_EXPORT_RE = re.compile(
+    r"^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$", re.MULTILINE
+)
+_URL_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://")
+_POINTER_RE = re.compile(r"^(?:\$\{?[A-Za-z_]|~/|/)")
+
+
+def _unquote(v: str) -> str:
+    v = v.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+        v = v[1:-1]
+    return v
+
+
+def denylist_verdict(value: str) -> str:
+    """'ok' if `value` is admitted to the denylist, else the filter that rejected it.
+    Pure + total, so `denylist` mode can print the same decision the scan makes."""
+    if not value:
+        return "empty"
+    if len(value) < DENY_MIN_LEN:
+        return "too-short"
+    if value.isdigit():
+        return "integer"
+    if _URL_RE.match(value):
+        return "url"
+    if any(c.isspace() for c in value):
+        return "whitespace"
+    if _POINTER_RE.match(value):
+        return "pointer"
+    return "ok"
+
+
+def parse_secrets_file(path: str) -> list[tuple[str, str]]:
+    """[(NAME, VALUE)] for every assignment in `path`, in file order. Raises OSError
+    if unreadable — the caller decides whether that is fatal (it is not: it degrades
+    to 'denylist unavailable', which is REPORTED, never silently swallowed)."""
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        text = fh.read()
+    return [
+        (m.group(1), _unquote(m.group(2))) for m in _EXPORT_RE.finditer(text)
+    ]
+
+
+def denylist_table(path: str) -> list[tuple[str, int, str]]:
+    """[(NAME, len(value), verdict)] — the inspectable decision table. NO values."""
+    return [
+        (n, len(v), denylist_verdict(v)) for n, v in parse_secrets_file(path)
+    ]
+
+
+def build_denylist(path: str) -> list[tuple[str, str]]:
+    """[(NAME, needle)] for the admitted values, longest needle first.
+
+    Each admitted value contributes its RAW form and, when different, its
+    JSON-string-escaped form -- a transcript stores a credential inside a JSON
+    string value, so a value containing a quote/backslash only ever appears there in
+    escaped form and a raw-only search would miss it. Longest-first ordering makes
+    redaction deterministic when one needle contains another."""
+    out: list[tuple[str, str]] = []
+    for name, value in parse_secrets_file(path):
+        if denylist_verdict(value) != "ok":
+            continue
+        needles = {value}
+        needles.add(json.dumps(value)[1:-1])
+        out.extend((name, n) for n in needles)
+    out.sort(key=lambda t: len(t[1]), reverse=True)
+    return out
+
+
+def scan_denylist(text: str, deny: list[tuple[str, str]]) -> dict[str, int]:
+    """{'secrets-file:NAME': count} for every live value present verbatim in `text`."""
+    counts: dict[str, int] = {}
+    for name, needle in deny:
+        n = text.count(needle)
+        if n:
+            counts[f"secrets-file:{name}"] = (
+                counts.get(f"secrets-file:{name}", 0) + n
+            )
+    return counts
+
+
+def redact_denylist(text: str, deny: list[tuple[str, str]]) -> tuple[str, int]:
+    """Replace every live value with MARKER. Verbatim equality => no false positive,
+    so this is safe in redact mode (unlike entropy). Values never contain a newline
+    (the `whitespace` filter rejects them), so the line count cannot drift."""
+    total = 0
+    for _name, needle in deny:
+        n = text.count(needle)
+        if n:
+            text = text.replace(needle, MARKER)
+            total += n
+    return text, total
+
+
 def iter_files(paths, exts=(".jsonl", ".txt", ".md")):
     for p in paths:
         if os.path.isfile(p):
@@ -163,12 +323,16 @@ def iter_files(paths, exts=(".jsonl", ".txt", ".md")):
                         yield os.path.join(root, f)
 
 
-def scan_text(text: str) -> dict[str, int]:
+def scan_text(
+    text: str, deny: list[tuple[str, str]] | None = None
+) -> dict[str, int]:
     counts = {}
     for name, pat in PATTERNS.items():
         n = sum(1 for m in pat.finditer(text) if not is_allowlisted(m.group(0)))
         if n:
             counts[name] = n
+    if deny:
+        counts.update(scan_denylist(text, deny))
     return counts
 
 
@@ -184,7 +348,9 @@ def scan_line_hits(text: str) -> set[int]:
     return lines
 
 
-def redact_text(text: str) -> tuple[str, int]:
+def redact_text(
+    text: str, deny: list[tuple[str, str]] | None = None
+) -> tuple[str, int]:
     total = 0
     # bearer first (keep prefix)
     text, n = _BEARER_KEEP.subn(lambda m: m.group(1) + MARKER, text)
@@ -193,6 +359,9 @@ def redact_text(text: str) -> tuple[str, int]:
         if name == "bearer-token":
             continue
         text, n = pat.subn(MARKER, text)
+        total += n
+    if deny:
+        text, n = redact_denylist(text, deny)
         total += n
     return text, total
 
@@ -299,13 +468,25 @@ def run_gitleaks(paths, excl) -> tuple[list[dict], str | None]:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="detect/redact high-confidence secrets")
-    ap.add_argument("mode", choices=["scan", "redact"])
-    ap.add_argument("paths", nargs="+")
+    ap = argparse.ArgumentParser(
+        description="detect/redact high-confidence secrets"
+    )
+    ap.add_argument("mode", choices=["scan", "redact", "denylist"])
+    ap.add_argument("paths", nargs="*")
     ap.add_argument(
         "--apply",
         action="store_true",
         help="redact: actually write (default dry-run)",
+    )
+    ap.add_argument(
+        "--secrets-file",
+        default=os.environ.get("SCRUB_SECRETS_FILE", SECRETS_FILE_DEFAULT),
+        help="live-value denylist source (default ~/.secrets or $SCRUB_SECRETS_FILE)",
+    )
+    ap.add_argument(
+        "--no-denylist",
+        action="store_true",
+        help="disable the live-value denylist (patterns only)",
     )
     ap.add_argument(
         "--exclude",
@@ -325,6 +506,60 @@ def main() -> int:
     )
     ap.add_argument("--quiet", action="store_true")
     a = ap.parse_args()
+    secrets_path = os.path.expanduser(a.secrets_file)
+
+    # `denylist` mode: print the decision table and stop. NAMES + lengths + the
+    # filter verdict — never a value. This is what makes the rule inspectable.
+    if a.mode == "denylist":
+        try:
+            rows = denylist_table(secrets_path)
+        except OSError as e:
+            print(
+                f"denylist: cannot read {secrets_path} ({e.__class__.__name__})",
+                file=sys.stderr,
+            )
+            return 2
+        print(f"# live-value denylist source: {secrets_path}")
+        print(
+            f"# admitted iff: len >= {DENY_MIN_LEN}, not integer/url/whitespace/pointer"
+        )
+        for name, ln, verdict in rows:
+            mark = "ADMIT " if verdict == "ok" else "skip  "
+            print(
+                f"{mark} {name:28s} len={ln:<5d} {'' if verdict == 'ok' else verdict}"
+            )
+        ok = sum(1 for _n, _l, v in rows if v == "ok")
+        print(
+            f"\n== denylist: {ok} of {len(rows)} values admitted ==",
+            file=sys.stderr,
+        )
+        return 0
+
+    if not a.paths:
+        ap.error(f"{a.mode}: at least one path is required")
+
+    # Build the live-value denylist. UNAVAILABLE is a THIRD state, not a silent
+    # pass: it is named in the summary line so "gate passed" can never be confused
+    # with "gate passed with only 3 of 22 credentials detectable" (explore-wmlc).
+    deny: list[tuple[str, str]] = []
+    deny_status = "off" if a.no_denylist else "unavailable"
+    deny_names = 0
+    if not a.no_denylist:
+        try:
+            deny = build_denylist(secrets_path)
+            deny_names = len({n for n, _ in deny})
+            deny_status = "on"
+        except OSError as e:
+            deny_status = f"unavailable:{e.__class__.__name__}"
+            # A greppable WARN, not just a bracket in the summary. The vault call
+            # sites forward this stream to ~/.claude/vault-sync.log, so the one
+            # state that silently re-narrows the gate is the one state that says so.
+            print(
+                f"WARN: scrub: live-value denylist UNAVAILABLE ({secrets_path}: "
+                f"{e.__class__.__name__}) — this run detects PREFIX PATTERNS ONLY.",
+                file=sys.stderr,
+            )
+
     excl = {os.path.abspath(x) for x in a.exclude}
     want_gitleaks = a.gitleaks and a.mode == "scan"
 
@@ -341,7 +576,7 @@ def main() -> int:
                 text = fh.read()
         except OSError:
             continue
-        counts = scan_text(text)
+        counts = scan_text(text, deny)
         if a.mode == "scan" and a.entropy:
             eh = entropy_hits(text)
             if eh:
@@ -360,7 +595,7 @@ def main() -> int:
             if not a.quiet:
                 print(f"{path}: {n}  {counts}")
         else:  # redact
-            new_text, redacted = redact_text(text)
+            new_text, redacted = redact_text(text, deny)
             if a.apply:
                 res = safe_rewrite(path, new_text)
                 if res != "ok":
@@ -396,8 +631,18 @@ def main() -> int:
                 file=sys.stderr,
             )
 
+    # The detector line is the three-valued rule made visible: a caller reading the
+    # log can tell "clean under BOTH detectors" from "clean under the patterns only
+    # because the live-value denylist could not be built". Deliberately brace-free —
+    # scrub-continue.sh's per-file parser keys on a trailing `{...}` counts dict.
+    det = f"{len(PATTERNS)} patterns"
+    if deny_status == "on":
+        det += f" + {deny_names} live-values from {secrets_path}"
+    else:
+        det += f"; live-value denylist {deny_status.upper()}"
     print(
-        f"\n== {a.mode}: {files_hit} files with matches, {total_matches} secret matches ==",
+        f"\n== {a.mode}: {files_hit} files with matches, {total_matches} secret matches"
+        f"  [detectors: {det}] ==",
         file=sys.stderr,
     )
     if a.mode == "redact":
