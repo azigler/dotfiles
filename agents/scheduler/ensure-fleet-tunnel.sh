@@ -83,12 +83,30 @@ probe() {
   printf '%s' "${code:-000}"
 }
 
-# Is the forward we started still alive?
+# The distinctive command line of a forward THIS script opened. A reverse tunnel
+# from zig-computer appears on this box as an `sshd` process, never as a local
+# `ssh -L`, so this pattern cannot match someone else's dispatch.
+FORWARD_PAT="ssh .*-L 127\.0\.0\.1:$PORT:127\.0\.0\.1:$PORT $PEER\$"
+
+# Is a forward of ours alive? Prefer the pidfile; fall back to DISCOVERY.
+#
+# The fallback matters: the pidfile is only written at creation, so any path that
+# clears or misses it (a `down` that found nothing to kill still rm'd the file,
+# an `ensure` that short-circuited on an already-up port) orphaned a forward we
+# genuinely own — after which `down` reported "none of ours" about our own
+# process. Discovery makes ownership recoverable instead of write-once.
 our_pid() {
-  [ -f "$PIDFILE" ] || return 1
-  local p; p=$(cat "$PIDFILE" 2>/dev/null)
-  [ -n "$p" ] && kill -0 "$p" 2>/dev/null || return 1
-  printf '%s' "$p"
+  local p
+  if [ -f "$PIDFILE" ]; then
+    p=$(cat "$PIDFILE" 2>/dev/null)
+    if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then printf '%s' "$p"; return 0; fi
+  fi
+  p=$(pgrep -n -f "$FORWARD_PAT" 2>/dev/null)
+  if [ -n "$p" ]; then
+    printf '%s\n' "$p" > "$PIDFILE"      # re-adopt
+    printf '%s' "$p"; return 0
+  fi
+  return 1
 }
 
 tunnel_down() {
@@ -147,7 +165,7 @@ if ! ssh -f -N \
 fi
 
 # Record the pid so `down` and the recycle path above only ever touch ours.
-NEWPID=$(pgrep -n -f "ssh.*-L 127.0.0.1:$PORT:127.0.0.1:$PORT.*$PEER" || true)
+NEWPID=$(pgrep -n -f "$FORWARD_PAT" 2>/dev/null || true)
 [ -n "$NEWPID" ] && printf '%s\n' "$NEWPID" > "$PIDFILE"
 
 # Re-probe. Opening a socket is not the same as the proxy answering — the whole
