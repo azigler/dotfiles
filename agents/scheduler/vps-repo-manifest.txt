@@ -4,10 +4,20 @@
 # zig-computer). Data, not code: adding a migrating pulse row should be a line
 # here, never a script edit.
 #
-# Scope note (explore-7iz9, architecture (c); AMENDED 2026-07-27): ALL SEVEN
-# rows are provisioned — friday-deploy, di-research-digest, guest-promo,
-# di-wednesday, di-monday, news-planning (dashboard-dev-interrupted) and
+# Scope note (explore-7iz9, architecture (c); AMENDED 2026-07-27; row names
+# CORRECTED 2026-07-28): SIX rows are provisioned — di-monday, di-tuesday,
+# di-wednesday, di-thursday, di-friday (dashboard-dev-interrupted) and
 # weekly-report (weekly-reporting).
+#
+# This note previously listed SEVEN rows under their pre-rename CONTENT names —
+# friday-deploy, di-research-digest, guest-promo, news-planning. Those are now
+# the names of the SKILLS a day-labelled row invokes, not rows: the day-label
+# rename collapsed them, and `news-planning` in particular is a skill
+# (.claude/skills/news-planning/) that di-monday runs, not a row of its own.
+# Verified 2026-07-28 against both authorities, which agree with each other:
+# dashboard-dev-interrupted/refs/pulse.md declares exactly di-monday..di-friday,
+# and the six systemd units pass exactly `--row di-<day>` / `--row weekly-report`.
+# Left uncorrected, this comment reads as a seventh row that never fires.
 #
 # di-monday and news-planning were originally left local because both must raise
 # a bell to Zig and a dialog on an unattended shared box is worthless. Zig's call
