@@ -33,7 +33,9 @@ A project opts in by carrying a routing table at `refs/pulse.md`:
 ```
 
 - **priority** — rows evaluated ascending; first satisfied row fires.
-- **check** — a bash one-liner; exit 0 = the trigger condition holds.
+- **check** — a bash one-liner. **Three-valued, not boolean** (see below):
+  `0` = the trigger holds; `1` = it genuinely does not; `3` = the check
+  could not be evaluated at all.
 - **action** — what to do: a skill invocation, a named flow from the
   project's CLAUDE.md, or "work the top pick".
 - **cap** — max fires per day/week, enforced against the ledger.
@@ -41,6 +43,47 @@ A project opts in by carrying a routing table at `refs/pulse.md`:
 No `refs/pulse.md` → `/pulse tick` refuses and points at
 `/pulse setup`. The table is Andrew's steering wheel: he edits rows,
 caps, and priorities; ticks never edit the table themselves.
+
+### A check is THREE-valued — "didn't fire" and "couldn't tell" are different
+
+| rc | Meaning | What the tick MUST do |
+|---|---|---|
+| `0` | the trigger condition holds | **FIRE** this row |
+| `1` | it genuinely does not hold (empty queue, wrong weekday) | move to the next row; if none fire, `outcome:"quiet"` |
+| `3` | **could not be evaluated** — transport/auth/shape failure, the check never saw an answer | **DO NOT FIRE** — log `outcome:"blocked"`, note the check's own stderr, end the tick |
+
+This is the **same rule as the cap helper's rc `2`**, one layer up, and for
+the same reason: *"could not determine" is an error, never a permissive
+default.* A binary check has no way to say it failed, so every failure is
+indistinguishable from an empty queue — and an empty queue is the quietest,
+most reassuring thing a loop can report.
+
+⚠️ **This is not hypothetical — it is why the `dive` loop went blind for a
+day and looked healthy doing it** (2026-07-27, `explore-pksf`). Its check
+piped `curl` straight into `jq -e`. When the qmsy jail flip closed the read
+path, `curl` emitted a `403 {"error":"Invalid bearer token"}` body, `jq`
+exited non-zero on it, and the tick logged **`quiet` — "no cards"**. Four
+fires a day, indefinitely, from a loop that could not see a single card.
+Nothing errored; nothing tripped.
+
+The shape that fixes it — fail LOUD on anything that is not a well-formed
+answer, and only then ask the real question:
+
+```bash
+resp=$(curl -sf -H "Authorization: Bearer $TOKEN" "$URL") || exit 3  # transport/HTTP error
+echo "$resp" | jq -e 'has("data")' >/dev/null || exit 3              # not the shape we expect
+echo "$resp" | jq -e '[.data[] | select(...)] | length > 0'          # 0/1 = the real verdict
+```
+
+`curl -sf` (not bare `curl -s`) is what makes an HTTP 4xx/5xx a non-zero
+exit instead of a body that `jq` then misreads as data. **Any check that
+crosses a network or reads a file it does not own needs all three rungs.**
+A check that can only say yes-or-no cannot report that it is broken —
+and per this repo's rule, a probe with no way to fail loudly has no
+positive control.
+
+Rows written before this contract return only `0`/`1`, so they are
+unaffected; `3` is purely additive.
 
 ## The ledger: refs/pulse-ledger.jsonl
 
@@ -237,6 +280,12 @@ the daily cap.)
 3. **Evaluate rows by priority**: run each `check`; skip rows whose
    cap is exhausted; the first satisfied row fires. None → quiet tick:
    say one line, STOP.
+   ⚠️ **A check that exits `3` STOPS the whole tick** — it did not fail to
+   fire, it failed to *evaluate*, so falling through to the next row would
+   report a lower-priority `quiet` while a higher-priority row is broken.
+   Log `outcome:"blocked"` naming THAT row, carry the check's stderr into
+   the note, and end the tick. Do not suppress that stderr — it is the only
+   thing that says which leg broke. (See the three-valued table above.)
    **Decide the row first; write ONE ledger line, at step 5.** Do not append
    mid-evaluation. A row can pass its `check` and still do no work — its
    action scans and finds nothing — and a lower-priority row then fires

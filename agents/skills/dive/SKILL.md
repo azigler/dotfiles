@@ -259,13 +259,22 @@ See `~/explore/CHILDREN.md` for the roster (the flat children table) and `~/expl
 ## Step 1: Verify the Asana target
 
 ```bash
-FLEET_URL=http://localhost:7100
+FLEET_URL="${FLEET_URL:-http://localhost:7100}"   # NEVER a bare assignment — see below
 FLEET_TOKEN="$FLEET_API_TOKEN"   # exported from your env — never hardcode
 
 curl -s -H "Authorization: Bearer $FLEET_TOKEN" \
   "$FLEET_URL/api/asana/tasks/<gid>" \
   | jq '{name: .data.name, current_notes: .data.notes, assignee_section: .data.assignee_section.name}'
 ```
+
+⚠️ **`FLEET_URL` must always be set with `${FLEET_URL:-…}`, never a bare
+`FLEET_URL=http://localhost:7100`.** When `/dive` runs inside the qmsy
+tick-jail, the jail exports `FLEET_URL=http://127.0.0.1:7110` to point the
+loop at Broker A; a bare assignment silently overwrites that and every call
+then 403s against the fleet proxy the jail cannot authenticate to. That is
+exactly how the dive loop went blind on 2026-07-27 (`explore-pksf`) — the
+jail's own comment claimed "no skill edit needed for the URL swap", which
+was false precisely because this line did not read the environment.
 
 Confirms the task exists and shows what's already in `notes` (the
 description) so you don't accidentally overwrite something the user

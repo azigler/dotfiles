@@ -7,7 +7,7 @@ session that produced /dive.
 ## Auth + headers (every write)
 
 ```bash
-FLEET_URL=http://localhost:7100
+FLEET_URL="${FLEET_URL:-http://localhost:7100}"   # honor an inherited value (the tick-jail sets it)
 FLEET_TOKEN="$FLEET_API_TOKEN"   # exported from your env — never hardcode
 
 # Verify fleet is up before doing anything
