@@ -84,23 +84,28 @@ stayed dark. Both cones now.
 
 ## Open
 
-**The tmux restart is Zig's to run, and the ownership claim is UNPROVEN until he
-does.** The server is still the old one in `session-140.scope`. It survives
-logout today only because `KillUserProcesses` defaults to `no` and `Linger=yes`
-— policy, not ownership.
+~~The tmux restart is Zig's to run.~~ **DONE and PROVEN, 2026-07-28 00:29.**
+Zig ran the cutover himself. Verified:
 
 ```
-systemd-run --user --collect --unit=tmux-cutover \
-  /bin/sh -c 'tmux kill-server; sleep 2; systemctl --user start tmux.service'
+Name:   tmux: server                 (pid 403325)
+PPid:   83760  ->  /usr/lib/systemd/systemd --user
+cgroup: /user.slice/user-1002.slice/user@1002.service/app.slice/tmux.service
 ```
 
-Then reattach and run the proof:
+The server's direct parent is the user manager, not a login shell. No
+`session-*.scope` remains under `user-1002.slice` — the old `session-140.scope`
+is gone. Unit is `enabled` + `active` (`SubState=exited`, `Result=success`,
+which is correct for `Type=oneshot`+`RemainAfterExit`). Boot persistence: enable
+symlink present in `default.target.wants`, `Linger=yes`.
 
-```
-systemctl --user show tmux.service -p ControlGroup
-```
+`app.slice` in that path is NOT an anomaly — systemd >= 251 files user services
+there by default. The load-bearing element is `user@1002.service/` preceding it.
 
-It must read `.../user@1002.service/tmux.service`, NOT `session-<n>.scope`.
+Side effect worth knowing: tmux-continuum and tmux-resurrect are live for the
+first time (`@continuum-boot on`, `@continuum-restore on`, first save already
+written). The old server never had them; `~/.tmux/resurrect/` did not exist. So
+session layout now survives a reboot, not merely a disconnect.
 
 **`dotfiles-qcfx`** — swap the timer off the `~/bin` stub. Not done on purpose:
 the manifest's `readonly $HOME/dotfiles` also asserts no dirty tracked files,
