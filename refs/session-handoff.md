@@ -1,109 +1,159 @@
-# Session handoff — 2026-07-28 · vps-8a9eb245 becomes Zig's own machine
+# Session handoff — 2026-07-28 · f331fe58 · the vault-sync alarm was crying wolf
 
-Session id: `7f6d0b60-cfc5-467c-9931-3240fb6e0cc2`
+Session id: `f331fe58-8f36-4774-8c66-d6d5c5e05f2d` (on **zig-computer**, not the vps
+the previous handoff described)
 
 ## State at offboard
 
-- **Branch**: main @ `c78e533`, working tree clean, pushed
-- **Open beads**: 34 (1 in-progress: `dotfiles-mhn`, the /pulse spec — pre-existing)
+- **Branch**: main @ `10c492e`, working tree clean, pushed
+- **Open beads**: 34 (1 in-progress: `dotfiles-mhn`, the /pulse spec — pre-existing,
+  untouched this session)
 - **In-flight subagents**: none. No worktrees.
 - **Markers**: `.offboard-pending` cleared
-- **Box**: `vps-8a9eb245`. `agents/infra.md` documents **zig-computer** and does
-  NOT describe this machine — different IP, ports, timers.
 
-## The one idea that explains the whole session
+## What happened this session
 
-This box was provisioned as a **marketing-vps PEER**: a coworker-facing,
-read-only consumer scoped to seven LinearB slugs. Zig's instruction was to make
-it **his own machine**. Every single problem found was the same shape — something
-scoped narrowly for the peer role, silently excluding his own work — and every
-one of them **reported success while doing nothing**:
+Zig brought two symptoms. One was a real defect with a false face; the other turned
+out not to be on this box at all.
 
-| Layer | Symptom | Silent because |
-|---|---|---|
-| `~/dotfiles` repo | shell tier still served by `~/marketing-vps` | sparse cone = `agents`,`claude` |
-| transcripts vault | 64/93 slugs absent | cone was an allowlist of 7 |
-| slug transform | `~/dotfiles` sessions never synced at all | alias covered `linearb*` only |
-| alias creation | 78 projects on disk but unreachable | alias was created LAZILY at SessionStart |
-| mtimes | whole back-catalogue read "1 day ago" | git does not carry mtimes |
+### 1. "The vault sync timer says it's blocked" — FIXED (`dotfiles-tqjk`, closed)
 
-The hourly timer logged `OK` throughout all of it. This is `dotfiles-cxle`
-(consumer-reports-success) with five fresh instances.
+**It was never not-pushing.** Both tiers were 0/0 against `origin/main` with fresh
+success stamps the whole time. The dashboard was reporting a *false* alarm:
 
-## What happened
+```
+"state": "blocked", "detail": "fired 31m ago, tick BLOCKED — parked on you"
+```
 
-**Shell + tmux** (`2b8d22a`) — full checkout; `zsh/.vps-8a9eb245.zsh`,
-`bash/.vps-8a9eb245.bashrc`, and a NEW tier `zsh/.vps-8a9eb245.zshenv` (`ssh host
-"cmd"` reads `.zshenv`, not `.zshrc`, so remote dispatch needs PATH there; that
-content had been written straight to `~/.zshenv` where the first `sync.sh zsh`
-would have silently reverted it). All hooks guarded — this box has no keyboard.
-Also fixed `sync.sh gnupg` writing a macOS-only `pinentry-mac` line on Linux.
+Root cause, evidenced from the journal — **two** `vault-sync.sh` runs start in the
+same second, from two independent schedulers that are both scheduled on the hour:
 
-**tmux ownership** — `tmux/tmux.service`. Zig ran the cutover; PROVEN:
-server pid's parent is `/usr/lib/systemd/systemd --user`, cgroup
-`user@1002.service/app.slice/tmux.service`, no `session-*.scope` left.
-Side effect: continuum/resurrect are live for the first time.
+```
+14:00:43 vault-sync[1083379]: == vault-sync DEGRADED — memory=ok transcripts=deferred (exit 10) ==   <- pulse-dispatch-remote.sh "sync T2/T3 (local push)"
+14:00:43 vault-sync[1083457]: == vault-sync OK      — memory=ok transcripts=ok       (exit 0)  ==   <- claude-vault-sync.service
+```
 
-**Vault, four rounds** (`88e0eae`, `6ea8081`, `3a311bb`) — universal
-`-home-andrew*` → `-home-ubuntu*` transform; full mirror (93/93 slugs, 4.6 GB);
-78 aliases; `restore-mtimes.py` (7,334 files, largest 183 days). All durable in
-`vault-sync.sh` step 1a, peer-guarded.
+The loser of the `flock -w 10` race exits 3 (DEFERRED). `vault-sync.sh`'s verdict
+block treated *every* non-zero tier status as bad, so a benign "someone else is
+doing this work" became DEGRADED / exit 10 / ledger `outcome:"blocked"`. Both runs
+append to the same ledger at the same ts, and harnessd's `newestRow` tie-break
+(`internal/gen/loop.go`, `blocked` > `done` at an identical ts) correctly preferred
+the `blocked` row — correct logic, fed a wrong row.
+
+The fix **re-aims the alarm rather than weakening it**:
+
+| tier status 3 (deferred) + … | verdict |
+|---|---|
+| success stamp FRESH (< `STALE_HOURS`) | exit 0, `OK (deferred — concurrent run holds the lock)`, ledger `quiet` |
+| stamp >= `STALE_HOURS` old | unchanged: STALE, exit 2x, `blocked` |
+| no stamp at all | DEGRADED, exit 1x, `blocked` |
+
+FAILED (1) and BLOCKED (2) are untouched. The stale-stamp backstop is what makes the
+green case safe — a permanently wedged lock still reddens the unit within 6h. The
+summary line still reads `transcripts=deferred`, so a deferred run never *looks*
+like a push that happened.
+
+**Verified end-to-end against the real vaults**, not just the scratch harness — held
+the real `.transcripts.lock` and ran the merged script:
+
+```
+== vault-sync OK (deferred — concurrent run holds the lock) — memory=ok transcripts=deferred (exit 0) ==
+{"ts":"2026-07-28T15:54:28Z","row":"vault-sync","outcome":"quiet",...}
+```
+
+and the dashboard then read `"state": "healthy"`. Regression cases T14–T17 added to
+`agents/vault/test/vault-sync-alarm-test.sh` (65 passed / 0 failed; demonstrated
+FAILING pre-fix with a line byte-identical to the live journal). Suite runtime grew
+~2m10s → ~3m20s because the new cases wait on four real `flock -w 10` timeouts.
+
+**Adjacent finding the fix also resolves** (agent's, no separate bead — it is fully
+covered): `pulse-dispatch-remote.sh`'s `vault_memory_failed()` treats units digit
+1/2 as fatal, so a *memory*-tier deferral (rc 11/12) used to `fail failed-vault 79`
+and abort the entire dispatch — not merely mis-render a dashboard row.
+
+### 2. "Every time I cd into a folder the terminal fires a command" — DROPPED, not reproducible
+
+Zig could not reproduce it on demand and called it off. Recording what was ruled out
+so nobody re-runs this search:
+
+Symptom was a *second* command line submitted in the same second as one he typed,
+where the second is a dictionary-shaped mangling of a word in the first —
+`dotfiles`→`dot-files`, `linearv`→`linear`, `cd`→`bcc'd`, and once `cd` arriving
+split as `c` then `d`. Confirmed in `~/.zsh_history` (extended timestamps, five
+occurrences 14:21–14:37 UTC) and in the pane scrollback.
+
+Ruled out, each with evidence:
+
+- `chpwd` hooks — only `_direnv_hook`; direnv has **no** `.envrc` in `~/dotfiles`,
+  `~/linearb` or `~`, empty whitelist, `direnv status` = "No .envrc or .env loaded"
+- tmux hooks — zero set (global and both sessions); no `send-keys` source
+- `~/.oh-my-zsh/custom/` — empty but for the stock `example.zsh`
+- key bindings — stock; nothing bound to `autosuggest-execute`
+- `auto_cd` (on, working) and `cdpath` (empty, never set in this repo)
+- `~/.zshrc.zwc` — a compiled zshrc written **Jul 28 00:32**, i.e. inside the
+  "started in the last day" window, so it was a prime suspect. Its string table is
+  **identical** to a fresh compile of the readable `.zshrc` (only the embedded path
+  differs) — no hidden content. Nobody knows who compiled it; it is benign, and zsh
+  falls back to the plain file whenever `.zshrc` is newer, so it cannot strand a
+  future edit.
+- processes able to write to his pane's tty (`lsof /dev/pts/24`) — only his own
+  `zsh` and p10k's `gitstatus` helper
+
+The discriminating control: driving the **exact** commands (bare relative
+`cd dotfiles`, `cd ..`, `cd linearv`) through `tmux send-keys` into a real shell in
+his own `work` session — same pty, same ZLE — never reproduced it, across three
+attempts. His keystrokes produced it; identical bytes originating on the box did
+not. A `cat -v` probe window was set up to settle client-vs-server definitively;
+by the time he ran it the symptom had stopped.
+
+**If it returns**, start from the probe (a `cat -v` cannot execute or correct
+anything, so anything appearing in it arrived as input over the wire) rather than
+re-auditing the shell tier.
 
 ## Decisions made this session
 
-- `dotfiles-qydv` — ANTHROPIC_BASE_URL moved to a per-host file rather than
-  dropped fleet-wide. Zig's removal was correct for this box but `settings.json`
-  is fleet-wide; preserved for zig-computer in `zsh/.zig-computer.zshenv`.
+- None filed as `-t decision` beads. (`dotfiles-qydv` shows up in the harvest window
+  but belongs to the **previous** session, not this one.)
+- One judgment call worth naming, recorded here rather than as an ADR because it is
+  a decision *not* to act: I had announced moving `claude-vault-sync.timer` off
+  `:00` to stop the routine collision, then **did not**, because the classification
+  fix makes the collision harmless and the timer file is untracked machine state.
+  See "What's next".
 
-Zig decided directly (not autonomous, so no ADR): full checkout, the tmux restart
-timing, the force-push, and codifying the peer→own-machine role change.
+## Proposed practices — where each one landed
 
-## Proposed practices — where each landed
-
-- Allowlist-vs-transform reasoning ("a missing entry costs invisible data loss, an
-  over-broad match costs an unread symlink — not symmetric") → **written into
-  `agents/hooks/session-start.sh`** at the site it governs.
-- "Keep the two cones identical" → **written into both cone files and
-  `vps-peer-bootstrap.sh`**.
-- "If a shared coworker box ever needs narrow scope, make it an opt-in FLAG, never
-  the default" → **written into `vps-peer-bootstrap.sh`** header.
-- Negative-control setup must be asserted (a shell-aliased `rm -i` silently
-  no-opped a break step and the test "passed") → **appended to the
-  `feedback-silent-success-pattern` memory** as habit §4.
+- "A deferral is not a failure; re-aim the alarm, don't weaken it" → **written into
+  `agents/vault/vault-sync.sh`'s header** as the `DEFERRAL IS NOT FAILURE
+  (dotfiles-tqjk)` block, at the site it governs, with the three-case table and the
+  stale-stamp rationale. Not left in this note.
 
 ## What's next
 
-1. **`dotfiles-qcfx` (P2)** — the hourly timer still runs a 49-line untracked stub
-   at `~/bin/vps-repo-refresh.sh` instead of the tracked 447-line script with
-   receipts, fail-closed `--assert`, and live `ls-remote` staleness checks. Works
-   today; fails silently when it stops. Blocked on deciding what
-   `readonly $HOME/dotfiles` means now the box is a working checkout —
-   `e14c5ac` already relaxed the identity half.
-2. `dotfiles-6wdw` (P0, pre-existing) — unauthenticated internet→tailnet pivot on
-   :7575. Untouched this session; predates it.
-3. Consider whether `agents/infra.md` should gain a section for this box, or
-   whether a second file is cleaner.
+1. **Optional, now low-value**: `claude-vault-sync.timer` still fires at `:00:00`, so
+   it still races the on-the-hour pulse-dispatch loops every time both run — the race
+   is now harmless (one run does the work, the other logs `quiet`) but it is wasted
+   work. Moving the primary to `:07` and the peer to `:22` preserves the documented
+   15-min offset. The live unit at `~/.config/systemd/user/claude-vault-sync.timer`
+   is untracked, so the template at
+   `agents/scheduler/templates/claude-vault-sync.timer` must change with it.
+2. `dotfiles-qcfx` (P2) — carried from the prior session: the hourly repo-refresh
+   timer still runs the 49-line untracked stub at `~/bin/vps-repo-refresh.sh`.
+3. `dotfiles-6wdw` (P0, pre-existing) — unauthenticated internet→tailnet pivot on
+   :7575. Untouched again this session.
 
 ## Warnings / watch-outs
 
-- **`main` was force-pushed** (`13879a7` → `4461a22`) to fix a machine-derived
-  author email. Trees verified identical first. Any other dotfiles checkout needs
-  `git fetch && git reset --hard origin/main`. The box that pushed `741c1e8`
-  reconciled correctly already.
-- **NEW HAZARD, introduced by the aliasing.** `~/.claude/projects/-home-andrew-*`
-  are now symlinks into shared `-home-ubuntu-*` dirs, so a slug directory holds
-  sessions from BOTH machines. `/offboard` Step 2 and `session-end.sh` pick the
-  session id via `ls -t *.jsonl | head -1`. That is no longer reliably "this
-  session" — it matched today only because this session was actively writing. A
-  concurrent dotfiles session on zig-computer could win the race and stamp the
-  wrong id into `.claude/last-offboard-session`. Not yet filed; worth a bead if it
-  ever misfires.
-- `restore-mtimes.py` fixes **mtime only**. ctime is unavoidably the checkout
-  moment on a mirror — nothing short of shipping metadata alongside content fixes
-  that. 161 files carry no embedded timestamp and are left alone, not guessed.
-- **`~/.secrets` does not exist here.** Guarded everywhere, so no shell errors —
-  but anything needing a credential comes up empty.
-- `~/marketing-vps` still exists and is still the coworkers' repo. It is simply no
-  longer wired into Zig's shell.
-- `claude/settings.json` no longer sets `ANTHROPIC_BASE_URL` fleet-wide; a machine
-  needing the pico proxy must have run `sync.sh zsh` since (see `dotfiles-qydv`).
+- The vault-sync alarm test suite now takes **~3m20s** (was ~2m10s) — the new cases
+  spend ~50s waiting on real `flock -w 10` timeouts. That is deliberate: it exercises
+  the real lock path in `vault-lib.sh` / `transcripts-lib.sh` rather than a stub. If
+  it ever needs to be faster, a stub injector is the trade, at the cost of no longer
+  testing the thing that actually broke.
+- The `quiet` outcome is new for the `vault-sync` ledger row. It is in
+  `pulse-ledger-lint.py`'s `ALLOWED_OUTCOMES` (asserted mechanically by T14, not by
+  eye), and harnessd ranks it below both `blocked` and `done`, so a `quiet` row can
+  never mask a same-ts `blocked` one.
+- harnessd was deliberately **not** touched. Its `newestRow` tie-break is correct;
+  it was being fed a wrong row. Don't "fix" it there.
+- `~/.zshrc.zwc` exists and is newer than `.zshrc` (see above). Harmless, but if you
+  ever wonder why a `.zshrc` edit seems not to apply, check whether the `.zwc` won
+  the mtime comparison before hunting anything subtler.
