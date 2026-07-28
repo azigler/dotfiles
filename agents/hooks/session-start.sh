@@ -368,20 +368,37 @@ fi
 
 # --- peer dynamic-slug wiring (marketing-vps sync, spec lin-i2d.1 P5) ---
 # PEER ONLY (~/.claude/vaults/.peer present): for any session whose cwd is a
-# native -home-andrew-linearb* slug, ensure the projects-side dir is a SYMLINK to
-# the canonical -home-ubuntu-* content BEFORE the session writes, so its memory +
-# transcripts land in (and sync via) the shared vault. No-op on the primary.
+# SHARED-project slug under this box's native -home-andrew-* naming, ensure the
+# projects-side dir is a SYMLINK to the canonical -home-ubuntu-* content BEFORE
+# the session writes, so its memory + transcripts land in (and sync via) the
+# shared vault. No-op on the primary.
+#
+# The slug is path-derived, so the same repo has a different slug per box
+# (~/dotfiles is -home-andrew-dotfiles here, -home-ubuntu-dotfiles on
+# zig-computer). Anything NOT matched here writes to a slug the vault excludes
+# via `/-home-andrew*` in both .excludes files — meaning it is never committed
+# and never syncs, silently.
+#
+# dotfiles joined linearb as a shared project on 2026-07-27 (dotfiles-f8f2).
+# It is a genuinely different case: linearb was covered in the memory vault only
+# by accident, because that cone is the glob `/-home-ubuntu-linearb*/` and swept
+# up every linearb slug for free. This block only ever appended to the
+# TRANSCRIPTS cone, so the first shared NON-linearb project would have synced its
+# transcripts while its memory tier stayed dark. Both cones get the line now.
 if [ -f "$HOME/.claude/vaults/.peer" ]; then
   _pk_cwd="${HOOK_CWD:-$(pwd -P)}"
   _pk_slug="$(printf '%s' "$_pk_cwd" | sed 's#/#-#g')"
   case "$_pk_slug" in
-    -home-andrew-linearb*)
+    -home-andrew-linearb*|-home-andrew-dotfiles*)
       _pk_canon="-home-ubuntu-${_pk_slug#-home-andrew-}"
       _pk_proj="$HOME/.claude/projects"
       mkdir -p "$_pk_proj/$_pk_canon"
       [ -e "$_pk_proj/$_pk_slug" ] || ln -s "./$_pk_canon" "$_pk_proj/$_pk_slug"
-      _pk_sf="$HOME/.claude/vaults/transcripts.git/info/sparse-checkout"
-      [ -f "$_pk_sf" ] && ! grep -qxF "/$_pk_canon/" "$_pk_sf" && echo "/$_pk_canon/" >> "$_pk_sf"
+      for _pk_v in transcripts memory; do
+        _pk_sf="$HOME/.claude/vaults/$_pk_v.git/info/sparse-checkout"
+        [ -f "$_pk_sf" ] && ! grep -qxF "/$_pk_canon/" "$_pk_sf" && echo "/$_pk_canon/" >> "$_pk_sf"
+      done
+      unset _pk_v
       ;;
   esac
 fi
