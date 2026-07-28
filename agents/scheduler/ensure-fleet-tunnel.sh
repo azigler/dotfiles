@@ -70,9 +70,17 @@ mkdir -p "$STATE_DIR"
 say()  { printf 'fleet-tunnel: %s\n' "$*"; }
 warn() { printf 'fleet-tunnel: %s\n' "$*" >&2; }
 
-# Three-valued probe. Prints the raw code; caller interprets.
+# Three-valued probe. Prints exactly one code; caller interprets.
+#
+# NOT `curl ... || echo 000`: on a refused connection curl BOTH prints "000" and
+# exits nonzero, so the fallback fires too and the caller sees "000\n000" — which
+# matches neither 200 nor 000 and lands in the `*` branch, reporting a healthy-
+# but-blocked upstream when in fact nothing is listening. Caught on the first
+# live run. Capture, then substitute only when the output is genuinely empty.
 probe() {
-  curl -s -o /dev/null -m 10 -w '%{http_code}' "http://127.0.0.1:$PORT/api/health" 2>/dev/null || echo 000
+  local code
+  code=$(curl -s -o /dev/null -m 10 -w '%{http_code}' "http://127.0.0.1:$PORT/api/health" 2>/dev/null)
+  printf '%s' "${code:-000}"
 }
 
 # Is the forward we started still alive?
