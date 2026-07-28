@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # vault-sync-alarm-test.sh — regression tests for the vault-sync FAILURE-PROPAGATION
-# contract (dotfiles-t6sd). Guards the "exit-0 lie": before this bead, vault-sync.sh
+# contract (dotfiles-t6sd, T1–T13) and the DEFERRAL-IS-NOT-FAILURE contract that
+# re-aims it (dotfiles-tqjk, T14–T17).
+#
+# Guards the "exit-0 lie": before dotfiles-t6sd, vault-sync.sh
 # exited 0/SUCCESS on 120 consecutive runs whose transcripts push was blocked by the
 # Layer-1 secret gate, so `systemctl status` reported green while backups were dead.
 #
@@ -392,6 +395,121 @@ remote_blob memory '-test-slug/memory/MEMORY.md' | grep -qF "$FAKE_SECRET" \
   || ok "memory-pushed-content-must-not-contain-the-secret"
 grep -q '"tier": "memory"' "$REDL" \
   && ok "memory-redaction-is-ledgered" || no "memory-redaction-is-ledgered"
+
+# =========================================================================== #
+# DEFERRAL IS NOT FAILURE (dotfiles-tqjk). A tier returns status 3 (DEFERRED)
+# when it loses the `flock -w 10` race in vault-lib.sh / transcripts-lib.sh —
+# a CONCURRENT run holds the lock and is doing that tier's work. vault-sync.sh
+# used to call that DEGRADED / exit 10 / ledger "blocked", and harnessd then
+# rendered the loop "parked on you" while the winning run had just pushed
+# everything (live false alarm, 2026-07-28 14:00:43Z). The alarm is re-aimed,
+# not weakened — the staleness backstop below is what makes that safe.
+#
+# The deferral is injected FOR REAL: we pre-hold an exclusive flock on the
+# tier's lock file inside the SCRATCH vault dir (the libs derive that path from
+# $VAULT_DIR, which run_sync already points at the scratch home). No real lib is
+# edited and nothing outside $SCRATCH is touched. Each held lock costs the run
+# under test ~10s of `flock -w 10` wait — that wait IS the code path.
+# =========================================================================== #
+LOCK_RELEASE="$SCRATCH/.lock-release"
+hold_tier_lock() {   # arg1: tier — hold its lock until release_tier_locks
+  # NOT one `local tier="$1" f="...$tier..."`: bash declares every name in a
+  # `local` list (unset) BEFORE assigning, so the second RHS would read the new,
+  # empty `tier` and trip `set -u`. Separate statements.
+  local tier="$1" i=0
+  local f="$SCRATCH/home/.claude/vaults/.$tier.lock"
+  local ready="$SCRATCH/.lock-held-$tier"
+  rm -f "$ready" "$LOCK_RELEASE"
+  ( exec 9>"$f"; flock -x 9; : > "$ready"
+    while [ ! -e "$LOCK_RELEASE" ]; do sleep 0.1; done ) &
+  while [ ! -e "$ready" ] && [ "$i" -lt 200 ]; do sleep 0.05; i=$((i+1)); done
+  [ -e "$ready" ] || { echo "ABORT: could not pre-hold the $tier lock" >&2; exit 2; }
+}
+release_tier_locks() { : > "$LOCK_RELEASE"; wait; rm -f "$SCRATCH"/.lock-held-*; }
+
+SYNC_LEDGER="$SCRATCH/home/.claude/vault-sync-ledger.jsonl"
+ledger_outcome() {   # the outcome harnessd's loop-health generator would read
+  tail -n1 "$SYNC_LEDGER" | python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["outcome"])'
+}
+# Cross-check against the REAL linter's frozenset — an outcome this script emits
+# that pulse-ledger-lint.py rejects would be a different, quieter bug.
+LINT_PY="$(dirname "$VAULTDIR")/scheduler/pulse-ledger-lint.py"
+outcome_is_allowed() { grep -q "ALLOWED_OUTCOMES.*\"$1\"" "$LINT_PY"; }
+
+echo "--- T14: DEFERRED tier + FRESH stamp = green, but says so ------------"
+build_scratch clean
+run_sync                                    # healthy run — writes both stamps NOW
+[ "$RUN_RC" -eq 0 ] || no "t14-precondition-healthy-run (rc=$RUN_RC)
+$RUN_OUT"
+hold_tier_lock transcripts
+run_sync
+release_tier_locks
+printf '%s' "$RUN_OUT" | grep -q 'transcripts vault busy' \
+  && ok "deferral-injector-really-hit-the-flock-path" \
+  || no "deferral-injector-really-hit-the-flock-path
+$RUN_OUT"
+[ "$RUN_RC" -eq 0 ] && ok "deferred-with-fresh-stamp-exits-0" \
+                    || no "deferred-with-fresh-stamp-exits-0 (rc=$RUN_RC)
+$RUN_OUT"
+# ...but NOT silently: the verdict must never claim a push that did not happen.
+printf '%s' "$RUN_OUT" | grep -q 'transcripts=deferred' \
+  && ok "deferred-run-still-names-the-deferral" || no "deferred-run-still-names-the-deferral
+$RUN_OUT"
+printf '%s' "$RUN_OUT" | grep -q 'vault-sync OK (deferred' \
+  && ok "deferred-verdict-word-is-OK-deferred" || no "deferred-verdict-word-is-OK-deferred
+$RUN_OUT"
+T14_OUTCOME=$(ledger_outcome)
+[ "$T14_OUTCOME" != blocked ] && ok "deferred-fresh-ledger-is-not-blocked" \
+  || no "deferred-fresh-ledger-is-not-blocked (outcome=$T14_OUTCOME)"
+[ "$T14_OUTCOME" = quiet ] && ok "deferred-fresh-ledger-outcome-is-quiet" \
+  || no "deferred-fresh-ledger-outcome-is-quiet (outcome=$T14_OUTCOME)"
+outcome_is_allowed "$T14_OUTCOME" \
+  && ok "deferred-ledger-outcome-passes-pulse-ledger-lint-allowlist" \
+  || no "deferred-ledger-outcome-passes-pulse-ledger-lint-allowlist (outcome=$T14_OUTCOME)"
+
+echo "--- T15: DEFERRED tier + STALE stamp still escalates (the backstop) --"
+build_scratch clean
+run_sync                                    # stamps written now...
+stamp_age_set transcripts '7 hours ago'     # ...then aged past STALE_HOURS
+hold_tier_lock transcripts
+run_sync
+release_tier_locks
+[ "$RUN_RC" -eq 20 ] && ok "deferred-with-stale-stamp-exits-20" \
+                     || no "deferred-with-stale-stamp-exits-20 (rc=$RUN_RC)
+$RUN_OUT"
+printf '%s' "$RUN_OUT" | grep -q 'STALE' \
+  && ok "wedged-deferral-verdict-says-STALE" || no "wedged-deferral-verdict-says-STALE"
+[ "$(ledger_outcome)" = blocked ] && ok "wedged-deferral-ledger-is-blocked" \
+  || no "wedged-deferral-ledger-is-blocked (outcome=$(ledger_outcome))"
+
+echo "--- T16: DEFERRED tier with NO stamp is DEGRADED (conservative) ------"
+build_scratch clean
+[ -f "$SCRATCH/home/.claude/vaults/.last-success-transcripts" ] \
+  && no "t16-precondition-no-stamp-yet"
+hold_tier_lock transcripts
+run_sync
+release_tier_locks
+[ "$RUN_RC" -eq 10 ] && ok "deferred-with-no-stamp-exits-10" \
+                     || no "deferred-with-no-stamp-exits-10 (rc=$RUN_RC)
+$RUN_OUT"
+[ "$(ledger_outcome)" = blocked ] && ok "never-succeeded-deferral-ledger-is-blocked" \
+  || no "never-succeeded-deferral-ledger-is-blocked (outcome=$(ledger_outcome))"
+
+echo "--- T17: BOTH tiers deferred, both fresh -> still green --------------"
+build_scratch clean
+run_sync                                    # both stamps fresh
+hold_tier_lock memory
+hold_tier_lock transcripts
+run_sync
+release_tier_locks
+[ "$RUN_RC" -eq 0 ] && ok "both-tiers-deferred-fresh-exits-0" \
+                    || no "both-tiers-deferred-fresh-exits-0 (rc=$RUN_RC)
+$RUN_OUT"
+printf '%s' "$RUN_OUT" | grep -q 'memory=deferred transcripts=deferred' \
+  && ok "both-deferrals-named-in-the-verdict" || no "both-deferrals-named-in-the-verdict
+$RUN_OUT"
+[ "$(ledger_outcome)" != blocked ] && ok "both-deferred-ledger-is-not-blocked" \
+  || no "both-deferred-ledger-is-not-blocked (outcome=$(ledger_outcome))"
 
 echo
 printf '== %d passed, %d failed ==\n' "$pass" "$fail"

@@ -32,8 +32,30 @@
 #      escalates from "degraded" to "STALE", which is the self-contained
 #      backstop if harnessd is down or this loop is missing from its manifest.
 #
+# DEFERRAL IS NOT FAILURE (dotfiles-tqjk) ----------------------------------- #
+# Both push functions return 3 (DEFERRED) when they lose the `flock -w 10` race —
+# i.e. a CONCURRENT run holds the lock and is doing this tier's work right now.
+# That is a benign no-op, not a human-blocking condition, and it happens by
+# construction: the hourly timer and the pulse-dispatch local-push step are both
+# scheduled on the hour. Until this bead, a deferral was classified DEGRADED /
+# exit 10 / ledger `blocked`, and harnessd's newest-row tie-break (which prefers
+# `blocked` over `done` at an identical ts) rendered the loop "parked on you"
+# while the winning run had just pushed everything. A backup alarm that cries
+# wolf is how the next REAL outage gets ignored — so the alarm is RE-AIMED here,
+# not weakened:
+#   deferred + FRESH success stamp (< N hours)  -> exit 0, verdict "OK (deferred)",
+#       ledger outcome "quiet". The summary still reads `<tier>=deferred`, so the
+#       log never claims a push that did not happen.
+#   deferred + stamp >= N hours old             -> unchanged: STALE, exit 2x,
+#       outcome "blocked". This backstop is what makes the above safe — a
+#       permanently wedged lock still reddens the unit within N hours.
+#   deferred + NO stamp at all (never succeeded here) -> DEGRADED, exit 1x,
+#       outcome "blocked" (conservative; matches the no-stamp rule below).
+# FAILED (1) and BLOCKED (2) are untouched by all of this.
+#
 # EXIT CODES ---------------------------------------------------------------- #
-#   0   healthy — every bootstrapped tier reached the remote (or had nothing to do)
+#   0   healthy — every bootstrapped tier reached the remote, had nothing to do,
+#       or deferred to a concurrent run while its success stamp is still fresh
 #   1x  DEGRADED — at least one tier failed this run
 #   2x  STALE    — at least one failing tier has not succeeded in >= N hours
 # ...where the units digit names the affected tier(s):
@@ -180,6 +202,22 @@ stamp_age_hours() {
   echo $(( (now - mtime) / 3600 ))
 }
 
+# Does this tier's status count AGAINST the run? (see "DEFERRAL IS NOT FAILURE")
+# $1 = tier name, $2 = status code. Exit 0 = bad, 1 = fine.
+tier_is_bad() {
+  local tier="$1" rc="$2" age
+  tier_counts "$rc" || return 1                # INERT: nothing to back up here
+  [ "$rc" -eq 0 ] && return 1                  # OK
+  if [ "$rc" -eq 3 ]; then
+    # DEFERRED — another run holds the lock and is pushing this tier as we speak.
+    # Benign ONLY while this tier has a recent recorded success; a stamp that is
+    # missing or >= STALE_HOURS old means the deferral is not clearing, and the
+    # normal escalation below (which re-reads the same stamp) must still fire.
+    age=$(stamp_age_hours "$tier") && [ "$age" -lt "$STALE_HOURS" ] && return 1
+  fi
+  return 0
+}
+
 # 2. PUSH local changes via the tested guarded functions (each pulls-before-push).
 #    BOTH tiers are attempted unconditionally — a failure in one must never skip
 #    or mask the other. Statuses are captured, not swallowed.
@@ -207,8 +245,14 @@ done
 
 # 4. Verdict — severity + which tier(s), as documented in the header.
 mem_bad=0; tra_bad=0; stale_detail=""
-tier_counts "$mem_rc" && [ "$mem_rc" -ne 0 ] && mem_bad=1
-tier_counts "$tra_rc" && [ "$tra_rc" -ne 0 ] && tra_bad=1
+tier_is_bad memory      "$mem_rc" && mem_bad=1
+tier_is_bad transcripts "$tra_rc" && tra_bad=1
+
+# A deferral that did NOT count as bad still has to be visible: it changes the
+# verdict word and the ledger outcome, so a benign-looking green run is never
+# mistaken for "both tiers pushed".
+any_deferred=0
+{ [ "$mem_rc" -eq 3 ] || [ "$tra_rc" -eq 3 ]; } && any_deferred=1
 
 any_stale=0
 for pair in "memory:$mem_bad" "transcripts:$tra_bad"; do
@@ -246,7 +290,14 @@ fi
 
 summary="memory=$(status_word "$mem_rc") transcripts=$(status_word "$tra_rc")$scrub_term"
 if [ "$mem_bad" -eq 0 ] && [ "$tra_bad" -eq 0 ]; then
-  exit_code=0; verdict="OK"; outcome="done"
+  exit_code=0
+  if [ "$any_deferred" -eq 1 ]; then
+    # "quiet" (an ALLOWED_OUTCOMES value in pulse-ledger-lint) — this run did no
+    # work because a concurrent one was doing it. Green, but not "done".
+    verdict="OK (deferred — concurrent run holds the lock)"; outcome="quiet"
+  else
+    verdict="OK"; outcome="done"
+  fi
 else
   # units digit: 0 = transcripts only, 1 = memory only, 2 = both.
   if   [ "$mem_bad" -eq 1 ] && [ "$tra_bad" -eq 1 ]; then unit=2
