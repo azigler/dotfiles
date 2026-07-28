@@ -1,7 +1,7 @@
 ---
 description: Create git commits following gitmoji conventions with bead integration. Claude commits autonomously at natural checkpoints (bead closure, file created, test passing) — this is expected, not an extra confirmation step.
 argument-hint: "[message]"
-allowed-tools: Bash(git add *) Bash(git commit *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git push) Bash(git push *) Bash(br close *) Bash(br sync *)
+allowed-tools: Bash(git add *) Bash(git pull *) Bash(git commit *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git push) Bash(git push *) Bash(br close *) Bash(br sync *)
 when_to_use: Autonomous-OK at natural checkpoints (bead closure, test pass, config update); also when the user asks for a specific commit. Runs AFTER bead closure and selective staging.
 ---
 
@@ -12,7 +12,7 @@ when_to_use: Autonomous-OK at natural checkpoints (bead closure, test pass, conf
 - **Every bead closure** triggers a commit + push. One bead = one commit.
 - **Natural checkpoints** between beads: file created, test passing, config updated.
 - **Never batch** multiple beads into one commit.
-- **Always push** after committing -- unless you're in a worktree (branch starts with `worktree-agent-`).
+- **Always pull --rebase, THEN push** after committing -- unless you're in a worktree (branch starts with `worktree-agent-`). This is a multi-machine fleet now; never push blind.
 
 ## Commit Message Format
 
@@ -86,11 +86,40 @@ EOF
 )"
 ```
 
-### 3. Push
+### 3. PULL FIRST, then push
 
 ```bash
+git pull --rebase origin "$(git branch --show-current)"   # ALWAYS. Never push blind.
 git push
 ```
+
+⚠️ **Assume another machine has already committed.** As of 2026-07-28 this is no
+longer a single-writer fleet: `marketing-vps` runs full dispatched pulse ticks
+against its own checkouts of `~/dotfiles` and `~/linearb`, and a parallel
+interactive session commits here constantly. A bare `git push` against a moved
+remote either fails outright (`! [rejected] … fetch first`) or, worse, tempts a
+`--force` that silently discards the other machine's work.
+
+`--rebase` and not a merge commit: it keeps a linear history and, for
+`.beads/issues.jsonl`, replays your bead row on top of theirs so the union
+driver resolves it cleanly.
+
+**Bead state survives concurrent writes — but only because of the driver.**
+`.beads/*.jsonl merge=jsonl-union` is committed in all 48 bead repos, and the
+driver is registered globally in `dotfiles/git/.gitconfig` (so it resolves on
+BOTH machines, submodules included). It unions, dedupes by bead ID, and keeps
+the newer `updated_at`. Verified 2026-07-28 with the same 3-way merge on both
+boxes: two machines editing the SAME bead converge to one line with the newer
+state, and a bead closed on one side does **not** resurrect.
+
+🚫 **Never `merge=union`** (git's built-in). It keeps BOTH sides' lines, so a
+stale `open` line survives beside `closed` and `br`'s auto-import flips the bead
+back open — the resurrection bug, `lin-eqh`, hit 3× on 2026-06-09. A stray union
+line also *overrides* `jsonl-union` when it sorts later, since the last matching
+`.gitattributes` rule wins.
+
+🚫 **Never `git push --force` / `--force-with-lease` to shared `main`** to escape
+a rejected push. A rejection means someone else committed; pull and replay.
 
 **Worktree exception:** If you are working in a git worktree (your branch name
 starts with `worktree-agent-`), do NOT push. The orchestrator handles merging
