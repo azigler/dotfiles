@@ -366,41 +366,55 @@ if command -v br &>/dev/null; then
   fi
 fi
 
-# --- peer dynamic-slug wiring (marketing-vps sync, spec lin-i2d.1 P5) ---
-# PEER ONLY (~/.claude/vaults/.peer present): for any session whose cwd is a
-# SHARED-project slug under this box's native -home-andrew-* naming, ensure the
-# projects-side dir is a SYMLINK to the canonical -home-ubuntu-* content BEFORE
-# the session writes, so its memory + transcripts land in (and sync via) the
-# shared vault. No-op on the primary.
+# --- secondary-box slug canonicalization (vault sync, spec lin-i2d.1 P5) ---
+# SECONDARY BOXES ONLY (~/.claude/vaults/.peer present): the project slug is
+# PATH-derived, so the same repo gets a different slug per machine — ~/dotfiles
+# is -home-andrew-dotfiles here but -home-ubuntu-dotfiles on the primary, purely
+# because the unix user differs. Both vaults' .excludes hard-exclude
+# `/-home-andrew*` so a secondary commits canonical content rather than its own
+# local naming. The consequence: ANY slug not canonicalized here is written to,
+# never staged, never committed, and never synced — silently, with the hourly
+# timer still reporting OK.
 #
-# The slug is path-derived, so the same repo has a different slug per box
-# (~/dotfiles is -home-andrew-dotfiles here, -home-ubuntu-dotfiles on
-# zig-computer). Anything NOT matched here writes to a slug the vault excludes
-# via `/-home-andrew*` in both .excludes files — meaning it is never committed
-# and never syncs, silently.
+# This is therefore a UNIVERSAL transform, not an allowlist. It was an allowlist
+# twice, and both times the allowlist was the bug:
+#   2026-07-27 (dotfiles-f8f2)  only -home-andrew-linearb* was mapped, so every
+#                               ~/dotfiles session on this box went unsynced.
+#   2026-07-28 (dotfiles-suu9)  ~/linearb/pipeline-website was missing for the
+#                               same root reason one layer down, in the cone.
+# An allowlist here fails CLOSED-but-silent: the cost of a missing entry is
+# invisible data loss, and the cost of an over-broad match is a symlink nobody
+# reads. Those are not symmetric, so match broadly.
 #
-# dotfiles joined linearb as a shared project on 2026-07-27 (dotfiles-f8f2).
-# It is a genuinely different case: linearb was covered in the memory vault only
-# by accident, because that cone is the glob `/-home-ubuntu-linearb*/` and swept
-# up every linearb slug for free. This block only ever appended to the
-# TRANSCRIPTS cone, so the first shared NON-linearb project would have synced its
-# transcripts while its memory tier stayed dark. Both cones get the line now.
+# Zig's call 2026-07-28: this box is his own machine, not a coworker-facing peer,
+# so every project canonicalizes — "pop-up dotfiles for ease and consistency".
 if [ -f "$HOME/.claude/vaults/.peer" ]; then
   _pk_cwd="${HOOK_CWD:-$(pwd -P)}"
   _pk_slug="$(printf '%s' "$_pk_cwd" | sed 's#/#-#g')"
+  # The bare home slug needs its own arm: `${-home-andrew#-home-andrew-}` does
+  # NOT strip (no trailing dash to match), which would yield the nonsense canon
+  # `-home-ubuntu--home-andrew`.
   case "$_pk_slug" in
-    -home-andrew-linearb*|-home-andrew-dotfiles*)
-      _pk_canon="-home-ubuntu-${_pk_slug#-home-andrew-}"
-      _pk_proj="$HOME/.claude/projects"
-      mkdir -p "$_pk_proj/$_pk_canon"
-      [ -e "$_pk_proj/$_pk_slug" ] || ln -s "./$_pk_canon" "$_pk_proj/$_pk_slug"
-      for _pk_v in transcripts memory; do
-        _pk_sf="$HOME/.claude/vaults/$_pk_v.git/info/sparse-checkout"
-        [ -f "$_pk_sf" ] && ! grep -qxF "/$_pk_canon/" "$_pk_sf" && echo "/$_pk_canon/" >> "$_pk_sf"
-      done
-      unset _pk_v
-      ;;
+    -home-andrew)   _pk_canon="-home-ubuntu" ;;
+    -home-andrew-*) _pk_canon="-home-ubuntu-${_pk_slug#-home-andrew-}" ;;
+    *)              _pk_canon="" ;;
   esac
+  if [ -n "$_pk_canon" ]; then
+    _pk_proj="$HOME/.claude/projects"
+    mkdir -p "$_pk_proj/$_pk_canon"
+    [ -e "$_pk_proj/$_pk_slug" ] || ln -s "./$_pk_canon" "$_pk_proj/$_pk_slug"
+    # Cone maintenance only matters while a vault is actually sparse. This box
+    # went full-checkout on 2026-07-28, so appending would just grow a file
+    # nothing reads; a still-sparse box keeps the old behaviour.
+    for _pk_v in transcripts memory; do
+      _pk_gd="$HOME/.claude/vaults/$_pk_v.git"
+      [ -d "$_pk_gd" ] || continue
+      [ "$(git --git-dir="$_pk_gd" config --get core.sparseCheckout)" = "true" ] || continue
+      _pk_sf="$_pk_gd/info/sparse-checkout"
+      [ -f "$_pk_sf" ] && ! grep -qxF "/$_pk_canon/" "$_pk_sf" && echo "/$_pk_canon/" >> "$_pk_sf"
+    done
+    unset _pk_v _pk_gd
+  fi
 fi
 
 exit 0
