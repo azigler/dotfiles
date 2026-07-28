@@ -149,6 +149,51 @@ else
 fi
 rm -rf "$BOUNCE_DIR" "$BOUNCE_DIR2"
 
+# 7b. Bounce-log RETENTION (explore-foda). The log was append-only and read IN FULL on
+#     every harnessd state generation, so a loop bouncing every tick while Andrew is away
+#     grew it without limit. record_bounce now trims to the newest HALF once the file
+#     exceeds PULSE_BOUNCE_MAX_LINES (vault-sync's ledger idiom), via an atomic rename so
+#     a concurrent reader never sees a truncated file. Drive it with a tiny cap: pre-seed
+#     4 old lines, cap 4, then bounce once → 5 lines is over the cap → trimmed to 2.
+BOUNCE_DIR3=$(mktemp -d)
+for i in 1 2 3 4; do
+  printf '{"ts":"2020-01-0%dT00:00:00Z","loop":"pulse-old-%d","reason":"not_ready"}\n' "$i" "$i" \
+    >> "$BOUNCE_DIR3/pulse-bounces.jsonl"
+done
+HARNESS_STATE_DIR="$BOUNCE_DIR3" PULSE_BOUNCE_MAX_LINES=4 "$INJECT" \
+  --session "$SESSION" --window pulse --dir "$DIR" \
+  --launch cat --cmd "should-not-appear-tick-7c" --loop pulse-trim-loop >/dev/null 2>&1
+TRIM_LINES=$(wc -l < "$BOUNCE_DIR3/pulse-bounces.jsonl" 2>/dev/null || echo -1)
+if [ "$TRIM_LINES" -eq 2 ]; then ok; else bad "bounce log trimmed to the newest half (lines=$TRIM_LINES)"; fi
+# The NEWEST record — the one every consumer actually reduces to — must survive the trim.
+if tail -n 1 "$BOUNCE_DIR3/pulse-bounces.jsonl" 2>/dev/null | grep -q '"loop":"pulse-trim-loop"'; then
+  ok
+else
+  bad "the just-written bounce survives the trim"
+fi
+# …and the OLDEST lines are what got discarded (the documented loss).
+if grep -q '"loop":"pulse-old-1"' "$BOUNCE_DIR3/pulse-bounces.jsonl" 2>/dev/null; then
+  bad "the oldest lines are the ones discarded by the trim"
+else
+  ok
+fi
+# No .tmp left behind — the trim renames, it does not litter the state dir.
+if [ -e "$BOUNCE_DIR3/pulse-bounces.jsonl.tmp" ]; then
+  bad "trim leaves no .tmp file in the state dir"
+else
+  ok
+fi
+# UNDER the cap → byte-identical to no trim at all (the common case must not churn).
+BOUNCE_DIR4=$(mktemp -d)
+HARNESS_STATE_DIR="$BOUNCE_DIR4" "$INJECT" --session "$SESSION" --window pulse --dir "$DIR" \
+  --launch cat --cmd "should-not-appear-tick-7d" --loop pulse-untrimmed >/dev/null 2>&1
+if [ "$(wc -l < "$BOUNCE_DIR4/pulse-bounces.jsonl" 2>/dev/null || echo -1)" -eq 1 ]; then
+  ok
+else
+  bad "a log under the cap is left untouched"
+fi
+rm -rf "$BOUNCE_DIR3" "$BOUNCE_DIR4"
+
 # 8. Input-readiness gate (the ha-portal cold-boot fix): on a cold launch the
 #    injector waits for PULSE_READY_MARKER — the "TUI is ready for input" signal
 #    (Claude Code's composer footer in prod) — BEFORE typing, so keystrokes are

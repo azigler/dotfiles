@@ -32,7 +32,9 @@
 #              ~/.local/state/harness/pulse-bounces.jsonl so the state bus renders
 #              the tick as 'bounced' instead of a false 'tick in flight'
 #              (harnessd-gf6). Optional + backward-compatible: omit it and defer
-#              behaves exactly as before (logs, no bounce record).
+#              behaves exactly as before (logs, no bounce record). That log is
+#              RETENTION-BOUNDED — see BOUNCE_MAX_LINES / PULSE_BOUNCE_MAX_LINES
+#              below for the cap and exactly what it discards (explore-foda).
 #   --fresh    OPT-IN (default OFF): warm process, COLD CONTEXT. When the pane
 #              already runs the launcher, send `/clear` + Enter and settle before
 #              typing the tick command, so the tick starts near the onboard floor
@@ -142,6 +144,21 @@ DIR=""
 CMD=""
 LOOP=""
 FRESH=0
+# Retention bound for the bounce log (explore-foda). It was append-only and read IN FULL
+# on every harnessd state generation, so a loop bouncing on every tick while Andrew is
+# away grew it without limit. Same idiom + same trim shape as the vault-sync ledger's
+# VAULT_SYNC_LEDGER_MAX_LINES: over the cap, keep the newest HALF via an atomic rename,
+# so a concurrent harnessd read always sees a complete file.
+#
+# WHAT THE BOUND DISCARDS, stated plainly: the OLDEST lines, once there are more than
+# 2000. Both consumers only ever want the NEWEST record per loop — harnessd's
+# _newest_bounce_by_loop / newestBounceByLoop reduce to it, and pulse-retry.sh takes the
+# latest bounce ts per loop — so the only reachable loss is a loop whose newest bounce has
+# been pushed out by 1000+ NEWER bounces from other loops. At the ~11 loops on this box
+# that takes ~90 bounces per loop, and such a bounce is long past its own next scheduled
+# fire, which is the hard TTL pulse-retry.sh already refuses to retry past. Nothing else
+# reads this file: it is not history, it is a latest-state signal with a log's shape.
+BOUNCE_MAX_LINES="${PULSE_BOUNCE_MAX_LINES:-2000}"   # ~160 KB; trims to the newest 1000
 
 # emit_result <verdict> — the outcome contract (see the header). ONE line, on
 # STDOUT, on every terminal path.
@@ -226,15 +243,28 @@ note() {
 #   Loop-scoped: only when --loop was passed (units pass `--loop %p`).
 #   Best-effort and must NEVER fail the caller's exit 0 — a bounce that can't
 #   be recorded is still a bounce, and losing the injector on top of it would
-#   be strictly worse.
+#   be strictly worse. The retention trim inherits that rule: it is appended
+#   AFTER the write, guarded, and its failure is silent (see BOUNCE_MAX_LINES).
 record_bounce() {
   local reason=$1
   [ -n "$LOOP" ] || return 0
   local _bdir="${HARNESS_STATE_DIR:-$HOME/.local/state/harness}"   # override for tests
+  local _bfile="$_bdir/pulse-bounces.jsonl"
   { mkdir -p "$_bdir" 2>/dev/null \
     && printf '{"ts":"%s","loop":"%s","reason":"%s"}\n' \
-         "$(date -u +%FT%TZ)" "$LOOP" "$reason" >> "$_bdir/pulse-bounces.jsonl" 2>/dev/null ; } \
+         "$(date -u +%FT%TZ)" "$LOOP" "$reason" >> "$_bfile" 2>/dev/null ; } \
     || note "bounce-record failed for loop '$LOOP' (reason=$reason, non-fatal)"
+  # Bounded growth: over the cap, keep the newest half via an atomic rename (mv), so a
+  # concurrent harnessd read never observes a truncated file. The trim runs only on a
+  # bounce — a rare path — so the wc is free in practice. Runs LAST so a trim failure
+  # can never cost the record itself.
+  local _lines
+  _lines=$(wc -l < "$_bfile" 2>/dev/null || echo 0)
+  if [ "${_lines:-0}" -gt "$BOUNCE_MAX_LINES" ] 2>/dev/null; then
+    tail -n $((BOUNCE_MAX_LINES / 2)) "$_bfile" > "$_bfile.tmp" 2>/dev/null \
+      && mv -f "$_bfile.tmp" "$_bfile" 2>/dev/null \
+      && note "bounce log trimmed to the newest $((BOUNCE_MAX_LINES / 2)) lines (was $_lines)"
+  fi
 }
 
 if [ -z "$DIR" ] || [ -z "$CMD" ]; then
