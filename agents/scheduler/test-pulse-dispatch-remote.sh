@@ -485,6 +485,32 @@ run_row_out() { # same, but returns the dispatcher's output
     "$DISPATCH" --row "$_row" --dir "$PROJ" --dry-run --poll 1 --timeout 3 "$@" 2>&1
 }
 
+# (a3.2) A BLOCKED DISPATCH RINGS work:di. Not because the block was invisible —
+#        the harnessd loop list shows the row stale after its grace window — but
+#        that signal is pull-based, delayed, and does not say WHY. A timer-fired
+#        block should reach Zig immediately, with the reason.
+: > "$ROOT/inject.log"
+OUT=$(env INJECT_LOG="$ROOT/inject.log" REMOTE_VAULT_RC=1 \
+  SSH_LOG="$ROOT/ssh.log" PULSE_DISPATCH_SSH="$STUB/ssh" \
+  PULSE_DISPATCH_PREFLIGHT="$STUB/preflight" PULSE_DISPATCH_INJECT="$STUB/inject" \
+  PULSE_DISPATCH_MANIFEST=/nonexistent-manifest PULSE_DISPATCH_VAULT=/nonexistent-local-vault \
+  PULSE_DISPATCH_STATE="$STATE" HOME="$ROOT/home" \
+  "$DISPATCH" --row di-tuesday --dir "$PROJ" --poll 1 --timeout 3 2>&1 || true)
+if grep -q "REMOTE PULSE SURFACE" "$ROOT/inject.log"
+  then ok "a blocked dispatch surfaces to the local window"
+  else bad "a blocked dispatch surfaces locally" "nothing injected on a block"; fi
+if grep -q "session work" "$ROOT/inject.log" || grep -q -- "--session work" "$ROOT/inject.log"
+  then ok "the block surfaces to session 'work'"
+  else bad "block surfaces to work" "wrong session: $(head -1 "$ROOT/inject.log" | cut -c1-80)"; fi
+if grep -q -- "--window di" "$ROOT/inject.log"
+  then ok "the block surfaces to window 'di' (the alert interface)"
+  else bad "block surfaces to di" "wrong window"; fi
+# A --dry-run must NEVER wake the window: it is a human at a terminal already.
+: > "$ROOT/inject.log"; run_row di-tuesday
+if grep -q "REMOTE PULSE SURFACE" "$ROOT/inject.log"
+  then bad "a dry-run does not wake the window" "dry-run surfaced"
+  else ok "a dry-run does not wake the window"; fi
+
 # (a3.3) A7 — claude must COMPLETE A REQUEST, not merely resolve. A4 passed all of
 #        2026-07-27 while the box's inherited ANTHROPIC_BASE_URL made every claude
 #        call fail; only a live request can tell those apart.

@@ -297,6 +297,27 @@ fail() {
   local verdict=$1 code=$2; shift 2
   printf 'PULSE-DISPATCH: BLOCKED — %s\n' "$*" >&2
   note "BLOCKED($verdict/$code) $*"
+  # RING THE BELL. A blocked tick was not invisible before this — the harnessd
+  # loop list shows the row going STALE once its cadence + grace elapses, and Zig
+  # does read that (his correction, 2026-07-27). But that signal is PULL, DELAYED
+  # by the grace window, and reasonless: it says "did not run", not "blocked on a
+  # dirty checkout, here is the repo and the remedy." Those are different products.
+  # The remote box cannot raise an AskUserQuestion anyone will see, so the LOCAL
+  # work:di session raises it — same path the payload surface_request uses, and
+  # work:di is the alert interface for every remote row by design.
+  #
+  # Not every verdict: failed-usage / failed-row are operator errors from a
+  # hand-run and would wake the window for a typo. A --dry-run never surfaces.
+  # Guarded against recursion: surface_locally warns, it never calls fail.
+  case "$verdict" in
+    failed-preflight|failed-vault|failed-no-claude|failed-inject)
+      if [ "${DRY_RUN:-0}" != 1 ] && declare -F surface_locally >/dev/null 2>&1; then
+        local sfile="$LOCAL_STATE/surface-blocked.json"
+        printf '%s\n' "{\"kind\":\"dispatch_blocked\",\"row\":\"$ROW\",\"run\":\"$RUN_ID\",\"verdict\":\"$verdict\",\"detail\":$(printf '%s' "$*" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' 2>/dev/null || printf '"see stderr"')}" > "$sfile" 2>/dev/null
+        surface_locally "$sfile" "blocked:$verdict" || \
+          warn "the block could not be surfaced to $SESSION:$WINDOW either — it exists ONLY in journalctl now"
+      fi ;;
+  esac
   emit_result "$verdict"
   exit "$code"
 }
@@ -344,6 +365,30 @@ done
 # shared is the tmux ENVIRONMENT — `setenv` is per-session, not per-window — which
 # is why the credential teardown below is refcounted rather than unconditional.
 REMOTE_WINDOW="$ROW"
+
+# ---------------------------------------------------------------------------
+# SURFACE BACK TO ZIG — defined HERE, before the first fail() can fire.
+#
+# It used to be defined at Step 10, ~400 lines below the preflight assertions,
+# which meant the failure path most likely to need a human could not have called
+# it even if it tried: at preflight time the function did not exist yet.
+# ---------------------------------------------------------------------------
+surface_locally() {
+  local sfile=$1 reason=$2 cmd out verdict
+  [ -x "$INJECT" ] || { warn "cannot surface: $INJECT is not executable"; return 1; }
+  cmd="REMOTE PULSE SURFACE (row=$ROW, run=$RUN_ID, reason=$reason): a pulse tick that ran on marketing-vps needs you HERE. Read $sfile and raise the AskUserQuestion it describes (this is the 🔔 the remote box cannot ring), file any bead it names — the remote side files none, by design — and land the ledger row at $DIR/refs/pulse-ledger.jsonl. Do NOT re-run the tick."
+  out=$("$INJECT" --dir "$DIR" --session "$SESSION" --window "$WINDOW" \
+        ${LOOP:+--loop "$LOOP"} --cmd "$cmd" 2>&1)
+  printf '%s\n' "$out" | sed 's/^/    inject: /'
+  verdict=$(printf '%s\n' "$out" | grep -o 'PULSE_INJECT_RESULT=[a-z-]*' | tail -1 | cut -d= -f2)
+  case "${verdict:-}" in
+    injected) say "surfaced: AskUserQuestion request delivered to $SESSION:$WINDOW"; return 0 ;;
+    "")       warn "surface NOT delivered: no PULSE_INJECT_RESULT marker (older injector?). Treating as NOT delivered."; return 1 ;;
+    *)        warn "surface NOT delivered: PULSE_INJECT_RESULT=$verdict. The request is staged at $sfile; \
+$SESSION:$WINDOW must be unblocked (it may be sitting on an open question) and the surface re-sent."; return 1 ;;
+  esac
+}
+
 # tmux `setenv` is per-SESSION and all rows now share `work`, so an unconditional
 # unset at teardown would strip the credentials out from under a row still mid-tick
 # (di-tuesday 07:00 and weekly-report 09:00 are the same session, and the poll
@@ -1218,7 +1263,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 10 (defined early so the timeout path can call it) — SURFACE BACK TO ZIG.
+# Step 10 — SURFACE BACK TO ZIG. (Definition lives near the top; see there.)
 #
 # The bell has to ring HERE. The migration plan originally kept news-planning and
 # di-monday local forever for exactly this reason: their deliverable IS the
@@ -1237,21 +1282,6 @@ fi
 # different outcomes (injected / bounced / deferred), so `if pulse-inject.sh` is
 # the bug one layer down. Only PULSE_INJECT_RESULT=injected counts as delivered.
 # ---------------------------------------------------------------------------
-surface_locally() {
-  local sfile=$1 reason=$2 cmd out verdict
-  [ -x "$INJECT" ] || { warn "cannot surface: $INJECT is not executable"; return 1; }
-  cmd="REMOTE PULSE SURFACE (row=$ROW, run=$RUN_ID, reason=$reason): a pulse tick that ran on marketing-vps needs you HERE. Read $sfile and raise the AskUserQuestion it describes (this is the 🔔 the remote box cannot ring), file any bead it names — the remote side files none, by design — and land the ledger row at $DIR/refs/pulse-ledger.jsonl. Do NOT re-run the tick."
-  out=$("$INJECT" --dir "$DIR" --session "$SESSION" --window "$WINDOW" \
-        ${LOOP:+--loop "$LOOP"} --cmd "$cmd" 2>&1)
-  printf '%s\n' "$out" | sed 's/^/    inject: /'
-  verdict=$(printf '%s\n' "$out" | grep -o 'PULSE_INJECT_RESULT=[a-z-]*' | tail -1 | cut -d= -f2)
-  case "${verdict:-}" in
-    injected) say "surfaced: AskUserQuestion request delivered to $SESSION:$WINDOW"; return 0 ;;
-    "")       warn "surface NOT delivered: no PULSE_INJECT_RESULT marker (older injector?). Treating as NOT delivered."; return 1 ;;
-    *)        warn "surface NOT delivered: PULSE_INJECT_RESULT=$verdict. The request is staged at $sfile; \
-$SESSION:$WINDOW must be unblocked (it may be sitting on an open question) and the surface re-sent."; return 1 ;;
-  esac
-}
 
 if [ -z "$PAYLOAD" ]; then
   surface_locally "$LOCAL_STATE/surface.json" timeout || true
