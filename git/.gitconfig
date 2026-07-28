@@ -19,3 +19,23 @@
 	helper = !gh auth git-credential
 [url "https://github.com/"]
 	insteadOf = git@github.com:
+
+# The beads JSONL merge driver, set GLOBALLY so it covers every repo on every
+# machine — including submodules, which are their own git repos and which the
+# per-repo registration in agents/hooks/session-start.sh never reached.
+#
+# Why this file and not a per-repo `git config`: .gitattributes is COMMITTED and
+# so travels with a clone, but the driver is CONFIG and never does. Registering
+# it here — in the file ~/.gitconfig symlinks to on both zig-computer and
+# marketing-vps — is the only half that was ever fragile. The `~` expands because
+# git runs the driver through a shell (verified 2026-07-28 on a real 3-way merge).
+#
+# ⚠️ NEVER replace this with git's built-in `merge=union`. Union keeps BOTH sides'
+# lines on conflict, so a stale "open" line survives next to main's "closed" line
+# and br's auto-import flips the bead back open — the beads-resurrection bug
+# (lin-eqh, observed 3x on 2026-06-09). This driver unions, dedupes by bead ID,
+# and keeps the newer updated_at. If the script is missing at merge time git falls
+# back to a VISIBLE CONFLICT, never a silent resurrection.
+[merge "jsonl-union"]
+	name = JSONL union merge (dedupe by bead ID, keep newer updated_at)
+	driver = ~/.claude/hooks/merge-jsonl.sh %O %A %B
