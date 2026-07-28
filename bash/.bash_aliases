@@ -150,77 +150,29 @@ fi
 alias ssh-zig='ssh ubuntu@$(tailscale ip -4 zig-computer 2>/dev/null || echo zig-computer)'
 alias ssh-pico='ssh pico@$(tailscale ip -4 pico 2>/dev/null || echo pico)'
 
-# --- Claude Code <-> agentgateway routing toggle (the kill switch) ---
-# Routes Claude Code's LLM through the pico agentgateway o11y/gov plane, or back
-# to direct-to-Anthropic. ROUTING ONLY: it swaps the LLM base URL and nothing
-# else — no MCP server, no model pin. CC reads settings at LAUNCH, so RESTART
-# your CC session after toggling to apply.
-#   cc-gw     -> route CC's LLM through the pico gateway (proxy on)
-#   cc-direct -> restore direct-to-Anthropic (KILL SWITCH; proxy off)
-#   cc-route  -> show current LLM routing without changing it
-# Caveat (why cc-direct is an ESCAPE HATCH, not only a "pico is down" kill switch):
-# the gateway parses every LLM request for token o11y, and that path has a max body
-# size. A big request -- notably CONTEXT COMPACTION, the largest request CC makes --
-# can exceed it and fail with a 503 "request was too large" that retries can't clear.
-# If compaction or a huge turn starts failing, run cc-direct. Instrument your FLEET
-# through the gateway freely; routing your PRIMARY daily-driver CC through it is the
-# bigger commitment -- keep this toggle one command away.
-CC_SETTINGS="$HOME/.claude/settings.json"
-CC_GW_URL="http://100.72.47.4:17017/claude"
-# ROUTING-ONLY (reworked 2026-07-08, Zig): the toggle no longer pins ANTHROPIC_MODEL. Your /model
-# picker stays the single source of truth, so toggling routing never changes your model. Context note:
-# behind a custom ANTHROPIC_BASE_URL, CC won't AUTO-upgrade to 1M, AND a RESUMED session (--continue/--resume)
-# comes back at the transcript's bare claude-opus-4-8 = 200k, forcing a manual /model re-pick each time
-# (dotfiles-w1r, verified 2026-07-15). FIX, now applied by cc-gw below: pin ANTHROPIC_DEFAULT_OPUS_MODEL=[1m].
-# It sits ABOVE the transcript model so it survives resume, but only changes what the `opus` ALIAS resolves
-# to — /model and --model explicit picks still win (unlike a blunt ANTHROPIC_MODEL, which clobbers the picker
-# for ALL sessions — that's why cc-gw still does NOT set ANTHROPIC_MODEL). Serving is REAL 1M, not just a local
-# budget: the gateway forwards anthropic-beta (proven — OAuth subscription passthrough works, which needs that
-# header; context-1m rides the same header), so Anthropic serves past 200k. Evidence: bead dotfiles-w1r notes
-# + ~/explore/agentgateway/refs/{frontier-o11y,capability-map}.md.
-CC_GW_MODEL="claude-opus-5[1m]"   # cc-gw pins this via ANTHROPIC_DEFAULT_OPUS_MODEL (survives resume; /model still wins). Upgraded 4-8[1m]→5[1m] 2026-07-25 (Zig: "all system pulses to opus 5"); opus-5[1m] verified served through the pico gateway.
-
-cc-gw ()
-{
-	[ -f "$CC_SETTINGS" ] || echo '{}' > "$CC_SETTINGS"
-	local tmp; tmp=$(mktemp)
-	# set ANTHROPIC_BASE_URL (routing) + ANTHROPIC_DEFAULT_OPUS_MODEL=[1m] (so `opus`/resume stay 1M behind the
-	# gateway, which disables CC's auto-upgrade; dotfiles-w1r), and STRIP any stale ANTHROPIC_MODEL so the /model picker still owns explicit picks
-	jq --arg u "$CC_GW_URL" --arg m "$CC_GW_MODEL" '.env = ((.env // {}) + {ANTHROPIC_BASE_URL: $u, ANTHROPIC_DEFAULT_OPUS_MODEL: $m}) | del(.env.ANTHROPIC_MODEL)' "$CC_SETTINGS" > "$tmp" && command mv "$tmp" "$CC_SETTINGS"
-	# CC routes only its MODEL through the gateway (token/cost/prompt o11y); it takes NO MCP tools
-	# and uses its own built-in tools. TRADEOFF (re-corrected 2026-07-04): as of Claude Code v2.1.196 Anthropic DISABLES
-	# Remote Control whenever proxying is on, so cc-gw and Remote Control are mutually exclusive.
-	# An earlier "they coexist" reading was a version middle-ground (older CC build, gate not yet
-	# enforced) — do NOT re-flip this. Zig keeps CC on cc-direct to retain Remote Control; use
-	# cc-gw only for a session where you're fine losing it.
-	echo "→ Claude Code ROUTING through pico agentgateway ($CC_GW_URL). opus defaults to [1m]=1M and STAYS 1M across resume (your /model + --model picks still win). RESTART CC to apply (verify with /context). Remote Control is OFF while routed."
-	jq '.env' "$CC_SETTINGS"
-}
-
-cc-direct ()
-{
-	if [ -f "$CC_SETTINGS" ]; then
-		local tmp; tmp=$(mktemp)
-		jq 'del(.env.ANTHROPIC_BASE_URL, .env.ANTHROPIC_MODEL, .env.ANTHROPIC_DEFAULT_OPUS_MODEL)' "$CC_SETTINGS" > "$tmp" && command mv "$tmp" "$CC_SETTINGS"
-	fi
-	# The kill switch must scrub BOTH sources of truth: settings.json .env (above) AND any
-	# ANTHROPIC_BASE_URL / ANTHROPIC_MODEL / ANTHROPIC_DEFAULT_OPUS_MODEL already EXPORTED into this shell / the tmux session. An
-	# exported var wins at launch, so cleaning only settings.json leaves CC silently routed — which
-	# (verified on CC v2.1.201, 2026-07-04) means a 200k context ceiling AND Remote Control disabled,
-	# even though settings.json reads "direct." ANTHROPIC_MODEL is scrubbed too so a stale forced model
-	# can't keep overriding your /model picker. A function runs in the CURRENT shell, so these unsets
-	# take effect for the next CC you launch from HERE; the tmux scrub stops new panes re-inheriting them.
-	unset ANTHROPIC_BASE_URL ANTHROPIC_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL
-	[ -n "$TMUX" ] && { tmux setenv -u ANTHROPIC_BASE_URL 2>/dev/null; tmux setenv -u ANTHROPIC_MODEL 2>/dev/null; tmux setenv -u ANTHROPIC_DEFAULT_OPUS_MODEL 2>/dev/null; }
-	echo "→ Claude Code restored to direct-to-Anthropic (kill switch): settings.json cleaned + ANTHROPIC_BASE_URL/ANTHROPIC_MODEL/ANTHROPIC_DEFAULT_OPUS_MODEL unset in this shell${TMUX:+ + tmux env}. RESTART CC from THIS shell to apply — your /model choice + Remote Control return (direct auto-re-upgrades opus to 1M on resume, so no pin needed)."
-	jq '.env' "$CC_SETTINGS" 2>/dev/null || echo '(no settings.json — already direct)'
-}
-
-cc-route ()
-{
-	jq -r '.env.ANTHROPIC_BASE_URL // "direct (no ANTHROPIC_BASE_URL set)"' "$CC_SETTINGS" 2>/dev/null \
-		| sed 's/^/Claude Code LLM routing: /'
-}
+# --- Claude Code LLM routing ---
+# The cc-gw / cc-direct / cc-route toggle lived here until 2026-07-28. It wrote
+# ANTHROPIC_BASE_URL into ~/.claude/settings.json, which is now the WRONG home:
+# that file is fleet-wide, and the gateway is reachable from some machines and
+# not others (vps-8a9eb245 cannot reach pico's tailnet address at all, and every
+# claude call there failed while the config looked fine).
+#
+# Routing is now per-host and ON by default where it works, via the .zshenv tier:
+#     zsh/.zig-computer.zshenv   exports ANTHROPIC_BASE_URL
+#     zsh/.metis.zshenv          exports ANTHROPIC_BASE_URL
+#     zsh/.vps-8a9eb245.zshenv   does NOT — that box has no route to the gateway
+# zsh/.zshenv sources ~/.${HOST%%.*}.zshenv; sync.sh links the matching one.
+#
+# The two things the old toggle also carried, and where they went:
+#   - ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-5[1m] — still set fleet-wide in
+#     claude/settings.json. Harmless on a host with no gateway, and load-bearing
+#     on one with it (behind a custom base URL, CC will not auto-upgrade to 1M
+#     and a RESUMED session comes back at 200k — dotfiles-w1r).
+#   - cc-direct as an ESCAPE HATCH, for when the gateway's o11y body-size limit
+#     503s a huge request (context compaction is the usual victim). Replacement,
+#     in the shell you are about to launch from:
+#         unset ANTHROPIC_BASE_URL && claude
+#     For a lasting bypass, comment out the export in the per-host .zshenv.
 
 # --- goose through the pico agentgateway (local model + omni MCP) ---
 # Runs goose with its OpenAI provider pointed at the gateway's local-model route

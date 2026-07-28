@@ -10,4 +10,10 @@
 # .zshenv tier rather than the interactive .zig-computer.zsh on purpose: this
 # has to reach non-interactive shells too, since that is what scheduled pulse
 # dispatch runs in.
+# ESCAPE HATCH (replaces the old cc-direct alias): the gateway parses every LLM
+# request for token o11y and has a max body size, so a very large request —
+# notably CONTEXT COMPACTION, the largest one Claude Code makes — can fail with a
+# 503 that retries cannot clear. To bypass for one session, in that shell:
+#     unset ANTHROPIC_BASE_URL && claude
+# For a lasting bypass, comment out the export below.
 export ANTHROPIC_BASE_URL="http://100.72.47.4:17017/claude"
