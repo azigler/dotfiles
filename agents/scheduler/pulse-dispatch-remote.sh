@@ -888,7 +888,29 @@ rsh "tmux has-session -t '=$REMOTE_SESSION' || tmux new-session -d -s '$REMOTE_S
 # absent — same contract as pulse-inject.sh locally. Matching on #{window_name}
 # rather than an index keeps this base-index independent (marketing-vps sets
 # base-index 1), which is the same trap that broke pane resolution earlier today.
-WIN_ID=$(rsh "tmux list-windows -t '=$REMOTE_SESSION' -F '#{window_id} #{window_name}' | awk -v n='$REMOTE_WINDOW' '\$2==n{print \$1; exit}'" 2>>"$LOCAL_STATE/remote.err")
+#
+# ⚠️ LEXICON-AWARE, and it must be (fixed 2026-07-28). The tmux-status hook
+# PREFIXES the window name with 🧠/✅/🔔/🌀, so a window this script created as
+# "weekly-report" is called "✅ weekly-report" by the time the next dispatch
+# looks for it. The old matcher split on whitespace and compared $2, which is
+# the GLYPH, never the row name — so the lookup failed for every window that had
+# ever run a tick, and each dispatch silently created ANOTHER window. Two
+# `weekly-report` windows were live on marketing-vps when Zig caught it; left
+# alone it grows one window per dispatch, forever. pulse-inject.sh had solved
+# this locally (its `strip_lexicon`) and the comment above claimed parity that
+# the code did not have.
+#
+# Parsing note: do NOT put \t in the tmux -F format here. tmux does not expand
+# escapes in -F, so over ssh it emits a LITERAL backslash-t and every field
+# split silently returns the whole line. (pulse-inject.sh gets away with
+# $'...\t...' because bash expands it to a real tab before tmux ever sees it;
+# that trick does not survive the ssh quoting round-trip.) So: split on the
+# FIRST space — window_id never contains one — and treat the remainder as the
+# name. Then strip the leading decoration. The strip is a generic
+# "non-alphanumeric run at the front" rather than a fixed glyph list, so a new
+# glyph in the lexicon cannot silently reintroduce the leak. Row names are
+# alphanumeric/dash, so this cannot eat a real name.
+WIN_ID=$(rsh "tmux list-windows -t '=$REMOTE_SESSION' -F '#{window_id} #{window_name}' | awk -v n='$REMOTE_WINDOW' '{id=\$1; name=\$0; sub(/^[^ ]+ +/, \"\", name); sub(/^[^a-zA-Z0-9_]+/, \"\", name); if (name==n) {print id; exit}}'" 2>>"$LOCAL_STATE/remote.err")
 WIN_ID=${WIN_ID//$'\r'/}
 if [ -z "$WIN_ID" ]; then
   WIN_ID=$(rsh "tmux new-window -d -P -F '#{window_id}' -t '=$REMOTE_SESSION' -n '$REMOTE_WINDOW' -c '$REMOTE_DIR'" 2>>"$LOCAL_STATE/remote.err")
