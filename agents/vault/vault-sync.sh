@@ -110,6 +110,46 @@ for v in memory transcripts; do
   fi
 done
 
+# 1a. Secondary boxes only: make the freshly-pulled content actually USABLE.
+#     Both steps below exist because a git checkout is not a faithful mirror —
+#     it reproduces content but not identity or time.
+if [ -f "$VDIR/.peer" ]; then
+  # (i) ALIAS every canonical slug into this box's local naming.
+  #
+  #     Claude Code looks up a project's history by a slug derived from $PWD, so
+  #     on a box whose unix user is not the primary's it looks for
+  #     -home-<user>-foo while the vault holds -home-ubuntu-foo. session-start.sh
+  #     creates that symlink, but only for the project a session is STARTING in —
+  #     which is too late to browse history you have not opened yet, and useless
+  #     for the far more common "is my old work here?" question. Measured
+  #     2026-07-28: 91 canonical slugs, 13 aliases, so 78 projects were fully
+  #     present on disk and completely invisible (Zig hit this on
+  #     ~/linearb/pipeline-website). Doing it here, after every pull, means a slug
+  #     the primary invents shows up on its own.
+  _canon_prefix="-home-ubuntu"
+  _local_prefix="$(printf '%s' "$HOME" | sed 's#/#-#g')"
+  if [ "$_local_prefix" != "$_canon_prefix" ]; then
+    _aliased=0
+    for _d in "$WT/$_canon_prefix" "$WT/$_canon_prefix"-*; do
+      [ -d "$_d" ] || continue
+      _b=$(basename "$_d"); _a="$WT/$_local_prefix${_b#$_canon_prefix}"
+      # Never replace a real directory: that would be un-synced local history.
+      [ -e "$_a" ] || [ -L "$_a" ] || { ln -s "./$_b" "$_a" && _aliased=$((_aliased+1)); }
+    done
+    [ "$_aliased" -gt 0 ] && echo "  aliased $_aliased new slug(s) into $_local_prefix-*"
+  fi
+  unset _canon_prefix _local_prefix _aliased _d _b _a
+
+  # (ii) RESTORE mtimes. git does not carry them, so every pulled transcript is
+  #      stamped "now" and the whole back catalogue collapses to "1 day ago",
+  #      destroying recency order. The real time is inside the file. --since
+  #      bounds the work to what this pull just touched; the initial backfill is
+  #      a manual full run.
+  if [ -x "$HERE/restore-mtimes.py" ]; then
+    "$HERE/restore-mtimes.py" --since 180 --quiet || true
+  fi
+fi
+
 # --- tier-status helpers ---------------------------------------------------- #
 # Codes are the shared contract documented in vault-lib.sh / transcripts-lib.sh:
 #   0 OK | 1 FAILED | 2 BLOCKED | 3 DEFERRED | 4 SKIPPED | 9 INERT
