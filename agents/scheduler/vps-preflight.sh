@@ -125,7 +125,20 @@ check_local() {          # $1 = local path, $2 = branch, $3 = manifest key
   # tick-written churn, and .beads/ is checked by the refresh's own tripwire.
   dirt=$(git -C "$path" status --porcelain --untracked-files=no --ignore-submodules=all 2>/dev/null \
          | grep -v ' refs/pulse-ledger.jsonl$' | grep -v '\.beads/')
-  [ "$head" = "$rsha" ] || UNPUBLISHED+=("$key: local HEAD ${head:0:8} is NOT the published tip ${rsha:0:8} — the VPS pulls from GitHub, so a remote tick would run OLDER code than your local ticks. Remedy: git -C $path push origin $branch")
+  # The remedy DEPENDS ON WHICH WAY the two diverged, and getting it wrong is
+  # worse than saying nothing: "push" is the line someone follows at 07:00
+  # without thinking, and after an upstream REBASE it would shove an older local
+  # HEAD over newer published work. Ask git which case this is.
+  if [ "$head" != "$rsha" ]; then
+    if git -C "$path" merge-base --is-ancestor "$rsha" "$head" 2>/dev/null; then
+      _fix="git -C $path push origin $branch"          # local is genuinely ahead
+    elif git -C "$path" merge-base --is-ancestor "$head" "$rsha" 2>/dev/null; then
+      _fix="git -C $path fetch origin && git -C $path merge --ff-only origin/$branch"   # simply behind
+    else
+      _fix="HISTORIES DIVERGED (an upstream rebase does this). If the published tip is authoritative: git -C $path fetch origin && git -C $path reset --hard origin/$branch — this DISCARDS local commits, so check 'git log origin/$branch..HEAD' first"
+    fi
+    UNPUBLISHED+=("$key: local HEAD ${head:0:8} is NOT the published tip ${rsha:0:8} — the VPS pulls from GitHub, so a remote tick would run code that does not match yours. Remedy: $_fix")
+  fi
   [ -z "$dirt" ]        || UNPUBLISHED+=("$key: uncommitted tracked changes will NOT reach the VPS:
 $(sed 's/^/        /' <<<"$dirt")")
 }
