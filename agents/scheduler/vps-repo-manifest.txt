@@ -79,6 +79,18 @@ harvest   $HOME/linearb/weekly-reporting          refs/pulse-ledger.jsonl
 require $HOME/dotfiles/agents/skills/pulse/SKILL.md
 require $HOME/dotfiles/agents/scheduler/pulse-inject.sh
 
+# The /vps skill carries the BOTH-SIDES account of the fleet-proxy tunnel: that
+# 127.0.0.1:7100 exists only for the life of a dispatched run, the three-valued
+# health probe (200 up / 000 no tunnel / anything-else = BLOCKED, never "no
+# data"), the opt-in token brokering, and the two failure modes. The seven live
+# rows don't strictly need it — they reach the proxy through gdoc_proxy.mjs and
+# their own row skills — but anything ad-hoc, and every DIAGNOSIS of "why did my
+# call fail", does. Asserted present so it can be read by absolute path.
+# ⚠️ Presence is not loading: a tick's cwd is a SUBMODULE, which is its own git
+# root, and Claude Code's skill discovery stops there — so this file is never
+# auto-loaded during a tick. It has to be read deliberately.
+require $HOME/linearb/.claude/skills/vps/SKILL.md
+
 require $HOME/linearb/dashboard-dev-interrupted/CLAUDE.md
 require $HOME/linearb/dashboard-dev-interrupted/refs/pulse.md
 require $HOME/linearb/dashboard-dev-interrupted/refs/beats.md
