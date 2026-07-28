@@ -251,6 +251,10 @@ STATE_ROOT="${PULSE_DISPATCH_STATE:-$HOME/.local/state/pulse-dispatch}"
 # The local vault entrypoint — the same script claude-vault-sync.timer runs.
 LOCAL_VAULT_SYNC="${PULSE_DISPATCH_VAULT:-$HERE/../vault/vault-sync.sh}"
 REMOTE_VAULT_SYNC='$HOME/dotfiles/agents/vault/vault-sync.sh'
+# The box's own tunnel self-heal — it reaches BACK here over ssh and opens the
+# forward itself when the reverse one has died. Single-quoted on purpose: $HOME
+# must expand on the box, not here (same convention as REMOTE_VAULT_SYNC).
+REMOTE_ENSURE_TUNNEL='$HOME/dotfiles/agents/scheduler/ensure-fleet-tunnel.sh'
 
 HOST="${VPS_HOST:-marketing-vps}"
 PORT=7100
@@ -859,16 +863,48 @@ fi
 say "preflight A3: probing http://127.0.0.1:$PORT/api/health from $HOST"
 HEALTH=$(rsh "curl -sS -m 15 -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT/api/health" 2>&1)
 HEALTH_RC=$?
-if [ "$HEALTH_RC" -ne 0 ] || [ "$HEALTH" != "200" ]; then
-  fail failed-tunnel 71 "A3 FAILED: the fleet proxy is not reachable THROUGH THE TUNNEL from $HOST.
-    got: rc=$HEALTH_RC body='$HEALTH' (want rc=0 and http_code 200)
-    The ssh master reported the forward established, so the far end is what disagrees.
-    Check: (a) the local proxy — curl -fsS http://127.0.0.1:$PORT/api/health on zig-computer;
-           (b) AllowTcpForwarding on the box's sshd;
-           (c) a stale remote listener holding $PORT.
-    Dispatching now would produce a tick that silently sees no Asana and no Slack."
+
+# SELF-HEAL before failing (added 2026-07-28, Zig).
+#
+# The reverse forward above can only be opened FROM HERE, so when it dies the
+# box is stranded: every Asana/Slack/gdoc call 000s and a tick has no way to
+# recover. Now that marketing-vps holds an ssh key back to zig-computer
+# (~/.ssh/id_zig_computer + the `zig-computer` Host block in ~/.ssh/local), the
+# box can open the SAME path itself as a LOCAL forward. Ask it to, then re-probe.
+#
+# Only 000 (nothing listening) is worth healing. A non-200 HTTP answer means
+# something IS listening and is refusing — reopening the socket cannot fix that,
+# and churning it would just hide the real fault.
+if [ "$HEALTH_RC" -eq 0 ] && [ "$HEALTH" != "200" ] && [ "$HEALTH" != "000" ]; then
+  fail failed-tunnel 71 "A3 FAILED: $HOST reached the proxy and got HTTP $HEALTH, not 200.
+    Something IS listening on 127.0.0.1:$PORT over there and is refusing. This is a
+    BLOCKED answer, not an absent one — do not read it as 'no data', and do not
+    reopen the tunnel hoping it clears. Check the fleet proxy here:
+      systemctl --user status lb-fleet && curl -i http://127.0.0.1:$PORT/api/health"
 fi
-say "preflight A3: OK (200 through the tunnel)"
+
+if [ "$HEALTH_RC" -ne 0 ] || [ "$HEALTH" != "200" ]; then
+  warn "A3: no answer through the tunnel (rc=$HEALTH_RC body='$HEALTH') — asking $HOST to reopen it itself"
+  HEAL=$(rsh "$REMOTE_ENSURE_TUNNEL ensure --port $PORT" 2>&1)
+  HEAL_RC=$?
+  printf '%s\n' "$HEAL" | sed 's/^/    /'
+  if [ "$HEAL_RC" -ne 0 ]; then
+    fail failed-tunnel 71 "A3 FAILED: the fleet proxy is not reachable THROUGH THE TUNNEL from $HOST,
+    and the box could not reopen it either (self-heal rc=$HEAL_RC).
+    got: rc=$HEALTH_RC body='$HEALTH' (want rc=0 and http_code 200)
+    Check: (a) the local proxy — curl -fsS http://127.0.0.1:$PORT/api/health on zig-computer;
+           (b) the box's key back here — ssh $HOST 'ssh -o BatchMode=yes zig-computer true';
+           (c) AllowTcpForwarding on both sshd configs;
+           (d) a stale listener holding $PORT on the box.
+    Dispatching now would produce a tick that silently sees no Asana and no Slack."
+  fi
+  HEALTH=$(rsh "curl -sS -m 15 -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT/api/health" 2>&1)
+  [ "$HEALTH" = "200" ] || fail failed-tunnel 71 "A3 FAILED: self-heal reported success but the probe still returns '$HEALTH'.
+    Never trust the heal over the probe — this is exactly the 'I did a thing' vs 'it works' gap."
+  say "preflight A3: HEALED — the box reopened the tunnel itself and it now answers 200"
+else
+  say "preflight A3: OK (200 through the tunnel)"
+fi
 
 # ---------------------------------------------------------------------------
 # Step 4 — A4: `claude` is on the TARGET PANE's PATH.
