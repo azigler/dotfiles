@@ -579,6 +579,23 @@ fi
 # ---------------------------------------------------------------------------
 if [ "$SKIP_SYNC" != 1 ] && [ -r "$MANIFEST" ]; then
   _oob=()
+  # PRE-SCAN for `oob-exclude`, because the complement rule below needs the
+  # exclusions BEFORE it enumerates, and a manifest must never depend on the
+  # ORDER its directives happen to appear in.
+  #
+  # Why an explicit directive rather than inferring it (bead dotfiles-f5tg, 2026-07-28).
+  # The tempting rule is "skip any child that is its own git repo — a different
+  # git owns it." That is WRONG here and would have broken the August IMC
+  # silently: `imc-aug26` has its own `.git` AND is untracked by the umbrella,
+  # but its remote is `lb-marketing/*`, which this box's PAT 404s on — so git
+  # cannot deliver it and rsync is the ONLY transport that can. Inferring would
+  # have dropped it from the tier and produced exactly the failure the comment
+  # below warns about: a tick drafting confidently without campaign context.
+  # "Has a .git" does not imply "reachable by this box's credentials."
+  _oob_excl=()
+  while read -r _d _p _rest; do
+    [ "$_d" = "oob-exclude" ] && _oob_excl+=("${_p#\$HOME/}")
+  done < "$MANIFEST"
   while read -r _d _p _rest; do
     case "$_d" in
       require-oob) _oob+=("${_p#\$HOME/}") ;;
@@ -601,6 +618,14 @@ if [ "$SKIP_SYNC" != 1 ] && [ -r "$MANIFEST" ]; then
                    _c=${_c%/}
                    git ls-files --error-unmatch "$_c" >/dev/null 2>&1 && continue
                    grep -q "path = $_c" .gitmodules 2>/dev/null && continue
+                   # Declared-out via `oob-exclude`: a path that reaches the box
+                   # by its OWN transport and must not also be rsync'd, because
+                   # two writers over one directory fight (git vs rsync).
+                   _skip=0
+                   for _x in "${_oob_excl[@]}"; do
+                     [ "$_x" = "$_base/$_c" ] && { _skip=1; break; }
+                   done
+                   [ "$_skip" = 1 ] && continue
                    printf '%s\n' "$_c"
                  done)
         ;;

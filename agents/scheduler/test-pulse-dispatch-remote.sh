@@ -455,6 +455,62 @@ if grep -q "camp-one" "$ROOT/rsync.log" && grep -q "camp-two" "$ROOT/rsync.log"
   then ok "a glob pushes EVERY match, not just the first"
   else bad "a glob pushes every match" "rsync log: $(cat "$ROOT/rsync.log")"; fi
 
+# (a4) THE COMPLEMENT RULE + `oob-exclude` (bead dotfiles-f5tg, 2026-07-28).
+#      Fixture: an umbrella repo with one TRACKED child, one plain UNTRACKED
+#      child, and one untracked child that carries its OWN .git.
+UMB="$ROOT/home/umb"
+rm -rf "$UMB"; mkdir -p "$UMB"/{tracked-kid,oob-kid,own-repo-kid}
+echo t > "$UMB/tracked-kid/f"; echo o > "$UMB/oob-kid/f"; echo r > "$UMB/own-repo-kid/f"
+git -C "$UMB" init -q
+git -C "$UMB" config user.email t@example.invalid; git -C "$UMB" config user.name t
+git -C "$UMB" add tracked-kid >/dev/null 2>&1; git -C "$UMB" commit -qm root >/dev/null 2>&1
+git -C "$UMB/own-repo-kid" init -q     # a NESTED INDEPENDENT repo, untracked above
+
+# (a4.1) Baseline: the complement ships every untracked child — INCLUDING one
+#        that has its own .git. This is the guard against "simplifying"
+#        oob-exclude into an inferred `[ -e "$_c/.git" ] && continue`. That
+#        inference looks equivalent and is not: imc-aug26 has its own .git AND an
+#        lb-marketing remote this box's PAT 404s on, so rsync is its only
+#        transport. Inferring would drop it silently and a tick would draft
+#        without campaign context — wrong output, not missing output.
+printf 'require-oob-untracked $HOME/umb\n' > "$ROOT/compl-manifest.txt"
+: > "$ROOT/rsync.log"
+OUT=$(run_oob_with "$ROOT/compl-manifest.txt")
+check_verdict "complement rule -> dispatch proceeds" "$OUT" dry-run-ok
+if grep -q 'umb/oob-kid' "$ROOT/rsync.log"
+  then ok "complement ships a plain untracked child"
+  else bad "complement ships untracked child" "rsync log: $(cat "$ROOT/rsync.log")"; fi
+if grep -q 'umb/own-repo-kid' "$ROOT/rsync.log"
+  then ok "complement ships an untracked child that has its OWN .git (the imc-aug26 case)"
+  else bad "untracked child with own .git still ships" \
+       "REGRESSION: something is inferring git-ownership from .git — that silently strands imc-*"; fi
+if grep -q 'umb/tracked-kid' "$ROOT/rsync.log"
+  then bad "complement skips tracked children" "tracked-kid was rsync'd; git already owns it"
+  else ok "complement skips tracked children"; fi
+
+# (a4.2) `oob-exclude` removes exactly the declared child and nothing else.
+printf 'require-oob-untracked $HOME/umb\noob-exclude $HOME/umb/own-repo-kid\n' \
+  > "$ROOT/compl-excl-manifest.txt"
+: > "$ROOT/rsync.log"
+OUT=$(run_oob_with "$ROOT/compl-excl-manifest.txt")
+check_verdict "oob-exclude -> dispatch proceeds" "$OUT" dry-run-ok
+if grep -q 'umb/own-repo-kid' "$ROOT/rsync.log"
+  then bad "oob-exclude drops the declared child" "own-repo-kid was still rsync'd"
+  else ok "oob-exclude drops the declared child (lb-granola pulls itself instead)"; fi
+if grep -q 'umb/oob-kid' "$ROOT/rsync.log"
+  then ok "oob-exclude does not affect its siblings"
+  else bad "oob-exclude leaves siblings alone" "oob-kid stopped shipping too"; fi
+
+# (a4.3) Directive ORDER must not matter — the pre-scan exists for this.
+printf 'oob-exclude $HOME/umb/own-repo-kid\nrequire-oob-untracked $HOME/umb\n' \
+  > "$ROOT/compl-order-manifest.txt"
+: > "$ROOT/rsync.log"
+OUT=$(run_oob_with "$ROOT/compl-order-manifest.txt")
+if grep -q 'umb/own-repo-kid' "$ROOT/rsync.log"
+  then bad "oob-exclude works before its require-oob-untracked" \
+       "order-dependent: the exclusion was not yet known when the complement enumerated"
+  else ok "oob-exclude works regardless of directive order"; fi
+
 run_row() { # run_row <row> [extra args...]
   local _row=$1; shift
   # Full happy-path fixture: A5/A6 run BEFORE pane resolution, so a knobs-light
