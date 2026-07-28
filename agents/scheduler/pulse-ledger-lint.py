@@ -94,7 +94,13 @@ REQUIRED_KEYS = ("ts", "row", "outcome")
 
 #: Outcomes the fleet actually writes — see the module docstring for the
 #: derivation (ledger census + the ``refs/pulse.md`` / /pulse SKILL contract).
-ALLOWED_OUTCOMES = frozenset({"done", "quiet", "blocked"})
+#: ``stalled`` is the one outcome NO TICK EVER WRITES. It is appended by
+#: ``pulse-stall-reconcile`` for a fire that was injected and then never reported at
+#: all — precisely the failure a tick cannot log for itself, because a tick that cannot
+#: complete a turn cannot write its own row (explore-88k9). Omitting it here would make
+#: the fleet gate REJECT the reconciler's rows, which is the failure mode this whole
+#: mechanism exists to remove.
+ALLOWED_OUTCOMES = frozenset({"done", "quiet", "blocked", "stalled"})
 
 #: The one row name that is valid without appearing in any routing table: the
 #: honest "we could not recover which row this tick belonged to" marker.
