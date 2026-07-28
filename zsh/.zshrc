@@ -65,17 +65,23 @@ ENABLE_CORRECTION="false"
 
 [[ -f "$HOME/.local/bin/env" ]] && . "$HOME/.local/bin/env"
 
-# bun completions
-[ -s "/home/ubuntu/.bun/_bun" ] && source "/home/ubuntu/.bun/_bun"
+# bun completions ($HOME, not a hardcoded /home/ubuntu — identical on
+# zig-computer, and no longer a dead path on every other box)
+[ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
 
 unalias br 2>/dev/null  # br installer - remove conflicting alias
 
-# pnpm
-export PNPM_HOME="/home/ubuntu/.local/share/pnpm"
-case ":$PATH:" in
-  *":$PNPM_HOME:"*) ;;
-  *) export PATH="$PNPM_HOME:$PATH" ;;
-esac
+# pnpm — $HOME rather than a hardcoded /home/ubuntu (identical on zig-computer).
+# Also guarded on the directory existing, so a box without pnpm stops carrying a
+# dead PATH entry, and the per-host PNPM_HOME set earlier in .$(hostname -s).zsh
+# survives instead of being overwritten by a path that belongs to another machine.
+if [ -d "$HOME/.local/share/pnpm" ]; then
+  export PNPM_HOME="$HOME/.local/share/pnpm"
+  case ":$PATH:" in
+    *":$PNPM_HOME:"*) ;;
+    *) export PATH="$PNPM_HOME:$PATH" ;;
+  esac
+fi
 # pnpm end
 
 # ensure ~/.local/bin is on PATH (user tools: mlx, the hermes CLI, etc.)
