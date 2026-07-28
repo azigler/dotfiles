@@ -102,8 +102,15 @@ esac
 # One ssh round-trip; print each var as NAME<TAB>VALUE. Reading ~/.secrets and
 # echoing only the four we want keeps the blast radius to those four.
 say "fetching from $PEER (memory only, never written to disk here)"
+# `bash -lc`, NOT a bare ssh command: zig-computer's login shell is ZSH, and the
+# indirect expansion ${!v} below is a bash-ism that zsh answers with
+# "bad substitution". Without this the fetch returned nothing, the loop set
+# nothing, and every proxy call kept 401ing while the script claimed success —
+# the same class of silent-wrong-answer the dispatch's own `rsh` uses bash -lc to
+# avoid. Verified 2026-07-28.
+REMOTE_SNIPPET="set -a; . \$HOME/.secrets 2>/dev/null; set +a; for v in ${VARS[*]}; do printf '%s\t%s\n' \"\$v\" \"\${!v:-}\"; done"
 FETCHED=$(ssh -o BatchMode=yes -o ConnectTimeout=15 "$PEER" \
-  "set -a; . ~/.secrets 2>/dev/null; set +a; for v in ${VARS[*]}; do printf '%s\t%s\n' \"\$v\" \"\${!v:-}\"; done" 2>&1)
+  "bash -lc $(printf '%q' "$REMOTE_SNIPPET")" 2>&1)
 RC=$?
 if [ "$RC" -ne 0 ]; then
   say "FAILED to reach $PEER (rc=$RC):"
@@ -112,6 +119,15 @@ if [ "$RC" -ne 0 ]; then
   say "  If this says 'Connection refused', zig-computer's ufw may be rate-limiting ssh"
   say "  (the LIMIT rule REJECTs, and every retry refreshes the window — back off, do not hammer)."
   exit 1
+fi
+
+# Refuse to report success over an unparseable answer. A remote shell that
+# errored still exits 0 through some paths, and "loaded nothing, said fine" is
+# exactly how the 401 above survived a green run.
+if ! printf '%s' "$FETCHED" | grep -q "^FLEET_API_TOKEN$(printf '\t')"; then
+  say "FAILED: $PEER returned no FLEET_API_TOKEN line. Raw answer:"
+  printf '%s\n' "$FETCHED" | sed 's/^/    /' >&2
+  exit 2
 fi
 
 MISSING=0
