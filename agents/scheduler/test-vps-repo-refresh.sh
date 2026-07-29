@@ -245,6 +245,62 @@ check "no receipt"            "$([ -f "$STATE/receipt.json" ] && echo y || echo 
 check "names the directive"   "$(grep -c "unknown directive 'requre'" "$CASE/err")" 1
 
 # =============================================================================
+# dotfiles-h13q (2026-07-29). A gitlink reads as ` M <path>` whenever the
+# submodule checkout is ahead of the umbrella's pin — which step (f) of every
+# refresh CREATES on purpose (detach at the submodule's own published tip, not
+# at the lagging pin). The tripwire read that as "modified TRACKED files the VPS
+# should never write" and blocked every dispatch, naming `pipeline-website`,
+# a path the box had never touched. vps-preflight.sh already got this right.
+#
+# Builds a real submodule with its own bare "GitHub", then advances the
+# submodule tip and detaches the checkout there — the box's actual state.
+submodule_fixture() {           # $1 = case name; leaves drift in $CLONE/kid
+  fixture "$1"
+  local subup="$CASE/subm.git" subseed="$CASE/subseed"
+  git init -q --bare -b main "$subup"
+  git init -q -b main "$subseed"
+  echo v1 > "$subseed/f.txt"
+  git -C "$subseed" add -A && git -C "$subseed" commit -qm s1
+  git -C "$subseed" remote add origin "$subup"
+  git -C "$subseed" push -q origin main
+  # protocol.file.allow: git >=2.38 refuses file:// submodule transport by
+  # default (CVE-2022-39253). These are local fixture repos, not user input.
+  git -C "$CASE/seed" -c protocol.file.allow=always submodule add -q "$subup" kid
+  git -C "$CASE/seed" commit -qm "add kid"
+  git -C "$CASE/seed" push -q origin main
+  git -C "$CLONE" fetch -q origin main
+  git -C "$CLONE" merge -q --ff-only FETCH_HEAD
+  git -C "$CLONE" -c protocol.file.allow=always submodule update -q --init
+  echo v2 > "$subseed/f.txt"
+  git -C "$subseed" commit -qam s2
+  git -C "$subseed" push -q origin main
+  git -C "$CLONE/kid" fetch -q origin main
+  git -C "$CLONE/kid" checkout -q --detach FETCH_HEAD
+}
+
+echo "case 12: submodule pin drift is NOT a remote write — the tripwire ignores it"
+submodule_fixture c12
+check "fixture really has gitlink drift" \
+  "$(git -C "$CLONE" status --porcelain -uno | grep -c ' kid$')" 1
+run; rc=$?
+check "exit 0"                    "$rc" 0
+check "receipt written"           "$([ -f "$STATE/receipt.json" ] && echo y || echo n)" y
+check "no read-only accusation"   "$(grep -c 'read-only consumer of git' "$CASE/err")" 0
+
+echo "case 12b: a REAL tracked write still trips the tripwire past the gitlink"
+# The pairing that keeps case 12 honest. A tripwire that stops firing is worse
+# than one that over-fires, so prove both directions on the SAME fixture: the
+# gitlink is ignored while an actual remote edit to a tracked file is not.
+submodule_fixture c12b
+echo "a remote br ran here" >> "$CLONE/refs/pulse-ledger.jsonl"
+run; rc=$?
+check "exit non-zero"           "$([ "$rc" -ne 0 ] && echo y || echo n)" y
+check "no receipt"              "$([ -f "$STATE/receipt.json" ] && echo y || echo n)" n
+check "names read-only rule"    "$(grep -c 'read-only consumer of git' "$CASE/err")" 1
+check "names the real file"     "$(grep -c 'refs/pulse-ledger.jsonl' "$CASE/err")" 1
+check "does NOT name the gitlink" "$(grep -c '^    kid$' "$CASE/err")" 0
+
+# =============================================================================
 echo
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ] || { printf 'failed: %s\n' "${FAILED_NAMES[@]}"; exit 1; }

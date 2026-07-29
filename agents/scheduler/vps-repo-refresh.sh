@@ -211,9 +211,19 @@ note_fail() { FAILURES+=("$1"); printf 'REFRESH-FAIL: %s\n' "$1" >&2; }
 
 # `git status --porcelain -uno` limited to tracked files, minus the paths this
 # repo is allowed to have dirty (its harvest list).
+#
+# --ignore-submodules=all, for parity with vps-preflight.sh's check_local(): a
+# gitlink reads as modified whenever the submodule checkout is ahead of the
+# umbrella's pin, and step (f) below ends EVERY run by detaching each listed
+# submodule at its own published tip — so this script itself guarantees that
+# state. Without the flag the tripwire accused the box of writing tracked files
+# it never touched (`pipeline-website`, dotfiles-h13q) and blocked every
+# dispatch. Non-lossy: a submodule that matters gets its own `readonly` manifest
+# line and its own pass through this function, where its real contents are
+# checked as a repo rather than as one gitlink line in its parent.
 tracked_dirt() {
   local repo=$1 out line path allowed
-  out=$(git -C "$repo" status --porcelain --untracked-files=no 2>&1) || {
+  out=$(git -C "$repo" status --porcelain --untracked-files=no --ignore-submodules=all 2>&1) || {
     printf 'STATUS-ERROR %s' "$out"; return
   }
   while IFS= read -r line; do
