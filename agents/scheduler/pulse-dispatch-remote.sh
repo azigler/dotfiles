@@ -16,10 +16,16 @@
 # ---------------------------------------------------------------------------
 # The flow
 # ---------------------------------------------------------------------------
-#   1. tunnel up      ssh -R <port>:127.0.0.1:<port>, ExitOnForwardFailure=yes.
-#                     After this, http://localhost:7100 is zig's fleet proxy on
-#                     BOTH machines — which is why no skill needs a hostname
-#                     branch.
+#   1. tunnel up      PROBE FIRST, then ADOPT-OR-OPEN. Open the control master
+#                     with NO forward, and ask the box whether 127.0.0.1:<port>
+#                     already answers. 200 -> TUNNEL_MODE=adopted, which under the
+#                     standing-forward posture (Zig, 2026-07-29) is the normal
+#                     steady state. Only when nothing healthy is there does this
+#                     run open `ssh -R <port>:127.0.0.1:<port>` itself
+#                     (ExitOnForwardFailure=yes, TUNNEL_MODE=owned), reclaiming a
+#                     bound-but-dead port once if the bind is refused. Either way,
+#                     http://localhost:7100 is zig's fleet proxy on BOTH machines
+#                     — which is why no skill needs a hostname branch.
 #   2. refresh        ALL FOUR freshness tiers, dispatch-triggered (see below).
 #   3. preflight      seven hard assertions, below. Nothing is dispatched unless
 #                     all six pass.
@@ -30,7 +36,10 @@
 #   7. surface        if the payload carries a surface_request, inject into the
 #                     LOCAL work:di window so the LOCAL session raises the
 #                     AskUserQuestion.
-#   8. tunnel down    EXIT trap, always.
+#   8. tunnel down    EXIT trap, always — but it only ever tears down a forward
+#                     THIS RUN opened. An adopted box-side forward, and one that
+#                     A3's self-heal opened, are both left exactly as found: the
+#                     box is meant to hold a standing forward.
 #
 # ---------------------------------------------------------------------------
 # THE FOUR FRESHNESS TIERS — and why "stale" is worse than "broken"
@@ -154,8 +163,21 @@
 # Credentials
 # ---------------------------------------------------------------------------
 # marketing-vps is a SHARED box (ben, kevin, mike, ubuntu also have accounts).
-# Nothing is copied to it. The tunnel is a live socket that dies with the ssh
-# process. FLEET_API_TOKEN is the single sanctioned exception (--with-fleet-token,
+# Nothing is copied to it.
+#
+# ⚠️ THE TUNNEL IS NO LONGER RUN-LIFETIME-BOUNDED, and pretending otherwise would
+# be the more dangerous error. Zig's 2026-07-29 call is that the box holds a
+# STANDING forward (ensure-fleet-tunnel.sh's `ssh -L`), so the normal case is
+# TUNNEL_MODE=adopted: 127.0.0.1:$PORT answers on the box before this dispatch
+# starts and keeps answering after it ends. Only TUNNEL_MODE=owned — the fallback
+# where no healthy path existed — dies with this script's ssh process. What that
+# costs is honest and worth stating: the fleet proxy is reachable from the box by
+# anyone with a shell there, continuously, not just for a tick's duration.
+#
+# The CREDENTIALS are unaffected and remain run-scoped either way: they live in the
+# tmux session environment, are refcounted per in-flight row, and are unset at
+# teardown regardless of tunnel mode.
+# FLEET_API_TOKEN is the single sanctioned exception (--with-fleet-token,
 # default OFF): it is piped over ssh STDIN — never in this script's argv, never in
 # the ssh command line, never written to the box's disk — into the tmux session
 # environment, and unset again at teardown. The residual exposure is honest and
@@ -213,8 +235,11 @@
 #   PULSE_DISPATCH_RESULT=dry-run-ok       all six assertions passed; nothing dispatched
 #   PULSE_DISPATCH_RESULT=failed-usage     bad/missing args (64)
 #   PULSE_DISPATCH_RESULT=failed-row       --row is not in the project's pulse.md (65)
-#   PULSE_DISPATCH_RESULT=failed-tunnel    A3: forward not established, or /api/health
-#                                          not 200 from the VPS side (71)
+#   PULSE_DISPATCH_RESULT=failed-tunnel    step 1: no usable path to the fleet proxy —
+#                                          the -R bind was refused AND the box has no
+#                                          healthy forward of its own AND reclaiming the
+#                                          port did not help; or the box is unreachable;
+#                                          or A3: /api/health not 200 from the VPS side (71)
 #   PULSE_DISPATCH_RESULT=failed-preflight A1/A2: vps-preflight blocked (73)
 #   PULSE_DISPATCH_RESULT=failed-no-claude A4: claude not on the target pane's PATH (74)
 #   PULSE_DISPATCH_RESULT=failed-inject    could not type the tick into the box (75)
@@ -310,12 +335,23 @@ fail() {
   # work:di session raises it — same path the payload surface_request uses, and
   # work:di is the alert interface for every remote row by design.
   #
-  # Not every verdict: failed-usage / failed-row are operator errors from a
-  # hand-run and would wake the window for a typo. A --dry-run never surfaces.
-  # Guarded against recursion: surface_locally warns, it never calls fail.
+  # INVERTED 2026-07-29 (dotfiles-wv2a) — an allowlist of verdicts was the wrong
+  # shape and it cost a tick: failed-tunnel was not on it, so the di-wednesday
+  # dispatch that died at step 1 rang nothing at all and existed only in
+  # journalctl until Zig thought to ask hours later. An allowlist has to be
+  # remembered every time a verdict is added; a denylist fails safe. So: surface
+  # EVERY verdict EXCEPT the two that are operator typos on a hand-run
+  # (failed-usage / failed-row — those would wake the window for a slip of the
+  # keyboard, and the operator is already looking at the error). A --dry-run never
+  # surfaces: a human is at the terminal by definition.
+  # Guarded against recursion: surface_locally warns, it never calls fail. And
+  # guarded against double-ringing: a path that already surfaced (the timeout
+  # path does, before failing) sets SURFACED and is not surfaced twice.
   case "$verdict" in
-    failed-preflight|failed-vault|failed-no-claude|failed-inject)
-      if [ "${DRY_RUN:-0}" != 1 ] && declare -F surface_locally >/dev/null 2>&1; then
+    failed-usage|failed-row) : ;;
+    *)
+      if [ "${DRY_RUN:-0}" != 1 ] && [ "${SURFACED:-0}" != 1 ] \
+         && [ -n "${LOCAL_STATE:-}" ] && declare -F surface_locally >/dev/null 2>&1; then
         local sfile="$LOCAL_STATE/surface-blocked.json"
         printf '%s\n' "{\"kind\":\"dispatch_blocked\",\"row\":\"$ROW\",\"run\":\"$RUN_ID\",\"verdict\":\"$verdict\",\"detail\":$(printf '%s' "$*" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' 2>/dev/null || printf '"see stderr"')}" > "$sfile" 2>/dev/null
         surface_locally "$sfile" "blocked:$verdict" || \
@@ -377,8 +413,14 @@ REMOTE_WINDOW="$ROW"
 # which meant the failure path most likely to need a human could not have called
 # it even if it tried: at preflight time the function did not exist yet.
 # ---------------------------------------------------------------------------
+SURFACED=0
 surface_locally() {
   local sfile=$1 reason=$2 cmd out verdict
+  # Claimed BEFORE the attempt, not after: the point of the flag is that fail()
+  # must not ring a second time for the same event, and that is true whether this
+  # attempt is delivered or bounced (a bounce means work:di is already blocked on
+  # Zig — ringing it again cannot help and just doubles the noise).
+  SURFACED=1
   [ -x "$INJECT" ] || { warn "cannot surface: $INJECT is not executable"; return 1; }
   cmd="REMOTE PULSE SURFACE (row=$ROW, run=$RUN_ID, reason=$reason): a pulse tick that ran on marketing-vps needs you HERE. Read $sfile and raise the AskUserQuestion it describes (this is the 🔔 the remote box cannot ring), file any bead it names — the remote side files none, by design — and land the ledger row at $DIR/refs/pulse-ledger.jsonl. Do NOT re-run the tick."
   out=$("$INJECT" --dir "$DIR" --session "$SESSION" --window "$WINDOW" \
@@ -437,6 +479,24 @@ note "=== dispatch run=$RUN_ID row=$ROW dir=$DIR remote=$HOST:$REMOTE_DIR dry_ru
 # started" and "trap set" cannot leak a forward on a shared box.
 # ---------------------------------------------------------------------------
 TUNNEL_UP=0
+# How this run reached the fleet proxy. Read by cleanup(), so it must exist before
+# the trap is armed.
+#   TUNNEL_MODE=adopted  the box already had a healthy forward of its own and this
+#                        run borrowed it. Under the standing-forward posture (Zig,
+#                        2026-07-29) this is the NORMAL case, not a fallback.
+#                        Teardown must NOT touch it: it is somebody else's process
+#                        with somebody else's lifetime, and killing it is exactly
+#                        the shared-box hazard ensure-fleet-tunnel.sh refuses to
+#                        commit.
+#   TUNNEL_MODE=owned    no healthy path existed, so this run opened the -R forward
+#                        itself. Teardown closes it implicitly — the forward is a
+#                        property of the ssh master process.
+#
+# DELIBERATELY ABSENT: teardown does not drop a forward that A3's self-heal opened
+# mid-run. Under the standing-forward posture that heal produces exactly the state
+# the box is supposed to be in, so closing it would fight the chosen posture and
+# strand the NEXT tick. Do not "fix" this back into a cleanup (Zig, 2026-07-29).
+TUNNEL_MODE=""
 cleanup() {
   local rc=$?
   if [ "$TUNNEL_UP" = 1 ]; then
@@ -452,7 +512,7 @@ cleanup() {
     fi
     "$SSH_BIN" -S "$CTL" -O exit "$HOST" >/dev/null 2>>"$LOCAL_STATE/teardown.err" || \
       warn "control-master exit returned non-zero; check for a stray ssh to $HOST"
-    note "tunnel down"
+    note "master down (TUNNEL_MODE=${TUNNEL_MODE:-unknown}$([ "$TUNNEL_MODE" = adopted ] && printf ' — the box-side forward is left up, by design'))"
   fi
   [ "$rc" -ne 0 ] && emit_result failed
   exit "$rc"
@@ -472,26 +532,130 @@ trap cleanup EXIT
 rsh() { "$SSH_BIN" -S "$CTL" -o BatchMode=yes "$HOST" "bash -lc $(printf '%q' "$*")"; }
 
 # ---------------------------------------------------------------------------
-# Step 1 — TUNNEL UP.
+# Step 1 — TUNNEL UP: PROBE FIRST, THEN ADOPT-OR-OPEN.
 #
-# ExitOnForwardFailure=yes is the load-bearing option. Without it ssh connects
-# happily when the remote port is already bound (a stale tunnel from a killed
-# run), and every subsequent proxy call from the box reaches SOMEONE ELSE'S
-# listener or nothing at all — with the ssh exiting 0. That is a silent
-# wrong-answer generator on a shared box.
+# WHAT THIS COST US (2026-07-29, dotfiles-wv2a). This step used to do exactly one
+# thing: open `ssh -R` with ExitOnForwardFailure=yes and die if the bind was
+# refused. Two features shipped the same day bind the SAME port on the box — this
+# reverse forward, and ensure-fleet-tunnel.sh's local `ssh -L` self-heal — so
+# whichever is up first wins and the other is refused. On the morning of the 29th
+# the box already held a HEALTHY local forward (curl 127.0.0.1:7100/api/health ->
+# 200 from the box), and the di-wednesday dispatch killed itself at step 1 rather
+# than use it. The tick never ran; nothing rang.
+#
+# The asymmetry WAS the bug: ensure-fleet-tunnel.sh is explicitly tolerant ("never
+# fights a healthy tunnel — if the port answers, do nothing"), and step 3's A3
+# already treats a box-owned forward as a legitimate state. Only step 1 was
+# intolerant, ~370 lines before A3 could say so.
+#
+# PROBE FIRST, not try-then-fall-back. Zig's 2026-07-29 posture call is that the
+# box KEEPS a standing forward, which makes `adopted` the steady state rather than
+# the exception. Attempting the -R first would then push a scary "remote port
+# forwarding failed for listen port 7100" line into tunnel.err on essentially
+# EVERY run — noise that trains a reader to ignore the one file that matters when
+# the tunnel is genuinely broken. So: ask first, and only bind when nothing
+# healthy answers.
+#
+#   a. master with NO forward   — fails => the box is genuinely unreachable.
+#   b. probe from the box       — three-valued, the same contract as /vps and
+#                                 ensure-fleet-tunnel.sh: 200 up / 000 nothing
+#                                 listening / anything else = BLOCKED (a real
+#                                 answer, never "no data").
+#      200                      => ADOPT. Normal path. Say it plainly.
+#   c. not 200                  => no healthy path. Close the master, open one
+#                                 WITH -R (=> owned). If that bind is refused the
+#                                 port is bound-but-dead, so ask the box to drop
+#                                 only ITS OWN forward (pidfile-scoped; a pkill on
+#                                 port $PORT would murder another user's run on a
+#                                 shared box) and retry the -R exactly ONCE.
+#   d. still failing            => fail failed-tunnel with the real reason.
+#
+# ExitOnForwardFailure=yes remains load-bearing on the -R we open ourselves.
+# Without it ssh connects happily when the remote port is already bound, and every
+# subsequent proxy call from the box reaches SOMEONE ELSE'S listener or nothing at
+# all — with the ssh exiting 0. That is a silent wrong-answer generator, which is
+# the one thing worse than the hard failure this step used to produce.
 # ---------------------------------------------------------------------------
-say "tunnel: opening -R $PORT:127.0.0.1:$PORT to $HOST"
-if ! "$SSH_BIN" -f -N -M -S "$CTL" \
-        -o ExitOnForwardFailure=yes -o BatchMode=yes -o ConnectTimeout=15 \
-        -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
-        -R "127.0.0.1:$PORT:127.0.0.1:$PORT" "$HOST" 2>>"$LOCAL_STATE/tunnel.err"; then
-  fail failed-tunnel 71 "could not establish the reverse tunnel to $HOST (see $LOCAL_STATE/tunnel.err).
-    Most likely: port $PORT is already bound on the box by a stale tunnel from a killed run,
-    or the box is unreachable. Remedy: ssh $HOST 'pkill -f \"sshd.*$PORT\"' is WRONG on a shared box —
-    instead find your own stale master with: ls $STATE_ROOT/*/ssh-ctl.sock, and $SSH_BIN -S <sock> -O exit $HOST"
+open_master() {   # the control master, NO forward
+  "$SSH_BIN" -f -N -M -S "$CTL" \
+    -o BatchMode=yes -o ConnectTimeout=15 \
+    -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+    "$HOST" 2>>"$LOCAL_STATE/tunnel.err"
+}
+open_reverse() {  # the control master, WITH the reverse forward
+  "$SSH_BIN" -f -N -M -S "$CTL" \
+    -o ExitOnForwardFailure=yes -o BatchMode=yes -o ConnectTimeout=15 \
+    -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+    -R "127.0.0.1:$PORT:127.0.0.1:$PORT" "$HOST" 2>>"$LOCAL_STATE/tunnel.err"
+}
+close_master() {
+  [ -e "$CTL" ] || return 0
+  "$SSH_BIN" -S "$CTL" -O exit "$HOST" >/dev/null 2>>"$LOCAL_STATE/tunnel.err" || rm -f "$CTL"
+}
+# Three-valued probe FROM THE BOX. Never `curl ... || echo 000`: on a refused
+# connection curl both prints 000 and exits non-zero, so a fallback would fire too
+# and the caller would read "000\n000" — matching neither branch. Capture, then
+# substitute only when the output is genuinely empty (which means the ssh hop
+# itself said nothing).
+box_health() {
+  local code
+  code=$(rsh "curl -s -o /dev/null -m 15 -w '%{http_code}' http://127.0.0.1:$PORT/api/health" 2>>"$LOCAL_STATE/tunnel.err")
+  code=${code//$'\r'/}
+  printf '%s' "${code:-000}"
+}
+
+say "tunnel: opening the control master to $HOST (no forward yet — probing what the box already has)"
+if ! open_master; then
+  fail failed-tunnel 71 "could not open an ssh control master to $HOST at all (see $LOCAL_STATE/tunnel.err).
+    This is not a port conflict — no forward was requested. The box is unreachable, the key is
+    rejected, or sshd is down. Check: $SSH_BIN -o BatchMode=yes $HOST true"
 fi
 TUNNEL_UP=1
-say "tunnel: up"
+
+BOX_CODE=$(box_health)
+if [ "$BOX_CODE" = 200 ]; then
+  TUNNEL_MODE=adopted
+  say "tunnel: TUNNEL_MODE=adopted — $HOST already answers 200 on 127.0.0.1:$PORT (its standing forward). Using it; teardown will NOT touch it."
+else
+  warn "tunnel: $HOST has no healthy path to the fleet proxy (probe='$BOX_CODE'$([ "$BOX_CODE" != 000 ] && printf ' — BLOCKED, something is listening and refusing')) — opening the reverse forward from here"
+  close_master; TUNNEL_UP=0
+  if open_reverse; then
+    TUNNEL_MODE=owned
+    say "tunnel: TUNNEL_MODE=owned (this run opened -R $PORT:127.0.0.1:$PORT; it dies with this dispatch)"
+  else
+    warn "tunnel: the -R bind was refused — port $PORT is bound on $HOST but does NOT answer. Asking the box to drop only ITS OWN forward, then retrying once."
+    # The master went away with the failed -R, so re-open it to ask.
+    close_master
+    if ! open_master; then
+      fail failed-tunnel 71 "the -R bind was refused AND the plain control master then failed too (see $LOCAL_STATE/tunnel.err).
+    The box became unreachable between the probe and the retry. Nothing was dispatched."
+    fi
+    TUNNEL_UP=1
+    # pidfile-scoped, with a pgrep fallback that only ever matches `ssh -L ... zig-computer`
+    # started BY THAT SCRIPT. A reverse forward from here appears on the box as an
+    # sshd process and cannot match it, so this can never drop another dispatch's tunnel.
+    RECLAIM=$(rsh "$REMOTE_ENSURE_TUNNEL down --port $PORT" 2>&1); RECLAIM_RC=$?
+    printf '%s\n' "$RECLAIM" | sed 's/^/    /'
+    note "reclaim rc=$RECLAIM_RC"
+    close_master; TUNNEL_UP=0
+    sleep 1
+    if open_reverse; then
+      TUNNEL_MODE=owned
+      say "tunnel: RECLAIMED — the dead binder was dropped and TUNNEL_MODE=owned"
+    else
+      fail failed-tunnel 71 "no usable path to the fleet proxy on $HOST, and both recoveries failed.
+    The box's own forward answered '$BOX_CODE' (not 200), asking it to drop that forward returned
+    rc=$RECLAIM_RC, and the reverse forward still cannot bind 127.0.0.1:$PORT there.
+    See $LOCAL_STATE/tunnel.err. Diagnose on the box (never pkill on the port — it is shared):
+      ssh $HOST 'ss -tlnp | grep $PORT; ~/dotfiles/agents/scheduler/ensure-fleet-tunnel.sh status'
+    A stale master of YOUR OWN would also do this: ls $STATE_ROOT/*/ssh-ctl.sock, then $SSH_BIN -S <sock> -O exit $HOST
+    Dispatching now would produce a tick that silently sees no Asana and no Slack."
+    fi
+  fi
+fi
+printf '%s\n' "$TUNNEL_MODE" > "$LOCAL_STATE/tunnel-mode"
+note "TUNNEL_MODE=$TUNNEL_MODE"
+say "tunnel: up (TUNNEL_MODE=$TUNNEL_MODE)"
 
 # ---------------------------------------------------------------------------
 # Step 2a — T2/T3 PUSH FROM HERE, first.
@@ -901,9 +1065,12 @@ if [ "$HEALTH_RC" -ne 0 ] || [ "$HEALTH" != "200" ]; then
   HEALTH=$(rsh "curl -sS -m 15 -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT/api/health" 2>&1)
   [ "$HEALTH" = "200" ] || fail failed-tunnel 71 "A3 FAILED: self-heal reported success but the probe still returns '$HEALTH'.
     Never trust the heal over the probe — this is exactly the 'I did a thing' vs 'it works' gap."
-  say "preflight A3: HEALED — the box reopened the tunnel itself and it now answers 200"
+  # The healed forward is left UP on purpose — see cleanup()'s "deliberately
+  # absent" note. The box is meant to hold a standing forward, so this heal is the
+  # posture arriving late, not a leak to tidy away.
+  say "preflight A3: HEALED — the box reopened the tunnel itself and it now answers 200 (TUNNEL_MODE=$TUNNEL_MODE; the healed forward stays up, by design)"
 else
-  say "preflight A3: OK (200 through the tunnel)"
+  say "preflight A3: OK (200 through the tunnel, TUNNEL_MODE=$TUNNEL_MODE)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -1045,6 +1212,7 @@ fi
 # ---------------------------------------------------------------------------
 if [ "$DRY_RUN" = 1 ]; then
   say "DRY RUN: all preflight assertions passed."
+  say "  tunnel mode:   TUNNEL_MODE=$TUNNEL_MODE  (recorded at $LOCAL_STATE/tunnel-mode)"
   say "  would stage:   $HOST:$REMOTE_WORK/DISPATCH.md"
   if [ "$WITH_TOKEN" = 1 ]; then
     # Names only — never a value, not even a length. Brokering itself happens
@@ -1188,9 +1356,12 @@ This checkout is deliberately identity-less so \`git commit\` refuses. That is a
 guard, not a bug. Landing work in git is zig-computer's job.
 
 ## Credentials
-The fleet proxy is reachable at \`http://localhost:$PORT\` — a reverse tunnel back
-to zig-computer, so the same URL the local skills already use works here
-unchanged. It dies when this dispatch ends. Do not persist any token to disk.
+The fleet proxy is reachable at \`http://localhost:$PORT\` — a tunnel back to
+zig-computer, so the same URL the local skills already use works here unchanged.
+This run reached it as \`TUNNEL_MODE=$TUNNEL_MODE\` ("adopted" = this box's own
+standing forward, which outlives this dispatch; "owned" = a reverse forward from
+zig-computer that dies when this dispatch ends). The BROKERED CREDENTIALS are
+run-scoped either way and are unset at teardown. Do not persist any token to disk.
 
 ## The result payload — REQUIRED, this is your only output channel
 Write \`$REMOTE_WORK/result.json.tmp\` then \`mv\` it to

@@ -48,14 +48,45 @@ cat > "$STUB/ssh" <<'STUBEOF'
 # shellcheck disable=SC1090
 [ -n "${STUB_KNOBS:-}" ] && [ -f "$STUB_KNOBS" ] && . "$STUB_KNOBS"
 args=("$@"); last="${args[${#args[@]}-1]}"
-[ -n "${SSH_LOG:-}" ] && printf '%s\n' "$*" >> "$SSH_LOG"
 # rsh() ships the remote command through `printf %q`, so spaces arrive as "\ ".
-# Strip backslashes before matching — the real ssh never sees these patterns.
+# Strip backslashes before matching AND before logging — the real ssh never sees
+# these patterns, and a caller grepping the log for `foo down` should not have to
+# know that the escaping put a backslash between the two words.
+[ -n "${SSH_LOG:-}" ] && printf '%s\n' "${*//\\/}" >> "$SSH_LOG"
 last="${last//\\/}"
+# nth <count-file> — how many times this stub has been asked for a given thing.
+# Some cases need a DIFFERENT answer on the retry than on the first try (the
+# reclaim-and-retry path, and A3's self-heal), and the two calls are otherwise
+# byte-identical, so ordering is the only thing that can distinguish them.
+nth() { local f=${1:-}; [ -n "$f" ] || { printf 1; return; }; printf 'x' >> "$f"; wc -c < "$f" | tr -d ' '; }
 for a in "${args[@]}"; do [ "$a" = "-O" ] && exit 0; done          # control-master exit
-for a in "${args[@]}"; do [ "$a" = "-N" ] && exit "${TUNNEL_RC:-0}"; done   # tunnel master
+# The master, with or WITHOUT the reverse forward — since dotfiles-wv2a these are
+# two different requests with two different meanings, so the stub must tell them
+# apart. MASTER_RC governs the plain master (its failure = the box is genuinely
+# unreachable); TUNNEL_RC governs the -R bind (its failure = the port is taken).
+_hasR=0; for a in "${args[@]}"; do [ "$a" = "-R" ] && _hasR=1; done
+for a in "${args[@]}"; do
+  if [ "$a" = "-N" ]; then
+    [ "$_hasR" = 1 ] || exit "${MASTER_RC:-0}"
+    if [ "$(nth "${TUNNEL_COUNT_FILE:-}")" -le 1 ]
+      then exit "${TUNNEL_RC:-0}"
+      else exit "${TUNNEL_RC_RETRY:-${TUNNEL_RC:-0}}"; fi
+  fi
+done
 case "$last" in
-  *"/api/health"*)            printf '%s' "${HEALTH_CODE:-200}"; exit "${HEALTH_RC:-0}" ;;
+  *"/api/health"*)
+    # Step 1 probes with `curl -s -o /dev/null`; A3 probes with `curl -sS`. Same
+    # question, different callers — and the cases need to answer them differently
+    # (adopt at step 1, then watch A3 heal).
+    case "$last" in
+      *"-sS"*) if [ "$(nth "${HEALTH_COUNT_FILE:-}")" -le 1 ]
+                 then printf '%s' "${HEALTH_CODE:-200}"
+                 else printf '%s' "${HEALTH_CODE_RETRY:-${HEALTH_CODE:-200}}"; fi
+               exit "${HEALTH_RC:-0}" ;;
+      *)       printf '%s' "${BOX_HEALTH:-200}"; exit "${BOX_HEALTH_RC:-0}" ;;
+    esac ;;
+  *"ensure-fleet-tunnel.sh down"*)   printf 'fleet-tunnel: closed our local forward (pid 1)\n'; exit "${ENSURE_DOWN_RC:-0}" ;;
+  *"ensure-fleet-tunnel.sh ensure"*) printf 'fleet-tunnel: HEALED\n'; exit "${ENSURE_RC:-0}" ;;
   *"vault-sync.sh"*)          exit "${REMOTE_VAULT_RC:-0}" ;;
   *"find -L . -type f"*)      printf '%s\n' "${REMOTE_MEM_SHA-MEMSHA}"; exit 0 ;;
   *"rev-parse HEAD"*)         printf '%s\n' "${REMOTE_VAULT_HEAD:-deadbeefdeadbeef}"; exit 0 ;;
@@ -113,10 +144,14 @@ KNOBS="$ROOT/knobs"
 export STUB_KNOBS="$KNOBS"
 STATE="$ROOT/state"
 
+# Call counters for the stub's order-sensitive answers (see `nth` above). They are
+# reset by write_knobs, so every case starts from call #1.
+export TUNNEL_COUNT_FILE="$ROOT/tunnel.count" HEALTH_COUNT_FILE="$ROOT/health.count"
+
 # write_knobs KEY=VALUE... — values are single-quoted, because the stub SOURCES
 # this file and an unquoted JSON value loses its quotes ({"a":"b"} -> {a:b}).
 write_knobs() {
-  local kv; : > "$KNOBS"
+  local kv; : > "$KNOBS"; : > "$TUNNEL_COUNT_FILE"; : > "$HEALTH_COUNT_FILE"
   for kv in "$@"; do printf "%s='%s'\n" "${kv%%=*}" "${kv#*=}" >> "$KNOBS"; done
 }
 
@@ -125,6 +160,7 @@ write_knobs() {
 # dispatching, which is exactly the surface these cases are about).
 run_dry() {
   write_knobs "$@"
+  SSH_LOG="${SSH_LOG_OVERRIDE:-$ROOT/ssh.log}" \
   PULSE_DISPATCH_SSH="$STUB/ssh" \
   PULSE_DISPATCH_PREFLIGHT="$STUB/preflight" \
   PULSE_DISPATCH_INJECT="$STUB/inject" PULSE_DISPATCH_MANIFEST=/nonexistent-manifest \
@@ -146,13 +182,26 @@ case "$OUT" in *"di-friday"*) ok "failed-row names the valid rows" ;;
 
 echo
 echo "== A3: tunnel / fleet-proxy health, probed FROM THE VPS SIDE =="
-OUT=$(run_dry 'TUNNEL_RC=255')
-check_verdict "A3 tunnel forward fails -> failed-tunnel" "$OUT" failed-tunnel
+# The box is unreachable outright — not a port conflict, since step 1 asks for no
+# forward at all before it has probed. This is the ONLY shape that may still die
+# at step 1 (dotfiles-wv2a).
+OUT=$(run_dry 'MASTER_RC=255')
+check_verdict "box unreachable (plain master fails) -> failed-tunnel" "$OUT" failed-tunnel
 
-OUT=$(run_dry 'HEALTH_CODE=000')
+# A3 sees nothing, and the box cannot reopen it either. ENSURE_RC=1 is what makes
+# this the self-heal-FAILED branch rather than the heal-lied-to-us branch below;
+# without it the case never reached the message it claimed to assert on.
+OUT=$(run_dry 'HEALTH_CODE=000' 'ENSURE_RC=1')
 check_verdict "A3 health 000 through the tunnel -> failed-tunnel" "$OUT" failed-tunnel
 case "$OUT" in *"THROUGH THE TUNNEL"*) ok "A3 message blames the tunnel, not the proxy" ;;
   *) bad "A3 message blames the tunnel" "message did not mention the tunnel" ;; esac
+
+# The heal claims success and the probe still says nothing: never trust the heal
+# over the probe.
+OUT=$(run_dry 'HEALTH_CODE=000')
+check_verdict "A3 self-heal reports success but the probe still fails -> failed-tunnel" "$OUT" failed-tunnel
+case "$OUT" in *"Never trust the heal over the probe"*) ok "the heal is never believed over the probe" ;;
+  *) bad "heal vs probe" "expected the 'never trust the heal' message" ;; esac
 
 OUT=$(run_dry 'HEALTH_CODE=502')
 check_verdict "A3 health 502 -> failed-tunnel" "$OUT" failed-tunnel
@@ -284,6 +333,87 @@ if [ ! -s "$PROJ/refs/pulse-ledger.jsonl" ]; then ok "dry run writes NO ledger r
 else bad "dry run writes no ledger row" "ledger is non-empty after a dry run"; fi
 
 echo
+echo "== step 1: PROBE FIRST, then ADOPT-OR-OPEN (dotfiles-wv2a) =="
+# THE INCIDENT, 2026-07-29: the box held a HEALTHY forward of its own (its own
+# `ssh -L`, which binds the same 127.0.0.1:7100), the dispatcher's `-R` bind was
+# therefore refused, and step 1 killed the whole di-wednesday tick rather than use
+# the working path sitting right there. These cases are that morning, frozen.
+STEP1=('PANE_CMD=claude' "REMOTE_MEM_SHA=$MEMSHA" "REMOTE_BEAD_JSON=$BEADJSON")
+tunnel_mode_file() { local d; d=$(ls -dt "$STATE"/*/ 2>/dev/null | head -1); printf '%s' "${d}tunnel-mode"; }
+
+# (1) ADOPT — the steady state under the standing-forward posture (Zig, 2026-07-29).
+: > "$ROOT/ssh.log"
+OUT=$(run_dry "${STEP1[@]}" 'BOX_HEALTH=200' 'TUNNEL_RC=255')
+check_verdict "healthy pre-bound port -> ADOPTS it and dispatches" "$OUT" dry-run-ok
+case "$OUT" in *"TUNNEL_MODE=adopted"*) ok "the adopt is announced as TUNNEL_MODE=adopted" ;;
+  *) bad "adopt announced" "no TUNNEL_MODE=adopted in the output" ;; esac
+if [ "$(cat "$(tunnel_mode_file)" 2>/dev/null)" = adopted ]
+  then ok "TUNNEL_MODE is recorded in the run state dir"
+  else bad "TUNNEL_MODE recorded in state" "got '$(cat "$(tunnel_mode_file)" 2>/dev/null)'"; fi
+# PROBE FIRST is the whole point of the ordering: a -R that is attempted and
+# refused on every run writes a scary line into tunnel.err every run, and a file
+# that cries wolf daily is a file nobody reads on the day it matters.
+if grep -q '127.0.0.1:7100:127.0.0.1:7100' "$ROOT/ssh.log"
+  then bad "adopt never attempts the -R bind" "a reverse forward was attempted even though the box was already healthy"
+  else ok "adopt never attempts the -R bind (no scary tunnel.err line on the normal path)"; fi
+
+# (2) TEARDOWN NEVER KILLS A FORWARD THIS RUN DID NOT CREATE. The adopted forward
+#     belongs to the box; `ensure-fleet-tunnel.sh down` must never be sent for it.
+if grep -q 'ensure-fleet-tunnel.sh down' "$ROOT/ssh.log"
+  then bad "teardown leaves an adopted forward alone" "the run tore down a forward it did not create"
+  else ok "teardown leaves an adopted forward alone"; fi
+
+# (3) OWNED — nothing is listening on the box, so this run opens the -R itself.
+: > "$ROOT/ssh.log"
+OUT=$(run_dry "${STEP1[@]}" 'BOX_HEALTH=000')
+check_verdict "no healthy path -> opens the reverse forward and dispatches" "$OUT" dry-run-ok
+case "$OUT" in *"TUNNEL_MODE=owned"*) ok "opening our own forward is announced as TUNNEL_MODE=owned" ;;
+  *) bad "owned announced" "no TUNNEL_MODE=owned in the output" ;; esac
+if grep -q '127.0.0.1:7100:127.0.0.1:7100' "$ROOT/ssh.log"
+  then ok "owned mode really does request the -R forward"
+  else bad "owned requests -R" "no reverse forward in the ssh calls"; fi
+
+# (4) RECLAIM-AND-RETRY — the port is BOUND BUT DEAD: nothing answers, and the -R
+#     cannot bind over it. Ask the box to drop only ITS OWN forward (pidfile-scoped;
+#     a pkill on a shared box would murder someone else's run) and retry ONCE.
+: > "$ROOT/ssh.log"
+OUT=$(run_dry "${STEP1[@]}" 'BOX_HEALTH=000' 'TUNNEL_RC=255' 'TUNNEL_RC_RETRY=0')
+check_verdict "dead-but-bound port -> reclaim, retry once, dispatch" "$OUT" dry-run-ok
+case "$OUT" in *RECLAIMED*) ok "the reclaim is announced" ;;
+  *) bad "reclaim announced" "no RECLAIMED line in the output" ;; esac
+if grep -q 'ensure-fleet-tunnel.sh down' "$ROOT/ssh.log"
+  then ok "the reclaim goes through the box's own pidfile-scoped teardown"
+  else bad "reclaim uses ensure-fleet-tunnel down" "no scoped teardown was requested"; fi
+if grep -q 'pkill' "$ROOT/ssh.log"
+  then bad "the reclaim never pkills on a shared box" "a pkill reached the box"
+  else ok "the reclaim never pkills on a shared box"; fi
+
+# (5) …and when the retry ALSO fails, that is a real failure, loudly.
+OUT=$(run_dry "${STEP1[@]}" 'BOX_HEALTH=000' 'TUNNEL_RC=255' 'TUNNEL_RC_RETRY=255')
+check_verdict "reclaim + retry both fail -> failed-tunnel" "$OUT" failed-tunnel
+
+# (6) A genuinely unreachable box still exits 71 — the recovery paths must not
+#     have turned a hard infrastructure failure into a soft one.
+run_dry "${STEP1[@]}" 'MASTER_RC=255' >/dev/null 2>&1; RC=$?
+if [ "$RC" = 71 ]; then ok "an unreachable box still exits 71"
+else bad "unreachable box exits 71" "got exit $RC"; fi
+
+# (7) A3's self-heal opens a box-side forward mid-run. It is DELIBERATELY left up:
+#     under the standing-forward posture that heal produces exactly the state the
+#     box is supposed to be in, and tearing it down would strand the next tick.
+: > "$ROOT/ssh.log"
+OUT=$(run_dry "${STEP1[@]}" 'BOX_HEALTH=200' 'HEALTH_CODE=000' 'HEALTH_CODE_RETRY=200')
+check_verdict "A3 self-heal recovers -> dispatch proceeds" "$OUT" dry-run-ok
+case "$OUT" in *"A3: HEALED"*|*"HEALED"*) ok "the heal is reported" ;;
+  *) bad "heal reported" "no HEALED line"; esac
+if grep -q 'ensure-fleet-tunnel.sh ensure' "$ROOT/ssh.log"
+  then ok "the heal asks the box to open the forward itself"
+  else bad "heal asks the box" "no ensure call in the ssh log"; fi
+if grep -q 'ensure-fleet-tunnel.sh down' "$ROOT/ssh.log"
+  then bad "a healed forward is left UP" "teardown closed the forward the heal opened — that fights the standing-forward posture"
+  else ok "a healed forward is left UP (standing-forward posture, Zig 2026-07-29)"; fi
+
+echo
 echo "== payload validation + ledger write-back (live path) =="
 run_live() {
   write_knobs "$@"
@@ -299,11 +429,45 @@ run_live() {
 }
 BASE=('PANE_CMD=claude' "REMOTE_MEM_SHA=$MEMSHA" "REMOTE_BEAD_JSON=$BEADJSON")
 
+echo
+echo "== fail() surfacing is a DENYLIST now (dotfiles-wv2a) =="
+# The 2026-07-29 miss in one line: failed-tunnel was not on the old allowlist, so
+# a dispatch that died at step 1 rang NOTHING and lived only in journalctl until
+# Zig thought to ask. An allowlist has to be remembered every time a verdict is
+# added; a denylist fails safe.
+: > "$ROOT/inject.log"
+OUT=$(run_live "${BASE[@]}" 'MASTER_RC=255')
+check_verdict "an unreachable box in a LIVE run -> failed-tunnel" "$OUT" failed-tunnel
+if grep -q 'REMOTE PULSE SURFACE' "$ROOT/inject.log"
+  then ok "failed-tunnel SURFACES to work:di (the verdict that cost us the tick)"
+  else bad "failed-tunnel surfaces" "a tunnel failure rang nothing — this is the exact 2026-07-29 miss"; fi
+: > "$ROOT/inject.log"
+OUT=$(run_live "${BASE[@]}" 'REMOTE_BEAD_JSON=')
+check_verdict "unreadable remote bead status in a LIVE run -> failed-beads" "$OUT" failed-beads
+if grep -q 'REMOTE PULSE SURFACE' "$ROOT/inject.log"
+  then ok "failed-beads surfaces too (the denylist covers the whole class)"
+  else bad "failed-beads surfaces" "nothing injected"; fi
+# …but an operator typo on a hand-run must NOT wake the window.
+: > "$ROOT/inject.log"
+OUT=$(env INJECT_LOG="$ROOT/inject.log" PULSE_DISPATCH_SSH="$STUB/ssh" \
+  PULSE_DISPATCH_INJECT="$STUB/inject" PULSE_DISPATCH_STATE="$STATE" HOME="$ROOT/home" \
+  "$DISPATCH" --row not-a-real-row --dir "$PROJ" 2>&1)
+check_verdict "a typo'd --row is still failed-row" "$OUT" failed-row
+if [ -s "$ROOT/inject.log" ]
+  then bad "failed-row does not wake the window" "an operator typo rang work:di"
+  else ok "failed-row does NOT wake the window (operator typo, hand-run)"; fi
+
 : > "$ROOT/inject.log"
 OUT=$(run_live "${BASE[@]}" 'RESULT_JSON=')
 check_verdict "no payload before the deadline -> failed-timeout" "$OUT" failed-timeout
 if grep -q 'REMOTE PULSE SURFACE' "$ROOT/inject.log"; then ok "a timeout SURFACES locally (silence is never silent here)"
 else bad "timeout surfaces locally" "nothing was injected into the local window"; fi
+# EXACTLY once. The timeout path surfaces itself and THEN calls fail(), which now
+# surfaces every verdict — without the SURFACED guard that is two bells for one
+# event, and a channel that double-rings gets muted.
+if [ "$(grep -c 'REMOTE PULSE SURFACE' "$ROOT/inject.log")" = 1 ]
+  then ok "a timeout rings the bell exactly ONCE (no double-surface)"
+  else bad "timeout rings once" "got $(grep -c 'REMOTE PULSE SURFACE' "$ROOT/inject.log") injections for one event"; fi
 if [ ! -s "$PROJ/refs/pulse-ledger.jsonl" ]; then ok "a timeout writes NO ledger row"
 else bad "timeout writes no ledger row" "a row was written for a tick that never reported"; fi
 
