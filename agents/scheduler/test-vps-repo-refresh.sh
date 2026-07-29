@@ -217,6 +217,34 @@ check "no receipt"         "$([ -f "$STATE/receipt.json" ] && echo y || echo n)"
 check "names fast-forward" "$(grep -c 'fast-forwardable' "$CASE/err")" 1
 
 # =============================================================================
+echo "case 11: a directive this script does not act on must not kill the refresh"
+# dotfiles-0bf2 (2026-07-29). The manifest has THREE readers — this script,
+# vps-preflight.sh, and pulse-dispatch-remote.sh — and `oob-exclude` was added
+# for the third one only. The strict `*) die` arm then failed EVERY refresh on
+# marketing-vps with exit 65, which wrote no receipt, which made vps-preflight
+# fail closed, which blocked every remote pulse row for a day. The shape of this
+# bug recurs whenever a directive is taught to one reader, so the assertion is
+# about the CLASS: a directive that is meaningful elsewhere parses here as a
+# no-op and still yields a receipt.
+fixture c11
+echo "oob-exclude $CLONE/some-self-transporting-child" >> "$MANIFEST"
+run; rc=$?
+check "exit 0"                     "$rc" 0
+check "receipt written"            "$([ -f "$STATE/receipt.json" ] && echo y || echo n)" y
+check "no unknown-directive death" "$(grep -c "unknown directive" "$CASE/err")" 0
+
+echo "case 11b: a genuinely unknown directive is STILL a hard manifest failure"
+# The pairing that keeps case 11 from being a hole: accepting `oob-exclude` must
+# not become accepting typos. A misspelled directive is a manifest that does not
+# mean what its author thinks, and that must stay loud.
+fixture c11b
+echo "requre $CLONE/refs/pulse.md" >> "$MANIFEST"
+run; rc=$?
+check "exit 65 (manifest)"    "$rc" 65
+check "no receipt"            "$([ -f "$STATE/receipt.json" ] && echo y || echo n)" n
+check "names the directive"   "$(grep -c "unknown directive 'requre'" "$CASE/err")" 1
+
+# =============================================================================
 echo
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ] || { printf 'failed: %s\n' "${FAILED_NAMES[@]}"; exit 1; }

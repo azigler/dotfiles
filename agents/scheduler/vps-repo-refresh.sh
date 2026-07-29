@@ -133,6 +133,20 @@ while read -r kind a b c _rest; do
     # what git owns on zig-computer). Here we only assert the parent landed, so an
     # unknown-directive death cannot take the whole refresh down.
     require-oob-untracked) REQ_OOB+=("$(expand "$a")") ;;
+    # `oob-exclude` is a SECURITY DECLARATION, not a refresh instruction: it names
+    # a path that must never be pushed to this shared box (lb-granola, a
+    # LinearB-confidential meeting corpus, which reaches the box by its own git
+    # transport). Only pulse-dispatch-remote.sh acts on it, subtracting the path
+    # from the complement it enumerates. The refresh's whole job here is to NOT
+    # DIE on it — accepted, deliberately a no-op.
+    #
+    # It was missed when the directive shipped (dotfiles-f5tg, 2026-07-28), and
+    # the `*)` arm below then killed every refresh on the box for a day: no
+    # receipt written, so vps-preflight fail-closed and EVERY remote pulse row
+    # blocked (dotfiles-0bf2). Same lesson as the sibling above, learned the
+    # expensive way — this manifest has THREE readers, and a directive only one
+    # of them needs must still parse in all three.
+    oob-exclude) : ;;
     *) die "manifest: unknown directive '$kind' in $MANIFEST" 65 ;;
   esac
 done < "$MANIFEST"
