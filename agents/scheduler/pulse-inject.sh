@@ -340,6 +340,21 @@ if [ "$CURRENT_CMD" != "$EXPECT" ]; then
   # cd first so a recycled shell pane anchors in the right project.
   "$TMUX_BIN" send-keys -t "$PANE" "cd $(printf '%q' "$DIR")" Enter
   sleep 0.5
+  # Re-source the claude() wrapper before a COLD launch (2026-07-29, dotfiles-t6to).
+  # A durable pane's shell is days old and holds the function body it read at shell
+  # START — so a fix shipped to claude-identity-wrapper.sh reaches Zig's fresh shells
+  # immediately but NEVER reaches the panes the harness actually launches ticks from.
+  # That is precisely how the gateway base URL went missing for a day: the value moved
+  # to a shell-tier file no live pane had ever sourced, and nothing alarmed because a
+  # bypassed o11y proxy looks exactly like an idle one. Re-sourcing here makes a cold
+  # launch pick up the CURRENT wrapper. Guarded to a `claude` launcher (a jailed or
+  # goose launcher must not be prefixed) and `|| true`-ish by construction: the file is
+  # absent -> the `.` fails -> the shell prints one line and still runs $LAUNCH.
+  if [ "$LAUNCH_BASE" = "claude" ]; then
+    "$TMUX_BIN" send-keys -t "$PANE" \
+      '[ -f "$HOME/dotfiles/agents/lib/claude-identity-wrapper.sh" ] && . "$HOME/dotfiles/agents/lib/claude-identity-wrapper.sh"' Enter
+    sleep 0.3
+  fi
   "$TMUX_BIN" send-keys -t "$PANE" "$LAUNCH" Enter
   note "launched '$LAUNCH' in $PANE (was: ${CURRENT_CMD:-empty})"
   # Wait for the launch PROCESS to come up — this is LIVENESS, not readiness
