@@ -1,26 +1,31 @@
-# Timer: the explore lab's EXECUTOR loop (`/dive`), 4x/day every 6h at
-# 00:00/06:00/12:00/18:00 America/Los_Angeles. Successor to `pulse-explore.timer`
-# (rename decision 2026-07-26, bead explore-mqvu). Schedule is IDENTICAL to the
-# timer it replaces — this is a rename, not a cadence change.
+# Timer: the explore lab's EXECUTOR loop (`/dive`), 1x/day at 12:00
+# America/Los_Angeles. Successor to `pulse-explore.timer` (rename decision
+# 2026-07-26, bead explore-mqvu); INSTALLED and enabled since that rename.
 #
-# NOT INSTALLED. Installing it is a LIVE pulse-schedule change and needs Zig's
-# confirmation (dotfiles-q702). Install sequence, in this order:
-#   1. land the /dive skill + the explore refs/pulse.md `dive` row FIRST
-#      (a tick that reads the new row but can't find /dive is a broken tick)
-#   2. systemctl --user disable --now pulse-explore.timer
-#   3. mv the stamp so the renamed timer inherits its run history and does NOT
-#      fire a phantom catch-up tick (agents/infra.md "Timer-rename gotcha"):
-#      mv ~/.local/share/systemd/timers/stamp-pulse-explore.timer \
-#         ~/.local/share/systemd/timers/stamp-pulse-dive.timer
-#   4. install these two units, `systemctl --user daemon-reload`,
-#      `systemctl --user enable --now pulse-dive.timer`
-#   5. verify: systemd-analyze calendar '*-*-* 00,06,12,18:00:00 America/Los_Angeles'
+# Cadence history: 1×/day → 3×/day (2026-06-29) → 4×/day every 6h at
+# 00/06/12/18 PT (2026-07-13) → **1×/day at 12:00 PT (2026-07-29, Zig's call)**.
+# The matching daily cap in ~/explore/refs/pulse.md moved 4/day → 1/day with it —
+# cap always equals the fire count, so it only ever stops a double-fire in one
+# slot, never a legitimate tick.
+#
+# Editing this file is a LIVE pulse-schedule change (dotfiles-q702) — it needs
+# Zig's confirmation, and the installed copy at
+# ~/.config/systemd/user/pulse-dive.timer is a COPY, not a symlink, so both must
+# be edited and then `systemctl --user daemon-reload && systemctl --user restart
+# pulse-dive.timer`.
+#
+# ⚠️ Persistent=true catch-up: restarting the timer after a schedule edit fires
+# an immediate catch-up tick if a slot has elapsed since the last run. Check
+# `systemctl --user list-timers pulse-dive.timer` (LAST) against the new slot
+# before restarting, and expect one off-cadence tick if a slot did elapse.
+#
+# Verify: systemd-analyze calendar '*-*-* 12:00:00 America/Los_Angeles'
 [Unit]
 Description=Pulse timer: dive (explore lab executor — Vibes research tick)
 
 [Timer]
-# Every 6 hours: 00:00, 06:00, 12:00, 18:00 PT (4 fires/day).
-OnCalendar=*-*-* 00,06,12,18:00:00 America/Los_Angeles
+# Once a day at noon PT (1 fire/day).
+OnCalendar=*-*-* 12:00:00 America/Los_Angeles
 # Fire on next boot if the machine slept through a window:
 Persistent=true
 
