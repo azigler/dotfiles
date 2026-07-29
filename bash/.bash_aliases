@@ -157,7 +157,13 @@ alias ssh-pico='ssh pico@$(tailscale ip -4 pico 2>/dev/null || echo pico)'
 # not others (vps-8a9eb245 cannot reach pico's tailnet address at all, and every
 # claude call there failed while the config looked fine).
 #
-# Routing is now per-host and ON by default where it works, via the .zshenv tier:
+# Routing is now per-host and ON by default where it works, via the .zshenv tier —
+# and, since 2026-07-29, ALSO re-derived at launch by the claude() wrapper below.
+# The .zshenv tier alone was a shell-START-time setting: the harness's durable tmux
+# panes hold zsh processes older than the move, so they never sourced it and every
+# claude launched from them bypassed the gateway. Pico's request log went blind on
+# 2026-07-28 with nothing to alarm on it. The wrapper reads the same per-host file
+# per invocation, which makes the setting shell-age-independent.
 #     zsh/.zig-computer.zshenv   exports ANTHROPIC_BASE_URL
 #     zsh/.metis.zshenv          exports ANTHROPIC_BASE_URL
 #     zsh/.vps-8a9eb245.zshenv   does NOT — that box has no route to the gateway
@@ -171,8 +177,11 @@ alias ssh-pico='ssh pico@$(tailscale ip -4 pico 2>/dev/null || echo pico)'
 #   - cc-direct as an ESCAPE HATCH, for when the gateway's o11y body-size limit
 #     503s a huge request (context compaction is the usual victim). Replacement,
 #     in the shell you are about to launch from:
-#         unset ANTHROPIC_BASE_URL && claude
-#     For a lasting bypass, comment out the export in the per-host .zshenv.
+#         CC_NO_GATEWAY=1 claude
+#     (`unset ANTHROPIC_BASE_URL && claude` was the form until 2026-07-29 and no
+#     longer bypasses anything — the wrapper re-derives the value. CC_NO_GATEWAY is
+#     checked first.) For a lasting bypass, comment out the export in the per-host
+#     .zshenv.
 
 # --- goose through the pico agentgateway (local model + omni MCP) ---
 # Runs goose with its OpenAI provider pointed at the gateway's local-model route
