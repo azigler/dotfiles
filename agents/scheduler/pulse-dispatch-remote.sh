@@ -227,7 +227,7 @@
 #   --host           ssh alias (default marketing-vps, or $VPS_HOST)
 #   --port           fleet proxy port to reverse-forward (default 7100)
 #   --remote-session tmux session on the box (default pulse-dispatch — deliberately
-#                    NOT `vps-agent`, which the /vps Fable concierge drives)
+#                    NOT `vps-agent`, which the /vps Fable runs drive)
 #   --session        LOCAL tmux session for the surface callback (default work)
 #   --window         LOCAL tmux window for the surface callback (default di)
 #   --timeout        seconds to wait for the remote result (default 3600)
@@ -1342,7 +1342,7 @@ fi
 
 # A NON-SECRET marker so a skill can tell it is running on the dispatch box
 # rather than on zig-computer. di-wednesday needs this: its Fable positioning vet
-# normally ssh-hops to marketing-vps via the /vps concierge, which would be a
+# normally fires onto marketing-vps with /vps, which would be a
 # self-hop when the tick already runs there. Inferring from hostname was the
 # alternative and it is worse — the box's hostname is vps-8a9eb245 while the ssh
 # ALIAS is marketing-vps, so the obvious check is wrong in a way that fails
