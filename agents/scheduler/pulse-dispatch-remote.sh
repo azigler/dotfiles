@@ -1,6 +1,7 @@
 #!/bin/bash
 # pulse-dispatch-remote.sh — run ONE pulse tick on marketing-vps (the LinearB
-# company seat) while this machine stays the authority for the ledger and beads.
+# company seat) while this machine stays the authority for the LEDGER and the
+# BELL.
 #
 # Zig's framing, which the whole design serves:
 #
@@ -8,10 +9,23 @@
 #      the result comes back here, and THIS machine marks the pulse done and
 #      updates the ledger."
 #
-# So the split is not "where does the tick run" — it is "who is allowed to
-# write." The VPS writes exactly one thing: a result payload in its own scratch
-# dir. Everything durable (the ledger row, any bead, the AskUserQuestion) is
-# authored on zig-computer, by this script or by the local session it summons.
+# So the split is not "where does the tick run" and it is not "the box is not
+# trusted to write." marketing-vps is a PEER: it reaches the fleet proxy, holds
+# the service-account key, has a git identity that commits and pushes, and may
+# write beads (Zig, 2026-07-28). It lands its own deliverables.
+#
+# Exactly two things are reserved to zig-computer, each for a specific reason:
+#
+#   THE LEDGER   refs/pulse-ledger.jsonl is a single-writer file. A remote write
+#                forks it and the fork is invisible until two rows disagree. The
+#                tick reports outcome/proof/note in the result payload; this
+#                script writes the row.
+#   THE BELL     an AskUserQuestion on an unattended shared box reaches nobody
+#                and freezes the pane. The tick fills in surface_request and the
+#                local session raises the real question here.
+#
+# Everything else the tick produces — a doc tab, an Asana comment, a commit, a
+# bead — it produces itself, and pushes.
 #
 # ---------------------------------------------------------------------------
 # The flow
@@ -32,7 +46,8 @@
 #   4. dispatch       stage DISPATCH.md, send-keys `/pulse tick <remote-dir>` into
 #                     the box's tmux.
 #   5. poll           wait for result.json to appear and parse.
-#   6. land           write the ledger row HERE; stage any bead request HERE.
+#   6. land           write the ledger row HERE; file any bead the payload
+#                     REQUESTED (the box may also have filed its own and pushed).
 #   7. surface        if the payload carries a surface_request, inject into the
 #                     LOCAL work:di window so the LOCAL session raises the
 #                     AskUserQuestion.
@@ -69,10 +84,11 @@
 #                   hourly. Measured DIVERGENT at inspection (MEMORY.md md5 differed
 #                   because a memory file had just been written locally).
 #   T3 TRANSCRIPTS  same vault, different sparse scope.
-#   T4 BEAD INDEX   the box has NO beads.db for this project — only the JSONL that
-#                   arrives with the T1 pull — so there is nothing diverged to brick.
-#                   But `br` reads the DB, not the JSONL, so after the pull the
-#                   index must be rebuilt or bead state reads stale/absent.
+#   T4 BEAD INDEX   `br` reads .beads/beads.db, not the JSONL that arrives with
+#                   the T1 pull, so after the pull the index must be rebuilt or
+#                   bead state reads stale/absent. The DB is gitignored and
+#                   reconciliation happens through git + the jsonl-union merge
+#                   driver, so rebuilding it is a read-freshness step, not a risk.
 #
 # What this script does about it: refresh all four EXPLICITLY at dispatch (step
 # 2), then hard-fail if any is still behind (step 3). The refresh is not trusted
@@ -91,10 +107,11 @@
 # already made for repos: there is no "close enough" window to tune wrong, and a
 # digest cannot report green on a box an hour behind the way a timestamp check can.
 #
-# The bead rule is UNCHANGED by any of this: the box still never WRITES beads.
-# `br sync --import-only` is read-freshness only — it rebuilds .beads/beads.db,
-# which is gitignored (`.beads/*.db`), so it dirties no tracked file and the
-# read-only tripwire in vps-repo-refresh.sh stays clean.
+# What step 2/3 do about T4 is READ-freshness only: `br sync --import-only`
+# rebuilds .beads/beads.db, which is gitignored (`.beads/*.db`), so it dirties no
+# tracked file and the dirty-tree tripwire in vps-repo-refresh.sh stays clean.
+# The tick itself MAY write beads (Zig, 2026-07-28) — the DISPATCH.md contract
+# below spells out the pull/write/flush/commit/push discipline that goes with it.
 #
 # ---------------------------------------------------------------------------
 # Why the preflight is the load-bearing part (explore-7iz9 §10)
@@ -145,7 +162,7 @@
 # tunnel, pane, memory tier, and bead index — not of the checkout.
 #
 # ---------------------------------------------------------------------------
-# The two things the remote tick may NEVER do
+# The two things the remote tick may NEVER do — and the one it must do carefully
 # ---------------------------------------------------------------------------
 #   NO LEDGER.  refs/pulse-ledger.jsonl is authoritative HERE. A remote write
 #               would fork it, and the fork is invisible until two rows disagree.
@@ -153,11 +170,20 @@
 #               that is a BACKSTOP, not the channel: it keeps a rogue remote write
 #               from blocking the next ff-only pull and from being lost. The
 #               payload below is the contract.)
-#   NO BEADS.   Two bead stores already exist and are already diverged. A remote
-#               `br create` rebases the JSONL under a disagreeing SQLite DB and
-#               produces duplicate ids, which bricks `br` on BOTH machines
-#               (explore-7iz9 §3; it has bitten this fleet once already). The
-#               payload carries a bead REQUEST; the local side files it.
+#   NO BELL.    No AskUserQuestion. Nobody is attached to that box, so a dialog
+#               there reaches no one and freezes the pane. The payload's
+#               surface_request fires back here and the LOCAL session asks.
+#
+#   BEADS ARE ALLOWED, THROUGH GIT (Zig, 2026-07-28). The old ban assumed two
+#               bead stores that could not reconcile. They reconcile now: the box
+#               pulls and pushes, and the `jsonl-union` merge driver is registered
+#               on BOTH machines, so a concurrent write dedupes by id and keeps the
+#               newer updated_at. The discipline is pull -> br -> `br sync
+#               --flush-only` -> commit -> push. A bead written on the box and
+#               never pushed is the failure mode now; so is a dirty .beads/ left
+#               behind, which fails the next refresh for EVERY row. The payload's
+#               bead_request remains available for a tick that would rather hand
+#               the filing back.
 #
 # ---------------------------------------------------------------------------
 # Credentials
@@ -422,7 +448,7 @@ surface_locally() {
   # Zig — ringing it again cannot help and just doubles the noise).
   SURFACED=1
   [ -x "$INJECT" ] || { warn "cannot surface: $INJECT is not executable"; return 1; }
-  cmd="REMOTE PULSE SURFACE (row=$ROW, run=$RUN_ID, reason=$reason): a pulse tick that ran on marketing-vps needs you HERE. Read $sfile and raise the AskUserQuestion it describes (this is the 🔔 the remote box cannot ring), file any bead it names — the remote side files none, by design — and land the ledger row at $DIR/refs/pulse-ledger.jsonl. Do NOT re-run the tick."
+  cmd="REMOTE PULSE SURFACE (row=$ROW, run=$RUN_ID, reason=$reason): a pulse tick that ran on marketing-vps needs you HERE. Read $sfile and raise the AskUserQuestion it describes (this is the 🔔 the remote box cannot ring), file any bead it names that the remote side did not already file and push, and land the ledger row at $DIR/refs/pulse-ledger.jsonl. Do NOT re-run the tick."
   out=$("$INJECT" --dir "$DIR" --session "$SESSION" --window "$WINDOW" \
         ${LOOP:+--loop "$LOOP"} --cmd "$cmd" 2>&1)
   printf '%s\n' "$out" | sed 's/^/    inject: /'
@@ -1340,18 +1366,36 @@ project at \`$REMOTE_DIR\`, exactly per the \`/pulse\` skill — with the four
 overrides below. The overrides WIN over the /pulse skill and over the project's
 refs/pulse.md wherever they disagree.
 
+You are a **peer machine**, not a courier. You reach the fleet proxy (Asana,
+Google Docs, Slack), you hold the \`lb-agent-accounts\` service-account key at
+\`~/.secrets/google-service-account.json\`, you have a git identity that commits
+and pushes, and \`br\` is on your PATH. **Finish your own work** — write the tab,
+post the comment, land the file. Do not park a deliverable for zig-computer to
+land; the only two things reserved to that machine are §1 and §3 below, and each
+has a specific reason.
+
 ## 1. NEVER write the ledger
 Do **not** create, append to, or edit \`$REMOTE_DIR/refs/pulse-ledger.jsonl\`.
-The ledger is authoritative on zig-computer. Your outcome/proof/note go in the
-result payload below; the dispatcher writes the row there. A remote ledger write
-forks the file and the fork is invisible until two rows disagree.
+The ledger is a single-writer file, authoritative on zig-computer. Your
+outcome/proof/note go in the result payload below; the dispatcher writes the row
+there. A remote ledger write forks the file and the fork is invisible until two
+rows disagree.
 
-## 2. NEVER write beads
-Do **not** run \`br\` at all — not create, not update, not close — and do not
-touch \`.beads/\`. Two bead stores exist and are already diverged; a remote write
-rebases the JSONL under a disagreeing SQLite DB, producing duplicate ids that
-brick \`br\` on BOTH machines. If this tick needs a bead, put it in
-\`bead_request\` and the local side files it.
+## 2. Beads are PERMITTED — through git, or not at all
+You MAY run \`br\` (Zig, 2026-07-28): create, update, close. The old blanket ban
+assumed two bead stores that could not reconcile; they reconcile now, because you
+can pull and push and the \`jsonl-union\` merge driver is registered on BOTH
+machines. The discipline that replaces the ban, and it is not optional:
+
+    git -C <repo> pull --ff-only     # BEFORE you write
+    br create / br update / br close
+    br sync --flush-only
+    git -C <repo> add .beads/issues.jsonl && git -C <repo> commit && git -C <repo> push
+
+A bead written here and never pushed is the failure now — not the write itself.
+If you would rather not carry that, \`bead_request\` in the payload still works
+and the local side files it. Either is fine; a dirty \`.beads/\` left behind is
+not (see §4).
 
 ## 3. NEVER raise an AskUserQuestion
 There is nobody attached to this box — a dialog here reaches no one and freezes
@@ -1360,9 +1404,21 @@ present-for-approval row), fill in \`surface_request\` instead. The dispatcher
 relays it to the \`work:di\` window on zig-computer and the LOCAL session raises
 the real AskUserQuestion, with the real bell and the real phone notification.
 
-## 4. Do not commit or push
-This checkout is deliberately identity-less so \`git commit\` refuses. That is a
-guard, not a bug. Landing work in git is zig-computer's job.
+## 4. Own your writes through git — LEAVE NO DIRTY TREE
+You may write \`$REMOTE_DIR\` and the other managed checkouts. What you may not
+do is walk away from a write. \`vps-repo-refresh.sh\` hard-fails on any modified
+tracked file outside a declared \`harvest\` path, and that failure blocks the
+refresh — and therefore EVERY dispatched row on this box, not just yours. On
+2026-07-30 one uncommitted edit to \`benchmarks-2026.md\` in \`~/linearb\` took
+out the whole remote fleet exactly this way.
+
+So: **pull, write, commit, push.** Prefer \`--ff-only\`; if a pull needs a real
+merge, resolve it deliberately rather than leaving a half-finished rebase. Note
+the checkout shape: \`~/dotfiles\` and \`~/linearb\` sit on \`main\` and push
+normally, while the project submodules are checked out DETACHED at the published
+tip, so a commit there needs \`git push origin HEAD:main\` — and an unpushed
+submodule commit is simply lost at the next refresh. \`git status\` must be clean
+before you write the result payload.
 
 ## Credentials
 The fleet proxy is reachable at \`http://localhost:$PORT\` — a tunnel back to
@@ -1399,8 +1455,9 @@ if the tick was quiet or could not run.
 
 - \`row\` MUST be the literal string \`$ROW\` — never null, never invented.
 - \`outcome\` follows the project's own semantics in \`refs/pulse.md\`: a tick that
-  ran and correctly escalated is \`done\` plus a \`bead_request\`, not \`blocked\`.
-  \`blocked\` is reserved for a tick that could not run at all.
+  ran and correctly escalated is \`done\` plus an escalation bead — filed here per
+  §2 or handed over as a \`bead_request\` — not \`blocked\`. \`blocked\` is
+  reserved for a tick that could not run at all.
 - \`proof\` is REQUIRED on \`done\`. It must have verifier-distance and it must be
   re-runnable **on zig-computer** (the dispatcher's ledger row carries it and the
   local pre-commit hook re-runs it). \`\$FLEET_API_TOKEN\` and

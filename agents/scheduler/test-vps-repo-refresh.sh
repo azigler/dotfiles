@@ -146,7 +146,7 @@ echo "tampered" >> "$CLONE/refs/pulse.md"
 run; rc=$?
 check "exit non-zero"          "$([ "$rc" -ne 0 ] && echo y || echo n)" y
 check "no receipt"             "$([ -f "$STATE/receipt.json" ] && echo y || echo n)" n
-check "names read-only rule"   "$(grep -c 'read-only consumer of git' "$CASE/err")" 1
+check "names the git-discipline rule"   "$(grep -c 'own your writes through git' "$CASE/err")" 1
 
 # =============================================================================
 echo "case 7: a committer identity is ALLOWED — divergence is what blocks"
@@ -172,7 +172,7 @@ git -C "$CLONE" config user.email vps@example.com
 echo "local edit" >> "$CLONE/refs/pulse-ledger.jsonl"
 run; rc=$?
 check "diverged checkout still FAILS"  "$([ "$rc" -ne 0 ] && echo y || echo n)" y
-check "names the read-only rule"       "$(grep -c 'read-only consumer of git' "$CASE/err")" 1
+check "names the git-discipline rule"       "$(grep -c 'own your writes through git' "$CASE/err")" 1
 
 # =============================================================================
 echo "case 8: a tick-written tracked ledger row is harvested, not lost, not blocking"
@@ -285,7 +285,7 @@ check "fixture really has gitlink drift" \
 run; rc=$?
 check "exit 0"                    "$rc" 0
 check "receipt written"           "$([ -f "$STATE/receipt.json" ] && echo y || echo n)" y
-check "no read-only accusation"   "$(grep -c 'read-only consumer of git' "$CASE/err")" 0
+check "no dirty-tree accusation"   "$(grep -c 'own your writes through git' "$CASE/err")" 0
 
 echo "case 12b: a REAL tracked write still trips the tripwire past the gitlink"
 # The pairing that keeps case 12 honest. A tripwire that stops firing is worse
@@ -296,7 +296,7 @@ echo "a remote br ran here" >> "$CLONE/refs/pulse-ledger.jsonl"
 run; rc=$?
 check "exit non-zero"           "$([ "$rc" -ne 0 ] && echo y || echo n)" y
 check "no receipt"              "$([ -f "$STATE/receipt.json" ] && echo y || echo n)" n
-check "names read-only rule"    "$(grep -c 'read-only consumer of git' "$CASE/err")" 1
+check "names the git-discipline rule"    "$(grep -c 'own your writes through git' "$CASE/err")" 1
 check "names the real file"     "$(grep -c 'refs/pulse-ledger.jsonl' "$CASE/err")" 1
 check "does NOT name the gitlink" "$(grep -c '^    kid$' "$CASE/err")" 0
 

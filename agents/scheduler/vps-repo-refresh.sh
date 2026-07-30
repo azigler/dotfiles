@@ -270,18 +270,25 @@ for h in "${HARVESTS[@]}"; do
   fi
 done
 
-# --- (c) assert clean + read-only -------------------------------------------
+# --- (c) assert the checkout ENDS CLEAN -------------------------------------
+# The `readonly` directive name is historical. The VPS is a peer with a git
+# identity and may write these checkouts; what it may not do is walk away from a
+# write. One uncommitted edit blocks this refresh — and therefore every
+# dispatched pulse row on the box (2026-07-30, benchmarks-2026.md).
 for repo in "${READONLY[@]}"; do
   [ -d "$repo" ] || { note_fail "readonly repo missing: $repo"; continue; }
   dirt=$(tracked_dirt "$repo")
   case "$dirt" in
     STATUS-ERROR*) note_fail "git status failed in $repo: ${dirt#STATUS-ERROR }" ;;
     "") : ;;
-    *) note_fail "$repo has modified TRACKED files the VPS should never write:
+    *) note_fail "$repo has UNCOMMITTED changes to tracked files:
 $(sed 's/^/    /' <<<"$dirt")
-    The VPS is a read-only consumer of git. If this is .beads/, a remote 'br' ran
-    and MUST be reverted: git -C $repo checkout -- .beads/ (see explore-7iz9 —
-    two diverged bead stores produce duplicate ids and brick 'br' on BOTH boxes)." ;;
+    The rule is: own your writes through git — pull, write, commit, push, and
+    never leave the tree dirty. The write itself is allowed; abandoning it is not,
+    because this failure blocks the refresh for EVERY dispatched row on this box.
+    Remedy: land it — git -C $repo add <path> && git -C $repo commit && git -C $repo push
+    (for .beads/, run 'br sync --flush-only' first) — or revert it if it was
+    scratch: git -C $repo checkout -- <path>." ;;
   esac
   # NO committer-identity assertion. It used to fail the refresh whenever the box
   # had user.email set, on the theory that an unset identity makes `git commit`
@@ -358,7 +365,9 @@ for s in "${SUBS[@]}"; do
   out=$(git -C "$full" fetch --quiet origin "$branch" 2>&1) \
     || note_fail "fetch failed for submodule $sub: $out"
   # Detach at the published tip, NOT the umbrella's pinned gitlink — the pin lags
-  # by days (manifest header). Detached, because the VPS never commits.
+  # by days (manifest header). Detached because the tip is the target, not because
+  # the box may not commit — it may, but a submodule commit here needs an explicit
+  # `git push origin HEAD:main` or this re-detach discards it.
   out=$(git -C "$full" checkout --quiet --detach "$rsha" 2>&1) \
     || note_fail "cannot check out $rsha in $sub: $out"
   head=$(git -C "$full" rev-parse HEAD 2>/dev/null)

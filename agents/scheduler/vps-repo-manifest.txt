@@ -41,15 +41,24 @@
 #       4.9 GB and this is a shared box.
 #
 #   readonly  <repo>
-#       Assert this checkout can never author a commit: no user.email / user.name
-#       configured, and no dirty tracked files outside `harvest` paths.
-#       Encodes the standing rule that the VPS is a read-only consumer of git.
+#       Assert this checkout ENDS CLEAN: no dirty tracked files outside `harvest`
+#       paths, and HEAD at the published tip. The directive name is historical.
+#       It does NOT mean the VPS may not write — the box is a peer with a git
+#       identity that commits and pushes (Zig, 2026-07-28), and the committer-
+#       identity assertion was removed 2026-07-27 (see vps-repo-refresh.sh for
+#       why: it was a proxy for the wrong thing and unenforceable). What this
+#       asserts is the rule that replaced "never write": own your writes through
+#       git — pull, write, commit, push — and never walk away from a dirty tree.
+#       A single uncommitted edit here fails the refresh for EVERY dispatched row
+#       on the box, which is exactly what happened on 2026-07-30.
 #
 #   beadstore <repo> <path>
-#       Fingerprint a bead store and assert it did not change since the previous
-#       refresh. The VPS NEVER writes beads (explore-7iz9): two diverged stores
-#       plus a remote `br` write produce duplicate ids in the JSONL and brick
-#       `br` on BOTH machines. This is the tripwire for that rule.
+#       Fingerprint a bead store and record whether it changed since the previous
+#       refresh. The VPS MAY write beads (Zig, 2026-07-28) provided it goes
+#       through git; the `jsonl-union` merge driver is registered on BOTH machines
+#       and resolves concurrent writes by id, superseding the duplicate-id hazard
+#       explore-7iz9 §3 guarded against. This stays as the tripwire that a
+#       divergence gets noticed rather than silently absorbed.
 #
 #   harvest   <repo> <path>
 #       A TRACKED file the remote tick legitimately writes (the pulse ledger).
@@ -90,9 +99,10 @@ require $HOME/dotfiles/agents/skills/pulse/SKILL.md
 require $HOME/dotfiles/agents/scheduler/pulse-inject.sh
 
 # The /vps skill carries the BOTH-SIDES account of the fleet-proxy tunnel: that
-# 127.0.0.1:7100 exists only for the life of a dispatched run, the three-valued
+# 127.0.0.1:7100 is a STANDING forward the box holds itself (dotfiles-5q7c,
+# 2026-07-29 — it is no longer bounded by a dispatch's lifetime), the three-valued
 # health probe (200 up / 000 no tunnel / anything-else = BLOCKED, never "no
-# data"), the opt-in token brokering, and the two failure modes. The seven live
+# data"), the run-scoped token brokering, and the two failure modes. The six live
 # rows don't strictly need it — they reach the proxy through gdoc_proxy.mjs and
 # their own row skills — but anything ad-hoc, and every DIAGNOSIS of "why did my
 # call fail", does. Asserted present so it can be read by absolute path.
