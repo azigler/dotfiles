@@ -789,9 +789,18 @@ if [ "$SKIP_SYNC" != 1 ] && [ -r "$MANIFEST" ]; then
                    # Declared-out via `oob-exclude`: a path that reaches the box
                    # by its OWN transport and must not also be rsync'd, because
                    # two writers over one directory fight (git vs rsync).
+                   #
+                   # GLOB, not just literal (2026-07-30). The whole class here is
+                   # "a DIFFERENT git owns this", and that class arrives one new
+                   # directory at a time — every `/bootstrap-imc` run makes another
+                   # `imc-<month>` repo with its own remote. A literal-only
+                   # exclusion means each new campaign folder silently re-enters the
+                   # rsync tier until someone remembers to add a line, and the
+                   # failure is destructive: `--delete` against a stale source
+                   # removes work the box has committed but zig has not pulled.
                    _skip=0
                    for _x in "${_oob_excl[@]}"; do
-                     [ "$_x" = "$_base/$_c" ] && { _skip=1; break; }
+                     case "$_base/$_c" in $_x) _skip=1; break ;; esac
                    done
                    [ "$_skip" = 1 ] && continue
                    printf '%s\n' "$_c"

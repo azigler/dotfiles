@@ -68,7 +68,7 @@ misattributes every commit made under a newer model (this file pinned
 br close <bead-id>
 br sync --flush-only
 git status && git diff
-git add <specific-files>                       # NEVER git add -A
+git add <specific-files>                       # NEVER git add -A, and never a DIRECTORY
 git add .beads/issues.jsonl                    # ONLY on the default branch — see Bead-state exception
 ```
 
@@ -126,6 +126,32 @@ starts with `worktree-agent-`), do NOT push. The orchestrator handles merging
 and pushing after your work is complete. Pushing from a worktree creates stale
 remote branches.
 
+⚠️ **`git add <directory>` stages DELETIONS too, and that is how you commit a
+deletion you never chose.** `git add refs/scripts/` does not mean "add my new files
+under refs/scripts" — it means "make the index match the working tree there",
+including removing anything that has disappeared from disk. So any process that
+touches the working tree behind you (an rsync, a sync client, a cleanup script, a
+sibling agent, a checkout you forgot) gets its removals silently folded into your
+commit, under a message that claims you added something.
+
+Measured instance, 2026-07-30 on marketing-vps: an hourly `rsync -az --delete` from
+a stale source removed 12 committed files between a `cp` and a `git add
+refs/doc-scripts`. Two commits captured the deletions as if they were intentional.
+Nothing was lost only because the files were recoverable from history.
+
+**So: name the files.** `git add a.mjs b.json` rather than `git add dir/`. When a
+change genuinely spans many files, list them, or verify before committing:
+
+```bash
+git add <files>
+test "$(git diff --cached --diff-filter=D --name-only | wc -l)" -eq 0 \
+  || { echo "ABORT: staged deletions I did not intend"; git diff --cached --diff-filter=D --name-only; }
+```
+
+A deletion you meant is fine; stage it explicitly with `git rm` and say so in the
+message. The rule is that no deletion should arrive as a side effect of naming a
+directory.
+
 **Bead-state exception:** stage `.beads/issues.jsonl` ONLY when committing on
 the default branch (main). On a feature branch, leave it unstaged — bead-state
 commits on branches fork the ledger, and git later auto-merges the two
@@ -140,7 +166,7 @@ stage anything under it; see /handoff Step 5.)
 
 ## Safety
 
-- Stage specific files -- never `git add -A` or `git add .`
+- Stage specific files -- never `git add -A`, `git add .`, **or a directory**
 - Never commit `.env`, credentials, or secrets
 - Create NEW commits -- don't amend unless explicitly asked
 - If a pre-commit hook blocks, fix the errors and retry (see `/lint`)

@@ -153,3 +153,24 @@ require-oob-untracked $HOME/linearb
 # with login accounts for ben, kevin, mike and ubuntu. It was never a DECISION to
 # push it here — it happened because the corpus is untracked by the umbrella.
 oob-exclude $HOME/linearb/lb-granola
+
+# The imc-<month> campaign folders reach the box by their OWN remotes and must NOT
+# also be rsync'd (2026-07-30). Same root cause lb-granola hit, and that script's
+# own header already names it: "the complement rule could not tell 'git does not
+# own this' from 'a different git owns this'". Every /bootstrap-imc run creates
+# `~/linearb/imc-<month>` as its own repo with its own remote
+# (lb-marketing/imc-<month>), which this box's PAT can reach.
+#
+# For granola the symptom was staleness. Here it was DESTRUCTIVE, which is why this
+# is a glob rather than one line per campaign:
+#   `rsync -az --delete --exclude='.git/'` from zig-computer deletes any file the
+#   VPS has that zig does not, while leaving .git intact. Git then reports those as
+#   deletions, and a subsequent `git add <dir>` stages them. On 2026-07-30, with
+#   zig's imc-aug26 checkout 11 commits behind, this removed 12 committed script
+#   files from the VPS working tree twice, and two commits captured the deletions
+#   as though they were intentional.
+#
+# marketing-vps instead polls each campaign repo directly: imc-pull.sh, every 10
+# minutes, ff-only so it can never discard a commit made on the box.
+oob-exclude $HOME/linearb/imc-*
+
