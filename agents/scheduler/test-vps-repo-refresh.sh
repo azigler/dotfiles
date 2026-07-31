@@ -335,14 +335,21 @@ submodule_fixture() {           # $1 = case name; leaves drift in $CLONE/kid
   git -C "$CLONE/kid" checkout -q --detach FETCH_HEAD
 }
 
-echo "case 12: submodule pin drift is NOT a remote write — the tripwire ignores it"
+echo "case 12: submodule pin drift is NOT dirt — it is not reported as such"
+# The assertion here used to grep the tripwire's remedy text, which no longer
+# exists — so it would have passed vacuously forever. Assert the RECEIPT instead:
+# a gitlink reads as ` M <path>` whenever the submodule is ahead of the umbrella's
+# pin, which step (f) of every refresh creates on purpose, and reporting that as
+# somebody's WIP would put a phantom path in every DISPATCH.md and ledger row.
 submodule_fixture c12
 check "fixture really has gitlink drift" \
   "$(git -C "$CLONE" status --porcelain -uno | grep -c ' kid$')" 1
 run; rc=$?
 check "exit 0"                    "$rc" 0
 check "receipt written"           "$([ -f "$STATE/receipt.json" ] && echo y || echo n)" y
-check "no dirty-tree accusation"   "$(grep -c 'own your writes through git' "$CASE/err")" 0
+check "receipt says clean"        "$(jq -r '.clean' "$STATE/receipt.json")" true
+check "gitlink not reported as dirt" "$(jq -r '.dirty | length' "$STATE/receipt.json")" 0
+check "no DIRTY warning at all"   "$(grep -c 'is DIRTY' "$CASE/err")" 0
 
 echo "case 12b: a REAL tracked write is still REPORTED past the gitlink"
 # The pairing that keeps case 12 honest. Under the old contract this proved the
