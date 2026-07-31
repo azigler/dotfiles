@@ -392,42 +392,29 @@ the daily cap.)
    LOOP_ID=pulse-<project>          # the systemd timer stem
    ROW=<the row this tick just wrote>
 
-   python3 ~/harnessd/bin/harness_state.py >/dev/null
-   python3 - "$LOOP_ID" "$ROW" <<'PYEOF'
-   import json, sys
-   loop_id, row = sys.argv[1], sys.argv[2]
-   state = json.load(open('/home/ubuntu/.local/state/harness/state.json'))
-   m = [l for l in state['loops'] if l['id'] == loop_id]
-   assert m, f"REGISTRATION GAP: {loop_id} is not in harness-manifest.json at all"
-   l = m[0]
-   assert l['ledger_row'] == row, (
-       f"REGISTRATION GAP: manifest says ledger_row={l['ledger_row']!r}, "
-       f"this loop writes {row!r} — the dashboard is reading nothing")
-   assert l['last_ledger_ts'], (
-       f"REGISTRATION GAP: {loop_id} reads no ledger row despite one just being written")
-   print(f"registration OK: {loop_id} row={row} state={l['state']} — {l['detail']}")
-   PYEOF
+   ~/harnessd/bin/harness-assert-registration "$LOOP_ID" "$ROW"
+   # exit 0 registered · 1 registration gap · 2 published state not trustworthy yet · 3 usage
    ```
 
    **A failure here is NOT a reason to rewrite the row** — the row is fine. Fix the
    manifest (it lives in a *different repo*, which is why the `/pulse` relocation checklist
    already calls it "the piece most easily forgotten"), then re-assert.
 
-   ⚠️ **If you edited the manifest, the hand-run above is a FALSE GREEN.** `harnessd` is a
-   running daemon that loads the manifest **at service start** and regenerates `state.json`
-   from that in-memory copy, so your own regen reads the fix while the daemon keeps
-   publishing the broken value into the same file. Measured 2026-07-27: a hand run reported
-   the corrected row while the daemon's regen *seconds later* wrote the stale one. Restart
-   it and assert against what **it** publishes:
+   ⚠️ **Do NOT hand-run `harness_state.py` first — that is the FALSE GREEN this script
+   exists to remove** (`explore-vuro`, fixed 2026-07-31). `harnessd` publishes `state.json`
+   itself; your own regen reads the fix while the daemon keeps writing the broken value
+   into the same file (measured 2026-07-27: a hand run reported the corrected row while the
+   daemon's regen *seconds later* wrote the stale one). The script reads only what the
+   daemon published, and gates every assert behind a freshness check keyed to the newest of
+   the **manifest and ledger** mtimes — the old `until [ … state.json -gt … manifest ]`
+   wait exited instantly whenever the manifest was older than what actually changed, and
+   had no timeout, so a dead daemon hung the tick forever. The wait here is bounded
+   (`--timeout`, default 180s), fails loud, and fails immediately if `harnessd` is not
+   active. No manifest edit → no wait.
 
-   ```bash
-   systemctl --user restart harnessd
-   until [ "$(stat -c %Y ~/.local/state/harness/state.json)" -gt "$(stat -c %Y ~/harnessd/refs/harness-manifest.json)" ]; do sleep 10; done
-   ```
-
-   (Tracked as `harnessd-rtx8` — once the daemon re-stats the manifest per regen, the
-   restart step becomes belt-and-braces, but the assertion stays: it also catches a row
-   name that drifts from the manifest, which no daemon fix covers.)
+   (The daemon hot-reloads a changed manifest per regen since `harnessd-rtx8`, so no
+   restart is needed. The assertion stays regardless: it also catches a row name that
+   drifts from the manifest, which no daemon fix covers.)
 
    **The sibling failure, for a row that is NEW rather than mis-registered:** a brand-new
    row name has no history behind it, so a carried-over systemd stamp file (see the rename
