@@ -51,8 +51,12 @@
 #       tick's DISPATCH.md and into the ledger row, and NOTHING resets them. A
 #       single uncommitted edit used to fail the refresh for EVERY dispatched row
 #       on the box, and on 2026-07-30 it did exactly that.
-#       What still blocks is DIVERGENCE — a HEAD that is not the published tip,
-#       judged by vps-preflight on the machine Zig watches.
+#       What still blocks is DIVERGENCE, judged by vps-preflight on the machine
+#       Zig watches — and since 2026-07-31 (dotfiles-w16i) that means a HEAD the
+#       published tip cannot reach by a fast-forward. A checkout merely BEHIND the
+#       tip is the routine state of a peer fleet: the preflight fast-forwards it
+#       (which cannot lose work), records the from/to shas in the ledger row, and
+#       proceeds. AHEAD (push it) and genuinely diverged still stop for a human.
 #
 #   beadstore <repo> <path>
 #       Fingerprint a bead store and record whether it changed since the previous

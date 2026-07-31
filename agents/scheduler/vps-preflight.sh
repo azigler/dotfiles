@@ -69,6 +69,50 @@
 # NOTHING HERE EVER CLEANS ANYTHING. No `git checkout --`, no `reset --hard`, no
 # stash, and no failure text that recommends one.
 #
+# ---------------------------------------------------------------------------
+# WHAT THIS GATE NOW REPAIRS BY ITSELF: a checkout that is STRICTLY BEHIND
+# ---------------------------------------------------------------------------
+# Zig, 2026-07-31 (dotfiles-w16i, supersedes dotfiles-n16x). marketing-vps is a
+# PEER now: it commits and pushes its own work. So zig-computer falling behind
+# the published tip is the ROUTINE state, not a fault — the 2026-07-31 19:00Z
+# di-friday block found this machine 1 commit behind on ~/linearb and 8 behind on
+# dashboard-dev-interrupted, all of it the box's own work. Fail-closing on that
+# kills the tick for a condition a single fast-forward fixes.
+#
+# So step 1 classifies each checkout with REAL GIT ANCESTRY and acts per state:
+#
+#   BEHIND   (HEAD is an ancestor of the published tip, zero local commits)
+#            -> fast-forward it here, re-assert identity, PROCEED.
+#   AHEAD    (the published tip is an ancestor of HEAD)
+#            -> still blocks. This is axis 3 proper: committed work the box
+#               cannot see. Remedy is `git push`.
+#   DIVERGED (neither is an ancestor of the other)
+#            -> still blocks, and this is the ONLY state whose text may mention
+#               `reset --hard`.
+#   UNKNOWN  (the published commit is not present locally, e.g. the fetch failed)
+#            -> blocks, with a fetch-and-re-run remedy and NO destructive advice.
+#
+# Two things make this safe rather than clever:
+#
+#   1. A FAST-FORWARD CANNOT LOSE WORK. `merge --ff-only` refuses unless HEAD is
+#      a strict ancestor of the target: no commit is rewritten, none is dropped,
+#      and an uncommitted edit in the way makes git refuse rather than clobber.
+#      Every state where work COULD be lost still stops for a human.
+#   2. IT IS NEVER SILENT. Each auto-fast-forward is printed, written to
+#      --report as {repo, from, to, commits}, and carried by the dispatcher into
+#      DISPATCH.md and the ledger row. Catching up quietly would hide the case
+#      where the box and this machine were meaningfully out of step, which is the
+#      "wrong output is the invisible failure" principle applied to the fix.
+#
+# The classification bug this replaces is worth naming, because the old code
+# looked correct: it asked `merge-base --is-ancestor` WITHOUT FETCHING FIRST, so
+# for exactly the commits we were behind by the published object did not exist
+# locally, both arms errored, and every plain BEHIND fell through to the else and
+# printed "HISTORIES DIVERGED ... reset --hard". That fired four times in two days
+# (2026-07-30 di-wednesday x2 + di-thursday, 2026-07-31 di-friday) and the 19:00Z
+# instance recommended hard-resetting a repo carrying eight commits that existed
+# nowhere else on this machine. The remedy text was the dangerous part.
+#
 # Usage:
 #   vps-preflight.sh [--host marketing-vps] [--manifest FILE] [--max-age 1800]
 #                    [--allow-unpushed] [--no-refresh] [--harvest-dir DIR]
@@ -82,9 +126,10 @@
 #   --harvest-dir     Where remote-written ledger rows are copied back.
 #                     Default ~/.local/state/vps-harvest.
 #   --report FILE     Write a JSON checkout-state summary (local dirt, remote
-#                     dirt, repos whose pull did not advance). This is the
-#                     machine-readable half of the flagging contract above —
-#                     the dispatcher reads it into DISPATCH.md and the ledger.
+#                     dirt, repos whose pull did not advance, and any checkout
+#                     this run fast-forwarded). This is the machine-readable half
+#                     of the flagging contract above — the dispatcher reads it
+#                     into DISPATCH.md and the ledger.
 #
 # Exit codes: 0 ok · 64 usage · 65 manifest · 69 missing tool
 #             71 VPS unreachable · 72 local work unpublished (axis 3)
@@ -136,19 +181,30 @@ block() { write_report; printf 'VPS-PREFLIGHT: BLOCKED — %s\n' "$1" >&2; exit 
 LOCAL_DIRTY=()      # "key\tstatus-lines"  — uncommitted tracked changes HERE
 REMOTE_DIRTY_JSON=  # the receipt's .dirty array, verbatim
 STALLED=()          # repos/submodules whose pull did not advance ON THE BOX
+AUTO_FF=()          # "key\tfrom\tto\tcommits" — checkouts THIS RUN fast-forwarded
 REPORT_WRITTEN=0
 write_report() {
   [ -n "$REPORT" ] || return 0
   [ "$REPORT_WRITTEN" = 0 ] || return 0
   REPORT_WRITTEN=1
   mkdir -p "$(dirname "$REPORT")" 2>/dev/null
-  local ld sl
+  local ld sl af
   ld=$(printf '%s\n' "${LOCAL_DIRTY[@]:-}" | jq -R -s -c 'split("\n") | map(select(length>0))')
   sl=$(printf '%s\n' "${STALLED[@]:-}"     | jq -R -s -c 'split("\n") | map(select(length>0))')
+  # auto_ff is a list of OBJECTS, not strings: the ledger reader wants the shas,
+  # and "which repo, from which sha to which" is the whole point of recording it.
+  af=$(printf '%s\n' "${AUTO_FF[@]:-}" | jq -R -s -c '
+        split("\n") | map(select(length>0)) | map(split("\t")
+        | {repo:.[0], from:.[1], to:.[2], commits:(try (.[3]|tonumber) catch 0)})')
+  # `clean` stays a statement about DIRT, deliberately: an auto-fast-forwarded
+  # checkout ends the run clean and identical to the box, so flipping clean=false
+  # would print "you are working in a tree that is NOT clean" with nothing to
+  # name. auto_ff is reported alongside, on its own terms.
   jq -n --argjson local_dirty "$ld" \
         --argjson stalled "$sl" \
+        --argjson auto_ff "$af" \
         --argjson remote_dirty "${REMOTE_DIRTY_JSON:-[]}" \
-        '{local_dirty:$local_dirty, remote_dirty:$remote_dirty, stalled:$stalled,
+        '{local_dirty:$local_dirty, remote_dirty:$remote_dirty, stalled:$stalled, auto_ff:$auto_ff,
           clean: (($local_dirty|length)==0 and ($remote_dirty|length)==0 and ($stalled|length)==0)}' \
     > "$REPORT" 2>/dev/null || warn "could not write the checkout-state report to $REPORT"
 }
@@ -189,16 +245,73 @@ check_local() {          # $1 = local path, $2 = branch, $3 = manifest key
   # The remedy DEPENDS ON WHICH WAY the two diverged, and getting it wrong is
   # worse than saying nothing: "push" is the line someone follows at 07:00
   # without thinking, and after an upstream REBASE it would shove an older local
-  # HEAD over newer published work. Ask git which case this is.
+  # HEAD over newer published work. Ask git which case this is — see the header
+  # for the three states, why BEHIND is now repaired here, and why asking without
+  # fetching first misreported every BEHIND as DIVERGED four times in two days.
   if [ "$head" != "$rsha" ]; then
-    if git -C "$path" merge-base --is-ancestor "$rsha" "$head" 2>/dev/null; then
-      _fix="git -C $path push origin $branch"          # local is genuinely ahead
-    elif git -C "$path" merge-base --is-ancestor "$head" "$rsha" 2>/dev/null; then
-      _fix="git -C $path fetch origin && git -C $path merge --ff-only origin/$branch"   # simply behind
+    local state ferr nbehind nahead ffout newhead
+    # FETCH FIRST. `merge-base --is-ancestor` needs the published commit to exist
+    # in THIS repo; for the commits we are behind by it does not until we fetch.
+    # A failed fetch is not fatal here — it downgrades us to UNKNOWN below, which
+    # blocks with a harmless remedy rather than guessing.
+    ferr=$(git -C "$path" fetch --quiet origin "$branch" 2>&1) \
+      || warn "$key: fetch of origin/$branch failed (${ferr:-no output}); classifying from what is already local"
+
+    if ! git -C "$path" cat-file -e "${rsha}^{commit}" 2>/dev/null; then
+      state=unknown
+    elif git -C "$path" merge-base --is-ancestor "$rsha" "$head" 2>/dev/null; then
+      state=ahead
+    elif git -C "$path" merge-base --is-ancestor "$head" "$rsha" 2>/dev/null \
+         && [ "$(git -C "$path" rev-list --count "$rsha..$head" 2>/dev/null || echo 1)" = 0 ]; then
+      # Both halves of the bead's BEHIND definition: HEAD is an ancestor of the
+      # published tip AND there are zero local commits it does not contain. The
+      # second is implied by the first, and is asserted anyway — this is the test
+      # that decides whether an unattended command may touch the repo.
+      state=behind
     else
-      _fix="HISTORIES DIVERGED (an upstream rebase does this). If the published tip is authoritative: git -C $path fetch origin && git -C $path reset --hard origin/$branch — this DISCARDS local commits, so check 'git log origin/$branch..HEAD' first"
+      state=diverged
     fi
-    UNPUBLISHED+=("$key: local HEAD ${head:0:8} is NOT the published tip ${rsha:0:8} — the VPS pulls from GitHub, so a remote tick would run code that does not match yours. Remedy: $_fix")
+    nbehind=$(git -C "$path" rev-list --count "$head..$rsha" 2>/dev/null || echo '?')
+    nahead=$(git -C "$path" rev-list --count "$rsha..$head" 2>/dev/null || echo '?')
+
+    case "$state" in
+      behind)
+        # A FAST-FORWARD CANNOT LOSE WORK. `--ff-only` refuses unless HEAD is a
+        # strict ancestor of the target, so nothing is rewritten, nothing is
+        # dropped, and an uncommitted edit in the path of an incoming change makes
+        # git REFUSE rather than clobber it. That is the entire safety argument
+        # for doing this unattended, and it is why only this state gets it.
+        if ffout=$(git -C "$path" merge --ff-only "$rsha" 2>&1); then
+          newhead=$(git -C "$path" rev-parse HEAD 2>/dev/null)
+        else
+          newhead=""
+        fi
+        if [ "$newhead" = "$rsha" ]; then
+          # Record BEFORE overwriting $head — the whole value of the record is the
+          # from-sha, which is the only place the pre-catch-up state survives.
+          AUTO_FF+=("$key"$'\t'"${head:0:8}"$'\t'"${newhead:0:8}"$'\t'"$nbehind")
+          LOCAL_SHA["$key"]=$newhead          # re-assert identity, then proceed
+          head=$newhead
+        else
+          # Never force, never stash, never reset: warn and fall through to the
+          # block that was already here. A checkout we could not fast-forward is
+          # exactly as undispatchable as it was before this feature existed.
+          warn "$key: auto-fast-forward FAILED (${ffout:-no output}) — falling through to the block; nothing was forced"
+          UNPUBLISHED+=("$key: local HEAD ${head:0:8} is ${nbehind} commit(s) BEHIND the published tip ${rsha:0:8} and the automatic fast-forward could not be applied. Remedy: git -C $path fetch origin && git -C $path merge --ff-only origin/$branch (resolve whatever is in its way first; do NOT discard it)")
+        fi ;;
+      ahead)
+        UNPUBLISHED+=("$key: local HEAD ${head:0:8} is ${nahead} commit(s) AHEAD of the published tip ${rsha:0:8} — the VPS pulls from GitHub, so a remote tick would run code that does not match yours. Remedy: git -C $path push origin $branch")
+        ;;
+      unknown)
+        UNPUBLISHED+=("$key: cannot classify local HEAD ${head:0:8} against the published tip ${rsha:0:8} — that commit is not present locally and the fetch did not bring it. Remedy: git -C $path fetch origin $branch, then re-run this preflight. Nothing was changed and nothing here should be discarded")
+        ;;
+      *)
+        # The ONE state that may mention the destructive remedy, with its warning
+        # intact — because here, and only here, local commits genuinely are not
+        # reachable from the published tip.
+        UNPUBLISHED+=("$key: HISTORIES DIVERGED — local HEAD ${head:0:8} is ${nahead} ahead / ${nbehind} behind the published tip ${rsha:0:8} (an upstream rebase does this). If the published tip is authoritative: git -C $path fetch origin && git -C $path reset --hard origin/$branch — this DISCARDS local commits, so check 'git log origin/$branch..HEAD' first")
+        ;;
+    esac
   fi
   # DIRT IS A WARNING, NOT A BLOCK (dotfiles-f4ub). It used to go into
   # UNPUBLISHED and exit 72. See the header for why that was wrong; the short
@@ -219,6 +332,22 @@ while read -r kind a b c _rest; do
   esac
 done < "$MANIFEST"
 
+# The auto-fast-forward record. Printed FIRST, before the dirt and the blocks,
+# because it is the one thing in this step that CHANGED something on disk — and
+# an unattended repair that is not announced is indistinguishable from one that
+# never had to happen. It rides on stderr like every other finding, and into
+# --report -> DISPATCH.md -> the ledger row via write_report().
+if [ ${#AUTO_FF[@]} -gt 0 ]; then
+  printf 'VPS-PREFLIGHT: %d checkout(s) were BEHIND the published tip and were FAST-FORWARDED here:\n' "${#AUTO_FF[@]}" >&2
+  while IFS=$'\t' read -r _k _from _to _n; do
+    [ -n "$_k" ] || continue
+    printf '  - %s: %s -> %s (%s commit(s), all of them already published)\n' "$_k" "$_from" "$_to" "$_n" >&2
+  done < <(printf '%s\n' "${AUTO_FF[@]}")
+  echo "  This is a fast-forward, so no local commit was rewritten or discarded — it is" >&2
+  echo "  the routine catch-up of a peer fleet, not a repair of damage. It is recorded in" >&2
+  echo "  the ledger row so a later reader can see the two machines had drifted." >&2
+fi
+
 if [ ${#LOCAL_DIRTY[@]} -gt 0 ]; then
   printf 'VPS-PREFLIGHT: %d checkout(s) DIRTY on zig-computer — proceeding (dirty is WIP, not a fault):\n' "${#LOCAL_DIRTY[@]}" >&2
   printf '  - %s\n' "${LOCAL_DIRTY[@]}" >&2
@@ -233,10 +362,13 @@ if [ ${#UNPUBLISHED[@]} -gt 0 ]; then
   if [ "$ALLOW_UNPUSHED" = 1 ]; then
     echo "  (--allow-unpushed: continuing anyway — the remote tick will run PUBLISHED code, which is older than yours)" >&2
   else
-    # Still a block, deliberately (dotfiles-f4ub scope decision): this is
-    # COMMITTED work the box cannot see, i.e. the box would run genuinely
-    # different code. Uncommitted work — handled above — is a different axis.
-    block "zig-computer's COMMITTED work is not published; a pull-based refresh cannot deliver it (uncommitted work is a warning, not this)" 72
+    # Still a block, deliberately (dotfiles-f4ub scope decision): every case left
+    # in this list is COMMITTED code the two machines do not share, i.e. the box
+    # would run genuinely different code. The two axes that are NOT here:
+    # uncommitted work (a warning, above) and a strictly-behind checkout
+    # (fast-forwarded above, dotfiles-w16i) — what survives to here is AHEAD,
+    # DIVERGED, unclassifiable, or a fast-forward that could not be applied.
+    block "zig-computer's committed state cannot be reconciled with the published tip by a pull; the lines above name the repo, the direction, and the remedy" 72
   fi
 elif [ ${#LOCAL_DIRTY[@]} -eq 0 ]; then
   say "local: all in-scope checkouts published and clean"

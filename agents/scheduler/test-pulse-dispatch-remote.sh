@@ -1000,6 +1000,186 @@ else
 fi
 
 echo
+echo "== BEHIND is fast-forwarded; AHEAD and DIVERGED still BLOCK (dotfiles-w16i) =="
+# marketing-vps is a peer that commits and pushes on its own, so zig-computer
+# falling BEHIND the published tip is the ROUTINE state, not a fault — and A2
+# fail-closing on it killed four ticks in two days. The three states are now
+# distinguished by REAL GIT ANCESTRY (not a string compare against ls-remote) and
+# only the one that cannot lose work is repaired here.
+#
+# The bug being guarded is subtle and it is why case (a) checks the SHAS: the old
+# code asked `merge-base --is-ancestor` WITHOUT FETCHING, so for exactly the
+# commits we were behind by the published object did not exist locally, both arms
+# errored, and every plain BEHIND printed "HISTORIES DIVERGED ... reset --hard".
+# The 2026-07-31 19:00Z instance aimed that at a repo holding 8 commits that
+# existed nowhere else on this machine.
+if [ -x "$PF" ]; then
+  # Advance "GitHub" without touching $PFDIR/repo — that separation is the whole
+  # fixture: the local checkout must genuinely not have the incoming objects.
+  pf_upstream_commit() {
+    local seed="$PFDIR/seed"
+    if [ ! -d "$seed" ]; then git clone -q "$PFDIR/origin.git" "$seed"; fi
+    git -C "$seed" fetch -q origin main
+    git -C "$seed" checkout -q -B main origin/main
+    echo "$1" >> "$seed/refs/pulse.md"
+    git -C "$seed" commit -qam "$1"
+    git -C "$seed" push -q origin main
+  }
+
+  # (a) BEHIND -> fast-forwarded here, dispatch PROCEEDS, and it is RECORDED.
+  pf_fixture behind
+  pf_upstream_commit v2; pf_upstream_commit v3
+  TIP=$(git -C "$PFDIR/origin.git" rev-parse main)
+  BEFORE=$(git -C "$PFDIR/repo" rev-parse HEAD)
+  RPT="$PFDIR/report.json"
+  # Proof that the fixture reproduces the misdiagnosis precondition: before the
+  # preflight runs, the published commit is NOT an object in this repo.
+  if git -C "$PFDIR/repo" cat-file -e "${TIP}^{commit}" 2>/dev/null
+  then bad "behind fixture" "the published tip is already local — the fixture does not reproduce the bug"
+  else ok "fixture: the published tip is not yet an object here (the old code's blind spot)"; fi
+  OUT=$(printf '%s' "{\"ok\":true,\"generated_epoch\":$(date -u +%s),\"repos\":[{\"path\":\"/home/andrew/repo\",\"head\":\"$TIP\",\"in_sync\":true,\"pull_ok\":true,\"pull_advanced\":true}],\"submodules\":[],\"required\":[],\"harvested\":[],\"dirty\":[]}" > "$PFDIR/receipt.json"
+        cat > "$PFDIR/ssh" <<PFSSH
+#!/bin/bash
+last="\${@: -1}"
+case "\$last" in *receipt*|*cat*) cat "$PFDIR/receipt.json" ;; esac
+exit 0
+PFSSH
+        chmod +x "$PFDIR/ssh"
+        PATH="$PFDIR:$PATH" "$PF" --manifest "$MANIFEST" --no-refresh --quiet --report "$RPT" 2>&1
+        echo "EXIT=$?")
+  case "$OUT" in *"EXIT=0"*) ok "BEHIND: the preflight PROCEEDS instead of blocking" ;;
+    *) bad "behind proceeds" "expected EXIT=0, got: $(printf '%.240s' "$OUT")" ;; esac
+  if [ "$(git -C "$PFDIR/repo" rev-parse HEAD)" = "$TIP" ] && [ "$BEFORE" != "$TIP" ]
+  then ok "BEHIND: HEAD actually moved ${BEFORE:0:8} -> ${TIP:0:8} (a real fast-forward, not a message change)"
+  else bad "behind fast-forwards" "HEAD is $(git -C "$PFDIR/repo" rev-parse HEAD), expected $TIP"; fi
+  case "$OUT" in *"FAST-FORWARDED"*) ok "BEHIND: the catch-up is said out loud, never silent" ;;
+    *) bad "behind is announced" "no FAST-FORWARDED line: $(printf '%.240s' "$OUT")" ;; esac
+  case "$OUT" in *"DIVERGED"*) bad "behind is not misdiagnosed" "it still printed DIVERGED — the four-times bug" ;;
+    *) ok "BEHIND: never misreported as DIVERGED (the bug that fired 4x in 2 days)" ;; esac
+  case "$OUT" in *"reset --hard"*) bad "behind never says reset --hard" "the dangerous remedy appeared on a merely-behind repo" ;;
+    *) ok "BEHIND: 'reset --hard' does NOT appear (the remedy text was the dangerous part)" ;; esac
+  if [ -s "$RPT" ] && jq -e --arg f "${BEFORE:0:8}" --arg t "${TIP:0:8}" \
+       '(.auto_ff|length) == 1 and .auto_ff[0].from == $f and .auto_ff[0].to == $t and .auto_ff[0].commits == 2' \
+       "$RPT" >/dev/null 2>&1
+  then ok "BEHIND: --report records repo + from-sha + to-sha + commit count"
+  else bad "auto_ff in --report" "got: $(head -c 240 "$RPT" 2>/dev/null)"; fi
+  if jq -e '.clean == true' "$RPT" >/dev/null 2>&1
+  then ok "BEHIND: clean stays TRUE — a caught-up tree is not dirt, and must not read as dirt"
+  else bad "auto_ff vs clean" "an auto-fast-forward wrongly flipped clean=false"; fi
+
+  # (b) AHEAD -> still blocks. This is axis 3 proper: committed work the box
+  #     cannot see. A pull cannot deliver it, so a human must push.
+  pf_fixture ahead
+  echo mine >> "$PFDIR/repo/refs/pulse.md"
+  git -C "$PFDIR/repo" commit -qam "committed here, never pushed"
+  AHEAD_HEAD=$(git -C "$PFDIR/repo" rev-parse HEAD)
+  OUT=$(pf_run "{\"ok\":true,\"generated_epoch\":$(date -u +%s),\"repos\":[{\"path\":\"/home/andrew/repo\",\"head\":\"$LOCAL_HEAD\",\"in_sync\":true}],\"submodules\":[],\"required\":[],\"harvested\":[]}")
+  case "$OUT" in *"EXIT=72"*) ok "AHEAD: still BLOCKS (72) — the auto-ff is strictly for the behind case" ;;
+    *) bad "ahead blocks" "expected EXIT=72, got: $(printf '%.240s' "$OUT")" ;; esac
+  case "$OUT" in *"AHEAD"*"push origin main"*) ok "AHEAD: the remedy is push, and it says which direction it drifted" ;;
+    *) bad "ahead remedy" "expected an AHEAD + push remedy: $(printf '%.240s' "$OUT")" ;; esac
+  case "$OUT" in *"reset --hard"*) bad "ahead never says reset --hard" "it offered to discard the unpushed commit" ;;
+    *) ok "AHEAD: 'reset --hard' does NOT appear" ;; esac
+  if [ "$(git -C "$PFDIR/repo" rev-parse HEAD)" = "$AHEAD_HEAD" ]
+  then ok "AHEAD: the local commit is UNTOUCHED"
+  else bad "ahead untouched" "HEAD moved on a repo the gate must not touch"; fi
+
+  # (c) DIVERGED -> still blocks, and it is the ONLY state allowed to name the
+  #     destructive remedy, with its warning intact.
+  pf_fixture diverged
+  pf_upstream_commit v2
+  echo mine > "$PFDIR/repo/refs/other.md"
+  git -C "$PFDIR/repo" add refs/other.md; git -C "$PFDIR/repo" commit -qm "mine"
+  DIV_HEAD=$(git -C "$PFDIR/repo" rev-parse HEAD)
+  TIP=$(git -C "$PFDIR/origin.git" rev-parse main)
+  OUT=$(pf_run "{\"ok\":true,\"generated_epoch\":$(date -u +%s),\"repos\":[{\"path\":\"/home/andrew/repo\",\"head\":\"$TIP\",\"in_sync\":true}],\"submodules\":[],\"required\":[],\"harvested\":[]}")
+  case "$OUT" in *"EXIT=72"*) ok "DIVERGED: still BLOCKS (72)" ;;
+    *) bad "diverged blocks" "expected EXIT=72, got: $(printf '%.240s' "$OUT")" ;; esac
+  case "$OUT" in *"HISTORIES DIVERGED"*) ok "DIVERGED: named as such, and only here" ;;
+    *) bad "diverged named" "no HISTORIES DIVERGED line: $(printf '%.240s' "$OUT")" ;; esac
+  case "$OUT" in *"reset --hard"*"DISCARDS local commits"*)
+      ok "DIVERGED: the destructive remedy appears WITH its warning intact" ;;
+    *) bad "diverged remedy" "reset --hard is missing or unwarned: $(printf '%.240s' "$OUT")" ;; esac
+  if [ "$(git -C "$PFDIR/repo" rev-parse HEAD)" = "$DIV_HEAD" ]
+  then ok "DIVERGED: nothing was reset — the gate only PRINTS the remedy"
+  else bad "diverged untouched" "the gate moved HEAD on a diverged repo"; fi
+
+  # (d) BEHIND but the fast-forward CANNOT be applied (a WIP edit is in the way).
+  #     Never force, never stash, never reset: warn, and fall through to the block
+  #     that was already there. This is the case that keeps the feature from being
+  #     a hole — an auto-repair whose failure mode is "try harder" is a data-loss
+  #     bug waiting for its morning.
+  pf_fixture ffblocked
+  pf_upstream_commit v2
+  echo "my uncommitted work" >> "$PFDIR/repo/refs/pulse.md"
+  WIPSHA=$(sha256sum "$PFDIR/repo/refs/pulse.md" | awk '{print $1}')
+  BEFORE=$(git -C "$PFDIR/repo" rev-parse HEAD)
+  TIP=$(git -C "$PFDIR/origin.git" rev-parse main)
+  OUT=$(pf_run "{\"ok\":true,\"generated_epoch\":$(date -u +%s),\"repos\":[{\"path\":\"/home/andrew/repo\",\"head\":\"$TIP\",\"in_sync\":true}],\"submodules\":[],\"required\":[],\"harvested\":[]}")
+  case "$OUT" in *"EXIT=72"*) ok "failed ff: falls through to the block (never proceeds on an unrepaired repo)" ;;
+    *) bad "failed ff blocks" "expected EXIT=72, got: $(printf '%.240s' "$OUT")" ;; esac
+  case "$OUT" in *"auto-fast-forward FAILED"*) ok "failed ff: warns, naming git's own refusal" ;;
+    *) bad "failed ff warns" "no warning: $(printf '%.240s' "$OUT")" ;; esac
+  case "$OUT" in *"reset --hard"*) bad "failed ff never says reset --hard" "it recommended discarding the WIP in its way" ;;
+    *) ok "failed ff: 'reset --hard' does NOT appear" ;; esac
+  if [ "$(git -C "$PFDIR/repo" rev-parse HEAD)" = "$BEFORE" ] \
+     && [ "$(sha256sum "$PFDIR/repo/refs/pulse.md" | awk '{print $1}')" = "$WIPSHA" ]
+  then ok "failed ff: HEAD and the WIP file are both UNTOUCHED — nothing was forced"
+  else bad "failed ff untouched" "the gate modified a repo whose fast-forward it could not apply"; fi
+
+  # (e) THE CONTROL. `reset --hard` must exist in exactly ONE code path, or the
+  #     per-state remedies are one careless edit away from re-merging.
+  PFSRC=$(grep -vE '^\s*#' "$PF")
+  N=$(printf '%s\n' "$PFSRC" | grep -c 'reset --hard')
+  if [ "$N" = 1 ]; then ok "source: 'reset --hard' appears in exactly one (DIVERGED) message"
+  else bad "reset --hard is single-sited" "found $N occurrences in executable lines"; fi
+  if printf '%s\n' "$PFSRC" | grep -q 'merge --ff-only'
+  then ok "source: the repair is --ff-only (the only merge that cannot lose work)"
+  else bad "ff-only repair" "the auto-repair is not an --ff-only merge"; fi
+  for banned in 'reset --hard "' 'git .*stash' 'checkout .*-f ' 'clean -f'; do
+    if printf '%s\n' "$PFSRC" | grep -qE "$banned"
+    then bad "no destructive command" "the preflight now contains: $banned"
+    else ok "source: no destructive '$banned' anywhere in the preflight"; fi
+  done
+else
+  echo "  SKIP  three-state cases (vps-preflight.sh not executable)"
+fi
+
+echo
+echo "== the dispatcher CARRIES the auto-fast-forward record (dotfiles-w16i) =="
+# The record is worth as much as its delivery. An auto-ff leaves the tree CLEAN,
+# so it would vanish if it rode on the dirty path — which is exactly how a silent
+# catch-up would hide a morning where the box and this machine were far apart.
+FF_REPORT='{"clean":true,"local_dirty":[],"remote_dirty":[],"stalled":[],"auto_ff":[{"repo":"$HOME/linearb","from":"aaaaaaaa","to":"bbbbbbbb","commits":8}]}'
+OUT=$(run_dry 'PANE_CMD=claude' "REMOTE_MEM_SHA=$MEMSHA" "REMOTE_BEAD_JSON=$BEADJSON" \
+      "PF_REPORT_JSON=$FF_REPORT")
+check_verdict "an auto-fast-forwarded checkout still reaches dry-run-ok" "$OUT" dry-run-ok
+case "$OUT" in *"aaaaaaaa -> bbbbbbbb"*) ok "the dry run prints the from-sha and the to-sha" ;;
+  *) bad "dry run shows the ff shas" "no sha pair in the output" ;; esac
+: > "$ROOT/inject.log"
+OUT=$(run_live "${BASE[@]}" "PF_REPORT_JSON=$FF_REPORT" \
+      'RESULT_JSON={"row":"di-friday","outcome":"done","note":"ran after a catch-up","proof":{"kind":"cmd","cmd":"true"}}')
+check_verdict "an auto-fast-forwarded checkout completes a live dispatch" "$OUT" completed
+RUNDIR=$(ls -dt "$STATE"/*/ 2>/dev/null | head -1)
+if grep -q 'CAUGHT UP BEFORE DISPATCH' "${RUNDIR}DISPATCH.md" 2>/dev/null \
+   && grep -q 'aaaaaaaa -> bbbbbbbb' "${RUNDIR}DISPATCH.md" 2>/dev/null
+then ok "DISPATCH.md tells the tick its box was caught up, and by how much"
+else bad "DISPATCH.md carries auto_ff" "the catch-up note is missing from the contract the tick reads"; fi
+LINE=$(tail -1 "$PROJ/refs/pulse-ledger.jsonl")
+if printf '%s' "$LINE" | jq -e '.dispatch.checkout.auto_ff[0].from == "aaaaaaaa" and .dispatch.checkout.auto_ff[0].commits == 8' >/dev/null 2>&1
+then ok "the ledger row records the auto-fast-forward (durable, on dispatch.checkout)"
+else bad "ledger records auto_ff" "got: $(printf '%.200s' "$LINE")"; fi
+# The control: a run with no catch-up must not claim one, or the field stops
+# meaning anything the first time a reader checks it.
+OUT=$(run_live "${BASE[@]}" 'PF_REPORT_JSON={"clean":true,"local_dirty":[],"remote_dirty":[],"stalled":[],"auto_ff":[]}' \
+      'RESULT_JSON={"row":"di-friday","outcome":"done","note":"nothing to catch up","proof":{"kind":"cmd","cmd":"true"}}')
+check_verdict "a run with no catch-up still completes" "$OUT" completed
+RUNDIR=$(ls -dt "$STATE"/*/ 2>/dev/null | head -1)
+if grep -q 'CAUGHT UP BEFORE DISPATCH' "${RUNDIR}DISPATCH.md" 2>/dev/null
+then bad "auto_ff control" "DISPATCH.md claims a catch-up that never happened"
+else ok "no catch-up -> no catch-up note (the record is not always-on)"; fi
+
+echo
 echo "== outcome contract =="
 OUT=$(run_dry 'PANE_CMD=claude' "REMOTE_MEM_SHA=$MEMSHA" "REMOTE_BEAD_JSON=$BEADJSON")
 N=$(printf '%s\n' "$OUT" | grep -c 'PULSE_DISPATCH_RESULT=')

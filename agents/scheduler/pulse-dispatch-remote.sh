@@ -151,6 +151,13 @@
 #   A2  box repo HEAD behind origin     -> the tick drafts confidently off code
 #                                          days older than the local skills.
 #                                          (vps-preflight sha identity, 3 axes)
+#                                          Since dotfiles-w16i A2 REPAIRS the one
+#                                          case that cannot lose work: a LOCAL
+#                                          checkout strictly behind the published
+#                                          tip is fast-forwarded and recorded,
+#                                          because on a peer fleet zig-computer
+#                                          falls behind as routine. Ahead and
+#                                          diverged still block for a human.
 #   A3  tunnel not answering /api/health -> every Asana/Slack call 000s and the
 #       *** FROM THE VPS SIDE ***          tick files "blocked: no data". Testing
 #                                          this locally proves NOTHING: the proxy
@@ -934,7 +941,10 @@ if ! "$PREFLIGHT" "${PF_ARGS[@]}"; then
     Its stderr above names the exact repo and remedy. Nothing was dispatched, so no
     remote tokens were spent and no misleading ledger row exists.
     NOTE: a merely DIRTY checkout no longer blocks (dotfiles-f4ub) — if this says
-    'in_sync=false' or 'NOT the same code', that is COMMITTED code drift, not WIP."
+    'in_sync=false' or 'NOT the same code', that is COMMITTED code drift, not WIP.
+    NOTE: a checkout merely BEHIND the published tip no longer blocks either
+    (dotfiles-w16i) — the preflight fast-forwards it. So a local-side block here
+    means AHEAD (push it), DIVERGED, or a fast-forward that could not be applied."
 fi
 
 # ---------------------------------------------------------------------------
@@ -948,7 +958,7 @@ fi
 # Zig's standing principle is the whole reason this block exists: missing output
 # he catches on his weekly harvest; WRONG output he cannot.
 # ---------------------------------------------------------------------------
-CHECKOUT_JSON='{"clean":true,"local_dirty":[],"remote_dirty":[],"stalled":[]}'
+CHECKOUT_JSON='{"clean":true,"local_dirty":[],"remote_dirty":[],"stalled":[],"auto_ff":[]}'
 CHECKOUT_CLEAN=true
 if [ -s "$CHECKOUT_REPORT" ] && jq -e . "$CHECKOUT_REPORT" >/dev/null 2>&1; then
   CHECKOUT_JSON=$(jq -c . "$CHECKOUT_REPORT")
@@ -958,12 +968,20 @@ if [ -s "$CHECKOUT_REPORT" ] && jq -e . "$CHECKOUT_REPORT" >/dev/null 2>&1; then
   CHECKOUT_CLEAN=$(jq -r 'if has("clean") then .clean else true end' <<<"$CHECKOUT_JSON")
 else
   warn "no checkout-state report at $CHECKOUT_REPORT (older vps-preflight?) — the tick will be told the state is UNKNOWN rather than clean"
-  CHECKOUT_JSON='{"clean":null,"local_dirty":[],"remote_dirty":[],"stalled":[]}'
+  CHECKOUT_JSON='{"clean":null,"local_dirty":[],"remote_dirty":[],"stalled":[],"auto_ff":[]}'
   CHECKOUT_CLEAN=unknown
 fi
 if [ "$CHECKOUT_CLEAN" != true ]; then
   say "checkout state: NOT CLEAN (clean=$CHECKOUT_CLEAN) — carried into DISPATCH.md and the ledger row"
   jq -r '(.local_dirty[]? | "  local  · " + .), (.remote_dirty[]? | "  remote · " + .repo + ": " + (.paths|join(", "))), (.stalled[]? | "  stalled· " + .)' \
+     <<<"$CHECKOUT_JSON" | while IFS= read -r l; do say "$l"; done
+fi
+# Said on EVERY run, clean or not (dotfiles-w16i): an auto-fast-forward leaves the
+# tree clean, so it would otherwise vanish inside the clean branch — and a silent
+# catch-up hides the fact that this machine and the box had drifted apart.
+if [ "$(jq -r '(.auto_ff // []) | length' <<<"$CHECKOUT_JSON")" -gt 0 ]; then
+  say "checkout: fast-forwarded before dispatch (zig-computer was behind the published tip)"
+  jq -r '.auto_ff[]? | "  ff     · " + .repo + ": " + .from + " -> " + .to + " (" + (.commits|tostring) + " commit(s))"' \
      <<<"$CHECKOUT_JSON" | while IFS= read -r l; do say "$l"; done
 fi
 
@@ -995,6 +1013,17 @@ else
        else [] end)
     | join("\n")' <<<"$CHECKOUT_JSON")
 fi
+
+# The auto-fast-forward note appends to BOTH branches above, because it is
+# orthogonal to dirt: the tree it produces is clean, and the thing worth telling
+# the tick is that this machine had fallen behind the box and was caught up. On a
+# peer fleet that is routine, but "routine" is exactly what stops getting said.
+AUTOFF_NOTE=$(jq -r 'if ((.auto_ff // []) | length) > 0 then
+    (["", "- CAUGHT UP BEFORE DISPATCH. zig-computer was BEHIND the published tip and was fast-forwarded (a fast-forward cannot lose work, so nothing was discarded):"]
+     + [.auto_ff[] | "  - `" + .repo + "`: " + .from + " -> " + .to + " (" + (.commits|tostring) + " commit(s))"]) | join("\n")
+  else "" end' <<<"$CHECKOUT_JSON")
+[ -z "$AUTOFF_NOTE" ] || CHECKOUT_NOTE="$CHECKOUT_NOTE
+$AUTOFF_NOTE"
 
 # ---------------------------------------------------------------------------
 # Step 2c — T2/T3 PULL ON THE BOX. Runs after 2b so the box is executing the
@@ -1337,6 +1366,11 @@ if [ "$DRY_RUN" = 1 ]; then
        <<<"${CHECKOUT_JSON:-{\}}" | while IFS= read -r _l; do say "$_l"; done
     say "    -> a real run would put all of the above in DISPATCH.md and the ledger row"
   fi
+  # Outside the clean=false branch on purpose: an auto-fast-forward leaves the
+  # tree CLEAN, so gating this on not-clean would hide the one action the
+  # preflight actually took.
+  jq -r '.auto_ff[]? | "    fast-forwarded here: " + .repo + ": " + .from + " -> " + .to + " (" + (.commits|tostring) + " commit(s))"' \
+     <<<"${CHECKOUT_JSON:-{\}}" | while IFS= read -r _l; do say "$_l"; done
   say "  would stage:   $HOST:$REMOTE_WORK/DISPATCH.md"
   if [ "$WITH_TOKEN" = 1 ]; then
     # Names only — never a value, not even a length. Brokering itself happens
@@ -1779,7 +1813,7 @@ BACKUP="$LOCAL_STATE/pulse-ledger.jsonl.before"
 [ -f "$LEDGER" ] && cp -p "$LEDGER" "$BACKUP"
 mkdir -p "$(dirname "$LEDGER")"
 printf '%s\n' "$LINE" >> "$LEDGER"
-say "ledger: appended row=$P_ROW outcome=$P_OUT checkout_clean=${CHECKOUT_CLEAN:-unknown} to $LEDGER"
+say "ledger: appended row=$P_ROW outcome=$P_OUT checkout_clean=${CHECKOUT_CLEAN:-unknown} auto_ff=$(jq -r '(.auto_ff // []) | length' <<<"${CHECKOUT_JSON:-{\}}") to $LEDGER"
 
 if [ -x "$LEDGER_LINT" ] || [ -f "$LEDGER_LINT" ]; then
   if ! python3 "$LEDGER_LINT" --project "$DIR"; then
