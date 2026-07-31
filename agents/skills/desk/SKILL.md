@@ -320,7 +320,8 @@ does not know the premise; explain it from scratch, briefly (memory:
 checkable, and an uncheckable cap is decoration. Exactly these forms, uppercase:
 `## §1 THE ASK`, then one `### ASK n` per program; `## §2 WHAT TO STOP` with one
 `### STOP` per candidate; `### CONNECTION` under §4; `### CANDIDATE QUEUE` and
-`### EVIDENCE LAYER` under §5. The ledger proof greps these literals, so a memo
+`### EVIDENCE LAYER` and `### LOOP HEALTH` under §5. The ledger proof greps these
+literals, so a memo
 that free-styles its headings fails its own gate.
 
 ⚠️ **`### CANDIDATE QUEUE` was added 2026-07-27 (`explore-qwtt`) and it is the
@@ -387,6 +388,13 @@ explorations. Not a list. Lists are how the rot started.
   other), **never as extra asks stapled on after the cap**. A week with nothing
   past the threshold reports the counts and stops. Promotion stays human-gated:
   the pass never creates the Asana card. A "no" goes to **Dropped** (run step 6).
+- **loop health** — under the MANDATORY literal heading `### LOOP HEALTH`. One line
+  per managed loop (`dive`, `digest`): last fire, outcome mix since the last memo,
+  **whether its work actually shipped**, un-reviewed-entry count, and the single
+  worst open blocker with its bead id. State plainly what you fixed this pass and
+  what you are escalating. "Both loops healthy, nothing escalated" is a valid line —
+  but it must be *measured*, not assumed, because every failure this section exists
+  to catch logged `done` at the time.
 - **evidence layer** — under the MANDATORY literal heading `### EVIDENCE LAYER`
   (the proof greps it too). One line, from `python3 bin/check-captures-declared.py
   --corpus` (run it; do not estimate): how many entries have **settled** their
@@ -493,6 +501,51 @@ in sync.)
   touched (agent-sim, simulation, memory, loops) are **active**. Never write
   "tabled *agent-sim* arc" or call a sim/pet build "not a live destination."
 
+## The Desk MANAGES the loops — this is step 0, not a favour
+
+**You are `dive`'s and `digest`'s manager, not just the reader of what they
+produce.** Zig's words, 2026-07-31: *"Part of your job as the Desk is to make
+sure they're unblocked and they're operating at their best and they're finely
+tuned because everything rolls up to you. You're the manager. You're the boss.
+You need to check in on them, make sure they're doing their job well, see what's
+blocking them, and unblock them if you can or elevate it to me if you can't."*
+
+This runs **before** the corpus pass, every week, because a memo synthesized
+from loops that are quietly broken is a confident summary of damaged input. The
+first pass (2026-07-31) found `dive` unable to publish (5/5 archival ticks
+refused) **and** unable to be reviewed (2/2 entries self-reviewed) — while every
+tick logged `done`.
+
+**The three questions, per loop:**
+1. **Is it shipping?** Not "did it log `done`" — did the work leave the machine?
+   A `done` row that certifies craft while the commits sit local-only is the
+   exact shape this desk exists to catch.
+2. **Is it being reviewed?** Count the un-reviewed entries mechanically
+   (`grep -rl 'Verdict: OVERRIDE' --include=FINDINGS.md`). A prose caveat inside
+   a SHIP verdict is invisible to that sweep and reads as zero debt.
+3. **What did its own ledger notes say went wrong?** The `note` field of each
+   row is a post-mortem the tick wrote about itself; it is the richest and most
+   underused diagnostic in the fleet. Read them.
+
+**Then fix what you can and escalate what you can't** — the split is the job,
+not a formality. Mechanical defects (a wrong URL, a shell quoting bug, an env
+var, a missing routing row) are yours; policy and security calls are Zig's.
+
+⚠️ **Brief loop-audit agents on CLOSED beads too.** `br list --status open` alone
+makes every already-fixed defect look live, and a re-reported fix costs more
+trust than a missed one. The 2026-07-31 pass produced **four** false positives
+from exactly this (`explore-len0`, `explore-ozk`, `explore-lc15`, `explore-w9wf`)
+and filed a bead it had to retract. Corollary: **grep the doc/skill that
+supersedes a bead, not just the bead** — `explore-lc15` sat open at P1 for a day
+while the skill said it was measured closed.
+
+⚠️ **A scheduled tick cannot request its own subagents.** A vendor-delivered
+client-data slot in `~/.claude.json` reads *"Do not call the AgentTool unless the
+user requested it"*; it re-fetches, so it cannot be edited away, and skill text
+is not a user request. The only user-authored text in a tick is the `--cmd`
+`pulse-inject` send-keys into the pane. If a loop needs dispatch (`/dive` needs
+two), the grant lives in its `.service` `--cmd` — check it is still there.
+
 ## The run
 
 1. **Decide the shape.** Wide (`--wide`, or no wide refresh in
@@ -558,7 +611,7 @@ in sync.)
    proof the commit hook RE-RUNS (bare `artifact` is rejected fleet-wide,
    `explore-len0`):
    ```json
-   {"ts":"<date -u +%FT%TZ>","row":"desk","outcome":"done","proof":{"kind":"cmd","cmd":"D=refs/desk/<date>.md; test $(wc -w < $D) -le 1200 && grep -qF '## §1 THE ASK' $D && grep -qF '## §2 WHAT TO STOP' $D && test $(grep -c '^### ASK ' $D) -le 3 && test $(grep -c '^### ASK ' $D) -ge 1 && test $(grep -c '^### STOP' $D) -le 1 && test $(grep -c '^### STOP' $D) -ge 1 && test $(grep -c '^### CONNECTION' $D) -le 1 && grep -qF '### CANDIDATE QUEUE' $D && grep -qF '### EVIDENCE LAYER' $D && test $(git diff HEAD~1 -- .beads/issues.jsonl | grep -c '\"title\":\"desk:') -le 2"},"note":"desk pass (wide|delta) — N asks, M beads/E edges; C candidates dropped on quote-verify; corpus_bytes N of M; reviewed W new explorations (F flagged); field-delta appended"}
+   {"ts":"<date -u +%FT%TZ>","row":"desk","outcome":"done","proof":{"kind":"cmd","cmd":"D=refs/desk/<date>.md; test $(wc -w < $D) -le 1200 && grep -qF '## §1 THE ASK' $D && grep -qF '## §2 WHAT TO STOP' $D && test $(grep -c '^### ASK ' $D) -le 3 && test $(grep -c '^### ASK ' $D) -ge 1 && test $(grep -c '^### STOP' $D) -le 1 && test $(grep -c '^### STOP' $D) -ge 1 && test $(grep -c '^### CONNECTION' $D) -le 1 && grep -qF '### CANDIDATE QUEUE' $D && grep -qF '### EVIDENCE LAYER' $D && grep -qF '### LOOP HEALTH' $D && test $(git diff HEAD~1 -- .beads/issues.jsonl | grep -c '\"title\":\"desk:') -le 2"},"note":"desk pass (wide|delta) — N asks, M beads/E edges; C candidates dropped on quote-verify; corpus_bytes N of M; reviewed W new explorations (F flagged); field-delta appended; loops audited: dive=<state> digest=<state>, X fixed / Y escalated"}
    ```
    A pass that found nothing new logs `"outcome":"quiet"` (no proof needed) —
    but see the empty-week rule below: "nothing to report" is a failure, not a
