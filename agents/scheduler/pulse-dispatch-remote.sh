@@ -109,9 +109,24 @@
 #
 # What step 2/3 do about T4 is READ-freshness only: `br sync --import-only`
 # rebuilds .beads/beads.db, which is gitignored (`.beads/*.db`), so it dirties no
-# tracked file and the dirty-tree tripwire in vps-repo-refresh.sh stays clean.
-# The tick itself MAY write beads (Zig, 2026-07-28) — the DISPATCH.md contract
-# below spells out the pull/write/flush/commit/push discipline that goes with it.
+# tracked file at all. The tick itself MAY write beads (Zig, 2026-07-28) — the
+# DISPATCH.md contract below spells out the pull/write/flush/commit/push
+# discipline that goes with it.
+#
+# ---------------------------------------------------------------------------
+# A DIRTY CHECKOUT DOES NOT BLOCK A TICK (Zig, 2026-07-30 · dotfiles-f4ub)
+# ---------------------------------------------------------------------------
+# The freshness tiers above are about STALE CODE. Dirt is a different thing and it
+# used to be conflated with staleness: vps-repo-refresh.sh hard-failed on any
+# modified tracked file, and vps-preflight.sh blocked on uncommitted changes HERE.
+# Both are now warnings. Ticks proceed and work in messy repos, commit their own
+# paths when done, and leave everything else exactly as they found it.
+#
+# The removed gate is replaced, not simply deleted — that replacement is step 2b'
+# below. The receipt records dirty paths and whether each pull actually advanced;
+# vps-preflight surfaces it and writes --report; this script puts it in the tick's
+# DISPATCH.md and in the ledger row. What still BLOCKS is code drift the box would
+# actually run differently: A2's sha identity, in both directions.
 #
 # ---------------------------------------------------------------------------
 # Why the preflight is the load-bearing part (explore-7iz9 §10)
@@ -179,9 +194,10 @@
 #               pulls and pushes, and the `jsonl-union` merge driver is registered
 #               on BOTH machines, so a concurrent write dedupes by id and keeps the
 #               newer updated_at. The discipline is pull -> br -> `br sync
-#               --flush-only` -> commit -> push. A bead written on the box and
-#               never pushed is the failure mode now; so is a dirty .beads/ left
-#               behind, which fails the next refresh for EVERY row. The payload's
+#               --flush-only` -> commit -> push, staging `.beads/issues.jsonl` BY
+#               NAME (a directory pathspec stages deletions — see DISPATCH.md §4).
+#               A bead written on the box and never pushed is the failure mode
+#               now; a dirty .beads/ left behind is no longer one. The payload's
 #               bead_request remains available for a tick that would rather hand
 #               the filing back.
 #
@@ -907,7 +923,8 @@ fi
 # This must run before T4: the bead JSONL the box imports arrives with this pull.
 # ---------------------------------------------------------------------------
 [ -x "$PREFLIGHT" ] || fail failed-preflight 73 "vps-preflight.sh not executable at $PREFLIGHT"
-PF_ARGS=(--host "$HOST" --harvest-dir "$LOCAL_STATE/harvest")
+CHECKOUT_REPORT="$LOCAL_STATE/checkout-state.json"
+PF_ARGS=(--host "$HOST" --harvest-dir "$LOCAL_STATE/harvest" --report "$CHECKOUT_REPORT")
 [ "$ALLOW_UNPUSHED" = 1 ] && PF_ARGS+=(--allow-unpushed)
 [ "$NO_REFRESH" = 1 ]     && PF_ARGS+=(--no-refresh)
 
@@ -915,7 +932,68 @@ say "sync T1 + preflight A1+A2: refreshing $HOST and judging the receipt locally
 if ! "$PREFLIGHT" "${PF_ARGS[@]}"; then
   fail failed-preflight 73 "vps-preflight blocked (assertions A1 empty-submodule / A2 stale-HEAD).
     Its stderr above names the exact repo and remedy. Nothing was dispatched, so no
-    remote tokens were spent and no misleading ledger row exists."
+    remote tokens were spent and no misleading ledger row exists.
+    NOTE: a merely DIRTY checkout no longer blocks (dotfiles-f4ub) — if this says
+    'in_sync=false' or 'NOT the same code', that is COMMITTED code drift, not WIP."
+fi
+
+# ---------------------------------------------------------------------------
+# Step 2b' — CARRY THE CHECKOUT STATE FORWARD. This is the load-bearing half of
+# dotfiles-f4ub: a dirty or non-advancing checkout no longer blocks, so the only
+# thing standing between "the tick ran in a messy tree" and a silently-wrong
+# artifact is that the messiness is SAID OUT LOUD — to the tick (DISPATCH.md
+# below), and to the ledger row (step 9), which is where a later reader learns
+# what tree an artifact was built from.
+#
+# Zig's standing principle is the whole reason this block exists: missing output
+# he catches on his weekly harvest; WRONG output he cannot.
+# ---------------------------------------------------------------------------
+CHECKOUT_JSON='{"clean":true,"local_dirty":[],"remote_dirty":[],"stalled":[]}'
+CHECKOUT_CLEAN=true
+if [ -s "$CHECKOUT_REPORT" ] && jq -e . "$CHECKOUT_REPORT" >/dev/null 2>&1; then
+  CHECKOUT_JSON=$(jq -c . "$CHECKOUT_REPORT")
+  # `if has("clean")`, NOT `.clean // true`. jq's `//` treats `false` as empty, so
+  # `.clean // true` reads a dirty report as CLEAN — the exact silent-wrong-answer
+  # this block exists to prevent. Never `//` a boolean.
+  CHECKOUT_CLEAN=$(jq -r 'if has("clean") then .clean else true end' <<<"$CHECKOUT_JSON")
+else
+  warn "no checkout-state report at $CHECKOUT_REPORT (older vps-preflight?) — the tick will be told the state is UNKNOWN rather than clean"
+  CHECKOUT_JSON='{"clean":null,"local_dirty":[],"remote_dirty":[],"stalled":[]}'
+  CHECKOUT_CLEAN=unknown
+fi
+if [ "$CHECKOUT_CLEAN" != true ]; then
+  say "checkout state: NOT CLEAN (clean=$CHECKOUT_CLEAN) — carried into DISPATCH.md and the ledger row"
+  jq -r '(.local_dirty[]? | "  local  · " + .), (.remote_dirty[]? | "  remote · " + .repo + ": " + (.paths|join(", "))), (.stalled[]? | "  stalled· " + .)' \
+     <<<"$CHECKOUT_JSON" | while IFS= read -r l; do say "$l"; done
+fi
+
+# The prose the tick actually reads. Built here rather than inside the heredoc so
+# the heredoc stays a template — an unquoted heredoc executes anything it is
+# handed, and jq output is the last thing that should be evaluated there.
+if [ "$CHECKOUT_CLEAN" = true ]; then
+  CHECKOUT_NOTE="Every managed checkout on this box is CLEAN and at its published tip. Anything dirty when you finish is therefore YOURS."
+else
+  # NOTE ON THE BACKTICKS BELOW: they are safe. This string is interpolated into
+  # an UNQUOTED heredoc, and shell expansion is not recursive — the result of a
+  # parameter expansion is never re-scanned for command substitution. Backticks
+  # written LITERALLY in the heredoc body are the hazard, and those are escaped
+  # there. Verified by rendering the heredoc in isolation.
+  CHECKOUT_NOTE=$(jq -r '
+    ["**You are working in a tree that is NOT clean.** That is normal now and it does not stop you. What it means for you:"]
+    + (if (.remote_dirty | length) > 0
+       then ["", "- DIRTY ON THIS BOX. Somebody else is mid-edit here. Do NOT commit, revert, stash, clean or `git add` any of these:"]
+            + [.remote_dirty[] | "  - `" + .repo + "`: " + (.paths | map("`" + . + "`") | join(", "))]
+       else [] end)
+    + (if (.stalled | length) > 0
+       then ["", "- **STALE CODE WARNING.** These checkouts REFUSED to fast-forward this run, so you may be running older logic than zig-computer:"]
+            + [.stalled[] | "  - `" + . + "`"]
+            + ["  SAY SO in your `note`. An artifact built on stale logic looks exactly like a good one, which is the failure nobody catches downstream."]
+       else [] end)
+    + (if (.local_dirty | length) > 0
+       then ["", "- Uncommitted on ZIG-COMPUTER, so it never reached you (informational — you cannot see these edits):"]
+            + [.local_dirty[] | "  - " + .]
+       else [] end)
+    | join("\n")' <<<"$CHECKOUT_JSON")
 fi
 
 # ---------------------------------------------------------------------------
@@ -1248,6 +1326,17 @@ fi
 if [ "$DRY_RUN" = 1 ]; then
   say "DRY RUN: all preflight assertions passed."
   say "  tunnel mode:   TUNNEL_MODE=$TUNNEL_MODE  (recorded at $LOCAL_STATE/tunnel-mode)"
+  # The checkout state is printed on the dry run for the same reason it is put in
+  # the ledger row: since dotfiles-f4ub a dirty or non-advancing tree PROCEEDS, so
+  # the only defence against a silently-stale run is that it is stated.
+  say "  checkout:      clean=${CHECKOUT_CLEAN:-unknown}  (report: $CHECKOUT_REPORT)"
+  if [ "${CHECKOUT_CLEAN:-true}" != true ]; then
+    jq -r '(.remote_dirty[]? | "    dirty on the box: " + .repo + ": " + (.paths|join(", "))),
+           (.stalled[]?      | "    STALE (fast-forward refused): " + .),
+           (.local_dirty[]?  | "    dirty here (never reaches the box): " + .)' \
+       <<<"${CHECKOUT_JSON:-{\}}" | while IFS= read -r _l; do say "$_l"; done
+    say "    -> a real run would put all of the above in DISPATCH.md and the ledger row"
+  fi
   say "  would stage:   $HOST:$REMOTE_WORK/DISPATCH.md"
   if [ "$WITH_TOKEN" = 1 ]; then
     # Names only — never a value, not even a length. Brokering itself happens
@@ -1392,10 +1481,12 @@ machines. The discipline that replaces the ban, and it is not optional:
     br sync --flush-only
     git -C <repo> add .beads/issues.jsonl && git -C <repo> commit && git -C <repo> push
 
-A bead written here and never pushed is the failure now — not the write itself.
-If you would rather not carry that, \`bead_request\` in the payload still works
-and the local side files it. Either is fine; a dirty \`.beads/\` left behind is
-not (see §4).
+A bead written here and never pushed is the failure now — not the write itself,
+and no longer a dirty \`.beads/\` either (that stopped being fatal on
+2026-07-30). If you would rather not carry it, \`bead_request\` in the payload
+still works and the local side files it. Note the staging rule in §4 applies here
+too: \`git add .beads/issues.jsonl\` names a FILE, which is correct;
+\`git add .beads\` names a directory, which is not.
 
 ## 3. NEVER raise an AskUserQuestion
 There is nobody attached to this box — a dialog here reaches no one and freezes
@@ -1404,21 +1495,56 @@ present-for-approval row), fill in \`surface_request\` instead. The dispatcher
 relays it to the \`work:di\` window on zig-computer and the LOCAL session raises
 the real AskUserQuestion, with the real bell and the real phone notification.
 
-## 4. Own your writes through git — LEAVE NO DIRTY TREE
-You may write \`$REMOTE_DIR\` and the other managed checkouts. What you may not
-do is walk away from a write. \`vps-repo-refresh.sh\` hard-fails on any modified
-tracked file outside a declared \`harvest\` path, and that failure blocks the
-refresh — and therefore EVERY dispatched row on this box, not just yours. On
-2026-07-30 one uncommitted edit to \`benchmarks-2026.md\` in \`~/linearb\` took
-out the whole remote fleet exactly this way.
+## 4. Own your writes through git — and COMMIT ONLY YOUR OWN FILES, BY NAME
 
-So: **pull, write, commit, push.** Prefer \`--ff-only\`; if a pull needs a real
-merge, resolve it deliberately rather than leaving a half-finished rebase. Note
-the checkout shape: \`~/dotfiles\` and \`~/linearb\` sit on \`main\` and push
-normally, while the project submodules are checked out DETACHED at the published
-tip, so a commit there needs \`git push origin HEAD:main\` — and an unpushed
-submodule commit is simply lost at the next refresh. \`git status\` must be clean
-before you write the result payload.
+### The state you are working in
+$CHECKOUT_NOTE
+
+A dirty checkout no longer blocks anything (Zig, 2026-07-30): every repo on this
+box is somebody's work in progress, so ticks proceed and work in the mess.
+**Nothing you do may clean up after anyone.** No \`git checkout -- <path>\`, no
+\`git reset --hard\`, no \`git stash\`, no \`git clean\`. If a file is dirty and
+it is not yours, leave it exactly as you found it and mention it in your \`note\`.
+
+### Landing YOUR work
+**Pull, write, commit, push.** Prefer \`--ff-only\`; if a pull needs a real merge,
+resolve it deliberately rather than leaving a half-finished rebase. If a pull is
+REFUSED because somebody's WIP is in the way, do not force it — commit what is
+yours, say so in your \`note\`, and move on. Checkout shape: \`~/dotfiles\` and
+\`~/linearb\` sit on \`main\` and push normally, while the project submodules are
+checked out DETACHED at the published tip, so a commit there needs
+\`git push origin HEAD:main\` — an unpushed submodule commit is simply lost at
+the next refresh.
+
+### ⚠️ THE WIP GUARD — NAME THE FILES
+Permission to commit in a messy tree is permission to sweep somebody else's
+unfinished work into your commit, which is strictly worse than losing a tick. So
+the staging rule is absolute:
+
+**FORBIDDEN:** \`git add -A\` · \`git add .\` · \`git commit -a\` · **and any
+directory or glob pathspec** (\`git add refs/\`, \`git add 'src/*.ts'\`).
+**REQUIRED:** explicit file paths, one by one — \`git add refs/a.md refs/b.md\`.
+
+The directory case is not theoretical and it is the one people get wrong:
+\`git add <dir>\` does not mean "add my new files under dir", it means "make the
+index match the working tree there" — **including deletions**. On 2026-07-30 an
+hourly rsync removed 12 committed files on this box between a \`cp\` and a
+\`git add refs/doc-scripts\`, and two commits captured those deletions as if they
+were intentional. Verified in a scratch repo: with a file deleted from \`d/\`,
+plain \`git add d\` stages \`D d/gone.txt\`.
+
+Run this before every commit — it catches exactly that case:
+
+    test "\$(git diff --cached --diff-filter=D --name-only | wc -l)" -eq 0 \\
+      || { echo "ABORT: staged deletions I did not intend"; \\
+           git diff --cached --diff-filter=D --name-only; }
+
+A deletion you MEANT is fine: stage it explicitly with \`git rm\` and say so in
+the message. The rule is only that no deletion arrives as a side effect of naming
+a directory.
+
+Your tree does not have to be clean when you finish. It has to be true: what you
+authored is committed and pushed, what you did not author is untouched.
 
 ## Credentials
 The fleet proxy is reachable at \`http://localhost:$PORT\` — a tunnel back to
@@ -1465,6 +1591,10 @@ if the tick was quiet or could not run.
   is portable. A proof pointing at a path that exists only on this box is not.
 - \`bead_request\` and \`surface_request\` are OPTIONAL — omit the key entirely
   when there is nothing to ask for. Do not emit an empty object.
+- If §4 flagged a STALE checkout, or you left somebody else's dirt untouched, or
+  a pull was refused, **put it in \`note\`.** The ledger row already records the
+  machine-readable checkout state; your sentence is what makes it legible to a
+  human reading the row six weeks later.
 
 If you cannot finish, still write the payload with \`outcome\` set honestly and a
 \`note\` saying what stopped you. Silence is the one unacceptable outcome: the
@@ -1637,7 +1767,9 @@ LINE=$(jq -cn \
   --arg run  "$RUN_ID" \
   --arg host "$HOST" \
   --argjson proof "$(jq -c '.proof // null' <<<"$PAYLOAD")" \
-  '{ts:$ts, row:$row, outcome:$out, note:$note, dispatch:{remote:true, host:$host, run_id:$run}}
+  --argjson checkout "${CHECKOUT_JSON:-null}" \
+  '{ts:$ts, row:$row, outcome:$out, note:$note,
+    dispatch:{remote:true, host:$host, run_id:$run, checkout:$checkout}}
    + (if $proof == null then {} else {proof:$proof} end)') \
   || fail failed-ledger 78 "could not build the ledger line from the payload ($LOCAL_STATE/result.json)"
 
@@ -1647,7 +1779,7 @@ BACKUP="$LOCAL_STATE/pulse-ledger.jsonl.before"
 [ -f "$LEDGER" ] && cp -p "$LEDGER" "$BACKUP"
 mkdir -p "$(dirname "$LEDGER")"
 printf '%s\n' "$LINE" >> "$LEDGER"
-say "ledger: appended row=$P_ROW outcome=$P_OUT to $LEDGER"
+say "ledger: appended row=$P_ROW outcome=$P_OUT checkout_clean=${CHECKOUT_CLEAN:-unknown} to $LEDGER"
 
 if [ -x "$LEDGER_LINT" ] || [ -f "$LEDGER_LINT" ]; then
   if ! python3 "$LEDGER_LINT" --project "$DIR"; then

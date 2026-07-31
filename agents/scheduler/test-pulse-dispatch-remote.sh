@@ -116,11 +116,21 @@ exit 0
 INJEOF
 chmod +x "$STUB/inject"
 
-# preflight stub (used where A1/A2 are not the thing under test)
+# preflight stub (used where A1/A2 are not the thing under test).
+# It honours --report exactly as the real vps-preflight.sh does, so the
+# dispatcher's checkout-state plumbing (dotfiles-f4ub) is EXERCISED rather than
+# silently defaulting to "clean" in every case.
 cat > "$STUB/preflight" <<'PFEOF'
 #!/bin/bash
 # shellcheck disable=SC1090
 [ -n "${STUB_KNOBS:-}" ] && [ -f "$STUB_KNOBS" ] && . "$STUB_KNOBS"
+_r=""
+while [ $# -gt 0 ]; do
+  case "$1" in --report) _r=$2; shift 2 ;; *) shift ;; esac
+done
+if [ -n "$_r" ] && [ -n "${PF_REPORT_JSON:-}" ]; then
+  mkdir -p "$(dirname "$_r")"; printf '%s' "$PF_REPORT_JSON" > "$_r"
+fi
 exit "${PREFLIGHT_RC:-0}"
 PFEOF
 chmod +x "$STUB/preflight"
@@ -851,6 +861,143 @@ if grep -q -- "--exclude=.env" "$ROOT/rsync.log" && grep -q -- "service-account"
 : > "$ROOT/rsync.log"
 OUT=$(run_oob RSYNC_RC=1)
 check_verdict "rsync failure -> failed-preflight" "$OUT" failed-preflight
+
+echo
+echo "== dirty checkouts PROCEED, and are FLAGGED everywhere (dotfiles-f4ub) =="
+# Zig, 2026-07-30: "pulses shouldn't trigger a tripwire if state is dirty. they
+# should proceed, so they can work in messy repos... they're all WIPs."
+#
+# Removing the gate removes the thing that made a stale-code run impossible, so
+# the replacement is FLAGGING and these cases are its guard. The failure this must
+# not create is a tick that ran against a dirty or stale tree and said nothing —
+# "missing output he catches, WRONG output he cannot."
+DIRTY_REPORT='{"clean":false,"local_dirty":["$HOME/linearb: uncommitted tracked changes stay HERE -  M refs/beats.md"],"remote_dirty":[{"repo":"/home/andrew/linearb","paths":["refs/benchmarks-2026.md"]}],"stalled":["/home/andrew/linearb"]}'
+
+# (a) DRY RUN — a dirty box does not block, and the dry run NAMES the dirt.
+OUT=$(run_dry 'PANE_CMD=claude' "REMOTE_MEM_SHA=$MEMSHA" "REMOTE_BEAD_JSON=$BEADJSON" \
+      "PF_REPORT_JSON=$DIRTY_REPORT")
+check_verdict "a DIRTY checkout still reaches dry-run-ok" "$OUT" dry-run-ok
+case "$OUT" in *"benchmarks-2026.md"*) ok "the dry run NAMES the dirty path (not just 'not clean')" ;;
+  *) bad "dry run names the dirty path" "output never mentioned the file" ;; esac
+case "$OUT" in *"STALE"*) ok "a refused fast-forward is called STALE on the dry run" ;;
+  *) bad "dry run flags staleness" "no STALE line" ;; esac
+case "$OUT" in *"clean=false"*) ok "the dry run states clean=false plainly" ;;
+  *) bad "dry run states clean=false" "no clean= line" ;; esac
+
+# (b) LIVE RUN — the tick's DISPATCH.md carries the state AND the WIP guard.
+: > "$ROOT/inject.log"
+OUT=$(run_live "${BASE[@]}" "PF_REPORT_JSON=$DIRTY_REPORT" \
+      'RESULT_JSON={"row":"di-friday","outcome":"done","note":"worked in a messy tree","proof":{"kind":"cmd","cmd":"true"}}')
+check_verdict "a DIRTY checkout still completes a live dispatch" "$OUT" completed
+RUNDIR=$(ls -dt "$STATE"/*/ 2>/dev/null | head -1)
+DM="${RUNDIR}DISPATCH.md"
+if [ -s "$DM" ]; then
+  grep -q 'benchmarks-2026.md' "$DM" \
+    && ok "DISPATCH.md tells the tick WHICH files are dirty on the box" \
+    || bad "DISPATCH.md names the dirt" "the dirty path is not in the contract the tick reads"
+  grep -q 'STALE CODE WARNING' "$DM" \
+    && ok "DISPATCH.md warns the tick it may be running older logic" \
+    || bad "DISPATCH.md warns about staleness" "no stale-code warning"
+  # THE WIP GUARD. All four forbidden forms, because the first draft of this rule
+  # listed only three and the missing one — a DIRECTORY pathspec — is what staged
+  # 12 deletions on the box on 2026-07-30 (`git add refs/doc-scripts`).
+  grep -q 'git add -A' "$DM"       && ok "WIP guard forbids git add -A"     || bad "WIP guard: git add -A" "absent"
+  grep -q 'git add \.`' "$DM"      && ok "WIP guard forbids git add ."      || bad "WIP guard: git add ." "absent"
+  grep -q 'git commit -a' "$DM"    && ok "WIP guard forbids git commit -a"  || bad "WIP guard: git commit -a" "absent"
+  grep -q 'directory or glob pathspec' "$DM" \
+    && ok "WIP guard forbids a DIRECTORY/glob pathspec (the one the first draft missed)" \
+    || bad "WIP guard: directory pathspec" "the forbidden-directory rule is absent"
+  grep -q -- '--diff-filter=D' "$DM" \
+    && ok "WIP guard ships the staged-deletion pre-commit check" \
+    || bad "WIP guard: --diff-filter=D check" "the belt-and-braces check is absent"
+  # And the anti-cleanup half: the tick must never tidy somebody else's WIP.
+  grep -q 'No `git checkout -- <path>`' "$DM" \
+    && ok "DISPATCH.md forbids the tick from reverting anything" \
+    || bad "DISPATCH.md forbids reverting" "no anti-cleanup rule"
+else
+  bad "DISPATCH.md staged locally" "no DISPATCH.md at $DM"
+fi
+
+# (c) THE LEDGER ROW. This is the durable half: a reader six weeks later must be
+#     able to tell whether an artifact came from a clean, dirty or stale checkout.
+LINE=$(tail -1 "$PROJ/refs/pulse-ledger.jsonl")
+if printf '%s' "$LINE" | jq -e '.dispatch.checkout.clean == false' >/dev/null 2>&1
+then ok "the ledger row records checkout.clean=false"
+else bad "ledger records checkout state" "got: $(printf '%.200s' "$LINE")"; fi
+if printf '%s' "$LINE" | jq -e '.dispatch.checkout.remote_dirty[0].paths[0] == "refs/benchmarks-2026.md"' >/dev/null 2>&1
+then ok "the ledger row names the dirty paths"
+else bad "ledger names dirty paths" "got: $(printf '%.200s' "$LINE")"; fi
+if printf '%s' "$LINE" | jq -e '.dispatch.checkout.stalled | length == 1' >/dev/null 2>&1
+then ok "the ledger row records the stalled checkout"
+else bad "ledger records stalled" "got: $(printf '%.200s' "$LINE")"; fi
+
+# (d) The CLEAN control. A flag that fires unconditionally is not a flag, and a
+#     ledger that says "dirty" on every row teaches its reader to skip the field.
+OUT=$(run_live "${BASE[@]}" 'PF_REPORT_JSON={"clean":true,"local_dirty":[],"remote_dirty":[],"stalled":[]}' \
+      'RESULT_JSON={"row":"di-friday","outcome":"done","note":"clean run","proof":{"kind":"cmd","cmd":"true"}}')
+check_verdict "a clean checkout still completes" "$OUT" completed
+LINE=$(tail -1 "$PROJ/refs/pulse-ledger.jsonl")
+if printf '%s' "$LINE" | jq -e '.dispatch.checkout.clean == true' >/dev/null 2>&1
+then ok "a clean run records checkout.clean=true (the flag is not always-on)"
+else bad "clean control" "got: $(printf '%.200s' "$LINE")"; fi
+RUNDIR=$(ls -dt "$STATE"/*/ 2>/dev/null | head -1)
+if grep -q 'Every managed checkout on this box is CLEAN' "${RUNDIR}DISPATCH.md" 2>/dev/null
+then ok "a clean run tells the tick so, in the same slot"
+else bad "clean DISPATCH.md" "the clean-state sentence is missing"; fi
+
+echo
+echo "== dirty is a WARN in the REAL vps-preflight; committed drift still BLOCKS =="
+if [ -x "$PF" ]; then
+  # The gate that forced the lin-22h "parking" workaround: uncommitted changes on
+  # ZIG-COMPUTER used to exit 72, so an in-flight edit had to be encoded into a
+  # bead as a patch and the tree restored — the gate's own remedy was "delete the
+  # work". Now it warns and carries on.
+  pf_fixture dirty
+  echo "an uncommitted edit" >> "$PFDIR/repo/refs/pulse.md"
+  RPT="$PFDIR/report.json"
+  OUT=$(printf '%s' "{\"ok\":true,\"generated_epoch\":$(date -u +%s),\"repos\":[{\"path\":\"/home/andrew/repo\",\"head\":\"$LOCAL_HEAD\",\"in_sync\":true,\"pull_ok\":true,\"pull_advanced\":true}],\"submodules\":[],\"required\":[],\"harvested\":[],\"dirty\":[{\"repo\":\"/home/andrew/repo\",\"paths\":[\"refs/x.md\"]}]}" > "$PFDIR/receipt.json"
+        cat > "$PFDIR/ssh" <<PFSSH
+#!/bin/bash
+last="\${@: -1}"
+case "\$last" in *receipt*|*cat*) cat "$PFDIR/receipt.json" ;; esac
+exit 0
+PFSSH
+        chmod +x "$PFDIR/ssh"
+        PATH="$PFDIR:$PATH" "$PF" --manifest "$MANIFEST" --no-refresh --quiet --report "$RPT" 2>&1
+        echo "EXIT=$?")
+  case "$OUT" in *"EXIT=0"*) ok "local uncommitted changes NO LONGER block (they warn)" ;;
+    *) bad "dirty local warns" "expected EXIT=0, got: $(printf '%.240s' "$OUT")" ;; esac
+  case "$OUT" in *"DIRTY"*) ok "the preflight says DIRTY out loud" ;;
+    *) bad "preflight says DIRTY" "no DIRTY line in: $(printf '%.240s' "$OUT")" ;; esac
+  case "$OUT" in *"checkout -- "*|*"reset --hard"*)
+      bad "the preflight never suggests reverting" "it printed revert advice, which is how verified work gets destroyed" ;;
+    *) ok "the preflight never suggests reverting a dirty file" ;; esac
+  if [ -s "$RPT" ] && jq -e '.clean == false and (.local_dirty|length) == 1 and (.remote_dirty[0].paths[0] == "refs/x.md")' "$RPT" >/dev/null 2>&1
+  then ok "--report carries local dirt AND the receipt's remote dirt to the dispatcher"
+  else bad "--report contents" "got: $(cat "$RPT" 2>/dev/null | head -c 240)"; fi
+
+  # The pairing that keeps the relaxation honest. A2 — COMMITTED but unpublished —
+  # is a different axis and stays a hard block (dotfiles-f4ub scope decision): it
+  # means the box would run genuinely different code, which dirt does not.
+  pf_fixture unpushed
+  echo more >> "$PFDIR/repo/refs/pulse.md"
+  git -C "$PFDIR/repo" commit -qam "committed here, never pushed"
+  OUT=$(pf_run "{\"ok\":true,\"generated_epoch\":$(date -u +%s),\"repos\":[{\"path\":\"/home/andrew/repo\",\"head\":\"$LOCAL_HEAD\",\"in_sync\":true}],\"submodules\":[],\"required\":[],\"harvested\":[]}")
+  case "$OUT" in *"EXIT=72"*) ok "A2 (committed-but-unpublished) STILL blocks — the relaxation is dirt-only" ;;
+    *) bad "A2 still blocks" "expected EXIT=72, got: $(printf '%.240s' "$OUT")" ;; esac
+
+  # ...and so does a box that refused its fast-forward far enough to fall behind.
+  pf_fixture refused
+  OUT=$(pf_run "{\"ok\":true,\"generated_epoch\":$(date -u +%s),\"repos\":[{\"path\":\"/home/andrew/repo\",\"head\":\"1111111111111111111111111111111111111111\",\"in_sync\":false,\"pull_ok\":false,\"pull_advanced\":false}],\"submodules\":[],\"required\":[],\"harvested\":[],\"dirty\":[]}")
+  case "$OUT" in *"EXIT=74"*) ok "a box left BEHIND by a refused pull still blocks on identity" ;;
+    *) bad "stale box blocks" "expected EXIT=74, got: $(printf '%.240s' "$OUT")" ;; esac
+  case "$OUT" in *"REFUSED"*) ok "and the block explains WHY it is behind (a WIP edit was in the way)" ;;
+    *) bad "block explains why" "no REFUSED explanation: $(printf '%.240s' "$OUT")" ;; esac
+  case "$OUT" in *"do NOT reset it"*) ok "the remedy is explicitly non-destructive" ;;
+    *) bad "non-destructive remedy" "the block does not warn against resetting" ;; esac
+else
+  echo "  SKIP  dirty-preflight cases (vps-preflight.sh not executable)"
+fi
 
 echo
 echo "== outcome contract =="
