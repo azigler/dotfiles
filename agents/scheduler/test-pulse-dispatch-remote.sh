@@ -1352,6 +1352,128 @@ then bad "auto_ff control" "DISPATCH.md claims a catch-up that never happened"
 else ok "no catch-up -> no catch-up note (the record is not always-on)"; fi
 
 echo
+echo "== --resume: the human-authorized cap waiver (bd-f9kn / bd-02r3) =="
+# The property under test is NARROWNESS. A waiver that is easy to produce, or that
+# leaks onto the automatic path, is not an escape hatch — it is the runaway loop
+# the cap exists to stop. So every case here is either "the waiver requires a
+# deliberate human act" or "a run without it is exactly the run it was before".
+run_dry_args() {  # <extra dispatcher args...> — knobs are the BASE happy set
+  write_knobs 'PANE_CMD=claude' "REMOTE_MEM_SHA=$MEMSHA" "REMOTE_BEAD_JSON=$BEADJSON"
+  SSH_LOG="$ROOT/ssh.log" \
+  PULSE_DISPATCH_SSH="$STUB/ssh" \
+  PULSE_DISPATCH_PREFLIGHT="$STUB/preflight" \
+  PULSE_DISPATCH_INJECT="$STUB/inject" PULSE_DISPATCH_MANIFEST=/nonexistent-manifest \
+  PULSE_DISPATCH_VAULT=/nonexistent-local-vault \
+  PULSE_DISPATCH_STATE="$STATE" \
+  HOME="$ROOT/home" \
+    "$DISPATCH" --row di-friday --dir "$PROJ" --dry-run --poll 1 --timeout 3 "$@" 2>&1
+}
+run_live_args() { # <extra dispatcher args...> ;; RESULT_JSON comes from $RJ
+  write_knobs 'PANE_CMD=claude' "REMOTE_MEM_SHA=$MEMSHA" "REMOTE_BEAD_JSON=$BEADJSON" \
+              "RESULT_JSON=$RJ"
+  PULSE_DISPATCH_SSH="$STUB/ssh" \
+  PULSE_DISPATCH_PREFLIGHT="$STUB/preflight" \
+  PULSE_DISPATCH_INJECT="$STUB/inject" PULSE_DISPATCH_MANIFEST=/nonexistent-manifest \
+  PULSE_DISPATCH_VAULT=/nonexistent-local-vault \
+  PULSE_DISPATCH_LINT=/nonexistent-lint \
+  PULSE_DISPATCH_STATE="$STATE" \
+  INJECT_LOG="$ROOT/inject.log" \
+  HOME="$ROOT/home" \
+    "$DISPATCH" --row di-friday --dir "$PROJ" --poll 1 --timeout 3 "$@" 2>&1
+}
+RJ='{"row":"di-friday","outcome":"done","note":"collected the parked ad reads","proof":{"kind":"cmd","cmd":"true"}}'
+
+# (a) A VALUE IS REQUIRED. A nameless waiver is a plain cap override, which is the
+#     thing this deliberately is not.
+OUT=$(PULSE_DISPATCH_SSH="$STUB/ssh" "$DISPATCH" --row di-friday --dir "$PROJ" --resume 2>&1)
+check_verdict "--resume with no value is failed-usage" "$OUT" failed-usage
+case "$OUT" in *"requires a value"*) ok "the usage error says a value is required" ;;
+  *) bad "--resume usage message" "no 'requires a value' text: $(printf '%.140s' "$OUT")" ;; esac
+# ...and a following FLAG is not a value. Accepting it would silently swallow the
+# flag AND produce an unnamed waiver in one move.
+OUT=$(PULSE_DISPATCH_SSH="$STUB/ssh" "$DISPATCH" --row di-friday --dir "$PROJ" --resume --dry-run 2>&1)
+check_verdict "--resume followed by another flag is failed-usage" "$OUT" failed-usage
+# A usage error is an operator typo on a hand-run, so it must not exit 0.
+PULSE_DISPATCH_SSH="$STUB/ssh" "$DISPATCH" --row di-friday --dir "$PROJ" --resume >/dev/null 2>&1
+if [ "$?" = 64 ]; then ok "--resume usage error exits 64 (the script's normal usage code)"
+else bad "--resume exit code" "expected 64"; fi
+
+# (b) THE DRY RUN SHOWS THE WAIVER — a human must see it before it fires.
+OUT=$(run_dry_args --resume bd-icwd)
+check_verdict "a resume dry run still reaches dry-run-ok" "$OUT" dry-run-ok
+case "$OUT" in *"CAP GATE WAIVED"*) ok "the dry run states the cap waiver out loud" ;;
+  *) bad "dry run states the waiver" "no CAP GATE WAIVED line" ;; esac
+case "$OUT" in *"ref=bd-icwd"*) ok "the dry run names the ref the waiver authorizes" ;;
+  *) bad "dry run names the ref" "bd-icwd absent from the dry-run output" ;; esac
+# The control: no flag, no waiver line. A banner that shows unconditionally is not
+# a banner.
+OUT=$(run_dry_args)
+check_verdict "a plain dry run is unchanged" "$OUT" dry-run-ok
+case "$OUT" in *"CAP GATE WAIVED"*) bad "dry run waiver control" "a run WITHOUT --resume advertised a waiver" ;;
+  *) ok "a dry run without --resume shows no waiver line" ;; esac
+
+# (c) THE AUTHORIZATION BLOCK REACHES THE TICK, and says all of what it must.
+OUT=$(run_live_args --resume bd-icwd)
+check_verdict "a resume dispatch completes" "$OUT" completed
+RUNDIR=$(ls -dt "$STATE"/*/ 2>/dev/null | head -1)
+DM="${RUNDIR}DISPATCH.md"
+if [ -s "$DM" ]; then
+  grep -q 'CAP GATE WAIVED FOR THIS RUN' "$DM" \
+    && ok "DISPATCH.md carries the authorization block" \
+    || bad "DISPATCH.md authorization block" "the block the tick keys on is absent"
+  grep -q 'bd-icwd' "$DM" \
+    && ok "the block NAMES the parked deliverable it authorizes" \
+    || bad "block names the ref" "bd-icwd absent from DISPATCH.md"
+  grep -q 'rc `2` STILL BLOCKS' "$DM" \
+    && ok "the block says rc 2 (undetermined) still BLOCKS — a waiver is not a bypass" \
+    || bad "block preserves rc 2" "the undetermined-still-blocks invariant is missing"
+  grep -q 'NEVER authorize this yourself' "$DM" \
+    && ok "the block forbids the tick from self-authorizing a waiver" \
+    || bad "block forbids self-authorization" "the no-self-authorize invariant is missing"
+  grep -q 'RE-DELIVERED' "$DM" \
+    && ok "the block forbids re-delivering anything that already landed" \
+    || bad "block forbids double-delivery" "no anti-double-delivery rule"
+else
+  bad "DISPATCH.md staged locally (resume)" "no DISPATCH.md at $DM"
+fi
+# (d) THE LEDGER ROW CARRIES THE WAIVER — durable, so a reader six weeks later can
+#     tell an authorized second fire from a runaway one.
+LINE=$(tail -1 "$PROJ/refs/pulse-ledger.jsonl")
+if printf '%s' "$LINE" | jq -e '.dispatch.resume.ref == "bd-icwd"' >/dev/null 2>&1
+then ok "the ledger row records .dispatch.resume.ref"
+else bad "ledger records the resume ref" "got: $(printf '%.200s' "$LINE")"; fi
+if printf '%s' "$LINE" | jq -e '.row=="di-friday" and .outcome=="done" and .dispatch.remote==true' >/dev/null 2>&1
+then ok "a resume row is otherwise an ordinary ledger row"
+else bad "resume row shape" "got: $(printf '%.200s' "$LINE")"; fi
+
+# (e) THE CONTROL THAT MATTERS MOST. A run WITHOUT --resume must be byte-for-byte
+#     the run it was before this flag existed: no authorization block anywhere in
+#     the contract the tick reads, and no resume field on the ledger row. If this
+#     ever fails, the waiver has leaked onto the automatic path — which is the
+#     runaway loop the cap exists to prevent, wearing the escape hatch's clothes.
+OUT=$(run_live_args)
+check_verdict "a dispatch WITHOUT --resume completes as before" "$OUT" completed
+RUNDIR=$(ls -dt "$STATE"/*/ 2>/dev/null | head -1)
+DM="${RUNDIR}DISPATCH.md"
+if grep -qi 'CAP GATE WAIVED\|HUMAN-AUTHORIZED RESUME' "$DM" 2>/dev/null
+then bad "no waiver without the flag" "DISPATCH.md carries an authorization block nobody asked for"
+else ok "no --resume -> DISPATCH.md carries NO authorization block"; fi
+LINE=$(tail -1 "$PROJ/refs/pulse-ledger.jsonl")
+if printf '%s' "$LINE" | jq -e 'has("dispatch") and (.dispatch|has("resume"))' >/dev/null 2>&1
+then bad "no resume field without the flag" "the ledger row carries .dispatch.resume: $(printf '%.200s' "$LINE")"
+else ok "no --resume -> the ledger row carries NO resume field (optional, new rows only)"; fi
+
+# (f) No systemd unit may pass the flag. This is the whole anti-runaway property,
+#     and it is cheap to assert mechanically rather than trust to review.
+if ls "$HERE"/../units/*.service >/dev/null 2>&1 || ls "$HERE"/*.service >/dev/null 2>&1; then
+  if grep -rl -- '--resume' "$HERE"/../units/*.service "$HERE"/*.service 2>/dev/null | grep -q .
+  then bad "no unit passes --resume" "a unit file carries the flag — a timer can now waive the cap"
+  else ok "no shipped systemd unit passes --resume (timers cannot produce a waiver)"; fi
+else
+  ok "no shipped systemd unit passes --resume (none in-tree to check)"
+fi
+
+echo
 echo "== outcome contract =="
 OUT=$(run_dry 'PANE_CMD=claude' "REMOTE_MEM_SHA=$MEMSHA" "REMOTE_BEAD_JSON=$BEADJSON")
 N=$(printf '%s\n' "$OUT" | grep -c 'PULSE_DISPATCH_RESULT=')

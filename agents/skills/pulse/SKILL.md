@@ -209,6 +209,36 @@ Never `2>/dev/null` this call. Same reasoning as the canonical count above:
 suppressing the error turns a real failure into an empty result, and an empty
 result reads as permission to fire.
 
+### The ONE waiver: a human-authorized `--resume` (bd-f9kn / bd-02r3)
+
+A tick that RAN and correctly PARKED its deliverable on a human still logs
+`done`, so it consumes the period's whole budget. When the human then unblocks
+it, a bare re-dispatch reads `at cap` and the parked work can never be collected
+in-week. That was a real dead end, not a hypothetical: `bd-icwd`'s stated remedy
+("a manual /pulse tick lands it once the doc exists") was a false instruction.
+
+So there is exactly one branch that skips the cap gate. **If `DISPATCH.md`
+carries the `CAP GATE WAIVED FOR THIS RUN — HUMAN-AUTHORIZED RESUME: <ref>`
+block, skip the cap gate for that run and do ONLY the parked deliverable named
+by `<ref>`.** Nothing that already landed this period may be re-delivered — no
+re-posted comment, no second Slack notice, no duplicate doc tab, no re-filed
+bead; update an existing artifact in place or leave it alone. Say in the ledger
+`note` that the run was a human-authorized resume of `<ref>`.
+
+Two invariants, and they carry the same weight as the rc table above:
+
+- ⚠️ **A TICK MAY NEVER SELF-AUTHORIZE A WAIVER.** It arrives only in a
+  `DISPATCH.md` written by a human-run `pulse-dispatch-remote.sh --resume <ref>`.
+  No systemd unit passes that flag and no timer can produce one — that structural
+  fact is the entire anti-runaway property. A tick that finds itself at cap and
+  decides to proceed anyway IS the runaway loop the cap exists to stop.
+- ⚠️ **rc `2` IS STILL BLOCKED.** A waiver waives *at cap*; it never waives
+  *could not tell*. An unreadable or missing ledger is `outcome:"blocked"` with
+  or without the block, exactly as the row above says.
+
+This is a narrow branch added to the gate, not a loosening of it. The automatic
+path is unchanged and un-waivable.
+
 Working ticks commit the ledger with their work; blocked ticks commit
 it alongside the `human:` bead (audit trail); quiet ticks leave it
 uncommitted until the next working tick sweeps it in (don't generate a

@@ -275,10 +275,43 @@
 #   --skip-sync      DIAGNOSTICS ONLY. Skip the T2/T3/T4 refresh (step 2c-2e) but
 #                    still run assertions A5/A6, so you can see what is stale
 #                    without changing it. NEVER set this in a timer unit.
+#   --resume <ref>   HUMAN-AUTHORIZED CAP WAIVER for this ONE run. <ref> is the
+#                    bead id (or short reason) naming the PARKED deliverable being
+#                    collected. Requires a value; `--resume` bare, or followed by
+#                    another flag, is a usage error. See the section below.
 #   --loop <id>      loop id, for bounce records (units pass --loop %p)
 #   --dry-run        run the tunnel, the full four-tier refresh, and ALL SIX
 #                    assertions for real, then stop. Dispatches nothing, writes no
 #                    ledger row, injects nothing.
+#
+# ---------------------------------------------------------------------------
+# --resume: the cap escape hatch, and why it is a FLAG rather than a rule change
+# ---------------------------------------------------------------------------
+# bd-f9kn: a row's per-week cap is enforced by the TICK, counting ledger
+# `outcome:"done"` rows for that row in the period. A tick that RAN and correctly
+# PARKED its deliverable on a human still logs `done` — so it burns the week's
+# budget, and when the human unblocks it the re-dispatch returns `quiet` and the
+# parked work can never be collected in-week. bd-icwd's own remedy ("a manual
+# /pulse tick lands it once the doc exists") was therefore a false instruction.
+#
+# The decision (bd-02r3): the cap exists to stop a RUNAWAY LOOP — an idle bug
+# firing all night. A human typing a flag at a terminal is not a runaway loop, so
+# the cap was never the right instrument against it. `--resume <ref>` waives the
+# cap GATE for that one run, records the waiver on the ledger row, and narrows the
+# tick's scope in DISPATCH.md to the named parked deliverable.
+#
+# THE ANTI-RUNAWAY PROPERTY IS PRESERVED EXACTLY, and it is preserved structurally
+# rather than by discipline: **no systemd unit passes --resume and no timer can
+# produce one.** The automatic path is unchanged and un-waivable. Do not add this
+# flag to a unit — that would delete the only thing that makes it safe.
+#
+# What the waiver does NOT do:
+#   - it does not waive rc `2` (the tick could not TELL whether it was at cap).
+#     A waiver waives *at cap*, never *could not tell*.
+#   - it does not authorize re-delivering anything that already landed this
+#     period. The scope is the named deliverable and nothing else.
+#   - it cannot be self-authorized by a tick. It arrives only in a DISPATCH.md
+#     written by a human-run dispatcher.
 #
 # ---------------------------------------------------------------------------
 # OUTCOME CONTRACT — PULSE_DISPATCH_RESULT (same discipline as pulse-inject.sh)
@@ -362,6 +395,10 @@ ALLOW_UNPUSHED=0
 NO_REFRESH=0
 SKIP_SYNC=0
 LOOP=""
+# The human-authorized cap waiver (bd-f9kn / bd-02r3). Empty on every automatic
+# path — no unit passes --resume — so a run without it is byte-for-byte the run it
+# was before this flag existed.
+RESUME=""
 
 # --- outcome contract -------------------------------------------------------
 # Defined before argument parsing on purpose: `unknown arg` is the very first
@@ -444,6 +481,17 @@ while [ $# -gt 0 ]; do
     --allow-unpushed)  ALLOW_UNPUSHED=1; shift ;;
     --no-refresh)      NO_REFRESH=1; shift ;;
     --skip-sync)       SKIP_SYNC=1; shift ;;
+    # A VALUE IS REQUIRED. The waiver's second half is scope-narrowing — "do only
+    # the deliverable named by <ref>" — and a nameless waiver is just a cap
+    # override, which is the thing this deliberately is not. `--resume` followed by
+    # another flag is the same mistake wearing a value's clothes, and it would
+    # silently swallow that flag, so reject it too.
+    --resume)
+      case "${2:-}" in
+        ""|-*) echo "pulse-dispatch: --resume requires a value — the bead id or short reason naming the PARKED deliverable being collected, e.g. --resume bd-icwd" >&2
+               emit_result failed-usage; exit 64 ;;
+      esac
+      RESUME=$2; shift 2 ;;
     --dry-run)         DRY_RUN=1; shift ;;
     -h|--help)         sed -n '2,150p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "pulse-dispatch: unknown arg $1" >&2; emit_result failed-usage; exit 64 ;;
@@ -1406,6 +1454,14 @@ fi
 if [ "$DRY_RUN" = 1 ]; then
   say "DRY RUN: all preflight assertions passed."
   say "  tunnel mode:   TUNNEL_MODE=$TUNNEL_MODE  (recorded at $LOCAL_STATE/tunnel-mode)"
+  # Surfaced like every other dispatch fact, and FIRST among them: a human must be
+  # able to see the waiver before it fires, not discover it in the ledger after.
+  if [ -n "$RESUME" ]; then
+    say "  RESUME:        CAP GATE WAIVED for this run only — human-authorized, ref=$RESUME"
+    say "                 scope: ONLY the parked deliverable named by '$RESUME'; anything already"
+    say "                 landed this period is NOT re-delivered. rc 2 (undetermined) still BLOCKS."
+    say "                 would record on the ledger row: .dispatch.resume.ref=$RESUME"
+  fi
   # The checkout state is printed on the dry run for the same reason it is put in
   # the ledger row: since dotfiles-f4ub a dirty or non-advancing tree PROCEEDS, so
   # the only defence against a silently-stale run is that it is stated.
@@ -1531,8 +1587,55 @@ rsh "tmux setenv -t '$REMOTE_SESSION' PULSE_DISPATCH_REMOTE 1" >/dev/null 2>>"$L
 # injected line must be exactly one line (a newline in send-keys submits the
 # composer) and this contract is not one line's worth of rules.
 # ---------------------------------------------------------------------------
+# The cap waiver, as a block the tick cannot miss and cannot mistake for advice.
+# EMPTY on every automatic path, which is the point: a tick's ONLY route to a
+# waiver is a DISPATCH.md a human caused to be written. It can never mint one.
+RESUME_BLOCK=""
+if [ -n "$RESUME" ]; then
+  RESUME_BLOCK=$(cat <<EOF
+
+## 0. ⚠️ CAP GATE WAIVED FOR THIS RUN — HUMAN-AUTHORIZED RESUME: \`$RESUME\`
+
+A human ran \`pulse-dispatch-remote.sh --resume $RESUME\` at a terminal. **No
+systemd unit passes \`--resume\` and no timer can produce this block**, so its
+presence here is proof of a deliberate human authorization — and its absence is
+proof that there is none.
+
+**1. Skip the cap gate for this run.** Row \`$ROW\` has almost certainly already
+logged an \`outcome:"done"\` in the current period — that is exactly why you are
+being run again. Do NOT return \`quiet\` on cap grounds. The cap exists to stop a
+runaway loop; a human at a keyboard is not one.
+
+**2. rc \`2\` STILL BLOCKS.** If the cap helper (or your own count) cannot
+DETERMINE the state — a missing or unreadable ledger — that is still
+\`outcome:"blocked"\`, exactly as the /pulse skill says. This waiver waives *at
+cap*. It never waives *could not tell*.
+
+**3. Your scope is ONLY the parked deliverable named by \`$RESUME\`.** Read that
+bead (\`br show $RESUME\`) if it is one. Do that unit of work and nothing else.
+This is not a licence to re-run the row.
+
+**4. NOTHING THAT ALREADY LANDED THIS PERIOD MAY BE RE-DELIVERED.** The earlier
+tick's output is real and published. Do not re-post an Asana comment, do not
+re-post to Slack, do not re-create a subtask, do not write a second doc tab, do
+not re-raise a \`human:\` bead that already exists. If an existing artifact must
+change, **update it in place**. Double-delivery is the failure this waiver is
+narrow in order to avoid.
+
+**5. You may NEVER authorize this yourself.** A tick that finds itself at cap and
+decides to proceed anyway is the runaway loop. The only sanctioned path is a
+human re-running the dispatcher with \`--resume\`.
+
+Say in your \`note\` that this run was a human-authorized resume of \`$RESUME\`,
+and name what it collected. The dispatcher records the waiver on the ledger row
+as \`.dispatch.resume.ref\`.
+EOF
+)
+fi
+
 DISPATCH_MD=$(cat <<EOF
 # REMOTE DISPATCH CONTRACT — run $RUN_ID
+$RESUME_BLOCK
 
 You are running on **marketing-vps** (the LinearB company seat), dispatched from
 zig-computer by \`pulse-dispatch-remote.sh\`. Run the pulse row **$ROW** for the
@@ -1866,10 +1969,12 @@ LINE=$(jq -cn \
   --arg note "$P_NOTE" \
   --arg run  "$RUN_ID" \
   --arg host "$HOST" \
+  --arg resume "$RESUME" \
   --argjson proof "$(jq -c '.proof // null' <<<"$PAYLOAD")" \
   --argjson checkout "${CHECKOUT_JSON:-null}" \
   '{ts:$ts, row:$row, outcome:$out, note:$note,
-    dispatch:{remote:true, host:$host, run_id:$run, checkout:$checkout}}
+    dispatch:({remote:true, host:$host, run_id:$run, checkout:$checkout}
+              + (if $resume == "" then {} else {resume:{ref:$resume}} end))}
    + (if $proof == null then {} else {proof:$proof} end)') \
   || fail failed-ledger 78 "could not build the ledger line from the payload ($LOCAL_STATE/result.json)"
 
@@ -1879,7 +1984,7 @@ BACKUP="$LOCAL_STATE/pulse-ledger.jsonl.before"
 [ -f "$LEDGER" ] && cp -p "$LEDGER" "$BACKUP"
 mkdir -p "$(dirname "$LEDGER")"
 printf '%s\n' "$LINE" >> "$LEDGER"
-say "ledger: appended row=$P_ROW outcome=$P_OUT checkout_clean=${CHECKOUT_CLEAN:-unknown} auto_ff=$(jq -r '(.auto_ff // []) | length' <<<"${CHECKOUT_JSON:-{\}}") to $LEDGER"
+say "ledger: appended row=$P_ROW outcome=$P_OUT checkout_clean=${CHECKOUT_CLEAN:-unknown} auto_ff=$(jq -r '(.auto_ff // []) | length' <<<"${CHECKOUT_JSON:-{\}}")${RESUME:+ resume=$RESUME (cap gate waived, human-authorized)} to $LEDGER"
 
 if [ -x "$LEDGER_LINT" ] || [ -f "$LEDGER_LINT" ]; then
   if ! python3 "$LEDGER_LINT" --project "$DIR"; then
