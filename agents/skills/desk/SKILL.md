@@ -214,13 +214,33 @@ to surface — occurring inside the loop built to surface it.
 1. Concatenate to a FILE, so nothing flows through a tool result — and **strip
    this loop's own prior appends while you do it** (see below):
    ```bash
-   awk 'FNR==1{skip=0} /^## /{skip = ($0 ~ /^## Novel opportunities \((desk pass|elevate sweep)/)} !skip' \
+   awk 'FNR==1{skip=0} /^## Novel opportunities \((desk pass|elevate sweep)/{skip=1; next} /^## /{skip=0} !skip' \
      */FINDINGS.md > /tmp/desk-corpus-<date>.md
    ```
-2. Record the true size: `wc -c < /tmp/desk-corpus-<date>.md`
-3. Read it in ≤4 `Read` calls with explicit `offset`/`limit` (it defaults to 2000
-   lines, so divide the file's actual `wc -l` by four and set the offsets
-   deliberately).
+   ⚠️ **This form deliberately contains NO bare `$0`, and must stay that way.** The
+   earlier version tested `($0 ~ /^## Novel opportunities …/)`; when `/desk` is invoked
+   **with an argument**, skill-argument substitution rewrites `$0` in the rendered body
+   to that argument, yielding `(/home/ubuntu/explore ~ /^## …/)` — an awk **`division by
+   zero` fatal**, a ~2 KB corpus, and a pass that looks like it ran. Verified 2026-07-31:
+   the file on disk was correct; only the *rendered* copy was corrupt, so this is
+   invisible to anyone reading the source. Any `$N` in a skill's shell block is exposed
+   to the same rewrite — prefer pattern-matching idioms over field references here.
+
+2. Record the true size: `wc -c < /tmp/desk-corpus-<date>.md` **and `wc -l`.**
+3. **Read it as a 4-way parallel map-reduce, NOT as ≤4 reads in one context.**
+   Measured 2026-07-31: the corpus is ~36–55 tokens/**line** (the Read tool's own error
+   reports 6,900 lines = **252,489 tokens**), so against Read's ~25k-token cap the real
+   ceiling is **~220–1,000 lines per call** — roughly **55 calls** for a 27k-line corpus,
+   not 4. A single context cannot hold it: at 2.6 MB the corpus measures **~880k–1.0M
+   tokens** against the skill's obsolete 483k estimate.
+
+   The shape that works: split the line range into 4 contiguous slices, dispatch one
+   fresh agent per slice, and have each read **its own slice only**, reporting
+   `slice_lines_received`. ⚠️ **Then run an explicit cross-slice reduce** — the 2026-07-31
+   pass read 27,387/27,387 lines and *still* missed regression control 1, because its
+   pair (`honcho` ↔ `cactus-hybrid`) straddles two slices and nothing compared across
+   them. Coverage is not recall; budget a reduce step or the map buys you less than it
+   appears to.
 
 **Why the filter, not a plain `cat`.** Step 8 writes a
 `## Novel opportunities (desk pass <date>)` section into the FINDINGS files, so
