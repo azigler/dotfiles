@@ -31,9 +31,29 @@
 # rest. Hence `set -uo pipefail` (no -e — matching pulse-inject.sh, which chose the
 # same for the same reason); each loop iteration tolerates its own failures.
 #
+# ---------------------------------------------------------------------------
+# IT ALSO DRAINS DEFERRED SURFACES (dotfiles-5ts2) — and that is a DIFFERENT verb.
+# ---------------------------------------------------------------------------
+# Everything above re-fires a tick that never ran. A deferred SURFACE is the
+# opposite case: the tick already RAN, on marketing-vps, and finished — only its
+# announcement bounced off a 🔔 window. Re-firing that loop would redo completed work
+# and burn the row's cap, so this watcher must never do that for a surface. It calls
+# pulse-surface-queue.sh drain instead, which retries the ANNOUNCEMENT ONLY.
+#
+# It lives here rather than in a new timer on purpose: this is already the
+# "the 🔔 cleared, deliver what was deferred" watcher, it already runs every 2
+# minutes, and a surface has exactly the same trigger condition. A second unit would
+# have been a second thing to install, monitor and forget.
+#
+# It runs FIRST, before the no-bounces early exit below — a queued surface is
+# independent of whether any tick bounced, and would otherwise never be drained on
+# the common path where the bounce log is empty.
+#
 # Overrides (for the hermetic test-harness):
-#   HARNESS_STATE_DIR — where pulse-bounces.jsonl / pulse-retry-state.jsonl live.
-#   PULSE_RETRY_LOG   — the note() log file (default <state-dir>/pulse-retry.log).
+#   HARNESS_STATE_DIR   — where pulse-bounces.jsonl / pulse-retry-state.jsonl live.
+#   PULSE_RETRY_LOG     — the note() log file (default <state-dir>/pulse-retry.log).
+#   PULSE_SURFACE_DRAIN — path to pulse-surface-queue.sh (a non-existent path
+#                         disables the drain; tests point it at a recorder stub).
 
 set -uo pipefail
 
@@ -93,6 +113,24 @@ next_fire_epoch() {
     *) printf '%s' $(( raw / 1000000 )) ;;               # all-digit → microseconds → seconds
   esac
 }
+
+# --- 0. Drain deferred SURFACES (announcement-only retry; never re-fires a tick) --
+#
+# Best-effort and non-fatal in every direction: a queue that cannot be drained must
+# not stop the bounced-tick retries below, and vice versa. `drain` is a no-op that
+# emits PULSE_SURFACE_RESULT=empty when nothing is pending, which is the normal case.
+
+SURFACE_DRAIN="${PULSE_SURFACE_DRAIN:-$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/pulse-surface-queue.sh}"
+if [ -x "$SURFACE_DRAIN" ]; then
+  drain_out=$("$SURFACE_DRAIN" drain 2>&1)
+  drain_verdict=$(printf '%s\n' "$drain_out" | grep -o 'PULSE_SURFACE_RESULT=[a-z0-9:-]*' | tail -1 | cut -d= -f2-)
+  case "${drain_verdict:-}" in
+    ''|empty) : ;;   # nothing pending — the normal case, not worth a log line
+    *)        note "surface-drain: $drain_verdict" ;;
+  esac
+else
+  note "surface-drain: skipped (no executable at $SURFACE_DRAIN)"
+fi
 
 # --- 1. No bounces → no-op --------------------------------------------------
 

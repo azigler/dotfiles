@@ -439,6 +439,38 @@ run_live() {
 }
 BASE=('PANE_CMD=claude' "REMOTE_MEM_SHA=$MEMSHA" "REMOTE_BEAD_JSON=$BEADJSON")
 
+# Same dispatcher, a different --row. The two-ticks-while-blocked case needs two
+# DIFFERENT rows, because the queue collapses per row on purpose.
+run_live_row() { # <row> <knob>...
+  local row=$1; shift
+  write_knobs "$@"
+  PULSE_DISPATCH_SSH="$STUB/ssh" \
+  PULSE_DISPATCH_PREFLIGHT="$STUB/preflight" \
+  PULSE_DISPATCH_INJECT="$STUB/inject" PULSE_DISPATCH_MANIFEST=/nonexistent-manifest \
+  PULSE_DISPATCH_VAULT=/nonexistent-local-vault \
+  PULSE_DISPATCH_LINT=/nonexistent-lint \
+  PULSE_DISPATCH_STATE="$STATE" \
+  INJECT_LOG="$ROOT/inject.log" \
+  HOME="$ROOT/home" \
+    "$DISPATCH" --row "$row" --dir "$PROJ" --poll 1 --timeout 3 2>&1
+}
+
+# The deferred-surface queue (dotfiles-5ts2). It lives in a SIBLING of the dispatch
+# state root — deliberately not inside it, because `ls -dt "$STATE"/*/ | head -1`
+# ("the newest run dir") is the idiom this suite uses to find a run's artifacts, and
+# a queue directory in there would silently become "the newest run".
+SURFQ="$STATE-surfaces"
+queue_reset()   { rm -rf "$SURFQ"; }
+queue_pending() { find "$SURFQ/pending"   -maxdepth 1 -name '*.json' 2>/dev/null | wc -l | tr -d ' '; }
+queue_done()    { find "$SURFQ/delivered" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l | tr -d ' '; }
+# Drain WITHOUT a dispatch — the standalone path pulse-retry.timer takes every 2 min.
+queue_drain()   {
+  PULSE_DISPATCH_STATE="$STATE" PULSE_DISPATCH_INJECT="$STUB/inject" \
+  INJECT_LOG="$ROOT/inject.log" HOME="$ROOT/home" \
+    "$HERE/pulse-surface-queue.sh" drain "$@" 2>&1
+}
+surface_verdict() { printf '%s\n' "$1" | grep -o 'PULSE_SURFACE_RESULT=[a-z0-9:-]*' | tail -1 | cut -d= -f2-; }
+
 echo
 echo "== fail() surfacing is a DENYLIST now (dotfiles-wv2a) =="
 # The 2026-07-29 miss in one line: failed-tunnel was not on the old allowlist, so
@@ -510,8 +542,41 @@ then ok "ledger row is marked as remotely dispatched (attributable later)"
 else bad "ledger row provenance" "no .dispatch.remote / run_id"; fi
 if printf '%s' "$LINE" | jq -e '.ts|test("^[0-9]{4}-")' >/dev/null 2>&1
 then ok "ledger row carries a UTC ts written locally"; else bad "ledger ts" "bad ts"; fi
-if [ ! -s "$ROOT/inject.log" ]; then ok "a clean tick does NOT wake the local window"
-else bad "clean tick stays quiet" "injected without a surface/bead request"; fi
+# INVERTED 2026-07-31 (dotfiles-5ts2). This case used to assert the opposite — "a
+# clean tick does NOT wake the local window" — and that assertion was the defect,
+# not a guard against one. A tick that drafts the Friday Deploy roundup, parks it in
+# Asana and says nothing has produced work nobody knows happened. Zig: "I don't
+# think there's such a thing as a low-value bell ... you need to be in charge of
+# making sure I see their actions and I know when they're ready so I can pick them
+# up and publish them." So: EVERY completion surfaces, surface_request or not.
+if grep -q 'REMOTE PULSE SURFACE' "$ROOT/inject.log"
+then ok "a clean tick with NO surface_request STILL wakes the local window (always-bell)"
+else bad "always-bell" "a completed tick announced nothing — the parked draft is invisible"; fi
+RUNDIR=$(ls -dt "$STATE"/*/ 2>/dev/null | head -1)
+if jq -e '.question and .detail and .options' "${RUNDIR}surface.json" >/dev/null 2>&1
+then ok "the synthesized surface carries a question, options and detail"
+else bad "synthesized surface shape" "got: $(head -c 200 "${RUNDIR}surface.json" 2>/dev/null)"; fi
+if jq -e '.detail | test("drafted and parked") and test("pulse-ledger.jsonl")' "${RUNDIR}surface.json" >/dev/null 2>&1
+then ok "it says WHAT landed (the tick's note) and WHERE (the ledger row to land)"
+else bad "surface says what/where" "got: $(jq -r '.detail // "<none>"' "${RUNDIR}surface.json" 2>/dev/null | head -c 200)"; fi
+if jq -e '.detail | test("gid-1")' "${RUNDIR}surface.json" >/dev/null 2>&1
+then ok "the payload's artifacts are named in the announcement"
+else bad "artifacts in the surface" "artifact ids missing from the detail"; fi
+if jq -e '.question | test("di-friday")' "${RUNDIR}surface.json" >/dev/null 2>&1
+then ok "the question names the row, so the bell is self-describing"
+else bad "question names the row" "got: $(jq -r '.question // "<none>"' "${RUNDIR}surface.json" 2>/dev/null)"; fi
+
+# quiet and blocked ring too — the bar is "is there something to SEE", not "did
+# something get produced". A quiet row is how Zig learns the loop is alive.
+for _out in quiet blocked; do
+  : > "$ROOT/inject.log"; queue_reset
+  OUT=$(run_live "${BASE[@]}" "RESULT_JSON={\"row\":\"di-friday\",\"outcome\":\"$_out\",\"note\":\"nothing to do this week\"}")
+  check_verdict "outcome=$_out completes" "$OUT" completed
+  if grep -q 'REMOTE PULSE SURFACE' "$ROOT/inject.log"
+  then ok "outcome=$_out surfaces too (done|quiet|blocked alike)"
+  else bad "outcome=$_out surfaces" "a $_out tick rang nothing"; fi
+done
+queue_reset
 
 echo
 echo "== the surface callback (Zig's 2026-07-27 extension) =="
@@ -538,6 +603,113 @@ case "$OUT" in *"surface NOT delivered"*) ok "a DEFERRED injection is reported a
 OUT=$(INJECT_VERDICT=bounced-not-ready run_live "${BASE[@]}" 'RESULT_JSON={"row":"di-friday","outcome":"done","proof":{"kind":"cmd","cmd":"true"},"surface_request":{"reason":"r","question":"q"}}')
 case "$OUT" in *"surface NOT delivered"*) ok "a BOUNCED injection is reported as NOT delivered (fail closed)" ;;
   *) bad "bounced injection" "a bounced inject was treated as delivered" ;; esac
+
+echo
+echo "== the DEFERRED-SURFACE QUEUE (dotfiles-5ts2) =="
+# The mechanical catch behind always-bell. pulse-inject REFUSES to type into a
+# 🔔-blocked window, and before this the dispatcher just warned and moved on —
+# nothing ever redelivered the announcement. Under always-bell a 🔔 is the NORMAL
+# state whenever Zig is away, so without this the policy would SWALLOW the very
+# notifications it exists to guarantee.
+
+# (1) A surface into a blocked window is STAGED, not lost.
+queue_reset; : > "$ROOT/inject.log"
+OUT=$(INJECT_VERDICT=deferred-blocked-on-human run_live "${BASE[@]}" \
+      'RESULT_JSON={"row":"di-friday","outcome":"done","note":"friday roundup parked","proof":{"kind":"cmd","cmd":"true"}}')
+check_verdict "a tick whose surface bounces still COMPLETES" "$OUT" completed
+if [ "$(queue_pending)" = 1 ]; then ok "a 🔔-blocked surface is STAGED in the queue (nothing is lost)"
+else bad "blocked surface staged" "pending=$(queue_pending), expected 1"; fi
+if [ "$(queue_done)" = 0 ]; then ok "…and is NOT marked delivered"
+else bad "blocked surface not delivered" "delivered=$(queue_done)"; fi
+case "$OUT" in *"will be redelivered automatically"*) ok "the dispatcher says the announcement is queued, not lost" ;;
+  *) bad "queued message" "the operator is not told the surface will be redelivered" ;; esac
+case "$OUT" in *"tick is NOT re-run"*) ok "…and that the TICK is not re-run (only the announcement is retried)" ;;
+  *) bad "no-re-run message" "nothing says the tick is not re-run" ;; esac
+
+# (2) A SECOND tick completes while Zig is still away. Both must be held.
+OUT=$(INJECT_VERDICT=deferred-blocked-on-human run_live_row di-tuesday "${BASE[@]}" \
+      'RESULT_JSON={"row":"di-tuesday","outcome":"done","note":"newsletter post drafted","proof":{"kind":"cmd","cmd":"true"}}')
+check_verdict "the second blocked tick also completes" "$OUT" completed
+if [ "$(queue_pending)" = 2 ]; then ok "TWO ticks finished while blocked -> TWO pending announcements"
+else bad "two pending" "pending=$(queue_pending), expected 2"; fi
+
+# (3) The bell clears. A drain with NO NEW DISPATCH delivers both, in ONE message,
+#     oldest first. This is the acceptance criterion in one command: the tick is
+#     never re-run, only the announcement.
+: > "$ROOT/inject.log"
+DOUT=$(queue_drain --session work --window di)
+if [ "$(surface_verdict "$DOUT")" = "delivered:2" ]
+then ok "the drain delivers BOTH held announcements with no new dispatch"
+else bad "drain delivers both" "verdict: $(surface_verdict "$DOUT")"; fi
+if [ "$(grep -c 'REMOTE PULSE SURFACE' "$ROOT/inject.log")" = 1 ]
+then ok "…in exactly ONE injection (a window that gets six pings is a window Zig mutes)"
+else bad "one injection" "got $(grep -c 'REMOTE PULSE SURFACE' "$ROOT/inject.log") injections"; fi
+if grep -q '2 PENDING' "$ROOT/inject.log"
+then ok "the announcement says HOW MANY were pending"
+else bad "pending count" "got: $(head -c 200 "$ROOT/inject.log")"; fi
+_fri=$(grep -o '(1) di-friday' "$ROOT/inject.log" | head -1)
+_tue=$(grep -o '(2) di-tuesday' "$ROOT/inject.log" | head -1)
+if [ -n "$_fri" ] && [ -n "$_tue" ]
+then ok "OLDEST FIRST: di-friday (staged first) is announced before di-tuesday"
+else bad "oldest first" "ordering markers missing: '$_fri' / '$_tue'"; fi
+if grep -q 'Do NOT re-run any tick' "$ROOT/inject.log"
+then ok "the multi-surface announcement forbids re-running the ticks"
+else bad "no-re-run in the announcement" "the drain message does not forbid a re-run"; fi
+if [ "$(queue_pending)" = 0 ] && [ "$(queue_done)" = 2 ]
+then ok "delivered entries MOVE out of pending (pending=0, delivered=2)"
+else bad "delivered move" "pending=$(queue_pending) delivered=$(queue_done)"; fi
+
+# (4) Nothing is announced twice.
+: > "$ROOT/inject.log"
+DOUT=$(queue_drain --session work --window di)
+if [ "$(surface_verdict "$DOUT")" = "empty" ] && [ ! -s "$ROOT/inject.log" ]
+then ok "a second drain announces NOTHING (delivered exactly once)"
+else bad "no double-announce" "verdict $(surface_verdict "$DOUT"), inject.log: $(head -c 120 "$ROOT/inject.log")"; fi
+
+# (5) Collapse: a row that RE-RAN while held announces its NEWEST state only.
+queue_reset; : > "$ROOT/inject.log"
+OUT=$(INJECT_VERDICT=deferred-blocked-on-human run_live "${BASE[@]}" \
+      'RESULT_JSON={"row":"di-friday","outcome":"done","note":"STALE first attempt","proof":{"kind":"cmd","cmd":"true"}}')
+check_verdict "the first (soon-stale) run completes" "$OUT" completed
+OUT=$(INJECT_VERDICT=deferred-blocked-on-human run_live "${BASE[@]}" \
+      'RESULT_JSON={"row":"di-friday","outcome":"done","note":"NEWEST attempt","proof":{"kind":"cmd","cmd":"true"}}')
+check_verdict "the re-run also completes" "$OUT" completed
+if [ "$(queue_pending)" = 1 ]
+then ok "two surfaces for the SAME row collapse to ONE pending entry"
+else bad "same-row collapse" "pending=$(queue_pending), expected 1"; fi
+if jq -e '.superseded == 1 and (.summary | test("NEWEST"))' "$SURFQ/pending/di-friday.json" >/dev/null 2>&1
+then ok "the retained entry is the NEWEST, and remembers it superseded one"
+else bad "collapse keeps newest" "got: $(head -c 200 "$SURFQ/pending/di-friday.json" 2>/dev/null)"; fi
+if jq -e '.first_staged_at <= .staged_at' "$SURFQ/pending/di-friday.json" >/dev/null 2>&1
+then ok "first_staged_at survives the collapse (so 'oldest first' still means oldest)"
+else bad "first_staged_at preserved" "timestamps do not survive collapse"; fi
+: > "$ROOT/inject.log"
+DOUT=$(queue_drain --session work --window di)
+if [ "$(surface_verdict "$DOUT")" = "delivered:1" ] && grep -q 'NEWEST' "$ROOT/inject.log" \
+   && ! grep -q 'STALE' "$ROOT/inject.log"
+then ok "the delivered announcement carries the NEWEST run and never the stale one"
+else bad "stale not announced" "got: $(head -c 240 "$ROOT/inject.log")"; fi
+if grep -q 're-ran 1x while the announcement was held' "$ROOT/inject.log"
+then ok "…and says out loud that the row re-ran while it was held"
+else bad "collapse is stated" "the announcement hides that a run was superseded"; fi
+
+# (6) The piggyback trigger: the NEXT surface into the window carries the held one,
+#     so a held announcement has two independent ways out (this, and the 2-minute
+#     pulse-retry drain proven in test-pulse-retry.sh).
+queue_reset; : > "$ROOT/inject.log"
+OUT=$(INJECT_VERDICT=deferred-blocked-on-human run_live "${BASE[@]}" \
+      'RESULT_JSON={"row":"di-friday","outcome":"done","note":"held one","proof":{"kind":"cmd","cmd":"true"}}')
+: > "$ROOT/inject.log"
+OUT=$(run_live_row di-tuesday "${BASE[@]}" \
+      'RESULT_JSON={"row":"di-tuesday","outcome":"done","note":"the unblocking one","proof":{"kind":"cmd","cmd":"true"}}')
+check_verdict "the next tick completes" "$OUT" completed
+if grep -q '2 PENDING' "$ROOT/inject.log" && grep -q 'di-friday' "$ROOT/inject.log"
+then ok "the next successful surface CARRIES the previously-held announcement"
+else bad "piggyback drain" "got: $(head -c 240 "$ROOT/inject.log")"; fi
+if [ "$(queue_pending)" = 0 ]
+then ok "…and the queue is empty afterwards"
+else bad "piggyback clears the queue" "pending=$(queue_pending)"; fi
+queue_reset
 
 echo
 echo "== bead requests are staged, never filed by the script =="

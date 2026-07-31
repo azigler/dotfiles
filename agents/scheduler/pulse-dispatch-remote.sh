@@ -48,9 +48,15 @@
 #   5. poll           wait for result.json to appear and parse.
 #   6. land           write the ledger row HERE; file any bead the payload
 #                     REQUESTED (the box may also have filed its own and pushed).
-#   7. surface        if the payload carries a surface_request, inject into the
-#                     LOCAL work:di window so the LOCAL session raises the
-#                     AskUserQuestion.
+#   7. surface        ALWAYS (dotfiles-5ts2). Every finished tick — done, quiet or
+#                     blocked — is STAGED into the deferred-surface queue and then
+#                     DRAINED into the LOCAL work:di window, so the LOCAL session
+#                     raises the AskUserQuestion. A payload surface_request refines
+#                     the question; its absence no longer means silence. And a
+#                     window already sitting on a 🔔 no longer LOSES the
+#                     announcement: it stays queued and pulse-retry.timer's 2-minute
+#                     drain delivers it once the bell clears — without re-firing the
+#                     tick. See pulse-surface-queue.sh.
 #   8. tunnel down    EXIT trap, always — but it only ever tears down a forward
 #                     THIS RUN opened. An adopted box-side forward, and one that
 #                     A3's self-heal opened, are both left exactly as found: the
@@ -318,6 +324,9 @@ SSH_BIN="${PULSE_DISPATCH_SSH:-ssh}"
 PREFLIGHT="${PULSE_DISPATCH_PREFLIGHT:-$HERE/vps-preflight.sh}"
 INJECT="${PULSE_DISPATCH_INJECT:-$HERE/pulse-inject.sh}"
 MANIFEST="${PULSE_DISPATCH_MANIFEST:-$HERE/vps-repo-manifest.txt}"
+# The deferred-surface queue + drain (dotfiles-5ts2). Every surface goes THROUGH it,
+# never straight to the injector — see surface_locally() below for why.
+SURFACE_QUEUE="${PULSE_DISPATCH_SURFACE_QUEUE:-$HERE/pulse-surface-queue.sh}"
 SCRUB="${PULSE_DISPATCH_SCRUB:-$HOME/.claude/skills/scrub-secrets/scrub.py}"
 RSYNC_BIN="${PULSE_DISPATCH_RSYNC:-rsync}"
 LEDGER_LINT="${PULSE_DISPATCH_LINT:-$HERE/pulse-ledger-lint.py}"
@@ -403,8 +412,8 @@ fail() {
          && [ -n "${LOCAL_STATE:-}" ] && declare -F surface_locally >/dev/null 2>&1; then
         local sfile="$LOCAL_STATE/surface-blocked.json"
         printf '%s\n' "{\"kind\":\"dispatch_blocked\",\"row\":\"$ROW\",\"run\":\"$RUN_ID\",\"verdict\":\"$verdict\",\"detail\":$(printf '%s' "$*" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' 2>/dev/null || printf '"see stderr"')}" > "$sfile" 2>/dev/null
-        surface_locally "$sfile" "blocked:$verdict" || \
-          warn "the block could not be surfaced to $SESSION:$WINDOW either — it exists ONLY in journalctl now"
+        surface_locally "$sfile" "blocked:$verdict" "row=$ROW BLOCKED ($verdict) — nothing landed; the tick did not run to completion" || \
+          warn "the block could not be surfaced to $SESSION:$WINDOW immediately — it is QUEUED for the next drain (pulse-retry.timer, every 2 min); it does not exist only in journalctl"
       fi ;;
   esac
   emit_result "$verdict"
@@ -461,26 +470,62 @@ REMOTE_WINDOW="$ROW"
 # It used to be defined at Step 10, ~400 lines below the preflight assertions,
 # which meant the failure path most likely to need a human could not have called
 # it even if it tried: at preflight time the function did not exist yet.
+#
+# STAGE-THEN-DRAIN (dotfiles-5ts2). This used to call pulse-inject.sh directly and,
+# on a bounce, print a warning naming a file that nothing would ever read again.
+# That was the whole defect: pulse-inject REFUSES to type into a 🔔-blocked window
+# (the text would answer Zig's open dialog), so a surface arriving while he is away
+# was DROPPED — work done, ledger row written, Zig never told. And since every
+# completion now surfaces, an open 🔔 is the normal state, which would have made
+# always-bell strictly worse than the behavior it replaced.
+#
+# So: STAGE into the queue first (durable, one file per row, newest wins), THEN ask
+# the queue to DRAIN. The drain is what talks to the injector, and it carries EVERY
+# pending announcement for the target window — this run's and any held from earlier
+# runs — in ONE message. A bounce now leaves the announcement in the queue where
+# pulse-retry.timer's 2-minute drain will deliver it the moment the 🔔 clears,
+# WITHOUT re-firing the tick (the work is already done; only the announcement is
+# retried). See pulse-surface-queue.sh.
 # ---------------------------------------------------------------------------
 SURFACED=0
 surface_locally() {
-  local sfile=$1 reason=$2 cmd out verdict
+  local sfile=$1 reason=$2 summary=${3:-} out verdict
   # Claimed BEFORE the attempt, not after: the point of the flag is that fail()
   # must not ring a second time for the same event, and that is true whether this
   # attempt is delivered or bounced (a bounce means work:di is already blocked on
   # Zig — ringing it again cannot help and just doubles the noise).
   SURFACED=1
   [ -x "$INJECT" ] || { warn "cannot surface: $INJECT is not executable"; return 1; }
-  cmd="REMOTE PULSE SURFACE (row=$ROW, run=$RUN_ID, reason=$reason): a pulse tick that ran on marketing-vps needs you HERE. Read $sfile and raise the AskUserQuestion it describes (this is the 🔔 the remote box cannot ring), file any bead it names that the remote side did not already file and push, and land the ledger row at $DIR/refs/pulse-ledger.jsonl. Do NOT re-run the tick."
-  out=$("$INJECT" --dir "$DIR" --session "$SESSION" --window "$WINDOW" \
-        ${LOOP:+--loop "$LOOP"} --cmd "$cmd" 2>&1)
-  printf '%s\n' "$out" | sed 's/^/    inject: /'
-  verdict=$(printf '%s\n' "$out" | grep -o 'PULSE_INJECT_RESULT=[a-z-]*' | tail -1 | cut -d= -f2)
+  if [ ! -x "$SURFACE_QUEUE" ]; then
+    warn "surface NOT delivered: $SURFACE_QUEUE is not executable, so the surface could be neither staged nor drained. The request exists only at $sfile."
+    return 1
+  fi
+
+  # 1. STAGE. Durable before anything can bounce. A staging failure is loud but not
+  #    fatal — the drain below still runs, so an earlier held surface is not
+  #    punished for this one's problem.
+  out=$(PULSE_DISPATCH_STATE="$STATE_ROOT" "$SURFACE_QUEUE" stage \
+          --row "$ROW" --run "$RUN_ID" --session "$SESSION" --window "$WINDOW" \
+          --dir "$DIR" --file "$sfile" --reason "$reason" --summary "$summary" 2>&1)
+  printf '%s\n' "$out" | sed 's/^/    queue: /'
+  case "$out" in
+    *PULSE_SURFACE_RESULT=staged*) : ;;
+    *) warn "surface could not be STAGED (queue said: $(printf '%s' "$out" | tail -1)) — it may be lost if this injection bounces" ;;
+  esac
+
+  # 2. DRAIN. Delivers this surface AND anything held from an earlier run into the
+  #    same window, oldest first, in one injection.
+  out=$(PULSE_DISPATCH_STATE="$STATE_ROOT" PULSE_DISPATCH_INJECT="$INJECT" \
+        "$SURFACE_QUEUE" drain --session "$SESSION" --window "$WINDOW" ${LOOP:+--loop "$LOOP"} 2>&1)
+  printf '%s\n' "$out" | sed 's/^/    drain: /'
+  verdict=$(printf '%s\n' "$out" | grep -o 'PULSE_SURFACE_RESULT=[a-z0-9:-]*' | tail -1 | cut -d= -f2-)
   case "${verdict:-}" in
-    injected) say "surfaced: AskUserQuestion request delivered to $SESSION:$WINDOW"; return 0 ;;
-    "")       warn "surface NOT delivered: no PULSE_INJECT_RESULT marker (older injector?). Treating as NOT delivered."; return 1 ;;
-    *)        warn "surface NOT delivered: PULSE_INJECT_RESULT=$verdict. The request is staged at $sfile; \
-$SESSION:$WINDOW must be unblocked (it may be sitting on an open question) and the surface re-sent."; return 1 ;;
+    delivered:*) say "surfaced: ${verdict#delivered:} AskUserQuestion request(s) delivered to $SESSION:$WINDOW"; return 0 ;;
+    partial:*)   warn "surface NOT delivered in full: ${verdict}. Some announcements are still PENDING; the drain retries them."; return 1 ;;
+    "")          warn "surface NOT delivered: no PULSE_SURFACE_RESULT marker (older queue script?). Treating as NOT delivered."; return 1 ;;
+    *)           warn "surface NOT delivered: drain said $verdict. The request is STAGED and will be redelivered automatically \
+(pulse-retry.timer drains every 2 min, and the next surface into $SESSION:$WINDOW carries it too) — $SESSION:$WINDOW is \
+probably sitting on an open question. Nothing is lost and the tick is NOT re-run." ; return 1 ;;
   esac
 }
 
@@ -1529,6 +1574,15 @@ present-for-approval row), fill in \`surface_request\` instead. The dispatcher
 relays it to the \`work:di\` window on zig-computer and the LOCAL session raises
 the real AskUserQuestion, with the real bell and the real phone notification.
 
+**Omitting \`surface_request\` does NOT mean silence.** Since 2026-07-31 the
+dispatcher announces EVERY completed tick — \`done\`, \`quiet\` and \`blocked\`
+alike — building the announcement out of your \`outcome\`, \`note\`, \`artifacts\`
+and \`proof\`. Zig's rule: "there's no such thing as a low-value bell ... I need to
+know when they're ready so I can pick them up and publish them." So write \`note\`
+and \`artifacts\` as if a human will read them, because one will: say WHAT you
+landed and WHERE it is (doc tab, Asana task gid, subtask comment). Add
+\`surface_request\` only when there is a specific question on top of that.
+
 ## 4. Own your writes through git — and COMMIT ONLY YOUR OWN FILES, BY NAME
 
 ### The state you are working in
@@ -1624,7 +1678,13 @@ if the tick was quiet or could not run.
   \`http://localhost:$PORT\` both resolve there, so a proof written against them
   is portable. A proof pointing at a path that exists only on this box is not.
 - \`bead_request\` and \`surface_request\` are OPTIONAL — omit the key entirely
-  when there is nothing to ask for. Do not emit an empty object.
+  when there is nothing to ask for. Do not emit an empty object. Omitting them
+  does not suppress the bell (see §3): the dispatcher announces every completion
+  regardless, from \`note\` + \`artifacts\` + \`proof\`.
+- \`artifacts\` is where you put the things Zig has to GO LOOK AT: Asana task /
+  subtask gids, a Google Doc or tab id, a commit sha. They are named verbatim in
+  the announcement, so an empty \`artifacts\` on a tick that produced something is
+  a deliverable he has to go hunting for.
 - If §4 flagged a STALE checkout, or you left somebody else's dirt untouched, or
   a pull was refused, **put it in \`note\`.** The ledger row already records the
   machine-readable checkout state; your sentence is what makes it legible to a
@@ -1842,21 +1902,76 @@ if jq -e '.bead_request' <<<"$PAYLOAD" >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
-# Step 10 — surface, if the payload asked for it (or if a bead needs filing).
+# Step 10 — SURFACE. ALWAYS (dotfiles-5ts2).
+#
+# This used to be conditional: surface only if the payload carried a
+# surface_request, or a bead needed filing. Everything else completed in silence —
+# a ledger row on disk and nothing else. Zig, 2026-07-31:
+#
+#     "I don't think there's such a thing as a low-value bell. ... you need to be in
+#      charge of making sure I see their actions and I know when they're ready so I
+#      can pick them up and publish them."
+#
+# The old test was "does this need a DECISION". The right test is "is there
+# something Zig needs to SEE." A Friday Deploy roundup drafted and parked in Asana
+# that nobody announces is not a deliverable — it is work nobody knows happened. So
+# every completed tick surfaces: done, quiet and blocked alike.
+#
+# The surface object is BUILT FROM THE PAYLOAD in every case, and a payload-supplied
+# surface_request is merged ON TOP of it rather than replacing it — so even a tick
+# that asks a specific question still carries what landed and where. The reason
+# string distinguishes the three shapes for the announcement.
+#
+# The bounce hazard this creates is handled one layer down: surface_locally stages
+# into the queue before it injects, so a surface arriving at a 🔔-blocked window is
+# held and redelivered rather than dropped. See pulse-surface-queue.sh.
 # ---------------------------------------------------------------------------
+SUMMARY="row=$P_ROW outcome=$P_OUT${P_NOTE:+ · $P_NOTE}"
+
+COMPLETION=$(jq -n \
+  --arg row "$P_ROW" --arg out "$P_OUT" --arg note "$P_NOTE" --arg host "$HOST" \
+  --arg run "$RUN_ID" --arg ledger "$LEDGER" --arg payload "$LOCAL_STATE/result.json" \
+  --argjson artifacts "$(jq -c '(.artifacts // []) | if type=="array" then . else [.] end' <<<"$PAYLOAD" 2>/dev/null || printf '[]')" \
+  --argjson proof "$(jq -c '.proof // null' <<<"$PAYLOAD" 2>/dev/null || printf 'null')" \
+  '{reason:"a remote pulse tick FINISHED — Zig has to see it, whether or not it needs a decision",
+    question:("The " + $row + " tick finished on " + $host + " (outcome: " + $out + ")"
+              + (if $note == "" then "" else " — " + $note end)
+              + ". Its output is landed and waiting for you. Pick it up now, or park it?"),
+    options:["Show me what landed","I will pick it up","Nothing needed — noted"],
+    detail:("row=" + $row + "  ·  outcome=" + $out
+            + (if $note == "" then "" else "  ·  note=" + $note end)
+            + (if ($artifacts|length) == 0 then "" else "  ·  artifacts: " + ($artifacts|map(tostring)|join(", ")) end)
+            + (if $proof == null then "" else "  ·  proof: " + ($proof|tostring) end)
+            + "  ·  ledger row appended (UNCOMMITTED): " + $ledger
+            + "  ·  full payload: " + $payload
+            + "  ·  run=" + $run
+            + ".  Nothing here necessarily needs a decision — the point is that you SEE it, know where it is, and can pick it up and publish it. Do NOT re-run the tick.")}') \
+  || COMPLETION='{"reason":"a remote pulse tick finished","question":"A remote pulse tick finished. Take a look?","options":["Show me","Noted"],"detail":"payload at '"$LOCAL_STATE/result.json"'"}'
+
+S_REASON="completed:$P_OUT"
+SURF="$COMPLETION"
 if jq -e '.surface_request' <<<"$PAYLOAD" >/dev/null 2>&1; then
-  jq '.surface_request + {_bead_request: (.bead_request // null), _ledger: "'"$LEDGER"'", _payload: "'"$LOCAL_STATE/result.json"'"}' \
-     <<<"$PAYLOAD" > "$LOCAL_STATE/surface.json"
-  surface_locally "$LOCAL_STATE/surface.json" surface-request || true
+  # The tick's own question WINS on the keys it sets, but the completion facts
+  # (what landed, where the ledger row is, the payload path) survive underneath.
+  SURF=$(jq -n --argjson a "$COMPLETION" --argjson b "$(jq -c '.surface_request' <<<"$PAYLOAD")" '$a * $b') \
+    || SURF="$COMPLETION"
+  S_REASON="surface-request"
 elif [ "$HAS_BEAD" = 1 ]; then
-  jq -n --arg b "$LOCAL_STATE/bead-request.json" --arg l "$LEDGER" --arg p "$LOCAL_STATE/result.json" \
-     '{reason:"remote tick asked for a bead to be filed locally",
-       question:"A remote pulse tick filed no bead (by design) and needs one created here. File it?",
-       options:["File it as requested","Show me the payload first"],
-       detail:("bead request: " + $b + "  ·  ledger row appended (uncommitted): " + $l + "  ·  full payload: " + $p)}' \
-     > "$LOCAL_STATE/surface.json"
-  surface_locally "$LOCAL_STATE/surface.json" bead-request || true
+  SURF=$(jq --arg b "$LOCAL_STATE/bead-request.json" \
+    '.question = "A remote pulse tick finished and needs a bead filed HERE (it filed none by design). File it, and see what landed?"
+     | .options = ["File it as requested","Show me the payload first"]
+     | .detail  = ("bead request: " + $b + "  ·  " + .detail)' <<<"$COMPLETION") \
+    || SURF="$COMPLETION"
+  S_REASON="bead-request"
 fi
+
+printf '%s\n' "$SURF" \
+  | jq --argjson br "$(jq -c '.bead_request // null' <<<"$PAYLOAD")" \
+       --arg l "$LEDGER" --arg p "$LOCAL_STATE/result.json" \
+       '. + {_bead_request:$br, _ledger:$l, _payload:$p}' \
+  > "$LOCAL_STATE/surface.json" || printf '%s\n' "$SURF" > "$LOCAL_STATE/surface.json"
+
+surface_locally "$LOCAL_STATE/surface.json" "$S_REASON" "$SUMMARY" || true
 
 say "run $RUN_ID complete: row=$P_ROW outcome=$P_OUT · state=$LOCAL_STATE"
 emit_result completed

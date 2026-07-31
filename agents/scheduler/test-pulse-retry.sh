@@ -95,13 +95,28 @@ FUTURE_HUMAN=$(date -u -d '+1 hour' '+%a %Y-%m-%d %H:%M:%S UTC')
 PAST_HUMAN=$(date -u -d '-1 hour' '+%a %Y-%m-%d %H:%M:%S UTC')
 
 # setup_case: fresh state dir + fake control dir; exports HARNESS_STATE_DIR + PRT_FAKE.
+#
+# PULSE_SURFACE_DRAIN is pointed at a RECORDER stub (dotfiles-5ts2). pulse-retry.sh
+# now also drains the deferred-surface queue, and the real drain would read the
+# REAL ~/.local/state/pulse-dispatch-surfaces and could inject into the REAL
+# work:di — this suite is hermetic and must touch neither. The stub also lets a
+# case ASSERT the drain was invoked, which is the whole point of the wiring.
 setup_case() {
   CASE_STATE=$(mktemp -d)
   PRT_FAKE=$(mktemp -d)
   mkdir -p "$PRT_FAKE/nextfire" "$PRT_FAKE/execstart" "$PRT_FAKE/windows"
   export HARNESS_STATE_DIR="$CASE_STATE"
   export PRT_FAKE
+  cat > "$PRT_FAKE/surface-drain" <<'DRAINEOF'
+#!/bin/bash
+printf '%s\n' "$*" >> "$PRT_FAKE/drain-calls"
+printf 'PULSE_SURFACE_RESULT=%s\n' "${DRAIN_VERDICT:-empty}"
+exit 0
+DRAINEOF
+  chmod +x "$PRT_FAKE/surface-drain"
+  export PULSE_SURFACE_DRAIN="$PRT_FAKE/surface-drain"
 }
+drain_calls() { [ -f "$PRT_FAKE/drain-calls" ] && wc -l < "$PRT_FAKE/drain-calls" | tr -d ' ' || echo 0; }
 started_count() { [ -f "$PRT_FAKE/started" ] && wc -l < "$PRT_FAKE/started" | tr -d ' ' || echo 0; }
 state_acted_ts() { json_of "$HARNESS_STATE_DIR/pulse-retry-state.jsonl" "$1"; }
 # read acted_ts for a given loop out of the retry-state jsonl
@@ -277,6 +292,64 @@ printf '%s\n' "$PAST_HUMAN" > "$PRT_FAKE/nextfire/pulse-vibe.timer"     # human 
 printf 'pulse\n' > "$PRT_FAKE/windows/work"
 "$RETRY"
 if [ "$(started_count)" = "0" ]; then ok; else bad "human-format PAST next_fire → skip (no start)"; fi
+
+# ---------------------------------------------------------------------------
+# Case 11 (dotfiles-5ts2): the watcher also DRAINS DEFERRED SURFACES — and does it
+#   BEFORE the no-bounces early exit. That ordering is the whole point: a surface is
+#   an announcement for a tick that already RAN, so it is queued independently of
+#   whether any tick bounced. On the common path the bounce log is empty, and if the
+#   drain sat below that exit it would never run at all — which is exactly the
+#   "staged and never redelivered" hole this bead closes.
+setup_case
+"$RETRY"                                             # no bounces file at all
+if [ "$(drain_calls)" = "1" ] && grep -q '^drain' "$PRT_FAKE/drain-calls" 2>/dev/null; then
+  ok
+else
+  bad "no bounces → the surface drain STILL runs (got $(drain_calls) drain calls)"
+fi
+if [ "$(started_count)" = "0" ]; then
+  ok
+else
+  bad "the surface drain never re-fires a tick (a finished tick must not be re-run)"
+fi
+
+# Case 12 (dotfiles-5ts2): a drain that reports work done is logged, and still must
+#   not disturb the bounced-tick path that follows it.
+setup_case
+printf '{"ts":"2026-07-09T05:00:00Z","loop":"pulse-vibe","reason":"blocked_on_andrew"}\n' \
+  > "$HARNESS_STATE_DIR/pulse-bounces.jsonl"
+printf '%s\n' "$FUTURE_US" > "$PRT_FAKE/nextfire/pulse-vibe.timer"
+printf 'ExecStart={ argv[]=x --session explore --window explore ; }\n' \
+  > "$PRT_FAKE/execstart/pulse-vibe.service"
+printf 'explore\n' > "$PRT_FAKE/windows/explore"     # cleared
+DRAIN_VERDICT='delivered:2' "$RETRY"
+if [ "$(drain_calls)" = "1" ] && [ "$(started_count)" = "1" ]; then
+  ok
+else
+  bad "a delivering drain coexists with a bounced-tick re-fire (drains=$(drain_calls) starts=$(started_count))"
+fi
+if grep -q 'surface-drain: delivered:2' "$HARNESS_STATE_DIR/pulse-retry.log" 2>/dev/null; then
+  ok
+else
+  bad "a non-empty drain verdict is logged"
+fi
+
+# Case 13 (dotfiles-5ts2): a missing drain script is a skip, never a failure — the
+#   bounced-tick retries must survive a half-installed harness.
+setup_case
+export PULSE_SURFACE_DRAIN=/nonexistent/pulse-surface-queue.sh
+printf '{"ts":"2026-07-09T05:00:00Z","loop":"pulse-vibe","reason":"blocked_on_andrew"}\n' \
+  > "$HARNESS_STATE_DIR/pulse-bounces.jsonl"
+printf '%s\n' "$FUTURE_US" > "$PRT_FAKE/nextfire/pulse-vibe.timer"
+printf 'ExecStart={ argv[]=x --session explore --window explore ; }\n' \
+  > "$PRT_FAKE/execstart/pulse-vibe.service"
+printf 'explore\n' > "$PRT_FAKE/windows/explore"
+"$RETRY"; RC=$?
+if [ "$RC" = 0 ] && [ "$(started_count)" = "1" ]; then
+  ok
+else
+  bad "an absent drain script does not break the bounced-tick retry (rc=$RC starts=$(started_count))"
+fi
 
 # --- Summary ---
 TOTAL=$((PASS + FAIL))
