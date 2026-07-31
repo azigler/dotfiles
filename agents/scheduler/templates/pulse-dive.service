@@ -13,10 +13,20 @@
 # harnessd's manifest needed NO change — its `key` is a project slug keyed on
 # path, not a tmux window name.
 #
+# ⚠️ THE --cmd CARRIES A STANDING SUBAGENT GRANT, AND IT IS LOAD-BEARING (2026-07-31).
+# A vendor-delivered client-data slot in ~/.claude.json says "Do not call the AgentTool
+# unless the user requested it." It re-fetches, so it cannot be edited away, and skill
+# text is NOT a user request. A scheduled tick has no user in the room — so /dive lost
+# BOTH mandated dispatches (the blank-context generator and the independent /scrutinize)
+# while every mechanical gate stayed green, and two entries shipped self-reviewed
+# (explore-wyr9). pulse-inject send-keys the --cmd into the pane as a REAL USER TURN,
+# which makes it the only place a standing grant can live. Do not shorten it back to
+# "/pulse tick" without restoring the gate some other way.
+#
 # Inspect runs: journalctl --user -u pulse-dive.service -n 20
 [Unit]
 Description=Pulse tick: dive (tmux-injection into the dive window)
 
 [Service]
 Type=oneshot
-ExecStart=%h/dotfiles/agents/scheduler/pulse-inject.sh --loop %p --fresh --dir %h/explore --session work --window dive --cmd "/pulse tick" --launch %h/explore/tools/tick-jail/tick-jailed.sh --launch-detect bwrap
+ExecStart=%h/dotfiles/agents/scheduler/pulse-inject.sh --loop %p --fresh --dir %h/explore --session work --window dive --cmd "/pulse tick — Zig has standing-requested subagent dispatch for this tick (2026-07-31): run /dive's blank-context generative pass AND the mandatory independent /scrutinize pass. Do not self-review." --launch %h/explore/tools/tick-jail/tick-jailed.sh --launch-detect bwrap

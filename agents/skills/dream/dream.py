@@ -159,13 +159,47 @@ def current_slug_from_cwd() -> str:
     return re.sub(r"[^A-Za-z0-9]", "-", os.getcwd())
 
 
-def resolve_root(arg_root: str | None) -> Path:
+def resolve_root(arg_root: str | None) -> str:
+    """The projects root(s) to hand recall.py, as an os.pathsep-joined string.
+
+    ⚠️ MUST stay multi-valued. `/dream` runs UNJAILED, but the pulse loops it
+    consolidates (`dive`, `digest`) run inside the tick-jail, which relocates
+    their whole config tree via CLAUDE_CONFIG_DIR (default `~/.claude-tick`).
+    A single-rooted `--root=~/.claude/projects` silently excluded every jailed
+    loop from the weekly consolidation and still reported success, because a
+    missing vault is indistinguishable from a quiet week (`explore-jkc6`).
+
+    Passing a single value here would ALSO defeat recall.py's own multi-root
+    discovery, since an explicit --root wins outright. So join them.
+    """
     if arg_root is not None:
-        return Path(arg_root)
+        return arg_root
     env_root = os.environ.get("CLAUDE_PROJECTS_ROOT")
     if env_root:
-        return Path(env_root)
-    return Path.home() / ".claude" / "projects"
+        return env_root
+
+    roots = [Path.home() / ".claude" / "projects"]
+    cfg = os.environ.get("CLAUDE_CONFIG_DIR")
+    if cfg:
+        roots.insert(0, Path(cfg) / "projects")
+    tick = os.environ.get("TICK_JAIL_CONFIG_DIR") or str(
+        Path.home() / ".claude-tick"
+    )
+    roots.append(Path(tick) / "projects")
+
+    seen: set[str] = set()
+    out: list[str] = []
+    for r in roots:
+        s = str(r.expanduser())
+        if s in seen or not Path(s).is_dir():
+            continue
+        seen.add(s)
+        out.append(s)
+    return (
+        os.pathsep.join(out)
+        if out
+        else str(Path.home() / ".claude" / "projects")
+    )
 
 
 def resolve_recall(arg_recall: str | None) -> Path:
@@ -196,27 +230,32 @@ def scan_window(
     in-window if ANY of its files (main jsonl, subagent jsonl, or tool-results txt)
     has mtime >= ``since_epoch`` — session-level so a still-active long session is
     scanned in full."""
-    slug_dir = root / slug
+    # `root` may be a single Path or several (the jailed vault is a separate tree —
+    # see resolve_root; explore-jkc6). Normalize and union across all of them.
+    roots = root if isinstance(root, (list, tuple)) else [root]
     all_sessions: set[str] = set()
     in_window: set[str] = set()
-    if not slug_dir.is_dir():
-        return all_sessions, in_window
 
-    def consider(p: Path) -> None:
-        sid = session_id_of(slug_dir, p)
-        all_sessions.add(sid)
-        try:
-            if p.stat().st_mtime >= since_epoch:
-                in_window.add(sid)
-        except OSError:
-            pass
+    for r in roots:
+        slug_dir = Path(r) / slug
+        if not slug_dir.is_dir():
+            continue
 
-    for p in slug_dir.rglob("*.jsonl"):
-        if p.is_file():
-            consider(p)
-    for p in slug_dir.rglob("*.txt"):
-        if p.is_file() and p.parent.name == "tool-results":
-            consider(p)
+        def consider(p: Path, slug_dir: Path = slug_dir) -> None:
+            sid = session_id_of(slug_dir, p)
+            all_sessions.add(sid)
+            try:
+                if p.stat().st_mtime >= since_epoch:
+                    in_window.add(sid)
+            except OSError:
+                pass
+
+        for p in slug_dir.rglob("*.jsonl"):
+            if p.is_file():
+                consider(p)
+        for p in slug_dir.rglob("*.txt"):
+            if p.is_file() and p.parent.name == "tool-results":
+                consider(p)
     return all_sessions, in_window
 
 
@@ -236,7 +275,12 @@ def run_recall(
         "--regex",
         f"--slug={slug}",
         "--json",
-        f"--root={root}",
+        # root may be several vaults; recall.py accepts an os.pathsep-joined list.
+        "--root="
+        + os.pathsep.join(
+            str(p)
+            for p in (root if isinstance(root, (list, tuple)) else [root])
+        ),
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if proc.returncode == 2:
@@ -392,11 +436,23 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     root = resolve_root(args.root)
-    if not root.is_dir():
+    root_paths = [Path(p) for p in root.split(os.pathsep) if p]
+    live_roots = [p for p in root_paths if p.is_dir()]
+    if not live_roots:
         sys.stderr.write(
-            f"dream: projects root does not exist or is not a directory: {root}\n"
+            "dream: no projects root exists or is a directory: "
+            + ", ".join(str(p) for p in root_paths)
+            + "\n"
         )
         return 2
+    # Say which vaults are in scope — a silently-missing one is the jkc6 defect.
+    sys.stderr.write(
+        "dream: consolidating "
+        + str(len(live_roots))
+        + " vault(s): "
+        + ", ".join(str(p) for p in live_roots)
+        + "\n"
+    )
 
     recall_path = resolve_recall(args.recall)
     if not recall_path.is_file():
@@ -419,7 +475,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         all_sessions, in_window, candidates, truncated = gather_candidates(
-            root,
+            live_roots,
             slug,
             since_dt.timestamp(),
             recall_path,

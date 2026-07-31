@@ -608,13 +608,53 @@ def current_slug_from_cwd() -> str:
     return re.sub(r"[^A-Za-z0-9]", "-", os.getcwd())
 
 
-def resolve_root(arg_root: str | None) -> Path:
+def resolve_roots(arg_root: str | None) -> list[Path]:
+    """Transcript vaults to search, in priority order.
+
+    ⚠️ There is more than one vault, and missing that is silent. A jailed pulse
+    tick relocates its ENTIRE config tree via ``CLAUDE_CONFIG_DIR`` (the tick-jail
+    default is ``~/.claude-tick``), so its transcripts land in a DIFFERENT tree
+    from the interactive sessions'. A reader that knows only ``~/.claude/projects``
+    consolidates a corpus with **every jailed loop missing** — and reports success,
+    because an absent vault is indistinguishable from a quiet week (``explore-jkc6``).
+    So search all of them and let the caller see the union.
+
+    Explicit ``--root``/``CLAUDE_PROJECTS_ROOT`` still win outright (both accept an
+    os.pathsep-separated list); otherwise we probe the known vaults.
+    """
     if arg_root is not None:
-        return Path(arg_root)
+        return [Path(p).expanduser() for p in arg_root.split(os.pathsep) if p]
+
     env_root = os.environ.get("CLAUDE_PROJECTS_ROOT")
     if env_root:
-        return Path(env_root)
-    return Path.home() / ".claude" / "projects"
+        return [Path(p).expanduser() for p in env_root.split(os.pathsep) if p]
+
+    roots: list[Path] = []
+    # A jailed process reading its own vault must see it first.
+    cfg = os.environ.get("CLAUDE_CONFIG_DIR")
+    if cfg:
+        roots.append(Path(cfg) / "projects")
+    roots.append(Path.home() / ".claude" / "projects")
+    # The tick-jail vault, so an UNjailed reader (/dream) still sees jailed loops.
+    tick = os.environ.get("TICK_JAIL_CONFIG_DIR") or str(
+        Path.home() / ".claude-tick"
+    )
+    roots.append(Path(tick) / "projects")
+    for extra in os.environ.get("CLAUDE_PROJECTS_EXTRA_ROOTS", "").split(
+        os.pathsep
+    ):
+        if extra:
+            roots.append(Path(extra))
+
+    seen: set[str] = set()
+    out: list[Path] = []
+    for r in roots:
+        rp = r.expanduser()
+        if str(rp) in seen:
+            continue
+        seen.add(str(rp))
+        out.append(rp)
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -670,15 +710,20 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    root = resolve_root(args.root)
-    if not root.is_dir():
+    roots = resolve_roots(args.root)
+    live = [r for r in roots if r.is_dir()]
+    if not live:
         sys.stderr.write(
-            f"recall: projects root does not exist or is not a directory: {root}\n"
+            "recall: no projects root exists or is a directory: "
+            + ", ".join(str(r) for r in roots)
+            + "\n"
         )
         return 2
 
     if args.all:
-        slugs = sorted(d.name for d in root.iterdir() if d.is_dir())
+        slugs = sorted(
+            {d.name for r in live for d in r.iterdir() if d.is_dir()}
+        )
     elif args.slug:
         slugs = [args.slug]
     else:
@@ -705,17 +750,20 @@ def main(argv: list[str] | None = None) -> int:
     active: Path | None = None
     best_mtime = -1.0
     for slug in slugs:
-        slug_dir = root / slug
-        for f in slug_files(slug_dir):
-            pairs.append((slug, slug_dir, f))
-            if f.suffix == ".jsonl":
-                try:
-                    m = f.stat().st_mtime
-                except OSError:
-                    continue
-                if m > best_mtime:
-                    best_mtime = m
-                    active = f
+        for r in live:
+            slug_dir = r / slug
+            if not slug_dir.is_dir():
+                continue
+            for f in slug_files(slug_dir):
+                pairs.append((slug, slug_dir, f))
+                if f.suffix == ".jsonl":
+                    try:
+                        m = f.stat().st_mtime
+                    except OSError:
+                        continue
+                    if m > best_mtime:
+                        best_mtime = m
+                        active = f
 
     pairs.sort(key=lambda t: (t[0], str(t[2])))
 
