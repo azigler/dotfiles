@@ -41,16 +41,18 @@
 #       4.9 GB and this is a shared box.
 #
 #   readonly  <repo>
-#       Assert this checkout ENDS CLEAN: no dirty tracked files outside `harvest`
-#       paths, and HEAD at the published tip. The directive name is historical.
+#       WATCH this checkout: report any dirty tracked file, and assert HEAD is at
+#       the published tip. The directive name is historical twice over now.
 #       It does NOT mean the VPS may not write — the box is a peer with a git
-#       identity that commits and pushes (Zig, 2026-07-28), and the committer-
-#       identity assertion was removed 2026-07-27 (see vps-repo-refresh.sh for
-#       why: it was a proxy for the wrong thing and unenforceable). What this
-#       asserts is the rule that replaced "never write": own your writes through
-#       git — pull, write, commit, push — and never walk away from a dirty tree.
-#       A single uncommitted edit here fails the refresh for EVERY dispatched row
-#       on the box, which is exactly what happened on 2026-07-30.
+#       identity that commits and pushes (Zig, 2026-07-28) — and since
+#       2026-07-30 (dotfiles-f4ub) it does NOT mean the checkout must end clean
+#       either. Dirty is normal, dirty is somebody's WIP, and dirty never blocks:
+#       the paths are recorded in the receipt's `dirty` array, carried into the
+#       tick's DISPATCH.md and into the ledger row, and NOTHING resets them. A
+#       single uncommitted edit used to fail the refresh for EVERY dispatched row
+#       on the box, and on 2026-07-30 it did exactly that.
+#       What still blocks is DIVERGENCE — a HEAD that is not the published tip,
+#       judged by vps-preflight on the machine Zig watches.
 #
 #   beadstore <repo> <path>
 #       Fingerprint a bead store and record whether it changed since the previous
@@ -62,10 +64,14 @@
 #
 #   harvest   <repo> <path>
 #       A TRACKED file the remote tick legitimately writes (the pulse ledger).
-#       Before pulling, a modified copy is preserved into the harvest dir and the
-#       working copy is reset, so the ff-only pull is never blocked and the row is
-#       never lost. Listed in the receipt; vps-preflight.sh copies it back to
-#       zig-computer. Everything NOT listed here that is dirty is a hard failure.
+#       Before pulling, a COPY is preserved into the harvest dir so the row can
+#       never be lost. The working copy is NOT reset — that reset was removed
+#       2026-07-30 (dotfiles-f4ub): preserving a copy first does not make
+#       destroying the working copy acceptable, and it is the same code path that
+#       would have eaten verified benchmark-canon work. Listed in the receipt;
+#       vps-preflight.sh copies the preserved version back to zig-computer.
+#       Everything NOT listed here that is dirty is reported under `dirty` —
+#       a warning, no longer a failure.
 #
 #   require   <path>
 #       Must exist and be non-empty after the refresh. Catches the empty-submodule
