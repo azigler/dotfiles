@@ -217,14 +217,17 @@ to surface — occurring inside the loop built to surface it.
    awk 'FNR==1{skip=0} /^## Novel opportunities \((desk pass|elevate sweep)/{skip=1; next} /^## /{skip=0} !skip' \
      */FINDINGS.md > /tmp/desk-corpus-<date>.md
    ```
-   ⚠️ **This form deliberately contains NO bare `$0`, and must stay that way.** The
-   earlier version tested `($0 ~ /^## Novel opportunities …/)`; when `/desk` is invoked
-   **with an argument**, skill-argument substitution rewrites `$0` in the rendered body
+   ⚠️ **This form deliberately contains NO bare `\$0`, and must stay that way.** The
+   earlier version tested `(\$0 ~ /^## Novel opportunities …/)`; when `/desk` is invoked
+   **with an argument**, skill-argument substitution rewrites `\$0` in the rendered body
    to that argument, yielding `(/home/ubuntu/explore ~ /^## …/)` — an awk **`division by
    zero` fatal**, a ~2 KB corpus, and a pass that looks like it ran. Verified 2026-07-31:
    the file on disk was correct; only the *rendered* copy was corrupt, so this is
    invisible to anyone reading the source. Any `$N` in a skill's shell block is exposed
    to the same rewrite — prefer pattern-matching idioms over field references here.
+   (The backslashes in this paragraph are the substitution escape — without them this
+   very warning gets eaten by the bug it describes. Keep them. See `dotfiles/CLAUDE.md`
+   rule 6.)
 
 2. Record the true size: `wc -c < /tmp/desk-corpus-<date>.md` **and `wc -l`.**
 3. **Read it as a 4-way parallel map-reduce, NOT as ≤4 reads in one context.**

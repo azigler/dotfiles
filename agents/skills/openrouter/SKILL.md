@@ -23,7 +23,7 @@ balance. Before calling:
    from autonomous loops, background polling, or speculative
    "let me try this prompt and see" workflows.
 2. **State the estimated cost** in your acknowledgment ("This
-   will spend ~$0.004 on nano-banana for one 1K image — OK?").
+   will spend ~\$0.004 on nano-banana for one 1K image — OK?").
 3. **Generate one image at a time** unless the user explicitly
    asks for a batch. Don't fan out variants without confirmation.
 4. **Save outputs immediately** so we never re-pay for the same
@@ -75,12 +75,12 @@ art image generation + editing.
 - **Pricing**: per-image-token, NOT per-text-token. Verified May 2026:
   ~1120 image tokens out per 1K image, billed at the model's image-output
   rate.
-- **Per-image cost**: roughly **$0.05–0.07 per 1K image** as of May 2026
+- **Per-image cost**: roughly **\$0.05–0.07 per 1K image** as of May 2026
   (verified via actual `cost` field in OpenRouter response, e.g.
-  `0.067276` for one 1024×1024 generation). Earlier docs claimed $0.004;
+  `0.067276` for one 1024×1024 generation). Earlier docs claimed \$0.004;
   that figure was stale. State the real expected cost in your
   acknowledgment to the user before generating.
-- **Two images = ~$0.10–0.14** total. Always confirm cost before batches.
+- **Two images = ~\$0.10–0.14** total. Always confirm cost before batches.
 
 ### Use the helper script
 

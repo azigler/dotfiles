@@ -497,7 +497,7 @@ subject to be specific AND surprising. If the rolled subject feels too
 on-the-nose, regenerate the seed (max once).
 
 Cost calibration: nano-banana 2 (Gemini 3.1 Flash Image Preview) actual
-cost is ~$0.05-0.07 per 1K image, NOT $0.004 as the older /openrouter
+cost is ~\$0.05-0.07 per 1K image, NOT \$0.004 as the older /openrouter
 docs suggest. Always state the real cost in ur acknowledgment to the
 user, and don't generate variants without explicit confirmation.
 
@@ -580,8 +580,8 @@ The chat summary is the index.
   prompt. Real seed, real arithmetic, real provenance block. Skip and
   u've prior-collapsed.
 - [/openrouter](../openrouter/SKILL.md) — image generation via
-  nano-banana 2. Cost-aware. Save outputs. Note: stated $0.004/image
-  cost is stale; current ~$0.05-0.07/image. Confirm w/ user before
+  nano-banana 2. Cost-aware. Save outputs. Note: stated \$0.004/image
+  cost is stale; current ~\$0.05-0.07/image. Confirm w/ user before
   generating multiple.
 - [/asana](../asana/SKILL.md) — the underlying fleet proxy mechanics.
   /dive overrides /asana's PUT recommendation w/ POST-/update for

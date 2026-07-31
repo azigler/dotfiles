@@ -59,6 +59,17 @@ Consequences that bite:
    `effortLevel` is currently **absent** from every settings file — the `high` you
    get is the default, not a pin, and nothing warns if that changes.
 
+6. **`$0`/`$1`/`$N` in a `SKILL.md` are rewritten before the agent ever sees them.**
+   Skill-argument substitution replaces `/\$(\d+)(?!\w)/` in the **rendered** body with
+   the invocation's argument words — **0-indexed, so `$0` is the FIRST argument**
+   (verified against `claude` 2.1.220). An awk `$0` becomes a path and dies `division by
+   zero`; prose is hit too (`$0.05` → `<arg>.05`). The file on disk stays correct, so
+   this is invisible to grep and to review. Only `SKILL.md` is substituted —
+   `reference/*.md` is read verbatim, and a skill invoked with no argument is untouched.
+   **Prefer an idiom with no field reference** (pattern-match + `next` over `($0 ~ /re/)`);
+   `${1}` / `${1:-.}` are safe (braces don't match); otherwise escape as `\$0`. Live
+   instance: `explore-wcmj` — `/desk`'s corpus load silently returned 0.1% of the corpus.
+
 ## Beads
 
 Prefix `dotfiles`. Orchestrator owns the lifecycle. Live epic for the Opus-5
