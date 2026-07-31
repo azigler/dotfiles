@@ -99,7 +99,7 @@ PAST_HUMAN=$(date -u -d '-1 hour' '+%a %Y-%m-%d %H:%M:%S UTC')
 # PULSE_SURFACE_DRAIN is pointed at a RECORDER stub (dotfiles-5ts2). pulse-retry.sh
 # now also drains the deferred-surface queue, and the real drain would read the
 # REAL ~/.local/state/pulse-dispatch-surfaces and could inject into the REAL
-# work:di — this suite is hermetic and must touch neither. The stub also lets a
+# work:pulse — this suite is hermetic and must touch neither. The stub also lets a
 # case ASSERT the drain was invoked, which is the whole point of the wiring.
 setup_case() {
   CASE_STATE=$(mktemp -d)

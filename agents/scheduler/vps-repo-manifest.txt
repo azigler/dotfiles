@@ -22,7 +22,7 @@
 # di-monday and news-planning were originally left local because both must raise
 # a bell to Zig and a dialog on an unattended shared box is worthless. Zig's call
 # 2026-07-27 supersedes that: they run remote, and a payload `surface_request`
-# fires BACK to the work:di window here so the LOCAL session raises the
+# fires BACK to the work:pulse window here so the LOCAL session raises the
 # AskUserQuestion. The bell still rings on this machine; only the drafting moved.
 #
 # Directives (whitespace separated; ~ and $HOME expand; # starts a comment):

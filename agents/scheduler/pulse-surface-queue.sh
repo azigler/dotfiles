@@ -70,7 +70,7 @@
 #   pulse-surface-queue.sh stage --row <row> --file <surface.json> [options]
 #       --run <run-id>      the dispatch run id (provenance in the announcement)
 #       --session <name>    LOCAL tmux session   (default work)
-#       --window  <name>    LOCAL tmux window    (default di)
+#       --window  <name>    LOCAL tmux window    (default pulse)
 #       --dir <project>     the LOCAL project dir (ledger lives at <dir>/refs/…)
 #       --reason <text>     why this surfaced (surface-request / completed:done / …)
 #       --summary <text>    one line: what landed
@@ -187,7 +187,9 @@ if [ "$CMD" = stage ]; then
   [ -n "$ROW" ]  || usage_fail "stage: --row is required"
   [ -n "$FILE" ] || usage_fail "stage: --file is required"
   SESSION=${SESSION:-work}
-  WINDOW=${WINDOW:-di}
+  # `pulse` since 2026-07-31 (bd-j8di) — the shared surface window for every row
+  # on this box. Keep in step with pulse-dispatch-remote.sh / pulse-inject.sh.
+  WINDOW=${WINDOW:-pulse}
   target="$QUEUE_DIR/$(slug_of "$ROW").json"
   now=$(date -u +%FT%TZ)
 
@@ -237,7 +239,7 @@ pending_lines() {
   for f in "$QUEUE_DIR"/*.json; do
     [ -f "$f" ] || continue
     s=$(jq -r '.session // "work"' "$f" 2>/dev/null) || continue
-    w=$(jq -r '.window  // "di"'   "$f" 2>/dev/null) || continue
+    w=$(jq -r '.window  // "pulse"' "$f" 2>/dev/null) || continue
     [ -n "$F_SESSION" ] && [ "$F_SESSION" != "$s" ] && continue
     [ -n "$F_WINDOW"  ] && [ "$F_WINDOW"  != "$w" ] && continue
     k=$(jq -r '.first_staged_at // .staged_at // "0"' "$f" 2>/dev/null)
@@ -284,7 +286,7 @@ fi
 # indexed. Declare with a distinct name, then fill.
 declare -A BY_TARGET
 for f in "${PENDING[@]}"; do
-  s=$(jq -r '.session // "work"' "$f" 2>/dev/null); w=$(jq -r '.window // "di"' "$f" 2>/dev/null)
+  s=$(jq -r '.session // "work"' "$f" 2>/dev/null); w=$(jq -r '.window // "pulse"' "$f" 2>/dev/null)
   key="${s}|${w}"
   BY_TARGET["$key"]="${BY_TARGET[$key]:-}${f}"$'\n'
 done

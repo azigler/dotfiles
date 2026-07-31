@@ -50,7 +50,7 @@
 #                     REQUESTED (the box may also have filed its own and pushed).
 #   7. surface        ALWAYS (dotfiles-5ts2). Every finished tick — done, quiet or
 #                     blocked — is STAGED into the deferred-surface queue and then
-#                     DRAINED into the LOCAL work:di window, so the LOCAL session
+#                     DRAINED into the LOCAL work:pulse window, so the LOCAL session
 #                     raises the AskUserQuestion. A payload surface_request refines
 #                     the question; its absence no longer means silence. And a
 #                     window already sitting on a 🔔 no longer LOSES the
@@ -258,7 +258,7 @@
 #   --remote-session tmux session on the box (default pulse-dispatch — deliberately
 #                    NOT `vps-agent`, which the /vps Fable runs drive)
 #   --session        LOCAL tmux session for the surface callback (default work)
-#   --window         LOCAL tmux window for the surface callback (default di)
+#   --window         LOCAL tmux window for the surface callback (default pulse)
 #   --timeout        seconds to wait for the remote result (default 3600)
 #   --poll           seconds between result polls (default 30)
 #   --fresh          warm process, COLD CONTEXT: when the remote pane already runs
@@ -346,7 +346,13 @@ DIR=""
 REMOTE_DIR=""
 REMOTE_SESSION="work"   # ONE session on the box; the ROW names the window
 SESSION="work"
-WINDOW="di"
+# The shared LOCAL surface window for EVERY row on this box (renamed from `di`
+# 2026-07-31, Zig's call, bd-j8di — seven rows land here and none of them is
+# specifically Dev Interrupted; the window is the pulse notification surface).
+# Must stay in step with pulse-inject.sh's and pulse-retry.sh's own defaults,
+# which were already `pulse`: while this said `di`, the dispatcher STAGED
+# surfaces for a window the retry drain never looked for.
+WINDOW="pulse"
 TIMEOUT=3600
 POLL=30
 DRY_RUN=0
@@ -390,8 +396,8 @@ fail() {
   # by the grace window, and reasonless: it says "did not run", not "blocked on a
   # dirty checkout, here is the repo and the remedy." Those are different products.
   # The remote box cannot raise an AskUserQuestion anyone will see, so the LOCAL
-  # work:di session raises it — same path the payload surface_request uses, and
-  # work:di is the alert interface for every remote row by design.
+  # work:pulse session raises it — same path the payload surface_request uses, and
+  # work:pulse is the alert interface for every remote row by design.
   #
   # INVERTED 2026-07-29 (dotfiles-wv2a) — an allowlist of verdicts was the wrong
   # shape and it cost a tick: failed-tunnel was not on it, so the di-wednesday
@@ -492,7 +498,7 @@ surface_locally() {
   local sfile=$1 reason=$2 summary=${3:-} out verdict
   # Claimed BEFORE the attempt, not after: the point of the flag is that fail()
   # must not ring a second time for the same event, and that is true whether this
-  # attempt is delivered or bounced (a bounce means work:di is already blocked on
+  # attempt is delivered or bounced (a bounce means work:pulse is already blocked on
   # Zig — ringing it again cannot help and just doubles the noise).
   SURFACED=1
   [ -x "$INJECT" ] || { warn "cannot surface: $INJECT is not executable"; return 1; }
@@ -1571,7 +1577,7 @@ too: \`git add .beads/issues.jsonl\` names a FILE, which is correct;
 There is nobody attached to this box — a dialog here reaches no one and freezes
 this pane. If this tick needs Zig (a Pod Weekly blocker, an approval, a
 present-for-approval row), fill in \`surface_request\` instead. The dispatcher
-relays it to the \`work:di\` window on zig-computer and the LOCAL session raises
+relays it to the \`work:pulse\` window on zig-computer and the LOCAL session raises
 the real AskUserQuestion, with the real bell and the real phone notification.
 
 **Omitting \`surface_request\` does NOT mean silence.** Since 2026-07-31 the
@@ -1817,7 +1823,7 @@ fi
 # dialog — real bell, real phone notification, real person.
 #
 # Session/window auto-creation is REUSED, not rewritten: pulse-inject.sh already
-# creates the `work` session detached when absent, creates the `di` window when
+# creates the `work` session detached when absent, creates the `pulse` window when
 # absent, launches claude, gates on the composer being input-ready, and refuses
 # to type into a window that is already 🔔-blocked on Zig. Re-implementing any of
 # that here would be a second copy to drift.

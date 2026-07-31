@@ -481,7 +481,7 @@ echo "== fail() surfacing is a DENYLIST now (dotfiles-wv2a) =="
 OUT=$(run_live "${BASE[@]}" 'MASTER_RC=255')
 check_verdict "an unreachable box in a LIVE run -> failed-tunnel" "$OUT" failed-tunnel
 if grep -q 'REMOTE PULSE SURFACE' "$ROOT/inject.log"
-  then ok "failed-tunnel SURFACES to work:di (the verdict that cost us the tick)"
+  then ok "failed-tunnel SURFACES to work:pulse (the verdict that cost us the tick)"
   else bad "failed-tunnel surfaces" "a tunnel failure rang nothing — this is the exact 2026-07-29 miss"; fi
 : > "$ROOT/inject.log"
 OUT=$(run_live "${BASE[@]}" 'REMOTE_BEAD_JSON=')
@@ -496,7 +496,7 @@ OUT=$(env INJECT_LOG="$ROOT/inject.log" PULSE_DISPATCH_SSH="$STUB/ssh" \
   "$DISPATCH" --row not-a-real-row --dir "$PROJ" 2>&1)
 check_verdict "a typo'd --row is still failed-row" "$OUT" failed-row
 if [ -s "$ROOT/inject.log" ]
-  then bad "failed-row does not wake the window" "an operator typo rang work:di"
+  then bad "failed-row does not wake the window" "an operator typo rang work:pulse"
   else ok "failed-row does NOT wake the window (operator typo, hand-run)"; fi
 
 : > "$ROOT/inject.log"
@@ -585,8 +585,8 @@ OUT=$(run_live "${BASE[@]}" 'RESULT_JSON={"row":"di-friday","outcome":"done","no
 check_verdict "surface_request still completes the dispatch" "$OUT" completed
 if grep -q 'REMOTE PULSE SURFACE' "$ROOT/inject.log"; then ok "surface_request injects into the LOCAL window"
 else bad "surface_request injects locally" "nothing injected"; fi
-if grep -q -- '--window di' "$ROOT/inject.log" && grep -q -- '--session work' "$ROOT/inject.log"
-then ok "surface targets session 'work' window 'di' by default"
+if grep -q -- '--window pulse' "$ROOT/inject.log" && grep -q -- '--session work' "$ROOT/inject.log"
+then ok "surface targets session 'work' window 'pulse' by default"
 else bad "surface target" "got: $(cat "$ROOT/inject.log")"; fi
 if grep -q 'AskUserQuestion' "$ROOT/inject.log"; then ok "the injected prompt asks the LOCAL session to raise the AskUserQuestion"
 else bad "surface prompt" "prompt does not mention AskUserQuestion"; fi
@@ -637,7 +637,7 @@ else bad "two pending" "pending=$(queue_pending), expected 2"; fi
 #     oldest first. This is the acceptance criterion in one command: the tick is
 #     never re-run, only the announcement.
 : > "$ROOT/inject.log"
-DOUT=$(queue_drain --session work --window di)
+DOUT=$(queue_drain --session work --window pulse)
 if [ "$(surface_verdict "$DOUT")" = "delivered:2" ]
 then ok "the drain delivers BOTH held announcements with no new dispatch"
 else bad "drain delivers both" "verdict: $(surface_verdict "$DOUT")"; fi
@@ -661,7 +661,7 @@ else bad "delivered move" "pending=$(queue_pending) delivered=$(queue_done)"; fi
 
 # (4) Nothing is announced twice.
 : > "$ROOT/inject.log"
-DOUT=$(queue_drain --session work --window di)
+DOUT=$(queue_drain --session work --window pulse)
 if [ "$(surface_verdict "$DOUT")" = "empty" ] && [ ! -s "$ROOT/inject.log" ]
 then ok "a second drain announces NOTHING (delivered exactly once)"
 else bad "no double-announce" "verdict $(surface_verdict "$DOUT"), inject.log: $(head -c 120 "$ROOT/inject.log")"; fi
@@ -684,7 +684,7 @@ if jq -e '.first_staged_at <= .staged_at' "$SURFQ/pending/di-friday.json" >/dev/
 then ok "first_staged_at survives the collapse (so 'oldest first' still means oldest)"
 else bad "first_staged_at preserved" "timestamps do not survive collapse"; fi
 : > "$ROOT/inject.log"
-DOUT=$(queue_drain --session work --window di)
+DOUT=$(queue_drain --session work --window pulse)
 if [ "$(surface_verdict "$DOUT")" = "delivered:1" ] && grep -q 'NEWEST' "$ROOT/inject.log" \
    && ! grep -q 'STALE' "$ROOT/inject.log"
 then ok "the delivered announcement carries the NEWEST run and never the stale one"
@@ -887,7 +887,7 @@ run_row_out() { # same, but returns the dispatcher's output
     "$DISPATCH" --row "$_row" --dir "$PROJ" --dry-run --poll 1 --timeout 3 "$@" 2>&1
 }
 
-# (a3.2) A BLOCKED DISPATCH RINGS work:di. Not because the block was invisible —
+# (a3.2) A BLOCKED DISPATCH RINGS work:pulse. Not because the block was invisible —
 #        the harnessd loop list shows the row stale after its grace window — but
 #        that signal is pull-based, delayed, and does not say WHY. A timer-fired
 #        block should reach Zig immediately, with the reason.
@@ -904,9 +904,9 @@ if grep -q "REMOTE PULSE SURFACE" "$ROOT/inject.log"
 if grep -q "session work" "$ROOT/inject.log" || grep -q -- "--session work" "$ROOT/inject.log"
   then ok "the block surfaces to session 'work'"
   else bad "block surfaces to work" "wrong session: $(head -1 "$ROOT/inject.log" | cut -c1-80)"; fi
-if grep -q -- "--window di" "$ROOT/inject.log"
-  then ok "the block surfaces to window 'di' (the alert interface)"
-  else bad "block surfaces to di" "wrong window"; fi
+if grep -q -- "--window pulse" "$ROOT/inject.log"
+  then ok "the block surfaces to window 'pulse' (the alert interface)"
+  else bad "block surfaces to pulse" "wrong window"; fi
 # A --dry-run must NEVER wake the window: it is a human at a terminal already.
 : > "$ROOT/inject.log"; run_row di-tuesday
 if grep -q "REMOTE PULSE SURFACE" "$ROOT/inject.log"
