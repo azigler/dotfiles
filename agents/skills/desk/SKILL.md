@@ -636,68 +636,31 @@ dashboard rendered it as an infrastructure alarm for 12 hours because its manife
 had `ledger_row: null`. **A needs-Zig signal was masked as a plumbing failure.** Bug
 `explore-4x39`.
 
-So assert it, every run, immediately after the append:
+So assert it, every run, immediately after the append — one call:
 
 ```bash
-LOOP_ID=pulse-desk   # the systemd timer stem
-ROW=desk                          # the row THIS loop writes
-
-python3 ~/harnessd/bin/harness_state.py >/dev/null
-python3 - "$LOOP_ID" "$ROW" <<'PYEOF'
-import json, sys
-loop_id, row = sys.argv[1], sys.argv[2]
-state = json.load(open('/home/ubuntu/.local/state/harness/state.json'))
-m = [l for l in state['loops'] if l['id'] == loop_id]
-assert m, f"REGISTRATION GAP: {loop_id} is not in harness-manifest.json at all"
-l = m[0]
-assert l['ledger_row'] == row, (
-    f"REGISTRATION GAP: manifest says ledger_row={l['ledger_row']!r}, "
-    f"this loop writes {row!r} — the dashboard is reading nothing")
-assert l['last_ledger_ts'], (
-    f"REGISTRATION GAP: {loop_id} reads no ledger row despite one just being written")
-print(f"registration OK: {loop_id} row={row} state={l['state']} — {l['detail']}")
-PYEOF
+~/harnessd/bin/harness-assert-registration pulse-desk desk   # <timer-stem> <row-it-writes>
+# exit 0 registered · 1 registration gap · 2 published state not trustworthy yet · 3 usage
 ```
 
-**⚠️ The manual regen is a FALSE GREEN if you just edited the manifest.** `harnessd` is a
-running daemon (`systemctl --user is-active harnessd`) that loads
-`harness-manifest.json` **at service start** and regenerates `state.json` on its own
-cadence from that in-memory copy. Running `harness_state.py` by hand re-reads the file
-fresh, so **your assertion passes while the dashboard keeps publishing the broken
-value.** Verified 2026-07-27: a hand run reported `daily-digest / blocked` (correct) while
-the daemon, started 44 minutes before the manifest edit, kept emitting
-`ledger_row: null / stale` into the same file minutes later. This is the always-loaded-tier
-staleness class (`explore-0z6r`) one layer down.
+**⚠️ Do NOT hand-run `harness_state.py` first — that is the FALSE GREEN this script
+exists to remove** (`explore-vuro`, fixed 2026-07-31). `harnessd` is a running daemon that
+publishes `state.json` itself; a hand regen re-reads the manifest fresh and passes **while
+the dashboard keeps publishing the broken value.** Verified 2026-07-27: a hand run reported
+`daily-digest / blocked` (correct) while the daemon, started 44 minutes before the manifest
+edit, kept emitting `ledger_row: null / stale` into the same file minutes later. This is the
+always-loaded-tier staleness class (`explore-0z6r`) one layer down.
 
-So if you touched the manifest, **restart the daemon and then assert against what IT
-publishes** — not against your own regen:
-
-```bash
-systemctl --user restart harnessd
-# wait for the daemon's OWN next regen, then confirm state.json is newer than the manifest
-until [ "$(stat -c %Y ~/.local/state/harness/state.json)" -gt "$(stat -c %Y ~/harnessd/refs/harness-manifest.json)" ]; do sleep 10; done
-```
-…and only then run the assertion block above.
-
-**⚠️ The manual regen is a FALSE GREEN if you just edited the manifest.** `harnessd` is a
-running daemon (`systemctl --user is-active harnessd`) that loads
-`harness-manifest.json` **at service start** and regenerates `state.json` on its own
-cadence from that in-memory copy. Running `harness_state.py` by hand re-reads the file
-fresh, so **your assertion passes while the dashboard keeps publishing the broken
-value.** Verified 2026-07-27: a hand run reported `daily-digest / blocked` (correct) while
-the daemon, started 44 minutes before the manifest edit, kept emitting
-`ledger_row: null / stale` into the same file minutes later. This is the always-loaded-tier
-staleness class (`explore-0z6r`) one layer down.
-
-So if you touched the manifest, **restart the daemon and then assert against what IT
-publishes** — not against your own regen:
-
-```bash
-systemctl --user restart harnessd
-# wait for the daemon's OWN next regen, then confirm state.json is newer than the manifest
-until [ "$(stat -c %Y ~/.local/state/harness/state.json)" -gt "$(stat -c %Y ~/harnessd/refs/harness-manifest.json)" ]; do sleep 10; done
-```
-…and only then run the assertion block above.
+The script reads **only what the daemon published** and gates every assert behind a
+freshness check keyed to the newest of the **manifest AND ledger** mtimes. The wait loop
+this replaces compared `state.json` to the manifest alone, so it exited *instantly*
+whenever the manifest was older than the thing you actually changed — the common case,
+since registration edits land before the data they describe — and it had no timeout, so a
+dead daemon hung the pass forever. Here the wait is bounded (`--timeout`, default 180s),
+fails loud, fails immediately when `harnessd` is not active, and cross-checks the published
+`ledger_row` against `harness-manifest.json` **on disk** (the direct tell that the daemon is
+serving a pre-edit config). No manifest edit → no wait, sub-second. And no restart is
+needed: the daemon hot-reloads a changed manifest per regen (`harnessd-rtx8`).
 
 A failure here is **not** a reason to rewrite the row — the row is fine. Fix
 `~/harnessd/refs/harness-manifest.json` (it lives in a *different repo*, which is why it
