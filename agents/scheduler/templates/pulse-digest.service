@@ -58,4 +58,4 @@ Description=Pulse tick: digest (tmux-injection into its own work:digest window â
 Type=oneshot
 # Anchor --dir at ~/explore so the session (cold-start or warm) is
 # explore-anchored and the native /daily-digest skill resolves.
-ExecStart=%h/dotfiles/agents/scheduler/pulse-inject.sh --loop %p --fresh --dir %h/explore --session work --window digest --cmd "/daily-digest" --launch %h/explore/tools/tick-jail/tick-jailed.sh --launch-detect bwrap
+ExecStart=%h/dotfiles/agents/scheduler/pulse-inject.sh --loop %p --fresh --dir %h/explore --session zig-computer --window digest --cmd "/daily-digest" --launch %h/explore/tools/tick-jail/tick-jailed.sh --launch-detect bwrap

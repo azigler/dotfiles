@@ -30,4 +30,4 @@ Description=Pulse tick: weekly /desk pass (explore lab resourcing memo)
 
 [Service]
 Type=oneshot
-ExecStart=%h/dotfiles/agents/scheduler/pulse-inject.sh --loop %p --dir /home/ubuntu/explore --session work --window desk --cmd "/desk /home/ubuntu/explore"
+ExecStart=%h/dotfiles/agents/scheduler/pulse-inject.sh --loop %p --dir /home/ubuntu/explore --session zig-computer --window desk --cmd "/desk /home/ubuntu/explore"
