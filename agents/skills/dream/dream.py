@@ -225,16 +225,22 @@ def session_id_of(slug_dir: Path, f: Path) -> str:
 
 def scan_window(
     root: Path, slug: str, since_epoch: float
-) -> tuple[set[str], set[str]]:
-    """Return ``(all_sessions, in_window_sessions)`` for ``slug``. A session is
-    in-window if ANY of its files (main jsonl, subagent jsonl, or tool-results txt)
-    has mtime >= ``since_epoch`` — session-level so a still-active long session is
-    scanned in full."""
+) -> tuple[set[str], set[str], dict[str, float]]:
+    """Return ``(all_sessions, in_window_sessions, session_mtimes)`` for ``slug``.
+
+    A session is in-window if ANY of its files (main jsonl, subagent jsonl, or
+    tool-results txt) has mtime >= ``since_epoch`` — session-level so a still-active
+    long session is scanned in full.
+
+    ``session_mtimes`` maps session id -> newest file mtime, which is what lets the
+    caller order sessions by RECENCY. Without it the candidate cap fell back to
+    alphabetical-by-UUID (``explore-j2p9``)."""
     # `root` may be a single Path or several (the jailed vault is a separate tree —
     # see resolve_root; explore-jkc6). Normalize and union across all of them.
     roots = root if isinstance(root, (list, tuple)) else [root]
     all_sessions: set[str] = set()
     in_window: set[str] = set()
+    mtimes: dict[str, float] = {}
 
     for r in roots:
         slug_dir = Path(r) / slug
@@ -245,10 +251,13 @@ def scan_window(
             sid = session_id_of(slug_dir, p)
             all_sessions.add(sid)
             try:
-                if p.stat().st_mtime >= since_epoch:
-                    in_window.add(sid)
+                m = p.stat().st_mtime
             except OSError:
-                pass
+                return
+            if m > mtimes.get(sid, 0.0):
+                mtimes[sid] = m
+            if m >= since_epoch:
+                in_window.add(sid)
 
         for p in slug_dir.rglob("*.jsonl"):
             if p.is_file():
@@ -256,7 +265,7 @@ def scan_window(
         for p in slug_dir.rglob("*.txt"):
             if p.is_file() and p.parent.name == "tool-results":
                 consider(p)
-    return all_sessions, in_window
+    return all_sessions, in_window, mtimes
 
 
 # --------------------------------------------------------------------------- #
@@ -321,7 +330,9 @@ def gather_candidates(
 
     Dedupe key is ``(session, line)``: a turn matched by multiple signals collapses
     to ONE candidate whose ``signals`` list carries every matching signal name."""
-    all_sessions, in_window = scan_window(root, slug, since_epoch)
+    all_sessions, in_window, session_mtimes = scan_window(
+        root, slug, since_epoch
+    )
 
     agg: dict[tuple[str, object], dict] = {}
     for sig in SIGNALS:
@@ -352,15 +363,63 @@ def gather_candidates(
         out["signals"] = sorted(entry["signals"])
         candidates.append(out)
 
-    candidates.sort(
-        key=lambda c: (
-            str(c["session"]),
-            c["line"] if isinstance(c["line"], int) else 0,
-        )
+    # ⚠️ ROUND-ROBIN ACROSS SESSIONS, THEN CAP — never sort-then-truncate.
+    #
+    # The previous form sorted by session UUID (an ARBITRARY alphabetical order with
+    # no relation to recency) and then truncated at max_candidates. That does not
+    # sample the window, it keeps whichever sessions happen to sort first. Measured on
+    # the 2026-07-26 tick: 67 in-window sessions, 200 candidates emitted, and the
+    # distinct sessions represented in those 200 was **1** — the alphabetically-first
+    # UUID. 1.5% coverage, reported as a clean `done` (explore-j2p9).
+    #
+    # Interleaving by session guarantees every in-window session is represented before
+    # any session gets a second slot, so the cap degrades breadth gracefully instead of
+    # silently collapsing to one session. Within a session, keep line order.
+    by_session: dict[str, list] = {}
+    for c in candidates:
+        by_session.setdefault(str(c["session"]), []).append(c)
+    for sess in by_session.values():
+        sess.sort(key=lambda c: c["line"] if isinstance(c["line"], int) else 0)
+
+    # Most-recently-modified session first, so a truncated run keeps the freshest work.
+    order = sorted(
+        by_session,
+        key=lambda s: (-session_mtimes.get(s, 0.0), s),
     )
+
+    interleaved: list = []
+    idx = 0
+    while len(interleaved) < len(candidates):
+        added = False
+        for s in order:
+            bucket = by_session[s]
+            if idx < len(bucket):
+                interleaved.append(bucket[idx])
+                added = True
+        if not added:
+            break
+        idx += 1
+    candidates = interleaved
+
     truncated = len(candidates) > max_candidates
+    dropped_sessions = 0
     if truncated:
-        candidates = candidates[:max_candidates]
+        kept = candidates[:max_candidates]
+        kept_sessions = {str(c["session"]) for c in kept}
+        dropped_sessions = len(by_session) - len(kept_sessions)
+        candidates = kept
+        # A bare `"truncated": true` is what let 1.5% coverage read as success. Say
+        # how much of the window actually survived, loudly, on stderr.
+        sys.stderr.write(
+            f"dream: TRUNCATED to {max_candidates} candidates — "
+            f"{len(kept_sessions)} of {len(by_session)} in-window sessions represented"
+            + (
+                f", {dropped_sessions} session(s) DROPPED ENTIRELY"
+                if dropped_sessions
+                else ""
+            )
+            + "\n"
+        )
     return all_sessions, in_window, candidates, truncated
 
 
