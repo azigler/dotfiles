@@ -52,7 +52,7 @@ See `/zig-voice` SKILL.md "SCOPE" section for the broader rule.
 | Mode | When | Output |
 |---|---|---|
 | **Report-only** | User wants compiled findings, no follow-on artifact, no archive | Asana task description updated w/ structured plaintext report |
-| **Archival (umbrella-folder)** | User says "explore X and put it in a folder", or the Asana task is on the personal "Vibes" board pointing at a specific topic worth archiving (e.g. Zero Native, Tolaria) | Asana task description updated **AND** a `~/explore/<topic>/` folder created with CLAUDE.md + FINDINGS.md + refs/ |
+| **Archival (umbrella-folder)** | User says "explore X and put it in a folder", or the Asana task is on the personal "Vibes" board pointing at a specific topic worth archiving (e.g. Zero Native, Tolaria) | Asana task description updated **AND** a `~/explore/<topic>/` folder created with ORIENTATION.md + FINDINGS.md + refs/ |
 | **Report + post deliverable** | User says "do the same treatment", "make a post about it", or "put a post on a subtask" | Report on parent task + a subtask w/ LinkedIn-ready Zig-voice post (as comment) + randomize-driven specific-subject image (as attachment) |
 
 Default to **report-only** unless the user explicitly asks for an archive or a post. The three modes can compose (an archival run can also produce a post if the topic warrants), but most invocations are one of them.
@@ -172,7 +172,8 @@ When the task is to bring an intriguing topic into this compendium (recent examp
 
 ```
 ~/explore/<topic>/
-├── CLAUDE.md          # orientation: what this is, why, how to navigate
+├── ORIENTATION.md     # orientation: what this is, why, how to navigate
+│                     # ⚠️ NOT CLAUDE.md — see the note below
 ├── FINDINGS.md        # the writeup — the deliverable for future-you
 └── refs/              # primary source captures (one .md per source)
     ├── <source-1>.md
@@ -227,7 +228,17 @@ When the task is to bring an intriguing topic into this compendium (recent examp
    Expect **FIX-FIRST**, not SHIP, on a substantial entry — that is the gate working. Re-verify each load-bearing finding against the captures yourself before adopting it (a reviewer can also be wrong), then fix.
 
    **4d. Append the verdict** as a durable block at the END of `FINDINGS.md`: `## Scrutiny — <date>: Verdict: <SHIP | FIX-FIRST → addressed → SHIP | REJECT>` + a short rationale naming what changed. For a `dive` tick this block IS the machine-checkable **done-proof** the commit gate greps for (`grep -q '## Scrutiny' <topic>/FINDINGS.md`, see `refs/pulse.md` → "Done-proof") — a `done` committed without it is BLOCKED by `pre-commit-checks.sh`. This is the `explore-len0` fix: the mandated adversarial pass now leaves a trace future-you can check, instead of vanishing into the transcript. (The same verdict string closes the bead — `pre-bead-close.sh` accepts this exact form, including the `FIX-FIRST → addressed → SHIP` chain; fixed 2026-07-27, `explore-x8mj`.)
-5. Write `CLAUDE.md` as the orientation file pointing future-agents at the structure.
+5. Write `ORIENTATION.md` as the orientation file pointing future-agents at the structure.
+
+   ⚠️ **It is `ORIENTATION.md`, NOT `CLAUDE.md`, and that is load-bearing.** The
+   git-push broker refuses any commit touching a `CLAUDE.md` at ANY depth
+   (poisoned-commit persistence — a nested one still auto-loads for a session opened
+   in that folder). While this skill mandated `<topic>/CLAUDE.md`, **five consecutive
+   archival ticks were refused**, and because git pushes a RANGE, one dive commit
+   stranded every other loop's commits behind it — a 36-commit backlog
+   (`explore-1d18`). Renamed 2026-07-31 across all 134 existing explorations
+   (`explore-l3qb`); the broker rule was deliberately left UNCHANGED, since it had
+   survived three adversarial re-attacks. Do not reintroduce the old name.
 6. Run Step 5 (POST to Asana) — mirror the FINDINGS.md content, **end with the back-pointer** `Archived: ~/explore/<topic>/ (FINDINGS.md)` so review can jump from the card to the brain.
 7. Commit the folder: `git add <topic> && git commit -m ":seedling: explore: <topic> — <one-line theme>"`.
 8. If `Novel opportunities` surfaced a "build/explore X" worth queueing, **append a row to the Pending table of `~/explore/refs/vibes-candidates.md`** (`date | proposed card title | one-line why | source | bead`) — don't let it evaporate, and don't leave it only in a handoff. **Never create the Asana Vibes card yourself: promotion is human-gated** (that file's header is the contract). `/desk` §5 reads Pending back to Zig weekly and puts the stale rows to him for a go/no-go, so a row parked here is queued, not lost; a "no" lands in the same file's **Dropped** table.
@@ -371,7 +382,7 @@ Before synthesizing:
 2. **Grep the brain** for the topic's key terms across prior findings:
    ```bash
    grep -rIl -iE "<term1>|<term2>" ~/explore --include=FINDINGS.md \
-     --include=CLAUDE.md 2>/dev/null | grep -v "/.beads/"
+     --include=ORIENTATION.md 2>/dev/null | grep -v "/.beads/"
    ```
 3. **Read the 2-4 most adjacent prior FINDINGS** enough to know how this
    new topic AGREES, EXTENDS, CONTRADICTS, or REMIXES with them.
