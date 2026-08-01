@@ -223,6 +223,42 @@ data") instead of the error it actually was. Instead:
   with stderr visible before concluding** — empty is very often a swallowed
   error, not absent data.
 
+## Two writers, one working tree — merge, never rebase, NEVER stash
+
+A `/pulse` tick is a real interactive session **in the project root**. Worktree
+isolation covers subagents; it does not cover the scheduler. So the checkout you
+are standing in can acquire a second writer at any moment, on a timer, and
+`git status` will show you its half-written files with no hint that another
+*process* owns them.
+
+Measured 2026-08-01 in a scratch repo, remote moved, another writer holding an
+unrelated unstaged file:
+
+| command | what it does to the other writer | verdict |
+|---|---|---|
+| `git pull --no-rebase` | absorbs the remote, their WIP intact — or refuses ("local changes would be overwritten") without touching it | **fails SAFELY** |
+| `git pull --rebase` | refuses on ANY unrelated dirty file (rc 128) | fails obstructively |
+| `git stash` | succeeds, silently taking their work | **fails DESTRUCTIVELY** |
+
+**The only one of the three that "succeeds" is the one that destroys** — and
+rebase's refusal is exactly what tempts you toward it. So:
+
+1. Commit with **explicit paths**. Never `git add -A` (already hook-blocked).
+2. Push. If it is rejected: **`git fetch origin && git merge --no-edit origin/main`** —
+   NOT `git pull --rebase`.
+3. If that merge refuses, the remote genuinely touches the other writer's files.
+   **Stop and wait.** That is a conflict between two writers, not a tree to clean.
+4. Never `git stash` / `reset --hard` / `checkout .` / `clean -fd` to unblock a
+   pull. If you must set aside your *own* work, name it: `git stash push -- <paths>`.
+
+**Never enable `rebase.autoStash`.** It is unset at repo and global scope fleet-wide,
+and it must stay that way: it turns the obstructive command into the destructive one
+with no prompt and no error — the worst possible "fix" for the friction in step 2.
+
+`pre-shared-tree-guard.sh` enforces steps 3–4, but only while another writer is
+provably mid-run in that repo (a fired-but-unreported loop, or a running oneshot
+job). Outside that window the verbs are yours; the idiom above is not.
+
 ## Secrets never go in memory (or notes) — reference them, don't paste them
 
 A literal secret (API key, OAuth token, bearer/refresh token, password, private

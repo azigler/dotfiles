@@ -157,6 +157,11 @@
             "type": "command",
             "command": "~/.claude/hooks/pre-bash-stderr-guard.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/pre-shared-tree-guard.sh",
+            "timeout": 15
           }
         ]
       },
