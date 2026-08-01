@@ -31,6 +31,18 @@ COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 # and the gitmoji, which live inside the -m message).
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/hook-helpers.sh" 2>/dev/null
 SKEL=$(command_skeleton "$COMMAND" 2>/dev/null)
+
+# The scrutiny-verdict matcher used by the pulse `done` proof gate below —
+# ONE definition, shared with pre-bead-close.sh (dotfiles-8aj5). Fail CLOSED
+# and SCOPED if it can't be loaded: only scrutinize proofs break, and they
+# break toward blocking; git-add / push / trailer / lint stay unaffected.
+if ! source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/scrutiny-verdict.sh" 2>/dev/null \
+   || ! declare -F scrutiny_verdict_ok >/dev/null; then
+  scrutiny_verdict_ok() {
+    echo "pre-commit-checks: cannot load lib/scrutiny-verdict.sh — scrutiny verdicts cannot be verified." >&2
+    return 1
+  }
+fi
 [ -z "$SKEL" ] && SKEL="$COMMAND"
 
 # Block overly-broad git add at ANY time, not just when chained with commit.
@@ -343,12 +355,27 @@ if command -v jq &>/dev/null && [ -n "$GIT_TOPLEVEL" ]; then
           echo "Blocked: pulse 'done' proof 'commit' (sha-resolves) proves PROGRESS, not done — every real commit resolves, so it's a no-op a stub clears (explore-len0). Use kind:cmd or kind:scrutinize. Offending entry in $L." >&2
           FAILED=1 ;;
         scrutinize)
+          # This used to be `br show "$B" | grep -q 'SHIP'` — the four letters
+          # SHIP ANYWHERE in the bead body. So "Verdict: do NOT SHIP", "needs
+          # scrutiny before we SHIP", and a bead that merely quotes some other
+          # bead's verdict all bought a `done` row, while pre-bead-close.sh's
+          # own --selftest matrix listed each of them as FAIL. Both gates now
+          # call the one shared matcher (lib/scrutiny-verdict.sh, dotfiles-8aj5).
           B=$(echo "$line" | jq -r '.proof.bead // empty')
-          if [ -z "$B" ] || ! { command -v br &>/dev/null && br show "$B" 2>/dev/null | grep -q 'SHIP'; }; then
-            echo "Blocked: pulse 'done' proof scrutinize verdict not SHIP for bead '$B' (in $L)." >&2; FAILED=1; fi ;;
+          if [ -z "$B" ] || ! command -v br &>/dev/null \
+             || ! scrutiny_verdict_ok "$(br show "$B" 2>/dev/null)"; then
+            echo "Blocked: pulse 'done' proof scrutinize verdict not SHIP for bead '$B' (in $L)." >&2
+            echo "  The bead must record a real verdict line — 'Verdict: SHIP' (or the dated" >&2
+            echo "  '## Scrutiny — <date>: Verdict: SHIP'). A 'do NOT SHIP', an unresolved" >&2
+            echo "  FIX-FIRST, or prose that merely mentions the word does not count." >&2
+            FAILED=1
+          fi ;;
         cmd)
           C=$(echo "$line" | jq -r '.proof.cmd // empty')
-          if [ -z "$C" ]; then
+          # Trimmed, because `bash -c "   "` exits 0 exactly like `bash -c ""`:
+          # a whitespace-only cmd is the same free `done` as an empty one, and
+          # the untrimmed check waved it through (dotfiles-8aj5).
+          if [ -z "${C//[[:space:]]/}" ]; then
             echo "Blocked: pulse 'done' proof cmd is empty (in $L)." >&2
             FAILED=1
           else

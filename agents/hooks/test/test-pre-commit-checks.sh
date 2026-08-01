@@ -19,10 +19,13 @@ PASS=0
 FAIL=0
 FAILED_NAMES=()
 
-# Stub `br` so `br sync` is a hermetic no-op.
+# Stub `br` so `br sync` is a hermetic no-op — and so `br show` replays a
+# fixture bead body, which is what lets the kind:scrutinize proof cases below
+# drive real verdict text through the gate (dotfiles-8aj5).
 STUB_DIR=$(mktemp -d)
 cat > "$STUB_DIR/br" <<'STUB'
 #!/bin/bash
+if [ "${1:-}" = "show" ]; then printf '%s\n' "${BR_SHOW_BODY:-}"; fi
 exit 0
 STUB
 chmod +x "$STUB_DIR/br"
@@ -349,6 +352,89 @@ printf '%s\n%s\n' \
 run_case_env "$PROOFREPO" "block: exhausted proof budget is named" 2 \
   "$PROOF_CMD" "proof budget" HARNESS_PULSE_PROOF_BUDGET=1
 git -C "$PROOFREPO" checkout -q refs/pulse-ledger.jsonl
+
+# --- kind:scrutinize verdict matching (dotfiles-8aj5) ---------------------
+# This branch was `br show "$B" | grep -q 'SHIP'` — the four letters SHIP
+# ANYWHERE in the bead body — from the day the proof gate shipped until
+# 2026-08-01, with ZERO cases here covering it. Mutating that grep to `true`
+# left this suite green at 58/58; that is how a live false-accept survived
+# next to a sibling hook that had already solved the same problem and hoisted
+# a shared matcher for it. The gate now calls scrutiny_verdict_ok() from
+# agents/hooks/lib/scrutiny-verdict.sh, and these are its cases here.
+#
+# ⚠️ RUN THESE UNDER BASH. scrutiny_verdict_ok ends in `grep -qv` over
+# possibly-empty input, which exits 0 under zsh and 1 under bash — a zsh-run
+# harness reports the FAIL cases as ALLOW and hides exactly this bug.
+scrutinize_case() {
+  local name=$1 want_exit=$2 body=$3 want_stderr=${4:-}
+  printf '%s\n' '{"ts":"2026-08-01T00:00:00Z","row":"r","outcome":"done","proof":{"kind":"scrutinize","bead":"explore-test"},"note":"x"}' \
+    >> "$PROOFREPO/refs/pulse-ledger.jsonl"
+  run_case_env "$PROOFREPO" "$name" "$want_exit" "$PROOF_CMD" "$want_stderr" "BR_SHOW_BODY=$body"
+  git -C "$PROOFREPO" checkout -q refs/pulse-ledger.jsonl
+}
+
+# 24. a real verdict line → ALLOW
+scrutinize_case "allow: scrutinize proof with 'Verdict: SHIP'" 0 \
+  '## Scrutiny — 2026-08-01: Verdict: SHIP'
+
+# 25. the negated verdict → BLOCK. Passed before the fix.
+scrutinize_case "block: scrutinize proof with 'do NOT SHIP'" 2 \
+  '## Scrutiny — 2026-08-01: Verdict: do NOT SHIP' \
+  "verdict not SHIP"
+
+# 26. prose that merely mentions the word → BLOCK. Passed before the fix.
+scrutinize_case "block: scrutinize proof with prose 'before we SHIP'" 2 \
+  'needs scrutiny before we SHIP this' \
+  "verdict not SHIP"
+
+# 27. the shape found live: an OPEN bead with no verdict of its own, whose
+#     body merely QUOTES another bead's SHIP. Passed before the fix.
+scrutinize_case "block: scrutinize proof on a bead quoting another's verdict" 2 \
+  'Title: some open bead
+Status: OPEN
+It quotes another bead: "Verdict: SHIP" was recorded over there.' \
+  "verdict not SHIP"
+
+# 28. the documented bypass is still a verdict → ALLOW
+scrutinize_case "allow: scrutinize proof with an OVERRIDE marker" 0 \
+  '## Scrutiny — OVERRIDE: no reviewer available'
+
+# 29. an unresolved FIX-FIRST is not a SHIP → BLOCK
+scrutinize_case "block: scrutinize proof with unresolved FIX-FIRST" 2 \
+  'Verdict: FIX-FIRST' "verdict not SHIP"
+
+# 30. empty bead body (br show found nothing) → BLOCK. This is the case the
+#     zsh/bash `grep -qv` split flips, so it is worth its own line.
+scrutinize_case "block: scrutinize proof whose bead body is empty" 2 \
+  '' "verdict not SHIP"
+
+# 31. no .proof.bead at all → BLOCK
+printf '%s\n' '{"ts":"2026-08-01T01:00:00Z","row":"r","outcome":"done","proof":{"kind":"scrutinize"},"note":"x"}' \
+  >> "$PROOFREPO/refs/pulse-ledger.jsonl"
+run_case_in "$PROOFREPO" "block: scrutinize proof with no bead id" 2 \
+  "$PROOF_CMD" "verdict not SHIP"
+git -C "$PROOFREPO" checkout -q refs/pulse-ledger.jsonl
+
+# --- empty kind:cmd proof (the second survivor of the same sweep) ---------
+# The hook has always blocked an empty `cmd`, but nothing asserted it, so
+# deleting the check left this suite green. An empty cmd is the cheapest
+# possible self-certification: `bash -c ""` exits 0.
+
+# 32. cmd proof present but empty → BLOCK
+proof_case "block: done with an empty cmd proof" 2 \
+  '{"ts":"2026-08-01T02:00:00Z","row":"r","outcome":"done","proof":{"kind":"cmd","cmd":""},"note":"x"}' \
+  "proof cmd is empty"
+
+# 33. kind:cmd with the cmd key missing entirely → BLOCK
+proof_case "block: done with kind:cmd and no cmd key" 2 \
+  '{"ts":"2026-08-01T03:00:00Z","row":"r","outcome":"done","proof":{"kind":"cmd"},"note":"x"}' \
+  "proof cmd is empty"
+
+# 34. cmd proof that is only whitespace → BLOCK. `bash -c "   "` exits 0 just
+#     as `bash -c ""` does, so trimming to empty must be the same verdict.
+proof_case "block: done with a whitespace-only cmd proof" 2 \
+  '{"ts":"2026-08-01T04:00:00Z","row":"r","outcome":"done","proof":{"kind":"cmd","cmd":"   "},"note":"x"}' \
+  "proof cmd is empty"
 
 rm -rf "$PROOFREPO"
 

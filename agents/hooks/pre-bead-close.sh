@@ -19,18 +19,22 @@
 # `--selftest` runs the scrutiny-gate acceptance matrix and exits (0 = all
 # green). Run it after ANY edit to the verdict regexes below.
 
-# Scrutiny-gate matchers. Hoisted so --selftest and the gate itself share one
-# definition — the 2026-06-09 over-tightening shipped because the pattern was
-# inline with no regression test to contradict it.
-SCRUTINY_VERDICT_RE='(Verdict:[[:space:]]*(.*[^[:alnum:]])?(SHIP|OVERRIDE)[[:punct:][:space:]]*$|[Ss]crutin[a-z]*[^[:alnum:]]+(SHIP|OVERRIDE))'
-SCRUTINY_NEGATED_RE='\b[Nn][Oo][Tt][[:space:]]+(SHIP|OVERRIDE)\b'
-
-# Returns 0 when $1 records an accepted scrutiny verdict.
-# NOTE the negation filter is applied LINE-WISE (grep over the already-matched
-# lines), so a "do not ship" elsewhere in the notes cannot veto a real verdict.
-scrutiny_verdict_ok() {
-  echo "$1" | grep -E "$SCRUTINY_VERDICT_RE" | grep -qvE "$SCRUTINY_NEGATED_RE"
-}
+# Scrutiny-gate matchers. Hoisted OUT of this file on 2026-08-01 into
+# lib/scrutiny-verdict.sh, because "one definition" only held within this file
+# — pre-commit-checks.sh's pulse proof gate carried a bare `grep -q 'SHIP'` and
+# accepted verdicts this selftest matrix calls FAIL (dotfiles-8aj5). Both gates
+# now source the same lib; --selftest below is still that lib's test.
+#
+# Fail CLOSED and SCOPED if the lib can't be loaded: a missing matcher must
+# never read as "verdict accepted", and it must not brick the unrelated
+# worktree/lint gates in this hook either.
+if ! source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/scrutiny-verdict.sh" 2>/dev/null \
+   || ! declare -F scrutiny_verdict_ok >/dev/null; then
+  scrutiny_verdict_ok() {
+    echo "pre-bead-close: cannot load lib/scrutiny-verdict.sh — scrutiny verdicts cannot be verified, so this close is refused." >&2
+    return 1
+  }
+fi
 
 if [ "$1" = "--selftest" ]; then
   # ⚠️ Run this under BASH. `grep -qv` on EMPTY input exits 0 under zsh and 1
