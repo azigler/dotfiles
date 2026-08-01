@@ -618,42 +618,11 @@ verdict in the footer.
 
 ## Where the opportunity can land — lead with curiosity, not a tie-back
 
-**Over-anchoring to Andrew's real projects is how the novel opportunity gets
-missed** (Zig, 2026-07-13). If every finding has to cash out as "a move for
-LinearB / the harness / a live `~/` arc," the pass collapses to the modal
-tie-back. Range across **all** of the following with **no default ranking**.
-(Mirrors `/dive`'s and `/elevate`'s section of the same name; keep all three
-in sync.)
-
-- **An entirely NEW idea** the corpus sparked, tied to nothing already here.
-  First-class output, not a consolation prize.
-- **An interlink that forms a deeper context** — between explorations AND
-  with open-ended beads (`explore:` / `desk:` / legacy `elevate:` / `human:`
-  threads). A finding that hands an open bead its missing piece is worth more
-  than either alone.
-- **An application to Andrew's active work — when it's real.** Derive the
-  active set empirically each run (git activity + mtimes across `~/`,
-  `~/explore`, `~/linearb`, `~/explore/aaif`). One valid landing, not the
-  preferred one.
-- **Interesting for its own sake.** Say *that*; don't force a build.
-
-**Three guards stay hard:**
-
-- **Don't manufacture a tie-back.** Honest "new idea, no home yet" beats a
-  forced connection.
-- **"NO adopt" is not "NO build."** "Don't adopt *this artifact*" (immature
-  repo, WASM lib, commercial tool, runtime mismatch) must not silently become
-  "nothing to build here." Ask *separately* whether a transferable method /
-  pattern / primitive dodges the artifact's wall. A wall for the tool is
-  rarely a wall for the pattern. (Caught 2026-07-13: reflexive "NO harness
-  build" buried ~3 buildable experiments. 44 of 128 findings carry a
-  no-build/no-adopt verdict, phrased ~15 different ways — that is a measure of
-  **presence**, not of miscalibration, and establishing the second is the work.
-  Which is why this is now a standing axis rather than prose.)
-- **The build PROJECTS are tabled — the CONCEPTS are not.** Hermes /
-  MUD-golem / local-coding-models are tabled (2026-06-29); the concepts they
-  touched (agent-sim, simulation, memory, loops) are **active**. Never write
-  "tabled *agent-sim* arc" or call a sim/pet build "not a live destination."
+**Single owner: [`_shared/opportunity-landing.md`](../_shared/opportunity-landing.md)**
+— the four landings (new idea / interlink / active work / interesting for its own
+sake) and the three hard guards. Read it before dispatching Pass A's opportunity
+lens (A2); it is what keeps the pass off the modal tie-back. `/dive` and
+`/elevate` point at the same file — never re-copy it here.
 
 ## The Desk MANAGES the loops — this is step 0, not a favour
 
@@ -823,57 +792,20 @@ two), the grant lives in its `.service` `--cmd` — check it is still there.
    or log `blocked`; do not delete the clause.
 #### The registration assertion — run it right after appending the row
 
-Appending a well-formed row is **not** the same as the row being *readable*. Every gate
-in this stack checks the row you WRITE — `pulse-ledger-lint.py` checks the name is
-canonical, `pre-commit-checks.sh` re-runs the `done` proof — and **nothing checks that the
-dashboard can find it.** A registration defect (a `harness-manifest.json` entry whose
-`ledger_row` does not match what this loop actually writes, or a `null` there) is
-invisible while every local gate passes green: `ledger_streak.load_rows(path, None)`
-returns **zero** rows, so the loop reads `stale` / *"no ledger row within grace (exit-0
-lie)"* immediately after writing one.
-
-That is not a cosmetic desync. On 2026-07-26 the digest loop correctly logged
-`outcome:"blocked"` with a P1 `human:` bead — a genuine parked-on-Zig signal — and the
-dashboard rendered it as an infrastructure alarm for 12 hours because its manifest entry
-had `ledger_row: null`. **A needs-Zig signal was masked as a plumbing failure.** Bug
-`explore-4x39`.
-
-So assert it, every run, immediately after the append — one call:
+A well-formed row is not the same as a *readable* one, and nothing else in this stack
+checks that the dashboard can find it. Assert it every run, immediately after the append:
 
 ```bash
 ~/harnessd/bin/harness-assert-registration pulse-desk desk   # <timer-stem> <row-it-writes>
 # exit 0 registered · 1 registration gap · 2 published state not trustworthy yet · 3 usage
 ```
 
-**⚠️ Do NOT hand-run `harness_state.py` first — that is the FALSE GREEN this script
-exists to remove** (`explore-vuro`, fixed 2026-07-31). `harnessd` is a running daemon that
-publishes `state.json` itself; a hand regen re-reads the manifest fresh and passes **while
-the dashboard keeps publishing the broken value.** Verified 2026-07-27: a hand run reported
-`daily-digest / blocked` (correct) while the daemon, started 44 minutes before the manifest
-edit, kept emitting `ledger_row: null / stale` into the same file minutes later. This is the
-always-loaded-tier staleness class (`explore-0z6r`) one layer down.
-
-The script reads **only what the daemon published** and gates every assert behind a
-freshness check keyed to the newest of the **manifest AND ledger** mtimes. The wait loop
-this replaces compared `state.json` to the manifest alone, so it exited *instantly*
-whenever the manifest was older than the thing you actually changed — the common case,
-since registration edits land before the data they describe — and it had no timeout, so a
-dead daemon hung the pass forever. Here the wait is bounded (`--timeout`, default 180s),
-fails loud, fails immediately when `harnessd` is not active, and cross-checks the published
-`ledger_row` against `harness-manifest.json` **on disk** (the direct tell that the daemon is
-serving a pre-edit config). No manifest edit → no wait, sub-second. And no restart is
-needed: the daemon hot-reloads a changed manifest per regen (`harnessd-rtx8`).
-
-A failure here is **not** a reason to rewrite the row — the row is fine. Fix
-`~/harnessd/refs/harness-manifest.json` (it lives in a *different repo*, which is why it
-is the piece most easily forgotten), re-run, and commit the manifest with the run.
-
-**The sibling failure, for a row that is new rather than mis-registered:** a brand-new row
-name has no history behind it, so a carried-over systemd stamp file makes `last_fire` point
-at the *predecessor* loop's run with zero rows of its own — reading `stale` before it has
-ever fired. The fix is the seed row the `/pulse` relocation checklist already prescribes:
-append one `outcome:"quiet"` row saying exactly that, *before* the first real fire. This is
-what bit `desk` after the 2026-07-26 rename.
+**Single owner: [`/pulse`](../pulse/SKILL.md) §5.5** — why the local gates all pass green
+on a mis-registered row, the 12-hour `explore-4x39` masking, why hand-running
+`harness_state.py` first is a FALSE GREEN (`explore-vuro`), and the new-row sibling failure.
+A non-zero exit is **not** a reason to rewrite the row: fix
+`~/harnessd/refs/harness-manifest.json` (a *different repo* — the piece most easily
+forgotten), re-run, and commit the manifest with this pass.
 
 10. **Deliver.** Commit + push the memo, axes, signals, field-notes, beads, ledger, and
     any touched FINDINGS. Then `PushNotification` naming the **top ask + the

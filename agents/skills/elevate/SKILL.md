@@ -70,58 +70,12 @@ Assume Andrew does not know the premise; explain it from scratch, briefly
 
 ## Where the upside can land — lead with curiosity, not a tie-back
 
-`/elevate` hunts upside — but its FIRST job is to be **curious**, not to find a
-home for the finding on this machine. **Over-anchoring to Andrew's real projects
-is how the novel opportunity gets missed** (Zig, 2026-07-13): if every finding
-has to cash out as "a move for LinearB / the harness / a live `~/` arc," the
-re-read collapses to the modal tie-back and the genuinely new idea — the whole
-point of a max-effort fresh pass — never gets said. Range across **all** of the
-following with **no default ranking**; do not privilege the active-arc one.
-(Mirrors `/dive`'s and `/desk`'s "Where the opportunity can land"; keep all
-three in sync.)
-
-- **An entirely NEW idea.** Net-new — a thing worth building or exploring that
-  the re-read *sparked*, tied to nothing already here. First-class output, not a
-  consolation prize.
-- **An interlink that forms a deeper context.** Connect the re-examined work to
-  *other explorations* **and to open-ended beads** (proposed-but-not-done ideas
-  in `br` — `explore:` / `desk:` / legacy `elevate:` / `human:` threads). Two
-  half-ideas that meet become one bigger opportunity; a finding that hands an
-  open bead its missing piece is worth more than either alone.
-- **An application to Andrew's active work — when it's real.** Derive the active
-  set empirically by recency each run (git activity + mtimes across `~/`,
-  `~/explore`, `~/linearb`, `~/explore/aaif`). When a finding genuinely lands
-  there, name the concrete move — but it's **one** valid landing, not the
-  preferred one. (Empirical over aspirational — trust `ls -lt` / `git log`, not
-  this paragraph's dated list.)
-- **Interesting for its own sake.** Clarifying, beautiful, or worth
-  understanding on its own terms. Say *that*; don't force a build.
-
-**Three guards stay hard:**
-
-- **Don't manufacture a tie-back.** A forced connection to LinearB / the harness
-  / a `~/` project is worse than an honest "new idea, no home yet" or "this
-  stands on its own."
-- **"NO adopt" is not "NO build" — hold the two questions apart.** "Don't adopt
-  *this artifact*" (an immature repo, a WASM lib, a commercial tool, a runtime
-  mismatch) must NOT silently become "there's nothing to build here." Ask
-  *separately*: is there a transferable **method, pattern, or primitive** worth
-  building that dodges the artifact's runtime wall? A wall for the tool is rarely
-  a wall for the pattern. The tell: a verdict that jumps "runtime mismatch" →
-  "no build" without weighing the method. (Caught 2026-07-13 by the curiosity
-  re-exam: reflexive "NO harness build" buried ~3 buildable experiments —
-  colibrì's skill-loader, kapa's judge primitive, ternlight's embedder.)
-- **The build PROJECTS are tabled — the CONCEPTS are not.** The **Hermes /
-  MUD-golem / local-coding-models / Hermes-local BUILD PROJECTS** are tabled
-  (2026-06-29): don't frame an opportunity as advancing or reviving *them*. But
-  the tabling is about those named projects + local models — **not the concepts**
-  (agent-sim / simulation / memory / loops) they touched, which stay **active**
-  even though the golem also did them. Route such a finding to a general harness
-  move or a net-new build, never the tabled bucket. (Tell you've over-tabled:
-  "tabled *agent-sim* arc," or calling a sim/pet build "not a live destination"
-  — Zig flagged this on `subterrans`, 2026-07-13.) The golem/MUD stays a *source*
-  to reason from; frontier-model versions (subscription, no local model) dodge
-  the tabling entirely.
+**Single owner: [`_shared/opportunity-landing.md`](../_shared/opportunity-landing.md)**
+— the four landings (new idea / interlink / active work / interesting for its own
+sake) and the three hard guards. Read it before fanning out the max-effort lenses;
+the genuinely new idea is the whole point of a fresh pass, and this is what keeps
+it off the modal tie-back. `/dive` and `/desk` point at the same file — never
+re-copy it here.
 
 ## The run
 

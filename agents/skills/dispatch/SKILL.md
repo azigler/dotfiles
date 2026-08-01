@@ -51,6 +51,7 @@ Merge target: `<branch>` (NOT main, unless project doesn't use /branch).
 - Decisions: <bead-id from /check>
 - Tests file (if impl): <path>
 - Files to read first: <list>
+- Files to create/modify: <list — the module / component in scope>
 - Files to NOT modify: <list — e.g., test files for impl agents>
 
 ## Acceptance criteria

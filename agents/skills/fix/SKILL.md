@@ -107,40 +107,12 @@ One commit per fix. Use :bug: gitmoji. Include `Bead: <BEAD_ID>`.
 
 ## Step 3: Merge + close
 
-After the subagent reports done:
-
-```bash
-BRANCH=worktree-agent-XXXX
-TARGET=main          # the branch that must RECEIVE the work
-
-# Assert the target branch BEFORE merging. `--is-ancestor $BRANCH HEAD` is
-# trivially true when HEAD *is* $BRANCH, so on its own it proves nothing.
-test "$(git branch --show-current)" = "$TARGET" \
-  || { echo "ABORT: on '$(git branch --show-current)', not '$TARGET' — cd to the project root first"; exit 1; }
-
-BEFORE=$(git rev-parse HEAD)
-git merge "$BRANCH" --no-edit || { echo "ABORT: merge failed (conflicts?)"; exit 1; }
-
-test "$(git rev-parse HEAD)" != "$BEFORE" \
-  || { echo "ABORT: $TARGET did not move — the agent committed nothing, or this was already merged"; exit 1; }
-git merge-base --is-ancestor "$BRANCH" "$TARGET" \
-  || { echo "ABORT: $BRANCH is still not in $TARGET"; exit 1; }
-
-br close <BEAD_ID>
-git add .beads/issues.jsonl
-git commit -m ":card_file_box: beads: close <BEAD_ID>"
-
-# --force --force, not -f: single -f overrides modified files but NOT the
-# agent's worktree lock, which can outlive the agent's final reply.
-git worktree remove --force --force ".claude/worktrees/${BRANCH#worktree-}"
-git branch -D "$BRANCH"
-
-# Remote branch: delete only if it exists — a blanket `2>/dev/null || true` hides
-# real auth/network failures and is blocked by the pre-bash-stderr-guard hook.
-if git remote | grep -qx origin && git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
-  git push origin --delete "$BRANCH"
-fi
-```
+After the subagent reports done, run the standard guarded merge sequence —
+**single owner: `~/dotfiles/agents/AGENTS.md`, "Delegation."** It is loaded in
+every session: assert `$TARGET`, capture `BEFORE`, merge, prove the target
+actually moved and now contains the branch, `br close <BEAD_ID>`, commit
+`.beads/issues.jsonl`, then `git worktree remove --force --force` +
+`git branch -D` + the conditional remote delete.
 
 ## Step 4: External receipt log (team-specific)
 
