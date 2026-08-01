@@ -79,8 +79,16 @@ Beads with no activity for 2+ weeks. Decide per bead:
 - **Done but forgotten** → close
 - **Still relevant but blocked** → declare the dep via `br dep add`
   so it shows in `br blocked`, not `br stale`
-- **Not now, but yes someday** → `br defer <id> "v0.4 cycle"` (or
-  similar). Removes from `br ready`, surfaces via `br defer --list`
+- **Not now, but yes someday** → `br defer --until <date> <id>...`
+  (e.g. `br defer --until 2026-09-01 bd-aaa bd-bbb`). Removes from
+  `br ready`; list them again with **`br list --status deferred`**.
+  ⚠️ `br defer` takes IDs as positionals and has **no reason argument** —
+  a trailing `"reason"` string is parsed as another ID and the command
+  fails with `Error: Issue not found: <reason>`. Put the rationale in
+  `br update <id> --notes` (or the triage commit message) instead.
+  There is also **no `br defer --list`** (`error: unexpected argument`).
+  Both wrong forms were documented here until 2026-08-01 and both fail
+  outright — verified against br v1 in `~/aaif`.
 - **Won't happen** → `br close <id>` with a `--notes` reason
   ("won't fix: superseded by bd-YYYY")
 
