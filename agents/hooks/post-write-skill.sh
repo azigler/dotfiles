@@ -67,6 +67,49 @@ if [ -f "$TOOLKIT" ]; then
 "
 fi
 
+# 7. Cross-file heading citations resolve to a REAL heading.
+#
+# A skill that writes `AGENTS.md "Surfacing to Andrew"` points an agent at a
+# heading that no longer exists: it greps, finds nothing, and moves on. The
+# pointer still LOOKS authoritative — same failure class as a producer with no
+# consumer, resolving to air rather than to a queue. That exact citation sat
+# broken in pulse/SKILL.md from the day the heading was renamed until
+# 2026-08-01 (`explore-cs5i`), and nothing could have noticed.
+#
+# The rule is PREFIX match on the heading text, because the house style cites
+# the front of a heading and drops its em-dash tail — `AGENTS.md "Effort"`
+# against `## Effort — a per-dispatch choice, not a session setting`.
+AGENTS_MD=""
+for _cand in \
+  "$(dirname "$(dirname "$(dirname "$FILE_PATH")")")/AGENTS.md" \
+  "$HOME/dotfiles/agents/AGENTS.md"; do
+  if [ -f "$_cand" ]; then AGENTS_MD="$_cand"; break; fi
+done
+
+CITATIONS=$(grep -oE 'AGENTS\.md[^"]{0,4}"[^"]+"' "$FILE_PATH" 2>/dev/null \
+            | sed 's/.*"\(.*\)"/\1/')
+
+if [ -n "$CITATIONS" ] && [ -z "$AGENTS_MD" ]; then
+  # "I could not check" must never be spelled the same way as "I checked and
+  # it was fine" — say so rather than passing silently.
+  WARNINGS="${WARNINGS}- this file cites AGENTS.md headings, but no AGENTS.md was found to check them against — the citations were NOT verified
+"
+elif [ -n "$CITATIONS" ]; then
+  while IFS= read -r _cite; do
+    [ -z "$_cite" ] && continue
+    _norm=$(printf '%s' "$_cite" | sed 's/[[:space:].,;:]*$//')
+    if ! awk -v c="$_norm" '
+          /^#+ / { h = $0; sub(/^#+[[:space:]]*/, "", h)
+                   if (index(h, c) == 1) { found = 1; exit } }
+          END { exit found ? 0 : 1 }' "$AGENTS_MD"; then
+      WARNINGS="${WARNINGS}- cites AGENTS.md \"$_cite\", but no heading in $AGENTS_MD starts with that text — a renamed heading leaves a silently broken cross-reference
+"
+    fi
+  done <<EOF
+$CITATIONS
+EOF
+fi
+
 if [ -n "$WARNINGS" ]; then
   printf 'SKILL.md format check (warnings, not blocking):\n%s' "$WARNINGS" >&2
 fi

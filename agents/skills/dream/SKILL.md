@@ -70,7 +70,7 @@ done. It is NOT something an interactive session runs inline, and there is **no
 standing daemon**. It borrows the `/pulse` discipline wholesale: a ledger, a
 per-run offboard, and it **NEVER opens an AskUserQuestion** — an unstaffed tick
 that needs a human files a `human:` bead + push and ends (see `/pulse`
-"Blocked-on-Andrew protocol"). The proposal beads are themselves the human
+"Blocked-on-Zig protocol"). The proposal beads are themselves the human
 touchpoint; they wait in the tracker, they don't block a window.
 
 ## The tick procedure

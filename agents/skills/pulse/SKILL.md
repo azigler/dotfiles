@@ -1,16 +1,16 @@
 ---
 description: Per-project autonomous heartbeat — a scheduled tick lands in a durable interactive tmux session, routes against the project's pulse table, does at most ONE unit of work with full bead/commit/scrutiny discipline, offboards, and ends. Generalizes autonovel's /heartbeat; the tmux-injection scheduler (systemd timer -> pulse-inject.sh -> send-keys) delivers the ticks. Spec bead dotfiles-mhn carries the full architecture + decisions.
-when_to_use: A "/pulse tick" command arrives in a session (injected by the scheduler or typed by Andrew) — run one tick. Also fire for "/pulse setup" when opting a project into pulse (routing table + timer install), and "/pulse status" to report ledger + routing state. NEVER self-invoke ticks in a loop — the timer is the loop.
+when_to_use: A "/pulse tick" command arrives in a session (injected by the scheduler or typed by Zig) — run one tick. Also fire for "/pulse setup" when opting a project into pulse (routing table + timer install), and "/pulse status" to report ledger + routing state. NEVER self-invoke ticks in a loop — the timer is the loop.
 ---
 
 # /pulse — one tick of a self-driving project
 
-A pulse-enabled project runs itself between Andrew's visits: a systemd
+A pulse-enabled project runs itself between Zig's visits: a systemd
 user timer fires `pulse-inject.sh`, which types `/pulse tick` into a
 durable interactive Claude session in the project's dedicated tmux
 window. Each tick does **at most one unit of work** with the full
 discipline of any orchestrator session, then goes quiet until the next
-tick. Andrew can watch, interrupt, or steer the session at any time —
+tick. Zig can watch, interrupt, or steer the session at any time —
 it's a normal window in his tmux, labeled by the 🧠/✅/🔔/🌀 lexicon.
 
 Parent pattern: autonovel's `/heartbeat` (routing table, one dispatch
@@ -41,7 +41,7 @@ A project opts in by carrying a routing table at `refs/pulse.md`:
 - **cap** — max fires per day/week, enforced against the ledger.
 
 No `refs/pulse.md` → `/pulse tick` refuses and points at
-`/pulse setup`. The table is Andrew's steering wheel: he edits rows,
+`/pulse setup`. The table is Zig's steering wheel: he edits rows,
 caps, and priorities; ticks never edit the table themselves.
 
 ### A check is THREE-valued — "didn't fire" and "couldn't tell" are different
@@ -386,13 +386,13 @@ the daily cap.)
 
    **Structural review cadence.** Human review is a *permanent* loop
    feature, not only the blocked-tick exception (Loop Engineering §XI.C:
-   "keep one door open") — it keeps Andrew capable of saying "no" before
+   "keep one door open") — it keeps Zig capable of saying "no" before
    comprehension rot sets in. The DEFAULT trigger is a count: every **5th**
    `done` tick for a row, surface a lightweight review nudge (a `human:`
    review bead + push, or — interactive — an AskUserQuestion) listing the
    last 5 outputs for him to sample. **But a count is an arbitrary default,
    not sacred** — it reviews the 5th output regardless of whether any of the
-   5 mattered, and it fires even while Andrew is actively watching the loop
+   5 mattered, and it fires even while Zig is actively watching the loop
    (when he *is* the review). So **a loop MAY delegate this review to a
    better-keyed mechanism** by declaring it in its `refs/pulse.md`; a tick
    whose row is so delegated **skips the count nudge entirely**. The
@@ -456,10 +456,10 @@ the daily cap.)
 6. **End with a one-line state report** ("tick: weekly-report fired,
    wr-abc closed, pushed; next eligible rows: inbox").
 
-## Blocked-on-Andrew protocol
+## Blocked-on-Zig protocol
 
 A tick **never** blocks on AskUserQuestion — there's nobody at the
-keyboard, and an open dialog would freeze the window until Andrew
+keyboard, and an open dialog would freeze the window until Zig
 happens by. Instead:
 
 1. `br create -p 1 "human: <what's needed + why>"` in the project.
@@ -468,15 +468,15 @@ happens by. Instead:
 3. Append the ledger entry with `"outcome":"blocked"`, end the tick.
 
 The 🔔 lexicon + the `human:` bead + the push are the same "needs
-Andrew" signal everywhere. (Interactive sessions do the opposite —
-AGENTS.md "Surfacing to Andrew" says use AskUserQuestion. The split is
+Zig" signal everywhere. (Interactive sessions do the opposite —
+AGENTS.md "Surfacing to Zig" says use AskUserQuestion. The split is
 deliberate: dialogs for staffed sessions, beads for unstaffed ticks.)
 
 ## Setting up a project (`/pulse setup`)
 
 1. Confirm the project has beads + CLAUDE.md (pulse assumes the full
    discipline stack).
-2. Draft `refs/pulse.md` WITH Andrew — rows, caps, priorities are his
+2. Draft `refs/pulse.md` WITH Zig — rows, caps, priorities are his
    call. Start with one row; grow after the first week of ledger.
 3. Install the per-project units from the templates:
    ```bash
@@ -564,7 +564,7 @@ it has accumulated.
 
 **`--fresh` — warm process, cold context (opt-in per loop).** `pulse-inject.sh
 --fresh` sends `/clear` to a warm pane before the tick command. The window,
-the process, and Andrew's scrollback all survive; only the model's context
+the process, and Zig's scrollback all survive; only the model's context
 resets. There is no relaunch, so the cold-boot readiness race never enters the
 hot path. Enable it in the loop's `.service` `ExecStart`; **default is off**
 and no loop changes behavior without opting in.
@@ -578,7 +578,7 @@ Two verified consequences (bead `dotfiles-6ycc`, tested end-to-end 2026-07-25):
   in the same process. So a `--fresh` loop **cannot** act on a stale
   always-loaded snapshot — the session-age staleness bug (`explore-6wwu`)
   simply does not arise for it. (It still stands for durable sessions that do
-  not clear, Andrew's interactive windows included.)
+  not clear, Zig's interactive windows included.)
 - **The ledger row survives the clear.** Row attribution comes from
   `$PULSE_DIR/refs/pulse.md` on disk, not from conversational memory, so a
   cleared tick names its row exactly as a warm one does. Verified: three
@@ -609,11 +609,11 @@ from the handoff note. A PreCompact backstop runs in observe mode
 a real auto-compact confirms blockability. Never let auto-compaction
 surprise a tick mid-work.
 
-**The /clear is a HUMAN action — you must SUMMON Andrew with an
+**The /clear is a HUMAN action — you must SUMMON Zig with an
 AskUserQuestion, not just prose (Zig, 2026-07-22).** The agent CANNOT
 issue `/clear` itself; the window is a durable session that keeps
 receiving ticks, so it will sit context-full and defer every future
-tick until Andrew physically comes and clears it. Therefore, once you
+tick until Zig physically comes and clears it. Therefore, once you
 have offboarded (handoff written + committed + pushed), **end the turn
 with an `AskUserQuestion`** asking him to `/clear` (or `/compact`) the
 window — e.g. *"explore session is context-full at 85% and offboarded;
@@ -626,7 +626,7 @@ notification fire on it regardless of Remote Control state, where a
 and "freezing the window" is a feature, not a bug, because the session
 is offboarded and has **nothing else to do** until it is cleared.
 Stopping one step short (a prose "please /clear" with no
-AskUserQuestion) leaves Andrew un-notified and the loop stalled. Send a
+AskUserQuestion) leaves Zig un-notified and the loop stalled. Send a
 `PushNotification` alongside it too (best-effort), but the
 AskUserQuestion is the load-bearing summon.
 
@@ -636,7 +636,7 @@ AskUserQuestion is the load-bearing summon.
   problem, not this tick's. One row, stop.
 - ❌ **AskUserQuestion in a tick** — freezes the window for hours.
   `human:` bead + push, end the tick. **ONE exception (Zig, 2026-07-22):
-  when the session is context-full at the 85% guard and needs Andrew to
+  when the session is context-full at the 85% guard and needs Zig to
   manually `/clear` it, DO end with an AskUserQuestion to summon him —
   see "Session durability and context" above. The window is offboarded
   with nothing else to do, so the freeze is the point, and the dialog is
@@ -645,7 +645,7 @@ AskUserQuestion is the load-bearing summon.
   /pulse) — the systemd timer is the loop; a session that loops itself
   defeats the caps and the steering wheel.
 - ❌ **Editing refs/pulse.md from inside a tick** — the table is
-  Andrew's; propose changes via a `human:` bead.
+  Zig's; propose changes via a `human:` bead.
 - ❌ **Work without a bead / commit without a push** — unstaffed work
   needs MORE audit trail, not less.
 - ❌ **Treating quiet ticks as failure** — quiet is the system working;

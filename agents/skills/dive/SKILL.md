@@ -72,7 +72,7 @@ Default to **report-only** unless the user explicitly asks for an archive or a p
   brainstorm — *"what's the novel opportunity here — an ENTIRELY NEW idea
   this sparks (tied to nothing yet); a non-obvious interlink to another
   exploration or an open-ended bead that forms a deeper context; a thing
-  worth building; an application to an arc Andrew works on now; OR simply
+  worth building; an application to an arc Zig works on now; OR simply
   why this is genuinely interesting on its own terms? Lead with CURIOSITY —
   don't force a tie-back to a real project here."* — as a Workflow
   `agent(…, {effort:'max'})`, ideally a fresh unpolluted agent so it isn't
@@ -81,7 +81,7 @@ Default to **report-only** unless the user explicitly asks for an archive or a p
   reasons over the corpus you already gathered — it doesn't search.** Hand
   it the material, not a search task. Fold its best ideas into FINDINGS under a "Novel
   opportunities" heading. This is where the exhaustive upfront brainstorm
-  Andrew wants actually lives — don't skip it for researchable topics.
+  Zig wants actually lives — don't skip it for researchable topics.
   **Where that upside can land (including nowhere but a genuinely new idea)
   is governed by the next section — read it before prompting the ideation
   agent.** (For re-examining ALREADY-finished explorations, use `/elevate`.)

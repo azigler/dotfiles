@@ -34,7 +34,7 @@ register. Apply it deliberately. Calibrate by surface:
 - Comments on non-post Asana tasks (status updates, decisions, etc)
 - Code review notes, technical commentary, architecture documents
 - Bead descriptions, commit messages, PR descriptions
-- Chat replies to Andrew (default to direct, concise English; casual when
+- Chat replies to Zig (default to direct, concise English; casual when
   natural but not deliberately stylized — "u" / "ur" / "w/" / "btw" are
   for content production, not default chat)
 - Documentation other people will read (Ben, future agents, coworkers,
@@ -45,7 +45,7 @@ register. Apply it deliberately. Calibrate by surface:
 and letting the casual register bleed into chat replies, Asana
 descriptions, and reports. Caught and corrected on 2026-05-07. Zig voice
 is a switch you flip ON for content production, then flip OFF. It is
-NOT a default speaking-to-Andrew register. The fact that Andrew himself
+NOT a default speaking-to-Zig register. The fact that Zig himself
 uses casual abbreviations in DMs is not license to write his work
 artifacts in that register — those are read by other humans and agents
 who expect professional prose.
@@ -235,7 +235,7 @@ choice, not grind." Acknowledges before reframing.
 ## Pre-output self-audit (run before showing ANY draft)
 
 The anti-patterns below are not a passive reference — scan every draft against
-them and FIX before showing Andrew. These five survive into drafts most often;
+them and FIX before showing Zig. These five survive into drafts most often;
 check them by name every time:
 
 1. **Negative parallelism** — "it's not X, it's Y" / "isn't X, it's Y" / "X was

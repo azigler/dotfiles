@@ -45,13 +45,13 @@ calls this skill's max-effort technique internally for its opportunity pass
 3. **Shorter than the thing it examines.** A targeted elevate that outruns
    its subject has become part of the comprehension-rot problem it exists
    to fight (`explore-jdgk`: the old sweep narratives grew 1,460 → 1,666 →
-   2,190 words). **Hard cap: 600 words** in the report to Andrew. If the
+   2,190 words). **Hard cap: 600 words** in the report to Zig. If the
    re-read genuinely found more than 600 words of upside, that is a `/desk`
    input, not a longer elevate.
 
 ## The register — chief of research, not a note-taker
 
-The output **argues for resourcing this line of inquiry**. Andrew is the
+The output **argues for resourcing this line of inquiry**. Zig is the
 lab owner; you are the chief of research (memory:
 `explore-is-a-research-lab`). A catalogue of observations is not the
 deliverable. Every elevate report carries, in this order:
@@ -65,7 +65,7 @@ deliverable. Every elevate report carries, in this order:
   where the report earns trust; a pitch with no downside spends it.
 - **Verdict** — do-now / experiment / defer / drop. Say one.
 
-Assume Andrew does not know the premise; explain it from scratch, briefly
+Assume Zig does not know the premise; explain it from scratch, briefly
 (memory: `pitch-as-partner`, `plain-language-explanations`).
 
 ## Where the upside can land — lead with curiosity, not a tie-back
@@ -96,7 +96,7 @@ re-copy it here.
    over-anchoring this skill exists to avoid. Pass the **titles index**
    (`br list`, text) and let the agent `br show <id>` only the beads its
    findings actually touch.
-3. **Layer your own judgment on the synthesis and report to Andrew** in the
+3. **Layer your own judgment on the synthesis and report to Zig** in the
    register above, under the 600-word cap. Name it as an elevate result.
 4. **File a bead for anything worth doing** (`-t task` / `-t study`, title
    prefix `desk:` so it lands in the same standing-opportunity queue
@@ -108,7 +108,7 @@ re-copy it here.
    research/build this," add a `📌 candidate Vibes card: <crisp title>`
    line to the bead so promotion is one step, not a re-derivation — then
    **offer** (AskUserQuestion) to add the card in an interactive session.
-   Never auto-write the Vibes board; the queue is Andrew's steering wheel.
+   Never auto-write the Vibes board; the queue is Zig's steering wheel.
    (Mechanical note: the fleet proxy has no section-add route anyway.)
 
 `/elevate` is **interactive and on-demand**. It is not scheduled, it writes

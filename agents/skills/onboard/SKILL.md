@@ -109,13 +109,19 @@ continuing:
 Read `~/.claude/skills/TOOLKIT.md` with the Read tool, in THIS
 conversation. It is the per-skill digest — job, fire-when,
 prereqs/side-effects, and the single load-bearing anti-pattern for
-every global skill — at ~3k tokens.
+every global skill — at **≈9.4k tokens (measured 2026-08-01: 37,756
+bytes / 5,076 words, tokens at bytes÷4)**.
 
 (History: until 2026-06-09 this step mandated reading every SKILL.md
-body and claimed the cost was "a few-thousand tokens." Measured:
+body and claimed the cost was "a few-thousand tokens." Measured then:
 59,929 words ≈ 75–85k tokens per session start, re-paid after every
-compaction. The digest preserves the orchestrator-knows-its-toolkit
-property at ~4% of that cost; full bodies still load on invocation.)
+compaction. Re-measured 2026-08-01: **37 bodies, 664,599 bytes /
+99,174 words ≈ 166k tokens.** The digest preserves the
+orchestrator-knows-its-toolkit property at **~6% of that cost**; full
+bodies still load on invocation. The `~3k` / `~4%` this paragraph
+carried until 2026-08-01 were the 2026-06-09 numbers quoted as if
+current — the digest had tripled underneath them. TOOLKIT.md's header
+carries the measurement commands; re-run them rather than re-guessing.)
 
 Also check for project-local skills the digest doesn't cover:
 
@@ -212,13 +218,13 @@ echo "${CLAUDE_EFFORT:-high}"   # the interactive session's effort level
 ```
 
 - **`high` is correct — say so and move on.** It is the vendor default on
-  Opus 5 (identical to omitting the parameter). Do not ask Andrew to bump
+  Opus 5 (identical to omitting the parameter). Do not ask Zig to bump
   it, for divergent work or any other reason.
 - **⚠️ Anything ABOVE `high` is the anomaly to flag.** At `xhigh`/`max`,
   Opus 5 returns a 400 on any request with thinking disabled — which is
   the path Claude Code uses for **WebSearch**. A session sitting there has
   no working web search, and the failure is silent. If `$CLAUDE_EFFORT`
-  reads `xhigh` or `max`, surface it to Andrew (AskUserQuestion) and ask
+  reads `xhigh` or `max`, surface it to Zig (AskUserQuestion) and ask
   him to set it back to `high` before doing research-shaped work.
 - **Escalate the step, not the session.** When one delegated step needs
   more than `high` — a divergent ideation pass, a frontier synthesis — run
