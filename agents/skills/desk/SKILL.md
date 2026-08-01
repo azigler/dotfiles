@@ -286,7 +286,16 @@ register, and `refs/desk/<previous>.md`.
    the footer's drop count into noise (`explore-yqtm`: 14 FAILs on
    `strands-shell`, all false positives).
 2. **Dedup** every surviving candidate against open bead titles *and* the
-   axis register, before anything is written. **Then verify-first on carried
+   axis register, before anything is written. ⚠️ **Open titles are not enough:
+   `br show` EVERY bead any candidate names, whatever its status.** A candidate
+   resting on an **already-closed** bead is a **KILL**, not a footnote — the
+   close reason is where the resolution lives, and it usually disproves the
+   candidate outright. This is not a §3-only hazard: the 2026-07-31 pass killed
+   four §3 candidates on it and then made the fifth its **ASK 1**, proposing an
+   afternoon on `explore-oqkq` — closed 2026-07-03, resolution recorded, corpus
+   already on disk (`explore-6g3l`). The mechanical backstop is
+   `bin/check-memo-beads.py` in step 9's proof; this step is what keeps the
+   candidate from being written in the first place. **Then verify-first on carried
    signals:** every §3 item carried in `refs/desk/signals.md` that names a bead
    gets a `br show <id>` before it is re-emitted — **drop the ones already
    closed or actioned.** Zig executes §3's proposals *between* memos, so
@@ -313,6 +322,28 @@ the right neighbourhood of `explore-jdgk`'s 100:1 target. And every prior
 artifact in this family that was allowed to grow, did — the predecessor
 sweep went **1,460 → 1,666 → 2,190** words and became part of the
 comprehension rot it was built to prevent.
+
+### Correcting a shipped memo — retract in place, inside a delimited block
+
+A memo is a **dated artifact**. When a later pass disproves it, never rewrite
+silently: mark the claim **RETRACTED `<date>`**, say what disproved it with paths
+and bead status, and leave the original in place struck (`~~…~~`).
+
+The word cap and an honest retraction are in direct conflict — a memo written to
+1,195 of 1,200 words cannot absorb one corrective sentence, and a cap that makes
+correction impossible is a cap that buys silent rewriting. So the cap governs
+**authored content**, and the correction is budgeted separately:
+
+    <!-- retraction-start YYYY-MM-DD -->  … the retraction …  <!-- retraction-end -->
+
+    HARD CAP: 1,200 words, EXCLUDING delimited retraction blocks
+    HARD CAP: 300 words TOTAL across every retraction block in one memo
+
+Both are step-9 proof clauses. The delimiters exempt only text *added* by the
+correction — the struck original still counts, so a memo never gets cheaper to
+write by having been wrong. A retraction needing more than 300 words is not a
+retraction, it is next week's §1. (`explore-6g3l`; worked example:
+`refs/desk/2026-07-31.md` §1 ASK 1 + §2.)
 
 Register: chief of research pitching the lab owner on a resourcing decision.
 Urgency, signal, expected return, ROI, honest risk. Not a summary. Assume he
@@ -344,6 +375,18 @@ clause landed in one change, because a reader with no gate is the bug.
 `### ASK n`. Each with all five fields: *what it is | the signal that it's ripe |
 expected return | honest risk | the concrete ask* (a Vibes card? a build? an hour
 of Zig's time?).
+
+⚠️ **An ABSENCE-claim may not enter §1 without a positive control.** "It has
+never run", "there is no X", "zero rows" — a probe that can only report absence
+cannot tell *silent* from *looking in the wrong place*. Two things, in the memo:
+**(a) name the path the artifact would actually occupy**, read from the target's
+own docs, not a sibling convention; **(b) show the same probe finding a
+known-present instance.** Missing either, the claim is DOWNGRADED out of §1 — it
+can still be a §3 signal phrased as a question. Measured: 2026-07-31's ASK 1 rested
+on *"zero `ab` ledger rows, no `refs/ab/`"*, but `/ab` writes to
+`.claude/skills/ab/evals/` and is EPISODIC by design, so both absences were
+correct behaviour and the artifact it asked to fund was already on disk
+(`explore-6g3l`; memory: `probe-needs-positive-control`).
 
 **§2 WHAT TO STOP** — MANDATORY, ≥1 candidate to defund / close / table,
 with reasoning. A chief who only proposes new programs is not doing the job.
@@ -554,6 +597,12 @@ and filed a bead it had to retract. Corollary: **grep the doc/skill that
 supersedes a bead, not just the bead** — `explore-lc15` sat open at P1 for a day
 while the skill said it was measured closed.
 
+**That scoping — loop-audit agents only — is exactly how the fifth instance
+shipped:** it left the §1 ask pipeline uncovered, so the pass that caught four in
+§3 still put a closed bead at the top of the memo. The general form now lives
+where candidates are adjudicated (Pass B step 2, `The run` step 3), with
+`bin/check-memo-beads.py` as the backstop (`explore-6g3l`).
+
 ⚠️ **A scheduled tick cannot request its own subagents.** A vendor-delivered
 client-data slot in `~/.claude.json` reads *"Do not call the AgentTool unless the
 user requested it"*; it re-fetches, so it cannot be edited away, and skill text
@@ -573,10 +622,15 @@ two), the grant lives in its `.service` `--cmd` — check it is still there.
    has grown past 5 lines into judgment — that is Pass A doing Pass B's job.
 3. **Pass B** — fresh, corpus-free. Verify every quote in place (normalizing
    markdown emphasis first); drop what does not verify; dedup against open bead
-   titles + the axis register; `br show` every carried `signals.md` bead and
-   drop the closed ones; run `python3 bin/check-captures-declared.py --corpus`
+   titles + the axis register; **`br show` every bead ANY candidate names —
+   regardless of status — and KILL the candidate whose bead is already closed**
+   (its close reason is usually the disproof), not just the beads carried in
+   `signals.md`; hold every §1 absence-claim to its positive control; run
+   `python3 bin/check-captures-declared.py --corpus`
    for §5's evidence-layer line (one cheap read, no subprocess fan-out, always
-   exits 0); apply the artifact caps; write §1–§6.
+   exits 0); apply the artifact caps; write §1–§6; then run
+   `python3 bin/check-memo-beads.py refs/desk/<date>.md` before step 9 — it is a
+   clause of the done-proof, so finding out at commit time is finding out late.
 4. **Refuter pass** on §1. Record the verdict in the footer.
 5. **Update the two registers.** `axes.md`: add axes that earned entry (≥2
    positions), strike resolved ones with the memo date, record the wide-refresh
@@ -626,7 +680,7 @@ two), the grant lives in its `.service` `--cmd` — check it is still there.
    proof the commit hook RE-RUNS (bare `artifact` is rejected fleet-wide,
    `explore-len0`):
    ```json
-   {"ts":"<date -u +%FT%TZ>","row":"desk","outcome":"done","proof":{"kind":"cmd","cmd":"D=refs/desk/<date>.md; test $(wc -w < $D) -le 1200 && grep -qF '## §1 THE ASK' $D && grep -qF '## §2 WHAT TO STOP' $D && test $(grep -c '^### ASK ' $D) -le 3 && test $(grep -c '^### ASK ' $D) -ge 1 && test $(grep -c '^### STOP' $D) -le 1 && test $(grep -c '^### STOP' $D) -ge 1 && test $(grep -c '^### CONNECTION' $D) -le 1 && grep -qF '### CANDIDATE QUEUE' $D && grep -qF '### EVIDENCE LAYER' $D && grep -qF '### LOOP HEALTH' $D && test $(git diff HEAD~1 -- .beads/issues.jsonl | grep -c '\"title\":\"desk:') -le 2"},"note":"desk pass (wide|delta) — N asks, M beads/E edges; C candidates dropped on quote-verify; corpus_bytes N of M; reviewed W new explorations (F flagged); field-delta appended; loops audited: dive=<state> digest=<state>, X fixed / Y escalated"}
+   {"ts":"<date -u +%FT%TZ>","row":"desk","outcome":"done","proof":{"kind":"cmd","cmd":"D=refs/desk/<date>.md; test $(sed '/<!-- retraction-start/,/<!-- retraction-end -->/d' $D | wc -w) -le 1200 && test $(sed -n '/<!-- retraction-start/,/<!-- retraction-end -->/p' $D | wc -w) -le 300 && python3 bin/check-memo-beads.py $D --quiet && grep -qF '## §1 THE ASK' $D && grep -qF '## §2 WHAT TO STOP' $D && test $(grep -c '^### ASK ' $D) -le 3 && test $(grep -c '^### ASK ' $D) -ge 1 && test $(grep -c '^### STOP' $D) -le 1 && test $(grep -c '^### STOP' $D) -ge 1 && test $(grep -c '^### CONNECTION' $D) -le 1 && grep -qF '### CANDIDATE QUEUE' $D && grep -qF '### EVIDENCE LAYER' $D && grep -qF '### LOOP HEALTH' $D && test $(git diff HEAD~1 -- .beads/issues.jsonl | grep -c '\"title\":\"desk:') -le 2"},"note":"desk pass (wide|delta) — N asks, M beads/E edges; C candidates dropped on quote-verify; corpus_bytes N of M; reviewed W new explorations (F flagged); field-delta appended; loops audited: dive=<state> digest=<state>, X fixed / Y escalated"}
    ```
    A pass that found nothing new logs `"outcome":"quiet"` (no proof needed) —
    but see the empty-week rule below: "nothing to report" is a failure, not a
@@ -721,8 +775,9 @@ against Pass A's return; Pass A never reads them.**
   the pass, not a property of the week.
 - **`/desk` never blocks on AskUserQuestion.** It is a scheduled loop: it
   notifies, files beads, and ends.
-- **Both caps are enforced, not aspirational.** The proof command in the
-  ledger row checks them.
+- **The caps are enforced, not aspirational.** The proof command in the
+  ledger row checks both, plus the 300-word retraction budget and the
+  closed-bead citation gate.
 - **The ledger row is `desk`, and it starts fresh.** The archived `elevate`
   rows stay under their old name as history — they key the old cap counters
   and must not be rewritten (`explore-b47q`). Never migrate them.
