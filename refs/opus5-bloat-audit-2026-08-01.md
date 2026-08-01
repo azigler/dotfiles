@@ -421,10 +421,15 @@ Zig authorized tracks **1+2, 3, 4+5, and 7**. All four are complete and pushed.
 | **7** real A/B | ✅ | Rig validated; §4a |
 | **6** graduation debt | ⏸ | Not authorized — `zig-zone` and `daily-digest` still meet the criterion un-acted-on |
 
-**Always-loaded tier: ~10,400 → 9,617 words.** The AGENTS.md cut is large (−3,662) but
-the tier total moves less, because **skill frontmatter is now 73% of it (6,972 words)** —
-auto-injected by Claude Code, not written by us. *That* is where the next round of leverage
-is, and audit C already named the lever: the 5 longest `description` fields are ~40% of it.
+**Always-loaded tier: ~10,400 → ~6,670 words (−36%).**
+
+⚠️ **Correction to an earlier number in this report.** I first measured skill frontmatter
+at 6,972 words and called it "73% of the tier." That was wrong — my `sed -n '/^---$/,/^---$/p'`
+also matched markdown horizontal rules in the skill *bodies*, roughly doubling the count.
+The actually-injected fields (`description` + `when_to_use`) are **3,362 words**, ~50% of
+the tier. The direction held — frontmatter *is* the largest single component now that
+AGENTS.md is 2,024 — but it is half the size I claimed, so the payoff from compressing it
+is correspondingly smaller. Measured with a real YAML parse, not a regex.
 
 ### Three things found only by doing the work
 
