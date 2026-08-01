@@ -93,7 +93,7 @@ Concretely, `/research` covers:
 | **3.5 Scrutinize** | Adversarial read — catch reasoning gaps, hidden assumptions, definitional drift the user would catch if they read it cold | Confirmed / Refined / Reversed |
 | **4. Fold** | Save to `refs/research/<topic>.md`; update beads --notes; close; cross-link related beads; update GUARDRAILS/cross-epic docs | Persistent state captured |
 | **5. Layer** | Surface NEW questions from the findings; bead them; dispatch next-tier research without waiting for user prompt | Recursive research tree |
-| **6. Loop / handoff** | If autonomous mode: schedule wakeup + brief; if interactive: push notification + SendUserFile for digestible artifacts | Continuous progress |
+| **6. Loop / handoff** | If autonomous mode: schedule wakeup + brief; if interactive: push notification + the artifact delivered INLINE or as an absolute file path | Continuous progress |
 
 The skill is opinionated about: bead-location discipline (`cd` to
 target repo before `br create`/`update`), subagent prompt shape
@@ -494,17 +494,25 @@ If the finding affects other beads (e.g., research on framework A
 changes the spec for system B that uses A), update those beads' `--notes`
 with a pointer back to the new finding.
 
-### 4e. Push milestone notification + SendUserFile
+### 4e. Push milestone notification + deliver the artifact
 
 For material findings (the kind the user would want to know now):
 - Use `PushNotification` for the headline (under 200 chars, single
   line, lead with the actionable thing).
-- Use `SendUserFile` to deliver the artifact (the research report)
-  with a one-line caption containing the punchline.
+- Deliver the artifact **inline, or as an absolute file path** — the
+  punchline in your message, then `/home/ubuntu/<repo>/refs/research/<topic>.md`
+  for the full report.
 
-(Note: the tool name is `SendUserFile`, NOT `PushUserFile` —
-common typo. The push-vs-send distinction matters in how Claude
-Code surfaces artifacts to the user.)
+⚠️ **Do NOT use `SendUserFile`.** Zig works over SSH + tmux, where
+file-send blocks, inline images, and clickable links do not render
+(AGENTS.md, always-loaded). A file-send delivers nothing and looks
+like it worked — the delivery step of this skill silently becomes a
+no-op. Same reason a bare markdown link is never the only reference:
+paste the plain full URL.
+
+If the push returns *"Mobile push not sent (Remote Control inactive)"*
+it did not reach him — fall back to an AskUserQuestion (or, in an
+autonomous loop, a P1 `human:` bead).
 
 Save these for findings that:
 - Reverse a prior belief
@@ -553,7 +561,7 @@ If the user said "keep going" / "stay autonomous":
 2. Pass a self-contained continuation prompt so the next firing knows what to pick up
 3. Push notification when material findings land between wakeups
 4. Don't poll background tasks; they notify on completion
-5. Use `SendUserFile` for digestible artifacts (user is away; this is how they catch up)
+5. Leave digestible artifacts at a stable **absolute path** and name that path in the push / handoff note (user is away; this is how they catch up). Never `SendUserFile` — it does not render over SSH + tmux.
 
 **Circuit breakers — autonomy is bounded by validity, not budget:**
 - **Anomaly budget:** two consecutive iterations producing
