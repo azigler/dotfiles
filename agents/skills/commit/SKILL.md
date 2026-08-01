@@ -86,12 +86,37 @@ EOF
 )"
 ```
 
-### 3. PULL FIRST, then push
+### 3. PULL FIRST, then push — and PROVE the push against the remote
 
 ```bash
-git pull --rebase origin "$(git branch --show-current)"   # ALWAYS. Never push blind.
-git push
+# Assert the branch. Never infer it, never trust it from earlier in the session.
+BRANCH=$(git branch --show-current)
+test -n "$BRANCH" || { echo "ABORT: detached HEAD — commits here are not on any branch"; exit 1; }
+
+git pull --rebase origin "$BRANCH"   # ALWAYS. Never push blind.
+git push origin "$BRANCH"
+
+# Prove it landed by comparing to the REMOTE.
+test "$(git rev-parse "$BRANCH")" = "$(git ls-remote origin "$BRANCH" | cut -f1)" \
+  || { echo "FAIL: remote did not receive it"; exit 1; }
 ```
+
+⚠️ **`git rev-parse HEAD` is NOT proof of a push.** Echoing it after pushing
+prints your LOCAL head — including a detached one — not what the remote
+received, so it reports success on exactly the failure it should catch.
+
+This is not hypothetical. On 2026-07-31 a managed checkout on `marketing-vps`
+re-detached HEAD mid-session, repeatedly, including between two commits in the
+same turn. Four commits landed on the detached HEAD while the `main` branch
+never moved; `git push origin main` dutifully pushed the unmoved branch, exited
+`0`, and the session reported "pushed" four times against a remote that had
+received nothing. Recovered from the reflog. **A managed, synced, or
+multi-machine checkout can detach without warning** — assert the branch before
+every commit, and compare to `ls-remote` after every push.
+
+Recovery when it has already happened: `git reflog` still holds the stranded
+commits. Find the last one, `git checkout <branch>`, `git merge --ff-only <sha>`
+if it descends from the branch, and `git cherry-pick` any siblings.
 
 ⚠️ **Assume another machine has already committed.** As of 2026-07-28 this is no
 longer a single-writer fleet: `marketing-vps` runs full dispatched pulse ticks

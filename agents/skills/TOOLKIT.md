@@ -47,7 +47,7 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 **Job:** Gitmoji commits with bead integration; autonomous at natural checkpoints.
 **Fire when:** Autonomous-OK at bead closure / test pass / config update.
 **Prereqs/side-effects:** `br close` BEFORE commit; stage specific files only; **`git pull --rebase` THEN push** (except worktrees) — multi-machine fleet since 2026-07-28, marketing-vps commits too; Co-Authored-By trailer comes from the harness, never hardcoded.
-**Anti-pattern:** Batching multiple beads into one commit; copying a model name from examples into the trailer. **Pushing blind** — a rejected push means another machine committed; pull and replay, never `--force` to shared main. **`merge=union`** on a bead JSONL (git's built-in) is the resurrection bug — always the custom `jsonl-union` driver.
+**Anti-pattern:** Batching multiple beads into one commit; copying a model name from examples into the trailer. **Pushing blind** — a rejected push means another machine committed; pull and replay, never `--force` to shared main. **`merge=union`** on a bead JSONL (git's built-in) is the resurrection bug — always the custom `jsonl-union` driver. **`git rev-parse HEAD` as push proof** — it prints your local (possibly DETACHED) head, not what the remote got, so it passes on the one failure it should catch; assert the branch before committing and compare to `git ls-remote` after pushing (a managed checkout can re-detach mid-session — 4 commits stranded 2026-07-31).
 
 ### /daemon
 **Job:** Bootstrap a daemon+agent hybrid — a thin, LLM-free ingress (webhook/poller/sensor) + the Claude Code harness holding all intelligence. Scaffolds the refs set, the 4 decision forks, the bead roadmap, the go-live sequence.
