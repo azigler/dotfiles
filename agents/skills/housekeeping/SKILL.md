@@ -499,7 +499,31 @@ relative links.
 ```bash
 python3 ~/dotfiles/agents/doclint/doc-example-lint.py            # default roots
 python3 ~/dotfiles/agents/doclint/doc-example-lint.py --path ~/explore
+
+# ~/linearb and ~/cfp are CONFIDENTIAL_ROOTS and are SKIPPED without this flag:
+python3 ~/dotfiles/agents/doclint/doc-example-lint.py --path ~/linearb/<project> --include-confidential
 ```
+
+⚠️ **`files_scanned=0` is a RESULT to investigate, never a pass.** `~/linearb`
+and `~/cfp` are `CONFIDENTIAL_ROOTS` — the linter skips them unless
+`--include-confidential` is passed, and when it skips everything it prints:
+
+```
+files_scanned=0
+errors=0 warnings=0
+verdict: CLEAN
+```
+
+That is the tool declining to look, reported in the exact words of a pass. Found
+live on 2026-08-01 (`bd-jf4g`): a housekeeping run on `dashboard-dev-interrupted`
+read `CLEAN`; with the flag it was 12 files, **2 errors**, 14 warnings. Always
+read `files_scanned` before you read the verdict — a zero there invalidates the
+verdict line under it. This is the same shape as the pulse three-valued check:
+"could not evaluate" must never collapse into "nothing to do."
+
+It also poisons the thing this section exists for. §9.10 asks you to report the
+error count so the TREND is visible; a silent 0 doesn't just miss findings, it
+writes a false point onto the trend line.
 
 **Run it as a standing pass here, and treat the output as a WORK QUEUE, not a
 gate.** Fix what you can in the same session; file the rest as beads. Report
