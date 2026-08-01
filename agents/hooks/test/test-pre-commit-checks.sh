@@ -337,10 +337,44 @@ run_case_env() {
 # 22. a proof that outruns the budget is reported AS a timeout, not as a
 #     mystery — and the hook still returns (it does not run to the harness's
 #     own 120s ceiling).
+#
+# Both the budget and the expected message here are DERIVED rather than
+# hand-picked, because BOTH used to make this case load-flaky (dotfiles-oe80),
+# and since dotfiles-jm1c wired the suites to core.hooksPath a flake here
+# blocks real commits.
+#
+#   * The BUDGET. $HARNESS_PULSE_PROOF_BUDGET bounds the whole gate, and the
+#     gate's own bookkeeping (a `git diff` plus a `jq` per ledger line) spends
+#     from it before any proof runs. At the old budget=1, a loaded box burned
+#     the whole second on bookkeeping, so the hook took the budget-EXHAUSTED
+#     branch — a different code path — and the case failed. Measured
+#     2026-08-01 on 12 cores: hook overhead 0.20s quiet, 0.37–0.70s at load
+#     44; case failed 4/30 at load 44, 0/10 quiet. So measure THIS box's
+#     overhead and derive the budget from it; a constant is a guess that a
+#     slower box or a heavier load invalidates silently.
+#
+#   * The MESSAGE. The hook prints "timed out after ${PROOF_LEFT}s", and
+#     PROOF_LEFT is budget-minus-elapsed — so raising the budget while still
+#     pinning an exact second count does NOT fix the flake, it only moves it
+#     (measured: budget=5 wanting "after 5s" still failed 2/20 at load 47,
+#     reporting "after 4s"). Assert the phrase, which ONLY the timeout branch
+#     prints; the exhausted branch says "ran out before verifying".
+#     Deliberately NOT a want_stderr alternation accepting either message:
+#     that would go green on a hook that never reached the proof at all, and
+#     case 23 exists precisely to test that other branch on its own.
+SLOW_T0=$(date +%s)
+printf '%s\n' '{"ts":"2026-06-28T08:59:00Z","row":"r","outcome":"done","proof":{"kind":"cmd","cmd":"true"},"note":"overhead probe"}' \
+  >> "$PROOFREPO/refs/pulse-ledger.jsonl"
+( cd "$PROOFREPO" && echo "$PROOF_CMD" | env HARNESS_PULSE_PROOF_BUDGET=90 "$HOOK" ) >/dev/null 2>&1
+git -C "$PROOFREPO" checkout -q refs/pulse-ledger.jsonl
+# Whole seconds, the same unit the hook's own `date +%s` arithmetic uses.
+# x2 for a load spike between this probe and the case; +3 to clear both the
+# sub-second truncation and a legitimate 0s measurement on a quiet box.
+SLOW_BUDGET=$(( ($(date +%s) - SLOW_T0) * 2 + 3 ))
 printf '%s\n' '{"ts":"2026-06-28T09:00:00Z","row":"r","outcome":"done","proof":{"kind":"cmd","cmd":"sleep 30"},"note":"x"}' \
   >> "$PROOFREPO/refs/pulse-ledger.jsonl"
 run_case_env "$PROOFREPO" "block: slow proof times out inside the budget" 2 \
-  "$PROOF_CMD" "timed out after 1s" HARNESS_PULSE_PROOF_BUDGET=1
+  "$PROOF_CMD" "timed out after " "HARNESS_PULSE_PROOF_BUDGET=$SLOW_BUDGET"
 git -C "$PROOFREPO" checkout -q refs/pulse-ledger.jsonl
 
 # 23. with the budget already spent by an earlier proof, the NEXT one says so
