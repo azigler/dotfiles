@@ -1,6 +1,6 @@
 ---
-description: The research lab's ALLOCATOR — a weekly two-pass whole-corpus review that emits a <=1,200-word chief-of-research resourcing memo to Andrew: what to fund, what to stop, what the corpus knows that no single tick can see.
-when_to_use: The weekly desk pass fires (pulse-desk.timer, Fri); or Andrew asks "what should the lab work on next", "run the desk", "what's ripe in the compendium". NOT first-pass research (use /dive). NOT one-subject fresh eyes (use /elevate). NOT correctness (use /scrutinize).
+description: The research lab's ALLOCATOR — a weekly two-pass whole-corpus review that emits a <=1,200-word chief-of-research resourcing memo to Zig: what to fund, what to stop, what the corpus knows that no single tick can see.
+when_to_use: The weekly desk pass fires (pulse-desk.timer, Fri); or Zig asks "what should the lab work on next", "run the desk", "what's ripe in the compendium". NOT first-pass research (use /dive). NOT one-subject fresh eyes (use /elevate). NOT correctness (use /scrutinize).
 argument-hint: "[project dir, default ~/explore] [--wide]"
 ---
 
@@ -403,8 +403,9 @@ does not know the premise; explain it from scratch, briefly (memory:
 **The heading convention is MANDATORY** — it is what makes the caps machine-
 checkable, and an uncheckable cap is decoration. Exactly these forms, uppercase:
 `## §1 THE ASK`, then one `### ASK n` per program; `## §2 WHAT TO STOP` with one
-`### STOP` per candidate; `### CONNECTION` under §4; `### CANDIDATE QUEUE` and
-`### EVIDENCE LAYER` and `### LOOP HEALTH` under §5. The ledger proof greps these
+`### STOP` per candidate; `### CONNECTION` under §4; `### CANDIDATE QUEUE`,
+`### EVIDENCE LAYER`, `### LOOP HEALTH` and `### HATCHERY NOMINATIONS` under §5.
+The ledger proof greps these
 literals, so a memo
 that free-styles its headings fails its own gate.
 
@@ -562,9 +563,37 @@ explorations. Not a list. Lists are how the rot started.
   script always exits 0, changes no verdict, and names no defect. Report the
   numbers; a named majority-derived entry is a §2 stop-candidate or a
   `/scrutinize` dispatch only if the memo genuinely judges it so.
+- **hatchery nominations** — under the MANDATORY literal heading
+  `### HATCHERY NOMINATIONS` (the proof greps it). **ONE line, and it is a
+  POINTER, not the report.** The full table lives in
+  `~/explore/refs/hatchery-candidates.md`, written by step 2's producer. The
+  memo carries: the top candidate's handle + its `beads/open/cohesion`, how many
+  rows are still undecided, and the file path. Roughly:
+
+  > **HATCHERY NOMINATIONS** — 8 candidates, 8 undecided. Top: `zettel`, 15
+  > beads / 10 open, cohesion 0.472 against 0.243 random. Table + decision
+  > column: `~/explore/refs/hatchery-candidates.md`.
+
+  **Phase 1 is human nomination — `/desk` surfaces and elevates NOTHING**
+  (`explore-knxy` OQ-2; Zig: *"start with me nominating, then once you observe
+  that for a while, you can start suggesting some"*). Recording his decision is
+  the deliverable: Phase 2, where the desk earns the right to *suggest*, has no
+  training signal without it, so the `decision` column is the point of the
+  artifact and the producer carries each answer forward into the next week's
+  `prior` column.
+
+  ⚠️ **A nomination is NOT an ask, and must not become one by accident.** The
+  line above costs ~35 words and spends none of §1's `≤3` slots. If the memo
+  genuinely wants to *advocate* elevating a neighbourhood, that is a program
+  seeking funding and it spends an `### ASK n` slot like any other — exactly the
+  rule the `### CANDIDATE QUEUE` line already follows. The one thing that must
+  never happen is the nomination table bleeding into the memo: this artifact
+  family grows whenever it is allowed to (1,460 → 1,666 → 2,190 words,
+  `explore-jdgk`), and a candidate table is the most inviting filler there is.
+  If the numbers matter, the reader opens the file.
 - **mailbox digest**: a one-line verdict per `📬` card of the week, so he can
   complete them in one pass instead of re-reading each. (Auto-completing old
-  `📬` cards was **declined by Andrew 2026-07-17** — human-gated stays. His
+  `📬` cards was **declined by Zig 2026-07-17** — human-gated stays. His
   2026-06-12 `📬`-not-complete decision stands.)
 
 **§6 PORTFOLIO STATE** — ≤5 lines of numbers: corpus size, new this week,
@@ -679,13 +708,14 @@ two), the grant lives in its `.service` `--cmd` — check it is still there.
 
 1. **Decide the shape.** Wide (`--wide`, or no wide refresh in
    `refs/desk/axes.md` for 28 days) or weekly-delta. Note which in §6.
-2. **Refresh `refs/crosslink.md`, then dispatch Pass A.** The producer is run by
-   this pass, first, before anything is dispatched:
+2. **Refresh the two producers, then dispatch Pass A.** Both are run by this
+   pass, first, before anything is dispatched:
    ```bash
-   python3 bin/crosslink.py     # defaults: --db .zettel/index.duckdb, --out refs/crosslink.md
+   python3 bin/crosslink.py            # -> refs/crosslink.md      (1-4 min)
+   python3 bin/hatchery-candidates.py  # -> refs/hatchery-candidates.md (~2 s)
    ```
    The index is **gitignored**, so a worktree does not have one — from a worktree,
-   pass `--db ~/explore/.zettel/index.duckdb` explicitly.
+   pass `--db ~/explore/.zettel/index.duckdb` explicitly to both.
    **Why the pass runs its own producer, rather than a timer doing it.** The
    freshness clause in step 9 would otherwise be a gate that fails for a reason
    the pass could have fixed — nothing schedules `crosslink.py`, so a clause
@@ -703,6 +733,14 @@ two), the grant lives in its `.service` `--cmd` — check it is still there.
    COULD-NOT-CROSS, a control failed and **nothing was searched**. Treat `3` as a
    blocked pass: fix it or log `outcome:"blocked"` and say so in the memo; never
    read it as a quiet week.
+
+   `hatchery-candidates.py` follows the **same contract**: `0` candidates · `1`
+   NO-CANDIDATE (walked, controls passed, nothing cleared `--min-size`; the dated
+   section is still written) · `3` COULD-NOT-DETECT, which includes its
+   **calibration control** — citation-linked bead pairs failing to beat random
+   pairs, i.e. the cohesion numbers would be noise. `3` is a blocked pass, never
+   a quiet week. Its output does **not** enter a Pass A context: it is a
+   nomination surface for Zig, read by §5 in one line (see below).
 
    Then **dispatch Pass A** — A1 (axis scan, `effort:'high'`) and A2 (opportunity
    lens, `effort:'max'` via Workflow) in parallel, both fresh. Each returns a
@@ -774,7 +812,7 @@ two), the grant lives in its `.service` `--cmd` — check it is still there.
    proof the commit hook RE-RUNS (bare `artifact` is rejected fleet-wide,
    `explore-len0`):
    ```json
-   {"ts":"<date -u +%FT%TZ>","row":"desk","outcome":"done","proof":{"kind":"cmd","cmd":"D=refs/desk/<date>.md; test $(sed '/<!-- retraction-start/,/<!-- retraction-end -->/d' $D | wc -w) -le 1200 && test $(sed -n '/<!-- retraction-start/,/<!-- retraction-end -->/p' $D | wc -w) -le 400 && python3 bin/check-memo-beads.py $D --quiet && grep -qF '## §1 THE ASK' $D && grep -qF '## §2 WHAT TO STOP' $D && test $(grep -c '^### ASK ' $D) -le 3 && test $(grep -c '^### ASK ' $D) -ge 1 && test $(sed '/<!-- retraction-start/,/<!-- retraction-end -->/d' $D | sed -n '/^## §1 THE ASK/,/^## §2/p' | perl -0777 -pe 's/~~.*?~~//gs' | grep -Evc '^(#|$)') -ge 1 && test $(grep -c '^### STOP' $D) -le 1 && test $(sed '/<!-- retraction-start/,/<!-- retraction-end -->/d' $D | sed -n '/^### STOP/,/^## /p' | perl -0777 -pe 's/~~.*?~~//gs' | grep -Evc '^(#|$)') -ge 1 && test $(grep -c '^### CONNECTION' $D) -le 1 && grep -qF '### CANDIDATE QUEUE' $D && grep -qF '### EVIDENCE LAYER' $D && grep -qF '### LOOP HEALTH' $D && CL=$(grep -oE '^## [0-9]{4}-[0-9]{2}-[0-9]{2}' refs/crosslink.md | sort -r | head -1 | cut -d' ' -f2) && test ${#CL} -eq 10 && test $(( ($(date +%s) - $(date -d $CL +%s)) / 86400 )) -le 8 && test $(git diff HEAD~1 -- .beads/issues.jsonl | grep -c '\"title\":\"desk:') -le 2"},"note":"desk pass (wide|delta) — N asks, M beads/E edges; C candidates dropped on quote-verify; corpus_bytes N of M; reviewed W new explorations (F flagged); field-delta appended; loops audited: dive=<state> digest=<state>, X fixed / Y escalated"}
+   {"ts":"<date -u +%FT%TZ>","row":"desk","outcome":"done","proof":{"kind":"cmd","cmd":"D=refs/desk/<date>.md; test $(sed '/<!-- retraction-start/,/<!-- retraction-end -->/d' $D | wc -w) -le 1200 && test $(sed -n '/<!-- retraction-start/,/<!-- retraction-end -->/p' $D | wc -w) -le 400 && python3 bin/check-memo-beads.py $D --quiet && grep -qF '## §1 THE ASK' $D && grep -qF '## §2 WHAT TO STOP' $D && test $(grep -c '^### ASK ' $D) -le 3 && test $(grep -c '^### ASK ' $D) -ge 1 && test $(sed '/<!-- retraction-start/,/<!-- retraction-end -->/d' $D | sed -n '/^## §1 THE ASK/,/^## §2/p' | perl -0777 -pe 's/~~.*?~~//gs' | grep -Evc '^(#|$)') -ge 1 && test $(grep -c '^### STOP' $D) -le 1 && test $(sed '/<!-- retraction-start/,/<!-- retraction-end -->/d' $D | sed -n '/^### STOP/,/^## /p' | perl -0777 -pe 's/~~.*?~~//gs' | grep -Evc '^(#|$)') -ge 1 && test $(grep -c '^### CONNECTION' $D) -le 1 && grep -qF '### CANDIDATE QUEUE' $D && grep -qF '### EVIDENCE LAYER' $D && grep -qF '### LOOP HEALTH' $D && grep -qF '### HATCHERY NOMINATIONS' $D && CL=$(grep -oE '^## [0-9]{4}-[0-9]{2}-[0-9]{2}' refs/crosslink.md | sort -r | head -1 | cut -d' ' -f2) && test ${#CL} -eq 10 && test $(( ($(date +%s) - $(date -d $CL +%s)) / 86400 )) -le 8 && HN=$(grep -oE '^## [0-9]{4}-[0-9]{2}-[0-9]{2}' refs/hatchery-candidates.md | sort -r | head -1 | cut -d' ' -f2) && test ${#HN} -eq 10 && test $(( ($(date +%s) - $(date -d $HN +%s)) / 86400 )) -le 8 && test $(git diff HEAD~1 -- .beads/issues.jsonl | grep -c '\"title\":\"desk:') -le 2"},"note":"desk pass (wide|delta) — N asks, M beads/E edges; C candidates dropped on quote-verify; corpus_bytes N of M; reviewed W new explorations (F flagged); field-delta appended; loops audited: dive=<state> digest=<state>, X fixed / Y escalated"}
    ```
    A pass that found nothing new logs `"outcome":"quiet"` (no proof needed) —
    but see the empty-week rule below: "nothing to report" is a failure, not a
@@ -790,6 +828,17 @@ two), the grant lives in its `.service` `--cmd` — check it is still there.
    measures the producer's liveness rather than the corpus's. And because step 2
    runs the producer, a failure here means `crosslink.py` is **broken** — fix it
    or log `blocked`; do not delete the clause.
+
+   **`refs/hatchery-candidates.md` gets the identical treatment, and it landed
+   in the same change as the reader** (`explore-knxy`). Two clauses: the memo
+   must carry `### HATCHERY NOMINATIONS`, and the file's newest dated section
+   must be within 8 days. Together they are the answer to *what would notice if
+   this silently stopped happening* — without them a pass could quietly stop
+   nominating and still log `done`, which is precisely the write-half /
+   read-half asymmetry `### CANDIDATE QUEUE` was added to fix one layer up.
+   Like crosslink, it cannot be satisfied by an empty run: a week with no
+   candidate still writes its dated section (rc 1), so the clause measures the
+   producer's liveness rather than the graph's.
 #### The registration assertion — run it right after appending the row
 
 A well-formed row is not the same as a *readable* one, and nothing else in this stack
@@ -892,6 +941,14 @@ autonomously.
   fodder; the second is the uncapped emission channel.
 - ❌ **Output onto Asana** — beads + the memo + a push, never the Vibes board
   (the fleet proxy has no section-add route anyway).
+- ❌ **Elevating a hatchery candidate, or filling a `decision` cell** — Phase 1
+  is human nomination. The desk surfaces the table and writes nothing into the
+  `decision` column; the whole point of the column is that Zig's answers become
+  Phase 2's training signal, and a loop that answers for him has erased its own
+  evidence (`explore-knxy` OQ-2).
+- ❌ **Pasting the nomination table into the memo** — §5 gets one pointer line.
+  A candidate table inside a 1,200-word cap is the most inviting filler in this
+  loop, and every artifact in this family that was allowed to grow, did.
 
 ## See also
 
@@ -905,6 +962,11 @@ autonomously.
 - `~/explore/refs/crosslink.md` — the bead↔corpus crossing report this pass
   produces (step 2) and consumes (Pass A); `bin/crosslink.py --help` carries the
   measured precision, the known retrieval hole, and the exit-code contract
+- `~/explore/refs/hatchery-candidates.md` — the Phase-1 hatchery nomination
+  surface this pass produces (step 2) and points at (§5). Zig fills the
+  `decision` column; `bin/hatchery-candidates.py --help` carries the exit-code
+  contract, the calibration control, and the measured resolution sweep. Bead
+  `explore-knxy` holds the architecture and the settled OQs
 - `/dive` — the executor this desk allocates to
 - `/elevate` — max-effort fresh eyes on ONE finished thing; its technique is
   what Pass A's A2 lens dispatches

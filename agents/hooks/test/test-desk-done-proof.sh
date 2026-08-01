@@ -208,6 +208,48 @@ PY
 )
 [ -n "$CL_CLAUSE" ] && ok || bad "done-proof carries the refs/crosslink.md freshness clause (<= 8 days)"
 
+# --- 10. the hatchery nomination surface is gated the same way ---------------
+# explore-knxy Phase 1: /desk surfaces hatchery candidates and elevates nothing.
+# Two clauses, and BOTH must exist or a pass can silently stop nominating while
+# still logging `done` -- the write-half/read-half asymmetry `### CANDIDATE
+# QUEUE` was added to fix, one loop later.
+HN_FRESH=$(python3 - "$SKILL" <<'PY'
+import json, sys
+lines = [l.strip() for l in open(sys.argv[1]) if l.strip().startswith('{"ts"')]
+cmd = json.loads(lines[0])["proof"]["cmd"] if len(lines) == 1 else ""
+print("yes" if "hatchery-candidates.md" in cmd and "-le 8" in cmd else "")
+PY
+)
+[ -n "$HN_FRESH" ] && ok || bad "done-proof carries the refs/hatchery-candidates.md freshness clause (<= 8 days)"
+
+HN_CLAUSE=$(extract "'### HATCHERY NOMINATIONS' in c")
+
+# E: a memo with no nomination line -> clause FAILS.
+cat > "$TMP/e.md" <<'EOF'
+## §5 THE DOOR
+
+### CANDIDATE QUEUE
+
+### LOOP HEALTH
+EOF
+
+# E2: the same memo carrying the one-line pointer -> clause PASSES.
+cat > "$TMP/e2.md" <<'EOF'
+## §5 THE DOOR
+
+### CANDIDATE QUEUE
+
+### LOOP HEALTH
+
+### HATCHERY NOMINATIONS
+
+8 candidates, 8 undecided. Top: `zettel`, 15 beads / 10 open, cohesion 0.472
+against 0.243 random. Table: `~/explore/refs/hatchery-candidates.md`.
+EOF
+
+expect_fail "$HN_CLAUSE" "$TMP/e.md"  "E: no ### HATCHERY NOMINATIONS -> clause FAILS"
+expect_pass "$HN_CLAUSE" "$TMP/e2.md" "E2: the nomination pointer -> clause PASSES"
+
 # --- Summary ---
 TOTAL=$((PASS + FAIL))
 if [ "$FAIL" -eq 0 ]; then
