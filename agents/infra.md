@@ -2,7 +2,8 @@
 
 The box this harness runs on. Read when work touches infra / ports / deploy /
 networking (the `/daemon` shape always needs it). **Infra drifts — re-verify a
-fact with a live command before depending on it.** Last verified 2026-06-27.
+fact with a live command before depending on it.** Last verified **2026-08-01**
+(runtimes, vhosts, ports, and the full timer list re-derived live that day).
 
 ## This box
 - **hostname `zig-computer`** — a public VPS AND the dev box + Claude Code harness
@@ -18,6 +19,27 @@ fact with a live command before depending on it.** Last verified 2026-06-27.
 | iphone-15-pro | `100.102.6.100` | iOS | — |
 | homeassistant | `100.83.136.26` | HAOS rpi5, **tag:server** | "948 Palm" HA install (`ssh hassio@homeassistant`, key `~/.ssh/id_ha`); managed from `~/picod` (joined 2026-06-27; graduated out of `~/explore/shell-home-assistant` 2026-07-26) |
 
+## Mesh ops — ACL changes, and getting back in
+
+**ACL change** (`tailscale/acl.jsonc`): paste the whole file at
+<https://login.tailscale.com/admin/acls/file> → **Preview** (validates JSONC + ACL
+semantics) → **Save**. Verify with `tailscale ping pico` from `zig-computer`. Every
+prior policy is kept in the admin changelog, so a bad paste is a **one-click revert**.
+
+**Recovery ladder — read this BEFORE you touch ACLs or SSH config:**
+
+| Symptom | Recovery |
+|---|---|
+| `tailscale ssh` won't authenticate | Fall back to public `ssh ubuntu@51.81.33.136:22`. Existing tailnet sessions stay live; only NEW Tailscale auth fails. |
+| Public SSH also unreachable | **OVH KVM web console** → log in directly. Credentials in the password manager. This is the bottom of the ladder — there is nothing below it. |
+| An ACL push broke all access (`tailscale status` shows "no peers" everywhere) | Tailscale admin → Access Controls → changelog → revert. |
+| `pico.zig-zone.ts.net` unreachable, others fine | Physically check pico (power/screen-sharing). `autorestart` covers power loss; soft crashes need a manual reboot. |
+| nginx 502 on `*.zig.computer` | `curl -I http://pico.zig-zone.ts.net:3300` from here. 502 from inside the tailnet too ⇒ vs14-web died on pico (`launchctl kickstart`). Clean from inside ⇒ nginx upstream drifted. |
+| Ollama latency suddenly bad | `tailscale status` — if the path says `relay`, the home NAT shifted; check the DERP region / home router. |
+
+Full runbook, incl. the Tailscale gotchas paid for once and the Taildrop file-transfer
+route: `~/explore/.claude/skills/zig-zone/SKILL.md`.
+
 ## The production norm (and its exception)
 Andrew's default: *production runs on **pico** over tailscale, forwarded from
 nginx here.* **Exception:** things that ARE part of the agent harness (e.g. a
@@ -26,38 +48,49 @@ co-located with Claude Code + `/pulse` + nginx — co-location beats a backwards
 cross-tailnet trigger. Name the deviation when you make it.
 
 ## nginx (here, `/etc/nginx/sites-{available,enabled}/`)
-Existing vhosts: `linearb.zig.computer`, `vs14.zig.computer`, `reef-router` (:7575).
+Existing vhosts (live 2026-08-01): `granola.zig.computer`, `hevyd.zig.computer`,
+`vs14.zig.computer`, `webmention.andrewzigler.com`, plus `default`.
+(`linearb.zig.computer` and `reef-router` are **gone** — reef retired, `dotfiles-13qu`.)
 Pattern: per-project `<name>.zig.computer.conf` + certbot TLS; `nginx -t` before
 reload. Use the `/nginx` skill.
 
 ## Ports
-In use (public): 22, 80, 443, 7575 (reef). Localhost-only: 7100, 7102, 8642, 53.
-hevyd daemon: **14389**. Fixed daemon ports belong in the **10000–32767 band** —
+Public (ufw-allowed): **22, 80, 443** only — INPUT policy is DROP and there is no
+ufw rule for any daemon port. 7575 is closed (reef retired).
+Tailnet-bound (`100.98.174.21`): 14174 + 14443 (harnessd), 8766, 19632, 46032.
+⚠️ hevyd currently listens on **`*:14877`** — a WILDCARD bind, so it is reachable
+tailnet-wide though not from the internet. Its own docs still say `127.0.0.1:14389`;
+both the port and the bind have drifted (`dotfiles-dpbn`). Fixed daemon ports belong in the **10000–32767 band** —
 above the dev/service cluster (3000/5000/8000/8080/9000…), below the Linux
 ephemeral floor (32768; `/proc/sys/net/ipv4/ip_local_port_range`). They sit behind
 nginx, so the number is internal — pick high + uncommon so a daemon never collides
 with a dev loop or an outbound ephemeral allocation; verify free with `ss -tlnH`.
 
 ## Installed runtimes (verify versions with `--version`)
-node 22, bun 1.3, python3 3.13 + uv, go (1.25 toolchain), cargo 1.96,
-sqlite3 3.46, **duckdb v1.5.4** (`~/.local/bin/duckdb`, installed 2026-06-27).
+node 22.22.3, bun 1.3.14, python3 3.13.7 + uv, **go 1.24.4** (NOT 1.25 — `romd`
+flagged this 2026-07-26 and it stayed wrong until 2026-08-01), cargo 1.97.1,
+sqlite3 3.46.1, **duckdb v1.5.4** (`~/.local/bin/duckdb`).
 
 ## systemd USER timers (the `/pulse` fleet + builds)
-`pulse-explore`, `pulse-daily-digest`, `pulse-di-{tuesday,thursday,friday}`,
-`pulse-weekly-report`, `pulse-elevate`, `hermes-watchdog`, `andrewzigler3-build`
-(daily 03:00). `systemctl --user list-timers`.
 
-⏳ **Pending rename (NOT yet installed, 2026-07-26 — `explore-mqvu`).** The two
-explore loops were renamed at the *skill* layer: `/explore` → `/dive` and the
-`/elevate` weekly sweep → `/desk`. Unit files for the new names are prepared but
-**uninstalled** at `agents/scheduler/templates/pulse-{dive,desk}.{timer,service}`
-— installing them is a LIVE pulse-schedule change and needs Zig's confirmation
-(`dotfiles-q702`). Until then `pulse-explore` / `pulse-elevate` remain the live
-timers under their old names.
+`systemctl --user list-timers --all` is the source of truth; **31 units** live as of
+2026-08-01. The `/pulse` fleet: `pulse-{dive,desk,digest,dream,retry,stall}`,
+`pulse-di-{monday,tuesday,wednesday,thursday,friday}`, `pulse-autonoveld-{mail,conceive,voice,write}`,
+`pulse-{aaif-radar,andrewzigler3,biweekly-content,hevyd-recap,weekly-report}`.
+Non-pulse: `andrewzigler3-build`, `claude-vault-sync`, `harnessd-tlscert`,
+`hevyd-social-tick`, `lb-granola-commit`, `picod-health`, `vs14d-backup-health`,
+`gateway-host-update`, `restart-loop-check`, `zettel-refresh`.
 
-**Timer-rename gotcha:** rename a timer's stamp/unit with `mv` (not
-recreate) — `mv` preserves mtime, so the renamed timer inherits its
-run-history and won't fire a phantom catch-up tick on next activation.
+**The 2026-07-26 rename is DONE, not pending.** `pulse-dive` and `pulse-desk` are
+installed and running; `pulse-explore`, `pulse-elevate`, `pulse-daily-digest` and
+`hermes-watchdog` no longer exist. This file claimed the opposite until 2026-08-01 —
+an agent reading it would have concluded two live loops were switched off.
+
+**Timer-rename gotcha:** rename a timer's stamp/unit with `mv` (not recreate) — `mv`
+preserves mtime, so the renamed timer inherits its run-history and won't fire a
+phantom catch-up tick. Same reason a re-armed timer needs its stamp touched first
+(see `~/autonoveld/CLAUDE.md`, 2026-08-01).
+
 
 ## Projects on this box (selected)
 - `~/andrewzigler3` — personal site; daily "now page" build **consumes

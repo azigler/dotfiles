@@ -196,11 +196,22 @@ Umbrella-scoped libraries load on demand: `~/explore/.claude/skills/INDEX.md` is
 toybox catalog; read a `SKILL.md` from it by absolute path when the global set lacks
 a capability. Project-scoped sets are documented in their own project's CLAUDE.md.
 
-A toybox skill **graduates to the global set when OTHER UMBRELLAS actually reach for
-it** — usage-driven, not threshold-driven. `toybox-usage.sh` logs every cross-umbrella
-load to `~/explore/.claude/skills/USAGE.log`. Count **distinct umbrellas, not log
-lines**: one agent reading a file four times in one worktree is one consumer, and
-graduating adds ~120 words to the always-loaded tier permanently.
+A toybox skill graduates to the global set only when **both** hold:
+
+1. **Demand** — 2+ **distinct umbrellas** reach for it. `toybox-usage.sh` logs every
+   cross-umbrella load to `~/explore/.claude/skills/USAGE.log`. Count **distinct
+   umbrellas, not log lines**: one agent reading a file four times in one worktree is
+   one consumer, not four.
+2. **Portability** — it could actually *run* outside its home umbrella. No hardcoded
+   `--dir`, no umbrella-local working set, no jail it only works inside. **Reading is
+   not running**: `/daily-digest` is read from `~/linearb` but reads 11 `~/explore`
+   paths and is launched `--dir ~/explore` inside explore's tick-jail — it could never
+   run there, so it does not graduate however often it is read.
+
+Both, because graduating adds ~120 words to the always-loaded tier permanently, in
+every session in every project. A skill that fails (2) should be *pointed at*, not
+moved; one whose content is really infra documentation belongs in `agents/infra.md`.
+(`dotfiles-ihc0`, 2026-08-01 — the count was being read off raw log lines.)
 
 ## Reference material conventions
 
