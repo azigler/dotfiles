@@ -15,6 +15,22 @@ This is the mechanical half of that fix (``explore-qdo5``): back-filling the 19
 rows without a guard just resets the clock. Run it as a pre-commit gate on the
 ledger — a violation is a hard stop, not a warning.
 
+WHO CALLS THIS (name the consumer in the same place as the producer — the gap
+below is what happens when you don't):
+
+* ``agents/hooks/pre-commit-checks.sh`` §2.6 — the fleet-wide gate. Any commit
+  staging a ``*-ledger.jsonl`` has its NEW rows linted against that repo's
+  ``refs/pulse.md``. New lines only: a ledger is append-only history and
+  re-validating it would block on rows written years earlier.
+* ``agents/scheduler/pulse-dispatch-remote.sh`` step 9 — lints after appending
+  and ROLLS THE ROW BACK on failure.
+
+Until 2026-08-01 only the dispatcher called it (``dotfiles-775y``), so a row
+appended by any other path — a hand-run tick, a local injector, a skill writing
+its own row — was unlinted. That is exactly the population ``explore-qdo5`` was
+made of: 23 null rows across three projects, none of them written by the
+dispatcher. The prose in /pulse and /desk was the only live guard.
+
 FLEET SCOPE. The null rows were not sloppiness: ``agents/skills/pulse/SKILL.md``
 documented the ledger format with a ``"row":null`` example line, and the ticks
 copied it — 23 null rows across THREE projects' ledgers. The documentation was

@@ -140,6 +140,32 @@ if printf '%s\n' "$STAGED" | grep -qE '^agents/hooks/(pre-commit-checks\.sh|pre-
   fi
 fi
 
+# --- the banned git verbs, in EXECUTABLE examples (dotfiles-mjln) ----------
+# AGENTS.md is always-loaded and its "Two writers, one working tree" table is
+# measured; /commit's SKILL.md nonetheless shipped `git pull --rebase origin
+# "$BRANCH"` inside a copy-pasteable bash block for four days, routing agents
+# onto the rung whose refusal reflexively suggests `git stash` — the one verb
+# in that table that destroys another writer's work. Nothing caught it: the
+# doclint has no hook caller (it runs under /housekeeping), so the two files
+# could contradict each other indefinitely.
+#
+# One rule, staged agent-facing markdown only: ~90ms, unlike the full lint.
+DOCS=$(printf '%s\n' "$STAGED" | grep -E '^(agents/.*\.md|AGENTS\.md|CLAUDE\.md)$')
+if [ -n "$DOCS" ] && [ -f "$ROOT/agents/doclint/doc-example-lint.py" ]; then
+  PATHARGS=()
+  while IFS= read -r d; do
+    [ -n "$d" ] && [ -f "$ROOT/$d" ] && PATHARGS+=(--path "$ROOT/$d")
+  done <<< "$DOCS"
+  if [ ${#PATHARGS[@]} -gt 0 ]; then
+    echo "pre-commit: linting staged docs for banned git verbs in executable examples"
+    if ! python3 "$ROOT/agents/doclint/doc-example-lint.py" \
+           --rule banned-git-verb "${PATHARGS[@]}"; then
+      echo "pre-commit: FAIL — banned git verb in a documented example" >&2
+      FAILED=1
+    fi
+  fi
+fi
+
 for n in ${NOTES+"${NOTES[@]}"}; do
   echo "pre-commit: note — $n (staged script has no matching suite; coverage gap, not a block)"
 done

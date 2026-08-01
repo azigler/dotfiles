@@ -276,7 +276,7 @@ OAuth refresh token — a secret store masquerading as memory.
 
 **Still check, because auto-memory + tool output can slip:** the scanner/redactor
 `scrub.py` (`scan`/`redact`, high-confidence patterns, JSON-safe atomic rewrite —
-`~/explore/.claude/skills/scrub-secrets/`) is the mechanical guard: a pre-commit
+`~/.claude/skills/scrub-secrets/`) is the mechanical guard: a pre-commit
 hook on the vaults (blocks), plus a periodic session-end/pulse scan of the memory tier (detects auto-memory drift → files a
 `human:` bead). Prevention (this rule) is cheapest; detection is the backstop.
 
@@ -529,7 +529,6 @@ full body; descriptions below are just the prompt-toolkit summary.
 - `/beads` — `br` task tracking
 - `/commit` — gitmoji conventions + bead trailer (autonomous-OK)
 - `/lint` — code quality policy + linter reference
-- `/bd-to-br-migration` — convert old bd-style docs
 
 **Infra / tools:**
 - `/nginx` — global reverse proxy (auto-loads on `**/nginx.conf`, `**/sites-available/**`, `**/ops/nginx/**`)

@@ -561,6 +561,102 @@ rm -f "$SIBREPO/refs/notes.jsonl"
 
 rm -rf "$SIBREPO"
 
+# --- the SCHEMA gate: pulse-ledger-lint.py has a hook caller (dotfiles-775y) -
+# The linter's only invoker was pulse-dispatch-remote.sh, so a row appended by
+# any OTHER path was unlinted — which is exactly how explore-qdo5 happened (23
+# `"row":null` rows across 3 projects, copied from /pulse's own example, none
+# of them written by the dispatcher). These cases assert the gate in both
+# directions AND its two deliberate limits: history is never re-validated, and
+# a repo with no routing table is skipped VISIBLY rather than silently.
+SCHEMAREPO=$(mktemp -d)
+git -C "$SCHEMAREPO" init -q
+git -C "$SCHEMAREPO" config user.email t@t; git -C "$SCHEMAREPO" config user.name t
+mkdir "$SCHEMAREPO/refs"
+cat > "$SCHEMAREPO/refs/pulse.md" <<'ROUTING'
+# Pulse routing
+
+| name | cadence | what |
+|---|---|---|
+| `dive` | daily | dive one lead |
+| `desk` | Fri | the allocator |
+ROUTING
+# Seeded history that the linter WOULD reject (no `outcome` key — the exact
+# shape refs/friction-ledger.jsonl carries on line 1 today).
+printf '%s\n' '{"ts":"2026-01-01T00:00:00Z","row":"dive","note":"legacy, no outcome"}' \
+  > "$SCHEMAREPO/refs/pulse-ledger.jsonl"
+git -C "$SCHEMAREPO" add refs/pulse.md refs/pulse-ledger.jsonl
+git -C "$SCHEMAREPO" commit -qm seed
+
+schema_case() {
+  local name=$1 want=$2 line=$3 want_stderr=${4:-}
+  printf '%s\n' "$line" >> "$SCHEMAREPO/refs/pulse-ledger.jsonl"
+  git -C "$SCHEMAREPO" add refs/pulse-ledger.jsonl
+  run_case_in "$SCHEMAREPO" "$name" "$want" \
+    '{"tool_input":{"command":"git commit -m \":card_file_box: tick\""},"cwd":"/tmp"}' \
+    "$want_stderr"
+  git -C "$SCHEMAREPO" reset -q
+  git -C "$SCHEMAREPO" checkout -q refs/pulse-ledger.jsonl
+}
+
+# 43. THE incident row: `"row":null`. outcome:"quiet" on purpose — quiet is
+#     exempt from the 2.5 proof gate, so a BLOCK here can only come from 2.6.
+schema_case "block: \"row\":null in a new ledger row" 2 \
+  '{"ts":"2026-08-02T09:00:00Z","row":null,"outcome":"quiet"}' \
+  "pulse-ledger-lint rejected a NEW row"
+
+# 44. an invented row name is not in refs/pulse.md — the canonical-ledger-row
+#     rule, the same failure class Zig caught by eye on 2026-07-14.
+schema_case "block: a row name not declared in refs/pulse.md" 2 \
+  '{"ts":"2026-08-02T09:00:00Z","row":"made-up-loop","outcome":"quiet"}' \
+  "pulse-ledger-lint rejected a NEW row"
+
+# 45. outcome outside done/quiet/blocked.
+schema_case "block: an out-of-contract outcome" 2 \
+  '{"ts":"2026-08-02T09:00:00Z","row":"dive","outcome":"finished"}' \
+  "pulse-ledger-lint rejected a NEW row"
+
+# 46. a non-UTC ts — the whole cap/day-boundary argument rests on UTC.
+schema_case "block: a non-UTC timestamp" 2 \
+  '{"ts":"2026-08-02T09:00:00-07:00","row":"dive","outcome":"quiet"}' \
+  "pulse-ledger-lint rejected a NEW row"
+
+# 47. the honest marker for an unrecoverable attribution is ALLOWED — a
+#     visible gap beats a confabulated row name.
+schema_case "allow: row 'unattributed'" 0 \
+  '{"ts":"2026-08-02T09:00:00Z","row":"unattributed","outcome":"quiet"}'
+
+# 48. a well-formed declared row passes. A gate the loops cannot satisfy would
+#     be as broken as no gate.
+schema_case "allow: a valid declared row" 0 \
+  '{"ts":"2026-08-02T09:00:00Z","row":"dive","outcome":"quiet"}'
+
+# 49. HISTORY IS NEVER RE-VALIDATED. The seeded line has no `outcome` and is
+#     already in HEAD; a commit adding a GOOD line beside it must pass. Without
+#     the new-lines-only slice this whole repo would be permanently unable to
+#     commit — refs/friction-ledger.jsonl is the live instance.
+schema_case "allow: legacy invalid history is not re-validated" 0 \
+  '{"ts":"2026-08-02T09:01:00Z","row":"desk","outcome":"quiet"}'
+
+# 50. no routing table -> SKIPPED, but the skip says so. An implicit exempt is
+#     indistinguishable from an oversight (explore-z1k6's lesson).
+NOROUTE=$(mktemp -d)
+git -C "$NOROUTE" init -q
+git -C "$NOROUTE" config user.email t@t; git -C "$NOROUTE" config user.name t
+mkdir "$NOROUTE/refs"
+printf '%s\n' '{"ts":"2026-01-01T00:00:00Z","row":"x","outcome":"quiet"}' \
+  > "$NOROUTE/refs/pulse-ledger.jsonl"
+git -C "$NOROUTE" add refs/pulse-ledger.jsonl
+git -C "$NOROUTE" commit -qm seed
+printf '%s\n' '{"ts":"2026-08-02T09:00:00Z","row":null,"outcome":"quiet"}' \
+  >> "$NOROUTE/refs/pulse-ledger.jsonl"
+git -C "$NOROUTE" add refs/pulse-ledger.jsonl
+run_case_in "$NOROUTE" "note: no routing table -> visible skip, not a block" 0 \
+  '{"tool_input":{"command":"git commit -m \":card_file_box: tick\""},"cwd":"/tmp"}' \
+  "skipping the ledger schema gate"
+rm -rf "$NOROUTE"
+
+rm -rf "$SCHEMAREPO"
+
 # --- paths containing spaces (dotfiles-b9ii, bug 4a/4b) -------------------
 # Two independent word-splitting bugs, both of which changed the VERDICT:
 #   a) `$JS_FILES` / `$PY_FILES` were passed to the linters unquoted, so one

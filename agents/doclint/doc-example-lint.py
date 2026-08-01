@@ -15,7 +15,7 @@ mechanical half.
 
 WHAT IT DOES. Extracts every fenced code block from the fleet's agent-facing
 markdown (AGENTS.md / CLAUDE.md / SKILL.md / practices.md / skill reference
-docs) and runs six checks over them:
+docs) and runs seven checks over them:
 
 ``hook-block`` — **the novel one.** Every shell statement in a documented block
     is replayed against the machine's OWN live ``PreToolUse`` Bash hooks, with
@@ -54,6 +54,16 @@ docs) and runs six checks over them:
     block pins HEAD to something other than the branch. This rule is a
     deliberately narrow pattern match, NOT a general "is this success vacuous?"
     analysis — see COVERAGE.
+
+``banned-git-verb`` — the four git verbs AGENTS.md's measured "Two writers, one
+    working tree" table forbids (``git pull --rebase``, a pathless ``git
+    stash``, ``rebase.autoStash true``, ``git push --force``), flagged only
+    inside a **shell code block** — the executable surface. Prose that names
+    them in order to forbid them is how the rule is supposed to be written and
+    is never flagged. dotfiles-mjln: ``/commit``'s SKILL.md instructed ``git
+    pull --rebase origin "$BRANCH"`` in a copy-pasteable block for four days
+    while AGENTS.md, always-loaded, said the opposite. Escape hatch for a block
+    that must demonstrate the wrong verb: ``# allow-banned-verb``.
 
 HOOK DRY-RUN — what it is, precisely. A Claude Code ``PreToolUse`` hook is a
 process that receives the tool call as JSON on stdin and answers with an exit
@@ -991,6 +1001,79 @@ def check_vacuous_ancestor(block: Block, ctx: Context) -> list[Finding]:
 
 
 # --------------------------------------------------------------------------- #
+# CHECK: banned git verbs in an executable example  (dotfiles-mjln)
+# --------------------------------------------------------------------------- #
+# AGENTS.md's "Two writers, one working tree" rule is the fleet's canonical git
+# verb, and it is measured: `git pull --no-rebase` fails SAFELY, `--rebase` fails
+# obstructively (rc 128 on ANY unrelated dirty file), and `git stash` "succeeds"
+# by silently taking the other writer's work. /commit's SKILL.md nonetheless
+# instructed `git pull --rebase origin "$BRANCH"` inside a copy-pasteable bash
+# block for four days (dotfiles-mjln) — routing agents onto the rung whose
+# refusal reflexively suggests the destructive one.
+#
+# So this rule is deliberately narrow: it fires ONLY inside a shell code block,
+# because that is the executable surface (dotfiles/CLAUDE.md rule 2 — a
+# documented example is executable in a prompt-driven harness). Prose that
+# NAMES these verbs to forbid them — the AGENTS.md table, the 🚫 lines in
+# /commit — is exactly how the rule is supposed to be documented and must not
+# be flagged. A block that genuinely must demonstrate the wrong verb marks the
+# line `# allow-banned-verb`.
+_BANNED_VERBS: tuple[tuple[re.Pattern, str], ...] = (
+    (
+        re.compile(r"\bgit\s+pull\b(?=[^#\n]*--rebase\b)"),
+        "`git pull --rebase` — AGENTS.md's rule is `git fetch origin && "
+        "git merge --no-edit origin/<branch>`. Rebase refuses on any unrelated "
+        "dirty file, and that refusal is what tempts the next agent into "
+        "`git stash`, which destroys the other writer's work.",
+    ),
+    (
+        re.compile(r"\bgit\s+stash\b(?!\s+(?:push\s+--|list\b|show\b))"),
+        "`git stash` without explicit paths — it silently takes a second "
+        "writer's uncommitted work (a /pulse tick shares this tree). If you "
+        "must set aside your OWN work, name it: `git stash push -- <paths>`.",
+    ),
+    (
+        re.compile(r"\brebase\.autoStash\b(?=[^#\n]*\btrue\b)"),
+        "enabling `rebase.autoStash` turns the obstructive verb into the "
+        "destructive one with no prompt and no error. It is unset fleet-wide "
+        "and must stay unset.",
+    ),
+    (
+        re.compile(r"\bgit\s+push\b(?=[^#\n]*--force(?:-with-lease)?\b)"),
+        "`git push --force` / `--force-with-lease` to a shared branch — a "
+        "rejected push means another machine committed; fetch, merge, push "
+        "again.",
+    ),
+)
+
+
+def check_banned_git_verb(block: Block, ctx: Context) -> list[Finding]:
+    if block.lang not in SHELL_LANGS:
+        return []
+    out: list[Finding] = []
+    for n, line in enumerate(block.lines, 1):
+        stripped = line.strip()
+        # A `#` line inside a block is prose, not the pasteable command.
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "allow-banned-verb" in line:
+            continue
+        for pat, why in _BANNED_VERBS:
+            if pat.search(line):
+                out.append(
+                    Finding(
+                        block.path,
+                        block.line_of(n),
+                        "banned-git-verb",
+                        "error",
+                        f"executable example instructs {why}",
+                        stripped[:120],
+                    )
+                )
+    return out
+
+
+# --------------------------------------------------------------------------- #
 # Driver
 # --------------------------------------------------------------------------- #
 BLOCK_RULES = {
@@ -998,6 +1081,7 @@ BLOCK_RULES = {
     "shellcheck": check_shellcheck,
     "json-schema": check_json,
     "vacuous-ancestor-check": check_vacuous_ancestor,
+    "banned-git-verb": check_banned_git_verb,
 }
 FILE_RULES = {
     "stale-model-id": check_stale_model_id,
@@ -1027,8 +1111,19 @@ def collect_files(
 ) -> list[Path]:
     found: dict[Path, None] = {}
 
-    def add(p: Path) -> None:
-        if not p.is_file() or is_excluded(p):
+    def add(p: Path, explicit: bool = False) -> None:
+        if not p.is_file():
+            return
+        # EXCLUDE_DIR_PARTS is a TREE-WALK filter: its job is to keep vendored
+        # docs and duplicate worktree copies out of a recursive scan. A file
+        # named directly on the command line is a deliberate target, and
+        # applying the walk filter to it silently scanned NOTHING — which is
+        # exactly what a worktree agent gets, since every agent worktree lives
+        # under a path part named `worktrees`. Caught while wiring the
+        # banned-git-verb gate into tools/githooks/pre-commit (dotfiles-mjln):
+        # the gate ran, printed `files_scanned=0`, and passed a doc that
+        # instructed `git pull --rebase`.
+        if not explicit and is_excluded(p):
             return
         if not include_confidential and any(
             _is_relative_to(p, c) for c in CONFIDENTIAL_ROOTS
@@ -1040,7 +1135,7 @@ def collect_files(
 
     for root in roots:
         if root.is_file():
-            add(root)
+            add(root, explicit=True)
         elif root.is_dir():
             for p in root.rglob("*.md"):
                 if any_markdown or is_instruction_doc(p):
@@ -1315,6 +1410,65 @@ def _selftest() -> int:
         ],
     )
     assert check_vacuous_ancestor(guarded, ctx) == [], "guarded form must pass"
+
+    # --- dotfiles-mjln guard: banned git verbs in an executable example ---
+    # The literal line /commit's SKILL.md carried for four days, plus the three
+    # other verbs AGENTS.md's measured table names.
+    banned = Block(
+        tmp / "C.md",
+        10,
+        "bash",
+        [
+            'git pull --rebase origin "$BRANCH"   # ALWAYS. Never push blind.',
+            "git stash",
+            "git config rebase.autoStash true",
+            "git push --force-with-lease origin main",
+        ],
+    )
+    gotb = check_banned_git_verb(banned, ctx)
+    assert len(gotb) == 4, gotb
+    assert [f.line for f in gotb] == [11, 12, 13, 14], gotb
+    assert all(f.severity == "error" for f in gotb), gotb
+    # The canonical form, the named-paths stash, the read-only stash verbs, a
+    # `#` prose line, and the explicit escape hatch all pass.
+    ok_verbs = Block(
+        tmp / "C.md",
+        1,
+        "bash",
+        [
+            "git fetch origin && git merge --no-edit origin/main",
+            "git stash push -- path/to/mine.md",
+            "git stash list",
+            "# never `git pull --rebase` here",
+            "git pull --rebase origin main  # allow-banned-verb: shows the trap",
+        ],
+    )
+    assert check_banned_git_verb(ok_verbs, ctx) == [], check_banned_git_verb(
+        ok_verbs, ctx
+    )
+    # PROSE that forbids the verb is how the rule is supposed to be written —
+    # AGENTS.md's own table would otherwise flag itself. Non-shell blocks are
+    # outside the rule entirely.
+    prose_block = Block(
+        tmp / "C.md",
+        1,
+        "",
+        ["| `git pull --rebase` | refuses on any dirty file | obstructive |"],
+    )
+    assert check_banned_git_verb(prose_block, ctx) == []
+
+    # An EXPLICITLY named file is scanned even under an excluded dir part.
+    # Every agent worktree lives under `.../worktrees/agent-XXXX/`, so without
+    # this the commit gate scans zero files and passes anything.
+    wt = tmp / "worktrees" / "agent-1" / "agents" / "skills" / "x"
+    wt.mkdir(parents=True)
+    (wt / "SKILL.md").write_text("# x\n", encoding="utf-8")
+    assert collect_files([wt / "SKILL.md"], False, False) == [
+        (wt / "SKILL.md").resolve()
+    ], "an explicitly named file must not be dropped by the tree-walk filter"
+    assert collect_files([tmp / "worktrees"], False, False, True) == [], (
+        "a tree WALK must still skip worktrees (double-counting)"
+    )
 
     # --- broken links ----------------------------------------------------
     linkdoc = tmp / "LINKS.md"

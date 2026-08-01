@@ -345,12 +345,16 @@ fi
 # ⚠️ ADDING A LEDGER? Name it `<loop>-ledger.jsonl` and it is gated on
 # arrival. If you name it something else, you have opted out of this gate
 # without saying so — the failure this comment exists to stop.
-if command -v jq &>/dev/null && [ -n "$GIT_TOPLEVEL" ]; then
+LEDGERS=""
+if [ -n "$GIT_TOPLEVEL" ]; then
   LEDGERS=$(git -C "$GIT_TOPLEVEL" diff --cached --name-only --diff-filter=ACM 2>/dev/null | grep -E -- '-ledger\.jsonl$')
   # commit-by-pathspec / chained-add cases: file may not be staged yet at PreToolUse
   if [ -z "$LEDGERS" ] && echo "$SKEL" | grep -qE -- '-ledger\.jsonl'; then
     LEDGERS=$(git -C "$GIT_TOPLEVEL" ls-files '*-ledger.jsonl' 2>/dev/null)
   fi
+fi
+
+if command -v jq &>/dev/null && [ -n "$GIT_TOPLEVEL" ]; then
   # TOTAL time budget across every proof command in this commit. Each proof
   # used to get its own `timeout 60` while the PreToolUse hook that runs them
   # is itself capped at 120s — so two slow proofs blew the hook's own ceiling
@@ -438,6 +442,76 @@ if command -v jq &>/dev/null && [ -n "$GIT_TOPLEVEL" ]; then
       esac
     done < <(git -C "$GIT_TOPLEVEL" diff HEAD -- "$L" 2>/dev/null | grep '^+' | grep -v '^+++' | sed 's/^+//')
   done <<< "$LEDGERS"
+fi
+
+# 2.6. loop-ledger SCHEMA gate — `agents/scheduler/pulse-ledger-lint.py`.
+#   THE DEFECT THIS FIXES (dotfiles-775y): the linter had NO hook caller. Its
+#   only invoker was `pulse-dispatch-remote.sh`, so a row appended by ANY other
+#   path — a hand-run tick, a local injector, a skill writing its own row — was
+#   completely unlinted, while /pulse and /desk both present the row-name rule
+#   as a hard invariant. The incident it exists to prevent (explore-qdo5: 23
+#   `"row":null` rows across 3 projects, every one copied from /pulse's own
+#   documented example) is precisely a row appended by a path the dispatcher
+#   never touched. Prose was the only live guard; this is the mechanical one.
+#
+#   Same selection as 2.5 (`$LEDGERS`, the `*-ledger.jsonl` glob from cef0ff9),
+#   for the same reason: gate EVERY loop ledger by default, not an allow-list
+#   that is correct the day it is written and silently wrong the next time a
+#   loop is added.
+#
+#   NEW LINES ONLY, exactly like 2.5. The linter validates a whole file, but a
+#   ledger is append-only history and re-validating it would block every future
+#   commit on a row written years earlier — `refs/friction-ledger.jsonl` has a
+#   live example today (line 1 predates the `outcome` key). History is never
+#   re-validated; the gate binds at authoring time, forward only. So the added
+#   `+` lines are linted as a synthetic ledger against the REAL routing table.
+#
+#   ROUTING TABLE REQUIRED. Row names are discovered from `refs/pulse.md` (Zig's
+#   steering wheel) and never hardcoded, so a repo without one cannot have its
+#   rows validated and is skipped — with a NOTE on stderr naming the file, so
+#   the skip is visible rather than implicit. Adding the row to `refs/pulse.md`
+#   is what turns the gate on.
+if [ -n "$LEDGERS" ] && [ -n "$GIT_TOPLEVEL" ] && command -v python3 &>/dev/null; then
+  # Prefer the checkout's own copy so a change to the linter is gated by the
+  # commit that makes it; fall back to the fleet install for every other repo.
+  LEDGER_LINT="${HARNESS_LEDGER_LINT:-}"
+  if [ -z "$LEDGER_LINT" ]; then
+    if [ -f "$GIT_TOPLEVEL/agents/scheduler/pulse-ledger-lint.py" ]; then
+      LEDGER_LINT="$GIT_TOPLEVEL/agents/scheduler/pulse-ledger-lint.py"
+    else
+      LEDGER_LINT="$HOME/dotfiles/agents/scheduler/pulse-ledger-lint.py"
+    fi
+  fi
+  if [ -f "$LEDGER_LINT" ]; then
+    ROUTING="$GIT_TOPLEVEL/refs/pulse.md"
+    while IFS= read -r L; do
+      [ -z "$L" ] && continue
+      NEWROWS=$(git -C "$GIT_TOPLEVEL" diff HEAD -- "$L" 2>/dev/null | grep '^+' | grep -v '^+++' | sed 's/^+//')
+      [ -z "${NEWROWS//[[:space:]]/}" ] && continue
+      if [ ! -f "$ROUTING" ]; then
+        echo "Note: skipping the ledger schema gate for $L — no routing table at $ROUTING, so row names cannot be validated (see agents/scheduler/pulse-ledger-lint.py)." >&2
+        continue
+      fi
+      LEDGER_TMP=$(mktemp)
+      printf '%s\n' "$NEWROWS" > "$LEDGER_TMP"
+      LINT_OUT=$(python3 "$LEDGER_LINT" --project "$GIT_TOPLEVEL" \
+                   --ledger "$LEDGER_TMP" --routing "$ROUTING" 2>&1)
+      LINT_RC=$?
+      rm -f "$LEDGER_TMP"
+      if [ "$LINT_RC" -ne 0 ]; then
+        echo "Blocked: pulse-ledger-lint rejected a NEW row in $L (exit $LINT_RC)." >&2
+        echo "  Every tick must be ATTRIBUTABLE: ts/row/outcome present, row a" >&2
+        echo "  non-empty string declared in refs/pulse.md (or 'unattributed' —" >&2
+        echo "  a visible gap beats a confabulated attribution), outcome one of" >&2
+        echo "  done/quiet/blocked, ts ISO-8601 UTC. NEVER \"row\":null." >&2
+        # Line numbers in this output are into the synthetic new-rows file, not
+        # into $L — say so rather than let them read as ledger line numbers.
+        printf '%s\n' "$LINT_OUT" | sed 's|^|  |' >&2
+        echo "  (line numbers above are into the NEW rows of this commit, not into $L)" >&2
+        FAILED=1
+      fi
+    done <<< "$LEDGERS"
+  fi
 fi
 
 # 3. Lint files headed into this commit: already-staged + chained-add.

@@ -89,11 +89,19 @@ git push
 
 If submodules involved, bump pointers in parent repo too.
 
-## 8. Push milestone notification + SendUserFile (if material)
+## 8. Push milestone notification + deliver the artifact (if material)
 
 ```
 PushNotification "<finding headline, <200 chars, one line>"
-SendUserFile "<report.md>" "<one-line caption with the punchline>"
+```
+
+Then deliver the report **inline or as an absolute file path** in your
+reply — never `SendUserFile`, which does not render over SSH + tmux
+(AGENTS.md, always-loaded) and so delivers nothing:
+
+```
+<one-line punchline>
+Full report: /home/ubuntu/<repo>/refs/research/<topic>.md
 ```
 
 Save these for findings that:
