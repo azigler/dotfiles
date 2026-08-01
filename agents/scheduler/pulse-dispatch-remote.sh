@@ -493,7 +493,16 @@ while [ $# -gt 0 ]; do
       esac
       RESUME=$2; shift 2 ;;
     --dry-run)         DRY_RUN=1; shift ;;
-    -h|--help)         sed -n '2,150p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    # ANCHORED on the `# Usage` heading, not a line range. The previous form was
+    # `sed -n '2,150p'`, which printed the architecture preamble and stopped ~100
+    # lines BEFORE the Usage block — so `--help` listed no flags at all, for
+    # years, while looking like it worked (bd-1gu0). A hardcoded range rots every
+    # time the header comment grows; anchors do not. Prints from `# Usage` to the
+    # divider that opens the next section.
+    -h|--help)
+      awk '/^# Usage$/{f=1} f{ if (/^# -{10,}$/) {d++; if (d==2) exit} ; print }' "$0" \
+        | sed 's/^# \{0,1\}//'
+      exit 0 ;;
     *) echo "pulse-dispatch: unknown arg $1" >&2; emit_result failed-usage; exit 64 ;;
   esac
 done

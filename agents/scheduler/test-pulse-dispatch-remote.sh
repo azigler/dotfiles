@@ -1474,6 +1474,25 @@ else
 fi
 
 echo
+echo "== --help actually lists the flags (bd-1gu0) =="
+# The bug this guards: --help used `sed -n '2,150p'`, but the Usage block had
+# drifted down past line 245 as the header comment grew. So --help printed the
+# architecture preamble and cut off before the FIRST flag — silently, for a long
+# time, because help that prints *something* looks like help that works. The fix
+# anchors on the `# Usage` heading; these assertions make the next drift LOUD.
+HELP_OUT=$("$DISPATCH" --help 2>&1)
+if [ "$(printf '%s\n' "$HELP_OUT" | grep -c .)" -ge 20 ]
+then ok "--help prints a substantial block (not a truncated preamble)"
+else bad "--help length" "only $(printf '%s\n' "$HELP_OUT" | grep -c .) non-empty lines"; fi
+for _f in --row --dir --resume --dry-run --window --host; do
+  if printf '%s\n' "$HELP_OUT" | grep -q -- "$_f"
+  then ok "--help documents $_f"
+  else bad "--help documents $_f" "flag absent from help output"; fi
+done
+if printf '%s\n' "$HELP_OUT" | grep -q '^Usage$'
+then ok "--help starts at the Usage heading (anchored, not a line range)"
+else bad "--help anchor" "the Usage heading is not in the output"; fi
+
 echo "== outcome contract =="
 OUT=$(run_dry 'PANE_CMD=claude' "REMOTE_MEM_SHA=$MEMSHA" "REMOTE_BEAD_JSON=$BEADJSON")
 N=$(printf '%s\n' "$OUT" | grep -c 'PULSE_DISPATCH_RESULT=')
