@@ -107,6 +107,27 @@ This is the message text the orchestrator sees on subagent return.
 The clearer this is, the faster the orchestrator can merge + dispatch
 the next wave.
 
+## Step 4.5: Sign the bead — one line, greppable
+
+`/handoff` was **unmeasurable** until this step existed: its output was
+structurally indistinguishable from an agent that merely filled the bead in
+well, so no audit could tell a run from a non-run. Leave a signature, exactly
+the way `/scrutinize` leaves `## Scrutiny — <date>`:
+
+```bash
+EXISTING=$(br show <your-bead-id> | awk '/^Notes:/{flag=1; next} flag')
+br update <your-bead-id> --notes "$EXISTING
+
+## Handoff — $(date +%F): 4 criteria verified, 1 split"
+```
+
+One line. `<n> criteria verified` is the count you actually checked in Step 2;
+`<n> split` is how many unchecked items you moved to a follow-up bead (`0 split`
+when none). Read-then-rewrite because `br update --notes` is replace-only.
+
+The test this has to pass: `grep -c '^## Handoff — ' .beads/issues.jsonl` over a
+quarter of history returns a real tally. If you can't count it, it didn't happen.
+
 ## Step 5: Commit
 
 The handoff verification is the prerequisite for the commit. If

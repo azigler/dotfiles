@@ -88,8 +88,8 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 ### /fix
 **Job:** Fix-and-guard — typed `bug` bead, subagent fixes it, regression test makes it un-regressable.
 **Fire when:** Autonomous-OK the moment a fixable bug is identified; user-invocable on reports.
-**Prereqs/side-effects:** Creates -t bug bead (P1 default); Phase A diagnose+fix, Phase B regression guard MANDATORY; merge (sequence owned by AGENTS.md "Delegation") + close + cleanup.
-**Anti-pattern:** Fix without the regression guard — the fix without the test is incomplete; refactoring while in there.
+**Prereqs/side-effects:** Creates -t bug bead (P1 default); Phase A diagnose+fix, Phase B regression guard MANDATORY; merge (sequence owned by AGENTS.md "Delegation") + close + cleanup. **Step 3.5 records `## Guard — <path>:<test>` on the bug bead** (dotfiles-8l2a) — mirrors `## Scrutiny —` so the guard rate is greppable; `## Guard — none: <why>` when there genuinely is none.
+**Anti-pattern:** Fix without the regression guard — the fix without the test is incomplete; refactoring while in there; closing a bug bead with no `## Guard —` line (an unguarded fix that no audit can see — only 25% of 637 bug beads named a test before this).
 
 ### /gamma
 **Job:** Gamma deck/document/webpage generation via API; 3-style control framework; returns gammaUrl + exportUrl.
@@ -112,8 +112,8 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 ### /handoff
 **Job:** Subagent wrap-up gate — verifies the bead is genuinely handed-off-ready BEFORE the final commit.
 **Fire when:** Subagent finishing its piece; orchestrator can self-fire before /offboard.
-**Prereqs/side-effects:** Checklist over bead fields; runtime-verification block mandatory for user-facing impls; summary the orchestrator parses.
-**Anti-pattern:** Checking acceptance criteria without verifying them; empty --notes when surprises surfaced mid-work.
+**Prereqs/side-effects:** Checklist over bead fields; runtime-verification block mandatory for user-facing impls; summary the orchestrator parses. **Step 4.5 appends `## Handoff — <date>: <n> criteria verified, <n> split` to the bead** (dotfiles-8l2a) — mirrors `## Scrutiny —`; without it a run is indistinguishable from ordinary bead hygiene (the skill had ZERO measurable invocations).
+**Anti-pattern:** Checking acceptance criteria without verifying them; empty --notes when surprises surfaced mid-work; skipping the `## Handoff —` line (an unmeasurable gate is an unrunnable one).
 
 ### /housekeeping
 **Job:** Fleet-wide mechanical hygiene — doc refresh, cross-repo state audit, CLAUDE.md/skill consistency, bead closure, lint fixes.
