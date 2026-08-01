@@ -472,6 +472,95 @@ proof_case "block: done with a whitespace-only cmd proof" 2 \
 
 rm -rf "$PROOFREPO"
 
+# --- SIBLING ledgers are gated too (explore-z1k6) --------------------------
+# The selector was `*pulse-ledger.jsonl` from the day the gate shipped, so
+# every ledger that arrived later fell outside it SILENTLY: digest (33 done
+# rows, 1 proof), dream (3 done rows, 0 proofs), friction — all three declared
+# loops in ~/explore/refs/pulse.md, all three read by the dashboard. Nothing
+# here covered the selector, so widening or narrowing it was invisible to the
+# suite. Both directions are asserted: a sibling ledger BLOCKS on an unproven
+# `done`, and PASSES on a real one — a gate the digest cannot satisfy would be
+# just as broken as no gate.
+SIBREPO=$(mktemp -d)
+git -C "$SIBREPO" init -q
+git -C "$SIBREPO" config user.email t@t; git -C "$SIBREPO" config user.name t
+mkdir "$SIBREPO/refs" "$SIBREPO/digests"
+printf '%s\n' '{"ts":"2026-01-01T00:00:00Z","row":"digest","outcome":"done","note":"legacy, never re-validated"}' \
+  > "$SIBREPO/refs/digest-ledger.jsonl"
+printf '%s\n' '{"ts":"2026-01-01T00:00:00Z","row":"dream","outcome":"done","note":"legacy"}' \
+  > "$SIBREPO/refs/dream-ledger.jsonl"
+printf '# Daily digest — 2026-08-02\n\n## ⭐ Worth your attention\n\nreal content\n' \
+  > "$SIBREPO/digests/2026-08-02.md"
+git -C "$SIBREPO" add refs/digest-ledger.jsonl refs/dream-ledger.jsonl digests/2026-08-02.md
+git -C "$SIBREPO" commit -qm seed
+
+sib_case() {
+  local name=$1 want=$2 file=$3 line=$4 want_stderr=${5:-}
+  printf '%s\n' "$line" >> "$SIBREPO/$file"
+  git -C "$SIBREPO" add "$file"
+  run_case_in "$SIBREPO" "$name" "$want" \
+    '{"tool_input":{"command":"git commit -m \":card_file_box: tick\""},"cwd":"/tmp"}' \
+    "$want_stderr"
+  git -C "$SIBREPO" reset -q
+  git -C "$SIBREPO" checkout -q "$file"
+}
+
+# 35. an unproven `done` on the DIGEST ledger → BLOCK. Before the fix this
+#     was exit 0: the gate never looked at the file at all.
+sib_case "block: unproven done in refs/digest-ledger.jsonl" 2 \
+  refs/digest-ledger.jsonl \
+  '{"ts":"2026-08-02T14:00:00Z","row":"digest","outcome":"done","note":"x"}' \
+  "no valid proof token"
+
+# 36. a bogus proof is not a proof — the cmd is RE-RUN, and a digest that did
+#     not land fails it.
+sib_case "block: digest done whose proof cmd fails" 2 \
+  refs/digest-ledger.jsonl \
+  '{"ts":"2026-08-02T14:00:00Z","row":"digest","outcome":"done","proof":{"kind":"cmd","cmd":"grep -q \"^# Daily digest — 2026-08-02\" digests/2026-08-09.md"},"note":"x"}' \
+  "proof cmd exited"
+
+# 37. the artifact-exists dodge stays rejected on the sibling ledgers too.
+sib_case "block: digest done with an artifact proof" 2 \
+  refs/digest-ledger.jsonl \
+  '{"ts":"2026-08-02T14:00:00Z","row":"digest","outcome":"done","proof":{"kind":"artifact","path":"digests/2026-08-02.md"},"note":"x"}' \
+  "stub-passable"
+
+# 38. the REAL shape the digest skill now emits → ALLOW. Marker-grep on the
+#     dated deliverable: a stub or a stale copy of yesterday's file fails it,
+#     which is the verifier distance `test -s` does not have.
+sib_case "allow: digest done with the marker-grep cmd proof" 0 \
+  refs/digest-ledger.jsonl \
+  '{"ts":"2026-08-02T14:00:00Z","row":"digest","outcome":"done","proof":{"kind":"cmd","cmd":"D=digests/2026-08-02.md; grep -q \"^# Daily digest — 2026-08-02\" \"$D\" && grep -q \"^## ⭐ Worth your attention\" \"$D\""},"note":"x"}'
+
+# 39. dream is a sibling too — same selector, same verdict.
+sib_case "block: unproven done in refs/dream-ledger.jsonl" 2 \
+  refs/dream-ledger.jsonl \
+  '{"ts":"2026-08-02T11:13:00Z","row":"dream","outcome":"done","note":"x"}' \
+  "no valid proof token"
+
+# 40. a quiet sibling row still needs no proof (it claims no work).
+sib_case "allow: quiet row in a sibling ledger" 0 \
+  refs/dream-ledger.jsonl \
+  '{"ts":"2026-08-02T11:13:00Z","row":"dream","outcome":"quiet","note":"x"}'
+
+# 41. history is never re-validated: the seeded proofless `done` lines are
+#     already in HEAD, and a commit that adds a GOOD line beside them passes.
+#     (Back-filling proofs onto historical rows would manufacture exactly the
+#     false assurance the gate exists to prevent — explore-z1k6.)
+sib_case "allow: legacy proofless history is not re-validated" 0 \
+  refs/dream-ledger.jsonl \
+  '{"ts":"2026-08-02T11:14:00Z","row":"dream","outcome":"done","proof":{"kind":"cmd","cmd":"test -d digests"},"note":"x"}'
+
+# 42. a non-ledger .jsonl is NOT swept in by the wider glob.
+printf '%s\n' '{"ts":"2026-08-02T00:00:00Z","outcome":"done"}' > "$SIBREPO/refs/notes.jsonl"
+git -C "$SIBREPO" add refs/notes.jsonl
+run_case_in "$SIBREPO" "allow: a non-ledger jsonl is outside the gate" 0 \
+  '{"tool_input":{"command":"git commit -m \":card_file_box: x\""},"cwd":"/tmp"}'
+git -C "$SIBREPO" reset -q
+rm -f "$SIBREPO/refs/notes.jsonl"
+
+rm -rf "$SIBREPO"
+
 # --- paths containing spaces (dotfiles-b9ii, bug 4a/4b) -------------------
 # Two independent word-splitting bugs, both of which changed the VERDICT:
 #   a) `$JS_FILES` / `$PY_FILES` were passed to the linters unquoted, so one

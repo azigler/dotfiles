@@ -213,6 +213,27 @@ be back-filled (`dotfiles-ldag`; the pulse-ledger twin is `explore-qdo5`).
 that is the primary re-proposal guard: sessions older than the last run are never
 re-scanned.
 
+**A `done` row MUST carry a `proof` token, and `pre-commit-checks.sh` re-runs it.**
+This ledger was outside the gate until 2026-08-01 (the selector was
+`*pulse-ledger.jsonl`; it is now `*-ledger.jsonl`) and had 3 `done` rows and 0
+proofs — `explore-z1k6`. A tick is the generator AND writes its own outcome, so an
+unproven `done` is a self-report. `artifact` and `commit` are REJECTED fleet-wide as
+zero-distance (`explore-len0`). Use `kind:cmd`, and pick by what the run produced:
+
+```json
+// proposals filed → the beads themselves are the deliverable; check they exist
+// AND are proposals, not any bead id that happens to resolve.
+"proof":{"kind":"cmd","cmd":"for b in explore-ab1 explore-ab2; do br show $b | grep -qi 'propose' || exit 1; done"}
+
+// nothing worth proposing (the common, correct outcome) → the deliverable is the
+// judged run itself; grep this run's own date out of the handoff note it wrote.
+"proof":{"kind":"cmd","cmd":"grep -q '2026-08-02' refs/session-handoff--dream.md"}
+```
+
+A run that cannot produce either did not reach its wrap step — log `blocked` or
+`quiet`, which are exempt because they claim no work. Never invent a proof to
+clear the gate; that is the failure the gate exists to catch.
+
 **Dedupe against already-proposed / shipped learnings** before filing (the
 `project_golem_phantom_backlog` guard — a distiller that can't see prior state
 re-proposes forever). Two layers, both mandatory:

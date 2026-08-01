@@ -310,10 +310,10 @@ if [ -n "$GIT_TOPLEVEL" ] && [ -e "$GIT_TOPLEVEL/.beads" ] && ! echo "$COMMAND" 
   fi
 fi
 
-# 2.5. pulse-ledger 'done' PROOF GATE (loop-engineering nodding-loop guard).
-#   A pulse tick is the generator AND writes its own outcome:"done" — that's
-#   the nodding loop (the doer grading its own homework). When a *pulse-ledger
-#   .jsonl is part of this commit, every NEW `done` line must carry a
+# 2.5. loop-ledger 'done' PROOF GATE (loop-engineering nodding-loop guard).
+#   A tick is the generator AND writes its own outcome:"done" — that's
+#   the nodding loop (the doer grading its own homework). When any
+#   *-ledger.jsonl is part of this commit, every NEW `done` line must carry a
 #   machine-verifiable `proof` token, and the proof must actually check out,
 #   or the commit is blocked. quiet/blocked entries are exempt (they claim no
 #   work); existing history (already in HEAD) is never re-validated. A valid
@@ -323,11 +323,33 @@ fi
 #   'done' — both are zero-distance no-ops a stub passes (the explore-len0
 #   hole); they prove progress, not done. A report-only done (no gradeable
 #   deliverable) uses cmd with a minimal `test -s <path>`.
+#
+# THE GLOB'S INTENT — state it, because the last version did not and the gap
+# lasted 33 rows (explore-z1k6). `*-ledger.jsonl` means EVERY JSONL ledger a
+# loop writes its own outcome into, not just the one named `pulse-ledger`.
+# It was `*pulse-ledger.jsonl` from the day the gate shipped, so the sibling
+# ledgers that arrived later — refs/digest-ledger.jsonl,
+# refs/dream-ledger.jsonl, refs/friction-ledger.jsonl, all three declared
+# loops in ~/explore/refs/pulse.md, all read by the harnessd dashboard —
+# fell outside it silently. Compliance tracked the gate almost exactly:
+#
+#     refs/pulse-ledger.jsonl    COVERED       140 done rows, 108 with proof (77%)
+#     refs/digest-ledger.jsonl   NOT COVERED    33 done rows,   1 with proof ( 3%)
+#     refs/dream-ledger.jsonl    NOT COVERED     3 done rows,   0 with proof ( 0%)
+#
+# The gate is what produces the proof; prose alone does not (explore-a3zc).
+# So the default is GATED, and an exemption must be written down where the
+# ledger is declared — an implicit exempt is indistinguishable from an
+# oversight, which is exactly how this lasted.
+#
+# ⚠️ ADDING A LEDGER? Name it `<loop>-ledger.jsonl` and it is gated on
+# arrival. If you name it something else, you have opted out of this gate
+# without saying so — the failure this comment exists to stop.
 if command -v jq &>/dev/null && [ -n "$GIT_TOPLEVEL" ]; then
-  LEDGERS=$(git -C "$GIT_TOPLEVEL" diff --cached --name-only --diff-filter=ACM 2>/dev/null | grep -E 'pulse-ledger\.jsonl$')
+  LEDGERS=$(git -C "$GIT_TOPLEVEL" diff --cached --name-only --diff-filter=ACM 2>/dev/null | grep -E -- '-ledger\.jsonl$')
   # commit-by-pathspec / chained-add cases: file may not be staged yet at PreToolUse
-  if [ -z "$LEDGERS" ] && echo "$SKEL" | grep -q 'pulse-ledger\.jsonl'; then
-    LEDGERS=$(git -C "$GIT_TOPLEVEL" ls-files '*pulse-ledger.jsonl' 2>/dev/null)
+  if [ -z "$LEDGERS" ] && echo "$SKEL" | grep -qE -- '-ledger\.jsonl'; then
+    LEDGERS=$(git -C "$GIT_TOPLEVEL" ls-files '*-ledger.jsonl' 2>/dev/null)
   fi
   # TOTAL time budget across every proof command in this commit. Each proof
   # used to get its own `timeout 60` while the PreToolUse hook that runs them
