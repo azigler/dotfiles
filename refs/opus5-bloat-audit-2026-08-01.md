@@ -408,7 +408,60 @@ leaves. `refs/` already exists in all four for exactly this.
 
 ---
 
-## 7. The decision menu
+## 7a. STATUS — what was actually done (2026-08-01)
+
+Zig authorized tracks **1+2, 3, 4+5, and 7**. All four are complete and pushed.
+
+| Track | Status | Result |
+|---|---|---|
+| **1** defects | ✅ | 4 fixed + a 5th found. New doclint rule `banned-git-verb` **with a caller** in `tools/githooks/pre-commit` — flags the forbidden verbs only inside *shell blocks*, so prose forbidding them still passes |
+| **2** fleet files | ✅ | `agent-dev-interrupted` 4,475→2,707 · `skills-library` 3,279→244 · `autonoveld` banner · `cfp/mise` delivered-stamp + 6 paths |
+| **3** always-loaded | ✅ | **AGENTS.md 5,525 → 1,863 words (−66%)**, re-scored **12/12** on the rig |
+| **4+5** single-owner + instrument | ✅ | −999 words, 45/45 distinctive phrases verified at their new owner; `## Handoff —` / `## Guard —` blocks added |
+| **7** real A/B | ✅ | Rig validated; §4a |
+| **6** graduation debt | ⏸ | Not authorized — `zig-zone` and `daily-digest` still meet the criterion un-acted-on |
+
+**Always-loaded tier: ~10,400 → 9,617 words.** The AGENTS.md cut is large (−3,662) but
+the tier total moves less, because **skill frontmatter is now 73% of it (6,972 words)** —
+auto-injected by Claude Code, not written by us. *That* is where the next round of leverage
+is, and audit C already named the lever: the 5 longest `description` fields are ~40% of it.
+
+### Three things found only by doing the work
+
+1. **A silent-failure bug in the new gate's own tooling.** `doclint --path <file>` was
+   being dropped by the tree-walk exclusion list, because every agent worktree lives under
+   a path component named `worktrees`. First probe printed `files_scanned=0` and **passed a
+   document instructing `git pull --rebase`** — the gate would have been a no-op for exactly
+   the agents who edit these docs. Same shape as `dotfiles-cxle`.
+2. **`/bd-to-br-migration` never existed.** Listed in AGENTS.md's skill inventory; present
+   nowhere on disk, never version-controlled. Removed with the listing.
+3. **Two audit recommendations were wrong and were overridden on inspection** — see below.
+
+### Where I overrode the audits rather than applying them
+
+- **`agent-dev-interrupted`**: audit D wanted it cut to ~1,000w by also deleting L590–685.
+  Verified first — the GitHub release-PR flow (`Closes #XX` auto-close, Vercel previews) and
+  that repo's own build hooks are project **local fact**, not global-tier duplication. Kept.
+- **`cfp/mise`**: audit D wanted it collapsed to ~200w. MEMORY names `~/cfp/mise/` the
+  **process-artifact exemplar** and `cfp/CLAUDE.md` says don't delete delivered work. The
+  problem was never that the plan existed — it was that it read as *live*. Banner + path
+  fixes; the file grew slightly, which is right for that one.
+- **`/desk`'s "delegation tendencies"**: W3 compressed to 26 words instead of cutting, on
+  the grounds audit A itself raised — its guarded failure is vendor-*documented* real Opus 5
+  behavior, so it was the least safe cut in the report.
+- **The shared `opportunity-landing.md` is 807 words, not the ~350 estimated** — because 350
+  is roughly `/desk`'s copy, and `/desk`'s copy is the **lossy** one. Hitting the estimate
+  would have re-committed the compression that caused the drift.
+
+### One thing deliberately not done
+
+**`autonoveld`'s four timers are still disabled.** Arming a live loop is a change that needs
+Zig's approval, not an audit's. The file now says so out loud with the re-arm command,
+copying `picod`. **This is the one open question the cleanup surfaced.**
+
+---
+
+## 7. The decision menu (as presented; now largely executed — see 7a)
 
 Ranked by (value ÷ risk). Nothing below has been applied — the working tree is unchanged
 except for this file and the beads.
