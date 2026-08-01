@@ -189,6 +189,32 @@ The orchestrator owns the full lifecycle — create, claim, close. Subagents nev
 `br update` or `br close`; they only carry `Bead: <id>` in the commit trailer. Pass
 the ID in the dispatch prompt.
 
+### ⚠️ Never write an open-bead list into a doc — `br ready` owns that fact
+
+**Zig's call, 2026-08-01.** A CLAUDE.md (or README, or handoff note) that lists which
+beads are *currently open* is the `two-copies` defect with a fast clock. Measured in
+`~/hevyd`: `hevyd-i2h` sat in the list as open for weeks after closing; the list was
+corrected, then went stale **again within the hour** as two more beads closed during
+the same session.
+
+The tempting fix — "re-verify the list every `/housekeeping` pass" — is also wrong, and
+recognising why is the point: **a copy that rots at the speed of the work cannot be
+rescued by a guard that runs at the speed of the doc.** Weekly verification of a
+daily-changing fact just moves the staleness window; it does not close it. The ladder
+is *derive → drop → assert → refuse*, and here the answer is **drop**: write
+"run `br ready`" and delete the copy.
+
+The distinction that keeps prose useful:
+
+- ✅ **Historical citation** — "decided in `hevyd-k23`", "the fix that landed in
+  `dotfiles-mlti`". A fact about the past. Stays true forever.
+- ❌ **Live-state claim** — "open follow-ups: `foo-1`, `foo-2`", "still TODO: `bar-9`".
+  A fact about the present, in a file nothing re-checks.
+
+Same rule for counts ("~100 open beads"), status tables, and "remaining work" sections.
+If a reader needs to know what is open, the doc's job is to name the **query**, not to
+answer it.
+
 ## Skills
 
 Global skills live in `~/.claude/skills/` (symlinked from `dotfiles/agents/skills/`).
