@@ -60,3 +60,8 @@ __pycache__/
 
 # transient agent worktrees
 .claude/worktrees/
+
+# Ad-hoc gdoc scratch scripts — may hardcode doc IDs / SA key paths. Never commit.
+# (render_styled_blocks.mjs IS tracked and load-bearing; it is re-added below.)
+agents/skills/gdoc/*.mjs
+!agents/skills/gdoc/render_styled_blocks.mjs
