@@ -451,10 +451,28 @@ This section is the loop's real **drain**.
 > satisfy a counter — that is the theatre this rule exists against. (b) What
 > the proof forbids is a §2 that was **never filled**: step 9's clause used to
 > count the `### STOP` heading with `grep -c`, which a heading followed by
-> nothing at all would satisfy. It now requires content under the heading. The
-> honest residual: a §2 whose only candidate is born struck would still pass,
-> because distinguishing "struck at birth" from "struck a day later" needs
-> more than a shell one-liner and the day-later case must keep passing.
+> nothing at all would satisfy. It now requires **live** content under the
+> heading — retraction blocks and struck-through spans are stripped before the
+> count, exactly as they already were for the word cap.
+>
+> ⚠️ **That stripping is the 2026-08-01 fix (`explore-1fcd`), and the paragraph
+> it replaces was wrong about its own residual.** The clause stripped retraction
+> blocks for the *word count* but not for *itself*, so a `### STOP` whose entire
+> body was a retraction block plus `~~struck~~` text counted as **13 lines** of
+> content and passed. Measured on `refs/desk/2026-07-31.md`: 13 lines by the old
+> clause, **0** live. The old text called "a §2 whose only candidate is born
+> struck" an unfixable residual, on the reasoning that "the day-later case must
+> keep passing" — but the day-later case is never re-graded at all.
+> `pre-commit-checks.sh` re-runs proofs only for `done` rows that are **new in
+> the staged diff**, and never re-validates history (its own comment: *"existing
+> history (already in HEAD) is never re-validated"*). So the proof binds at
+> authoring time, which is precisely where (a) says the requirement binds, and
+> the born-struck case is now caught. **§1 gets the identical treatment** for the
+> identical reason — a memo whose every `### ASK` was born retracted has no live
+> ask. The `-le 3` ceiling deliberately still counts retracted asks: a retracted
+> ask is still on the page, and the caps govern durable artifacts emitted.
+> Guarded by `agents/hooks/test/test-desk-done-proof.sh` (controls A/B/C, run by
+> `tools/githooks/pre-commit` whenever this file is staged).
 
 It explicitly admits
 **per-exploration stop candidates**: a week's exploration that drifted or
@@ -787,7 +805,7 @@ two), the grant lives in its `.service` `--cmd` — check it is still there.
    proof the commit hook RE-RUNS (bare `artifact` is rejected fleet-wide,
    `explore-len0`):
    ```json
-   {"ts":"<date -u +%FT%TZ>","row":"desk","outcome":"done","proof":{"kind":"cmd","cmd":"D=refs/desk/<date>.md; test $(sed '/<!-- retraction-start/,/<!-- retraction-end -->/d' $D | wc -w) -le 1200 && test $(sed -n '/<!-- retraction-start/,/<!-- retraction-end -->/p' $D | wc -w) -le 400 && python3 bin/check-memo-beads.py $D --quiet && grep -qF '## §1 THE ASK' $D && grep -qF '## §2 WHAT TO STOP' $D && test $(grep -c '^### ASK ' $D) -le 3 && test $(grep -c '^### ASK ' $D) -ge 1 && test $(grep -c '^### STOP' $D) -le 1 && test $(sed -n '/^### STOP/,/^## /p' $D | grep -Evc '^(#|$)') -ge 1 && test $(grep -c '^### CONNECTION' $D) -le 1 && grep -qF '### CANDIDATE QUEUE' $D && grep -qF '### EVIDENCE LAYER' $D && grep -qF '### LOOP HEALTH' $D && CL=$(grep -oE '^## [0-9]{4}-[0-9]{2}-[0-9]{2}' refs/crosslink.md | sort -r | head -1 | cut -d' ' -f2) && test ${#CL} -eq 10 && test $(( ($(date +%s) - $(date -d $CL +%s)) / 86400 )) -le 8 && test $(git diff HEAD~1 -- .beads/issues.jsonl | grep -c '\"title\":\"desk:') -le 2"},"note":"desk pass (wide|delta) — N asks, M beads/E edges; C candidates dropped on quote-verify; corpus_bytes N of M; reviewed W new explorations (F flagged); field-delta appended; loops audited: dive=<state> digest=<state>, X fixed / Y escalated"}
+   {"ts":"<date -u +%FT%TZ>","row":"desk","outcome":"done","proof":{"kind":"cmd","cmd":"D=refs/desk/<date>.md; test $(sed '/<!-- retraction-start/,/<!-- retraction-end -->/d' $D | wc -w) -le 1200 && test $(sed -n '/<!-- retraction-start/,/<!-- retraction-end -->/p' $D | wc -w) -le 400 && python3 bin/check-memo-beads.py $D --quiet && grep -qF '## §1 THE ASK' $D && grep -qF '## §2 WHAT TO STOP' $D && test $(grep -c '^### ASK ' $D) -le 3 && test $(grep -c '^### ASK ' $D) -ge 1 && test $(sed '/<!-- retraction-start/,/<!-- retraction-end -->/d' $D | sed -n '/^## §1 THE ASK/,/^## §2/p' | perl -0777 -pe 's/~~.*?~~//gs' | grep -Evc '^(#|$)') -ge 1 && test $(grep -c '^### STOP' $D) -le 1 && test $(sed '/<!-- retraction-start/,/<!-- retraction-end -->/d' $D | sed -n '/^### STOP/,/^## /p' | perl -0777 -pe 's/~~.*?~~//gs' | grep -Evc '^(#|$)') -ge 1 && test $(grep -c '^### CONNECTION' $D) -le 1 && grep -qF '### CANDIDATE QUEUE' $D && grep -qF '### EVIDENCE LAYER' $D && grep -qF '### LOOP HEALTH' $D && CL=$(grep -oE '^## [0-9]{4}-[0-9]{2}-[0-9]{2}' refs/crosslink.md | sort -r | head -1 | cut -d' ' -f2) && test ${#CL} -eq 10 && test $(( ($(date +%s) - $(date -d $CL +%s)) / 86400 )) -le 8 && test $(git diff HEAD~1 -- .beads/issues.jsonl | grep -c '\"title\":\"desk:') -le 2"},"note":"desk pass (wide|delta) — N asks, M beads/E edges; C candidates dropped on quote-verify; corpus_bytes N of M; reviewed W new explorations (F flagged); field-delta appended; loops audited: dive=<state> digest=<state>, X fixed / Y escalated"}
    ```
    A pass that found nothing new logs `"outcome":"quiet"` (no proof needed) —
    but see the empty-week rule below: "nothing to report" is a failure, not a

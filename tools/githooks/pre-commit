@@ -72,6 +72,11 @@ while IFS= read -r f; do
     agents/hooks/test/*)              ;;
     agents/hooks/lib/*.sh|agents/hooks/*.sh)
                                       add_suite "agents/hooks/test/test-$base.sh" ;;
+    # Not a script — a shell one-liner embedded in a skill document. The /desk
+    # step-9 done-proof silently weakened once already (explore-1fcd: a fully
+    # retracted §2 counted as 13 lines of live content), and nothing on the box
+    # ever ran it against a memo that was supposed to FAIL.
+    agents/skills/desk/SKILL.md)      add_suite "agents/hooks/test/test-desk-done-proof.sh" ;;
     agents/scheduler/test-*.sh)       add_suite "$f" ;;
     agents/scheduler/*.sh|agents/scheduler/*.py)
                                       add_suite "agents/scheduler/test-$base.sh" ;;
