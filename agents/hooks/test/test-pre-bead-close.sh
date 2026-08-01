@@ -50,6 +50,7 @@ case "${1:-}" in
       *ship*) echo "## Scrutiny — 2026-05-21"; echo "Verdict: SHIP" ;;
       *ovr*)  echo "## Scrutiny — OVERRIDE: trivial mechanical change" ;;
       *game*) echo "We need scrutiny before we SHIP this" ;;
+      *negd*) echo "## Scrutiny — 2026-08-01"; echo "Verdict: do NOT SHIP" ;;
     esac
     exit 0
     ;;
@@ -195,6 +196,17 @@ run_case "allow: impl bead with OVERRIDE verdict" 0 \
 #     verdict → BLOCK (regression guard for the 2026-06-09 grep fix)
 run_case "block: impl bead with gamed scrutiny prose" 2 \
   '{"tool_input":{"command":"br close bd-implgame"},"cwd":"/tmp"}' \
+  "no recorded scrutiny verdict"
+
+# 18b. an explicitly NEGATED verdict → BLOCK. This is SCRUTINY_NEGATED_RE's
+#      only case in this suite, and its absence was a hole: neutering that
+#      regex to a never-matching literal left this file green at 60/60 while
+#      `pre-bead-close.sh --selftest` on the same mutant reported 1 broken —
+#      a working guard whose only caller was a command nobody ran
+#      (dotfiles-jm1c). Both the selftest and this case now kill it, and
+#      tools/githooks/pre-commit runs both.
+run_case "block: impl bead whose verdict is 'do NOT SHIP'" 2 \
+  '{"tool_input":{"command":"br close bd-implnegd"},"cwd":"/tmp"}' \
   "no recorded scrutiny verdict"
 
 # --- scrutinize-required label gate (explore finding-beads opt in) ---

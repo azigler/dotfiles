@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# The repo's git-native pre-commit gate. Activated per-clone with:
+#
+#     git config core.hooksPath tools/githooks
+#
+# WHY THIS EXISTS (dotfiles-jm1c). ~/dotfiles — the repo that HOLDS the fleet's
+# harness — had no test runner of any kind: no core.hooksPath, no
+# .git/hooks/pre-commit, no CI. Its 32 `test-*.sh` suites and
+# `pre-bead-close.sh --selftest` ran only when a human typed them, and
+# `pre-bead-close.sh` line 18 says "Run this after ANY edit to the verdict
+# regexes below" — a human intending to run something is not a mechanism.
+# A 13-mutant sweep on 2026-08-01 found three survivors against green suites;
+# one was a LIVE false-accept in the pulse `done` gate (dotfiles-8aj5), and one
+# was caught only by the `--selftest` nobody invoked. This is the caller.
+#
+# A RELATIVE core.hooksPath resolves against the top level of the working tree
+# the commit is made in, so a worktree agent runs ITS OWN copy of this hook
+# against ITS OWN files — not the main checkout's. (Same property ~/explore
+# relies on; this file follows that repo's shape deliberately.)
+#
+# THE GATE KEYS ON THE TEST FILE AS WELL AS THE SCRIPT. Weakening a guard is
+# frequently an edit to the test alone, and a script-only trigger walks
+# straight past the highest-value failure mode.
+#
+# Everything here runs under BASH on purpose: `scrutiny_verdict_ok` ends in
+# `grep -qv` over possibly-empty input, which exits 0 under zsh and 1 under
+# bash — a zsh-run harness reports the no-verdict cases as ACCEPTED.
+
+set -uo pipefail
+
+ROOT=$(git rev-parse --show-toplevel) || exit 0
+
+# git exports GIT_DIR / GIT_INDEX_FILE / GIT_PREFIX / … to its hooks, and those
+# leak into every `git` the suites run — several of them build real repos and
+# worktrees as fixtures, which then die on `.git/index: index file open failed:
+# Not a directory`. Caught on the very first real commit through this gate:
+# test-pre-commit-checks.sh was 69/69 by hand and 65/69 under `git commit`.
+# `--local-env-vars` is git's own list of exactly these, so this stays correct
+# as git adds more.
+unset $(git rev-parse --local-env-vars)
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$STAGED" ] && exit 0
+FAILED=0
+
+SUITES=()
+NOTES=()
+
+add_suite() {
+  local s=$1
+  [ -f "$ROOT/$s" ] || { NOTES+=("no suite found: $s"); return; }
+  local existing
+  for existing in ${SUITES+"${SUITES[@]}"}; do [ "$existing" = "$s" ] && return; done
+  SUITES+=("$s")
+}
+
+# --- map each staged script to the suite that covers it -------------------
+# Convention (see agents/hooks/test/test-worktree-guard.sh): a script <n>.sh
+# is covered by test-<n>.sh, in a test/ subdir under agents/hooks and beside
+# the script under agents/scheduler and agents/lib.
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  base=$(basename "$f"); base=${base%.sh}; base=${base%.py}
+  case "$f" in
+    # Handled by name in the SELFTEST / consumer block below — it is a matcher
+    # with two callers and a --selftest matrix, not a script with a test-<n>.sh.
+    agents/hooks/lib/scrutiny-verdict.sh) ;;
+    agents/hooks/test/test-*.sh)      add_suite "$f" ;;
+    # Anything else under test/ is a harness or a fixture, not a script with a
+    # test-<n>.sh of its own. Must come BEFORE the agents/hooks/*.sh arm: a
+    # case glob's `*` matches `/` too, so that arm would otherwise claim nested
+    # paths and ask for a test-mutate-scrutiny-guards.sh that will never exist.
+    agents/hooks/test/*)              ;;
+    agents/hooks/lib/*.sh|agents/hooks/*.sh)
+                                      add_suite "agents/hooks/test/test-$base.sh" ;;
+    agents/scheduler/test-*.sh)       add_suite "$f" ;;
+    agents/scheduler/*.sh|agents/scheduler/*.py)
+                                      add_suite "agents/scheduler/test-$base.sh" ;;
+    agents/lib/test-*.sh)             add_suite "$f" ;;
+    agents/lib/*.sh)                  add_suite "agents/lib/test-$base.sh" ;;
+    agents/doclint/test-*.sh)         add_suite "$f" ;;
+    agents/doclint/*.py)              add_suite "agents/doclint/test-$base.sh" ;;
+  esac
+done <<< "$STAGED"
+
+# lib/scrutiny-verdict.sh has no test-<name>.sh of its own — it is a matcher
+# with two consumers and a --selftest matrix. Name all three here rather than
+# inventing a fourth wrapper. (This is the "name the consumer in the same
+# change as the producer" rule, in gate form.)
+SELFTEST=0
+if printf '%s\n' "$STAGED" | grep -qE '^agents/hooks/(lib/scrutiny-verdict\.sh|pre-bead-close\.sh|test/test-pre-bead-close\.sh)$'; then
+  SELFTEST=1
+fi
+if printf '%s\n' "$STAGED" | grep -qx 'agents/hooks/lib/scrutiny-verdict.sh'; then
+  add_suite agents/hooks/test/test-pre-commit-checks.sh
+  add_suite agents/hooks/test/test-pre-bead-close.sh
+fi
+
+# --- run them -------------------------------------------------------------
+for s in ${SUITES+"${SUITES[@]}"}; do
+  echo "pre-commit: running $s"
+  if ! bash "$ROOT/$s"; then
+    echo "pre-commit: FAIL — $s" >&2
+    FAILED=1
+  fi
+done
+
+if [ "$SELFTEST" -eq 1 ]; then
+  echo "pre-commit: running pre-bead-close.sh --selftest (the scrutiny-verdict acceptance matrix)"
+  if ! bash "$ROOT/agents/hooks/pre-bead-close.sh" --selftest; then
+    echo "pre-commit: FAIL — pre-bead-close.sh --selftest" >&2
+    FAILED=1
+  fi
+fi
+
+# --- the scrutiny guards -> prove they still BITE --------------------------
+# Narrower trigger than the suites above, and deliberately so. Measured on a
+# 12-core box at load 8.4:
+#
+#     test-pre-commit-checks.sh          12s
+#     test-pre-bead-close.sh             10s
+#     mutate-scrutiny-guards.sh (6 mutants, 3 baseline runs)   88s
+#
+# 88s is real, and it is why this fires on six files rather than on every
+# hooks edit. Those six are the ones whose change can silently kill the bite:
+# the two gates, the shared matcher, the two suites, and the harness itself.
+# Suite-green is not evidence here — all three of the 2026-08-01 survivors
+# were green-suite survivors.
+if printf '%s\n' "$STAGED" | grep -qE '^agents/hooks/(pre-commit-checks\.sh|pre-bead-close\.sh|lib/scrutiny-verdict\.sh|test/test-pre-commit-checks\.sh|test/test-pre-bead-close\.sh|test/mutate-scrutiny-guards\.sh)$'; then
+  echo "pre-commit: staged changes touch the scrutiny-verdict guards -> running mutation harness (~90s)"
+  if [ -f "$ROOT/agents/hooks/test/mutate-scrutiny-guards.sh" ]; then
+    bash "$ROOT/agents/hooks/test/mutate-scrutiny-guards.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/hooks/test/mutate-scrutiny-guards.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
+for n in ${NOTES+"${NOTES[@]}"}; do
+  echo "pre-commit: note — $n (staged script has no matching suite; coverage gap, not a block)"
+done
+
+if [ "$FAILED" -ne 0 ]; then
+  cat >&2 <<'EOF'
+
+pre-commit: BLOCKED. A hook test suite, the scrutiny --selftest, or the
+mutation harness failed against the files in THIS worktree. The failing
+item is named above.
+
+Fix the hook (or the test) and commit again. Do NOT reach for --no-verify:
+these hooks are the fleet's commit and bead-close gates, and the last time
+one of them broke unnoticed it was a live false-accept that ran for weeks
+against a green suite.
+EOF
+  exit 1
+fi
+exit 0

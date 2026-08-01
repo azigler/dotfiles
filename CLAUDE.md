@@ -39,6 +39,24 @@ Consequences that bite:
    failure-before / absence-after with real output. A fix you cannot demonstrate
    is a fix you should not claim.
 
+   Since 2026-08-01 that is a **mechanism**, not an intention: `tools/githooks/`
+   holds a `pre-commit` that runs the suite matching each staged
+   `agents/{hooks,scheduler,lib,doclint}` script — keyed on the **test file**
+   too, since weakening a guard is often an edit to the test alone — plus
+   `pre-bead-close.sh --selftest` and, for the scrutiny-verdict guards,
+   `agents/hooks/test/mutate-scrutiny-guards.sh`. **Activate it per clone:**
+
+   ```bash
+   git config core.hooksPath tools/githooks
+   ```
+
+   It is a per-clone local setting, so a fresh clone (or a new machine) starts
+   ungated until that line runs. Why it exists: before it, 32 suites and a
+   `--selftest` had no caller, and a 13-mutant sweep found three survivors
+   against green suites — one a live false-accept in the pulse `done` gate
+   (`dotfiles-8aj5`, `dotfiles-jm1c`). **A green suite is not evidence that a
+   guard bites**; only a mutant that dies is.
+
 2. **A documented EXAMPLE is executable in a prompt-driven harness.** Agents copy
    examples verbatim, so a wrong example is a defect that replicates itself —
    invisible to code review, invisible to tests, and it *scales with adoption*.
