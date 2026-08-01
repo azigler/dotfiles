@@ -129,7 +129,14 @@ randomize provenance -- <piece>, <version>, <date>
   axis 2 (metaphor domain, n=6): int(65f7,16)=26103, 26103 % 6 = 3 -> medicine
   axis 3 (structural shape, n=7): int(0661,16)=1633, 1633 % 7 = 2 -> top-down-thesis
   axis 4 (rhythm, n=6): int(6610,16)=26128, 26128 % 6 = 4 -> rhythm-cascade
+
+  overrides: none
+  locked from v7: title + subtitle (user stipulation)
 ```
+
+Anyone reading can verify: `python3 -c 'print(int("edc1", 16) % 8)'` -> `1`. If
+the stated choice matches the arithmetic, it is a real randomize. If not, it's
+ceremony.
 
 If the block isn't written before the prose, you haven't randomized. If the
 arithmetic doesn't match the stated choices, you committed randomize fraud
@@ -224,28 +231,7 @@ has to actually run.
 
 ## Worked example (verifiable)
 
-From the TDX recap revision, v7 -> v8 handoff:
-
-```
-randomize provenance -- TDX recap, v8, 2026-04-21
-  seed: edc165f706616610  [openssl rand -hex 8]
-  axis 1 (Jayesh action framing, n=8):
-    int(edc1,16)=60865, 60865 % 8 = 1
-    -> "Phoenix span diff on agent output vs. human final"
-  axis 2 (Alex action framing, n=7):
-    int(65f7,16)=26103, 26103 % 7 = 5
-    -> "voice-compliance regex turning eye-audit rules into CI checks"
-  axis 3 (Comstock action framing, n=6):
-    int(0661,16)=1633, 1633 % 6 = 1
-    -> "clone factory + flip config flags (auth+otel+tasks from min 1)"
-  axis 4 (APEX density, n=4):
-    int(6610,16)=26128, 26128 % 4 = 0
-    -> "single paragraph, pillar names parenthetical, no metric drilldown"
-
-  overrides: none
-  locked from v7: title + subtitle (user stipulation)
-```
-
-Anyone reading can verify:
-`python3 -c 'print(int("edc1", 16) % 8)'` -> `1`. If the stated choice
-matches the arithmetic, it is a real randomize. If not, it's ceremony.
+Step 4's provenance block above IS the worked example — seed
+`edc165f706616610`, arithmetic shown, verifiable by re-running the modulo. It
+used to be worked a second time here over the identical seed; one seed, one
+worked example.

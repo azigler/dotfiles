@@ -46,7 +46,8 @@ br update "$BEAD_ID" --description "$(cat <<'EOF'
 ## Acceptance criteria
 - [ ] Root cause identified and documented in --notes
 - [ ] Fix lands and passes existing tests
-- [ ] Regression guard exists (existing test updated OR new test added)
+- [ ] Regression guard exists (existing test updated OR new test added), recorded
+      on this bead as `## Guard — <path>:<test>` (Step 3.5)
 - [ ] If your team tracks shipped fixes externally: receipt filed for material fixes
 EOF
 )"
@@ -95,6 +96,8 @@ Two-phase work:
   buggy behavior and passes after your fix.
 
 The guard is mandatory. A fix without a guard regresses silently.
+Report it in your final summary as `<path>:<test>` — the file the guard lives
+in and the test name inside it. The orchestrator records that on the bead.
 
 ## Pre-commit verification
 - All tests pass (including your new/updated guard test)
@@ -107,40 +110,39 @@ One commit per fix. Use :bug: gitmoji. Include `Bead: <BEAD_ID>`.
 
 ## Step 3: Merge + close
 
-After the subagent reports done:
+After the subagent reports done, run the standard guarded merge sequence —
+**single owner: `~/dotfiles/agents/AGENTS.md`, "Delegation."** It is loaded in
+every session: assert `$TARGET`, capture `BEFORE`, merge, prove the target
+actually moved and now contains the branch, `br close <BEAD_ID>`, commit
+`.beads/issues.jsonl`, then `git worktree remove --force --force` +
+`git branch -D` + the conditional remote delete.
+
+Before closing, record the guard (Step 3.5 below) — a `bug` bead closed with no
+`## Guard` line is a fix whose regression test nobody can find.
+
+## Step 3.5: Record the guard on the bead — one line, greppable
+
+The regression guard is mandatory, and nothing enforced it: an audit of 637
+`bug` beads found only 25% naming a test at all, so "fix without guard" was
+**unmeasurable** rather than rare. Fix that the way `/scrutinize` did — a
+signature block on the bead, written by the orchestrator before close:
 
 ```bash
-BRANCH=worktree-agent-XXXX
-TARGET=main          # the branch that must RECEIVE the work
+EXISTING=$(br show "$BEAD_ID" | awk '/^Notes:/{flag=1; next} flag')
+br update "$BEAD_ID" --notes "$EXISTING
 
-# Assert the target branch BEFORE merging. `--is-ancestor $BRANCH HEAD` is
-# trivially true when HEAD *is* $BRANCH, so on its own it proves nothing.
-test "$(git branch --show-current)" = "$TARGET" \
-  || { echo "ABORT: on '$(git branch --show-current)', not '$TARGET' — cd to the project root first"; exit 1; }
-
-BEFORE=$(git rev-parse HEAD)
-git merge "$BRANCH" --no-edit || { echo "ABORT: merge failed (conflicts?)"; exit 1; }
-
-test "$(git rev-parse HEAD)" != "$BEFORE" \
-  || { echo "ABORT: $TARGET did not move — the agent committed nothing, or this was already merged"; exit 1; }
-git merge-base --is-ancestor "$BRANCH" "$TARGET" \
-  || { echo "ABORT: $BRANCH is still not in $TARGET"; exit 1; }
-
-br close <BEAD_ID>
-git add .beads/issues.jsonl
-git commit -m ":card_file_box: beads: close <BEAD_ID>"
-
-# --force --force, not -f: single -f overrides modified files but NOT the
-# agent's worktree lock, which can outlive the agent's final reply.
-git worktree remove --force --force ".claude/worktrees/${BRANCH#worktree-}"
-git branch -D "$BRANCH"
-
-# Remote branch: delete only if it exists — a blanket `2>/dev/null || true` hides
-# real auth/network failures and is blocked by the pre-bash-stderr-guard hook.
-if git remote | grep -qx origin && git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
-  git push origin --delete "$BRANCH"
-fi
+## Guard — tests/test_auth.py::test_refresh_expired_token"
 ```
+
+`<path>:<test>` — the file the guard lives in and the test function / case name
+inside it. One line. A bash hook suite has no function names, so name the case
+text instead: `## Guard — agents/hooks/test/test-pre-bead-close.sh — "allow:
+chained cd + plain id"`. If the guard was an UPDATE to an existing test, name
+that test; a fix with genuinely no guard writes `## Guard — none: <why>` and
+owns it in the open.
+
+The test this has to pass: `grep -c '^## Guard — ' .beads/issues.jsonl` over a
+quarter of `bug` beads returns a real tally, and the paths in it resolve.
 
 ## Step 4: External receipt log (team-specific)
 

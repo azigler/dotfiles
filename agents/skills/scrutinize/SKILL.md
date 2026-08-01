@@ -8,10 +8,11 @@ when_to_use: The orchestrator has merged an impl wave and is about to run the qu
 The orchestrator pipeline interrogates the **plan** hard — `/spec`'s
 Interrogator pass, `/check`'s open-question walk. It does not
 interrogate the **delivered implementation** with the same energy. The
-pre-merge audit ("read the bodies, not the test output") exists as
+pre-merge audit ("read the bodies, not the test output") used to exist as
 advice in `/orchestrator` and `/impl`, but advice gets skipped under
-time pressure — and it is performed by the orchestrator, the one party
-structurally incented to declare the wave done.
+time pressure — and it was performed by the orchestrator, the one party
+structurally incented to declare the wave done. The audit itself now lives
+here (see "The audit checklist" below); those skills point at it.
 
 `/scrutinize` closes that gap. It is a **named gate**, run by a
 **dedicated read-only skeptic** with no stake in the wave completing,
@@ -120,6 +121,93 @@ Prompt skeleton:
 > evidence for every finding. No finding without a location. If you
 > find nothing, say so plainly; do not invent issues.
 
+## The audit checklist — the single owner of the post-impl audit
+
+`/impl` and `/orchestrator` used to carry their own copies of this audit as
+orchestrator advice. It lives here now, once: the audit is what this gate's
+reviewer works from, and an orchestrator auditing its own wave is the
+conflicted-judge problem this skill exists to remove.
+
+### 1. Stub bodies
+
+**Tests passing is necessary but not sufficient.** When tests heavily mock the
+modules being tested, an impl agent can satisfy the contract with stub bodies
+that return the right shape but do no real work. The classic shape is
+`function foo(args) { /* "use step"; */ return {}; }` — types check, tests pass
+against mocks, production silently no-ops. An impl agent's "All tests pass ✓" is
+a green flag on the test runner, not on the implementation.
+
+**Read the primary modified files end-to-end** and audit each function body:
+
+- Functions that should call into another module: verify the call exists — and
+  that the module is even imported (a `publishToGoogleDocs` with no Google
+  client import; a `searchSlack` with no Slack SDK import)
+- Functions that should perform a side effect (HTTP, DB, file I/O): verify the
+  relevant SDK / client / fs API is invoked
+- Bodies that are empty, `return {}`, `return ""`, `return null`, or a
+  passthrough of input → output: high suspicion. Open the test file — if it
+  mocks the entire module, the stub passed unverified.
+- Bodies SHORTER than the test that "verifies" them — usually the tell that the
+  test mocks the function entirely and the body is just enough to typecheck
+
+```bash
+# Quick triage greps (TypeScript examples):
+rg -n '"use (step|workflow)";\s*\n\s*}' app/          # empty bodies after a directive
+rg -n 'return (\{\}|""|null|undefined);' app/ lib/ connectors/   # trivial returns
+rg -L '@slack/web-api|googleapis|@anthropic-ai/sdk' app/workflows/steps.ts  # adapters not importing their SDK
+```
+
+A stub body means **do not merge**. It routes as FIX-FIRST: dispatch a follow-up
+impl wave to wire it up, AND require a delegation-assertion test (see
+[/test SKILL Step 3.5](../test/SKILL.md)) for the wired body, so a future
+refactor cannot silently re-stub it.
+
+### 2. Composition — for any user-facing surface
+
+**Tests passing on isolated components is necessary but not sufficient for any
+impl that produces a user-facing surface** — a web page, a CLI binary, a TUI, an
+HTTP API. Unit tests cover each component in isolation against mocks. They do
+not assert that the final artifact — the page a visitor opens, the binary a
+customer types, the URL a curl hits — composes those parts into a working whole.
+
+**Precedent (2026-05-18, `skills-library-8l6`)**: a sandbox impl shipped 5 React
+components + 84 passing unit tests + a clean `validate.sh` + a clean type-check.
+But `page.tsx` was a static HTML skeleton that imported none of the 5 components.
+The product didn't work, and every artifact-shaped acceptance criterion was
+green. Runtime verification would have caught it in 60 seconds. This is the one
+telling of that incident in the orchestrator-side skills; `/dispatch` and
+`/handoff` carry it only as the warning pasted to the agent doing the work.
+
+Apply the same body-reading discipline to the integration surface:
+
+- **Web page**: open the root page file (e.g. `app/page.tsx`) top-to-bottom.
+  Confirm every component the bead's "Visitor experience" requires is imported
+  AND used in the JSX — not merely imported and unreferenced.
+- **CLI**: open the entry point (`main.py`, `cli.ts`). Confirm the subcommand map
+  references every command's handler.
+- **HTTP API**: open the route definitions. Confirm every endpoint the bead's
+  contract names has a real handler, not a 501 placeholder.
+
+Beyond static reading, **run the artifact**:
+
+```bash
+# Web: start dev server + curl the rendered HTML
+npm run dev &
+sleep 3
+curl -s http://localhost:3000 > /tmp/rendered.html
+# Grep for signature markers of EACH component the bead requires:
+grep -q 'data-component="skill-picker"' /tmp/rendered.html || echo "FAIL: SkillPicker not in page"
+grep -q 'autocomplete="off"' /tmp/rendered.html || echo "FAIL: TokenInput not in page"
+# ... per-component check
+
+# CLI: run the canonical happy-path invocation
+./bin/foo --help                         # subcommands all listed?
+./bin/foo do-the-thing --dry-run         # exits 0?
+```
+
+If a signature marker is missing from the runtime output, the page isn't
+composed. Do not merge; route it as FIX-FIRST for a wiring wave.
+
 ## The verdict
 
 | Verdict | Meaning | Orchestrator action |
@@ -171,9 +259,7 @@ type of its own.
 
 - ❌ **Skipping the gate because the report looked good.** A clean
   report is exactly when the gate earns its keep — precedent:
-  skills-library-8l6 (84 passing tests, every artifact-criterion
-  green, shipped a static skeleton page that imported none of its
-  components).
+  `skills-library-8l6`, told in full under "The audit checklist" §2.
 - ❌ **Findings without file:line evidence.** A verdict the
   orchestrator cannot act on is noise.
 - ❌ **Inventing issues to look thorough.** "Found nothing" is a valid,
@@ -183,8 +269,8 @@ type of its own.
 
 ## See also
 
-- [/orchestrator](../orchestrator/SKILL.md) — the pre-merge audit this
-  formalizes; wave ordering
+- [/orchestrator](../orchestrator/SKILL.md) — wave ordering, worktree
+  hygiene; points here for the pre-merge audit
 - [/impl](../impl/SKILL.md) — the quality gate this gate precedes
 - [/check](../check/SKILL.md) — the plan-stage counterpart
   (interrogates the spec, not the delivered code)

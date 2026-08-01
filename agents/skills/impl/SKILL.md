@@ -117,9 +117,9 @@ bodies, tests that mock the unit under test, acceptance criteria
 ticked without evidence, or composition gaps on a user-facing
 surface. The /scrutinize reviewer hunts exactly those. Its verdict is
 SHIP / FIX-FIRST / REJECT — a non-SHIP verdict routes into a fix wave,
-then re-scrutinize. The gate is not cleared until SHIP. The stub-body
-audit and UI/CLI composition audit below are the checklist that
-reviewer works from.
+then re-scrutinize. The gate is not cleared until SHIP. `/scrutinize`'s
+"The audit checklist" (stub bodies, composition) is what that reviewer
+works from.
 
 ### Step 5.1: Automated checks
 
@@ -136,90 +136,13 @@ After the /scrutinize gate clears, verify on the branch:
 If any check fails: create a fix bead, dispatch a cleanup agent,
 re-run the gate.
 
-### Stub-body audit (mandatory)
+### The post-impl audit (stub bodies + composition)
 
-**Tests passing is necessary but not sufficient.** When tests heavily
-mock the modules being tested, an impl agent can satisfy the contract
-with stub bodies that return the right shape but do no real work. The
-classic shape is `function foo(args) { /* "use step"; */ return {}; }`
-— types check, tests pass against mocks, production silently no-ops.
-
-Before declaring the impl wave done, **read the primary modified files
-end-to-end** and audit each function body. Specifically:
-
-- Functions that should call into another module: verify the call exists
-- Functions that should perform a side effect (HTTP, DB, file I/O):
-  verify the relevant SDK / client / fs API is invoked
-- Functions whose body is empty, `return {}`, `return ""`, or just a
-  passthrough of input → output: high suspicion. Open the test file
-  to see if the test mocks the entire module (if so, the stub passed
-  unverified).
-
-```bash
-# Quick triage greps for suspect bodies (TypeScript example):
-rg -n '"use step";\s*\n\s*}' app/workflows/   # empty bodies after directive
-rg -n 'return \{\};\s*\n\}' app/workflows/    # functions returning empty objects
-rg -n 'return "";\s*\n\}' app/workflows/      # functions returning empty strings
-```
-
-If you find a stub body, dispatch a follow-up impl wave to wire it up
-AND require a delegation-assertion test (see /test SKILL Step 3.5)
-for the wired body so future refactors can't silently re-stub.
-
-This audit is the orchestrator's responsibility, not the impl agent's
-self-report. Impl agents have a structural incentive to declare done
-when tests pass; only the orchestrator can tell whether the bodies
-do real work.
-
-### UI / CLI composition audit (mandatory for user-facing impls)
-
-**Tests passing on isolated components is necessary but not sufficient
-for any impl that produces a user-facing surface** — a web page, a
-CLI binary, a TUI, an HTTP API surface. Unit tests cover each
-component / function in isolation against mocks. They do not assert
-that the final artifact — the page a visitor opens, the binary a
-customer types, the URL a curl hits — actually composes those parts
-into a working whole.
-
-Verified failure mode (2026-05-18, skills-library-8l6 sandbox impl):
-the agent shipped 5 React components + 84 passing unit tests + a
-clean `validate.sh` run + a clean type-check. But `page.tsx` was a
-static HTML skeleton — none of the 5 components were imported into
-it. The product didn't work, and every artifact-shaped acceptance
-criterion was green.
-
-Apply the same body-reading discipline as the stub-body audit, but
-to the integration surface:
-
-- **For a web page**: open the root page file (e.g. `app/page.tsx`),
-  scroll top-to-bottom. Confirm every component the bead's
-  "Visitor experience" requires is actually imported AND used in
-  the JSX (not just imported and unreferenced).
-- **For a CLI**: open the entry-point file (e.g. `main.py`, `cli.ts`).
-  Confirm the subcommand map references every command's handler.
-- **For an HTTP API**: open the route definitions. Confirm every
-  endpoint the bead's contract names has a real handler, not a 501
-  placeholder.
-
-Beyond static reading, **run the artifact** before merging:
-
-```bash
-# Web: start dev server + curl the rendered HTML
-npm run dev &
-sleep 3
-curl -s http://localhost:3000 > /tmp/rendered.html
-# Grep for signature markers of EACH component the bead requires:
-grep -q 'data-component="skill-picker"' /tmp/rendered.html || echo "FAIL: SkillPicker not in page"
-grep -q 'autocomplete="off"' /tmp/rendered.html || echo "FAIL: TokenInput not in page"
-# ... per-component check
-
-# CLI: run the canonical happy-path invocation
-./bin/foo --help                         # subcommands all listed?
-./bin/foo do-the-thing --dry-run         # exits 0?
-```
-
-If any signature marker is missing from the runtime output, the page
-isn't composed. Don't merge. Dispatch a follow-up wave to wire it.
+**Single owner: [`/scrutinize`](../scrutinize/SKILL.md) "The audit checklist."**
+The stub-body audit and the UI/CLI composition audit are the checklist the
+Step 5.0 reviewer works from — they are not a second thing the orchestrator
+does inline. Don't re-copy them here; an orchestrator auditing its own wave is
+the conflicted-judge problem the gate removes.
 
 ### Acceptance criteria shape: outcome > artifact
 
@@ -257,32 +180,11 @@ See `/release` for the full release flow if your project uses it.
 
 ## Subagent prompt skeleton (for both test + impl waves)
 
-Every subagent prompt should include:
-
-```
-Your bead is `<bead-id>`. Include `Bead: <bead-id>` in your commit trailer.
-Merge target: `<branch>` (NOT main).
-
-## CRITICAL: No Nested Agents
-You are a subagent. Do NOT use the Agent tool to spawn further subagents.
-Do all work directly using Read, Write, Edit, Bash, Grep, and Glob.
-
-## Task
-[Test agent: write tests per spec bd-XXXX. Test agent: see /test SKILL.]
-[Impl agent: implement per spec bd-XXXX, satisfying tests at <path>. See /impl.]
-
-## Context
-- Spec bead: bd-XXXX (read its --description for spec content)
-- Decisions: see spec bead --notes for /check resolutions
-- [Test agent only: output path = <path per /test convention>]
-- [Impl agent only: test file = <path>; do NOT modify it]
-
-## Pre-commit verification
-Before committing, run:
-- All tests pass
-- Lint clean
-- [Project-specific checks per CLAUDE.md]
-```
+**Single owner: [`/dispatch`](../dispatch/SKILL.md)** — render both waves'
+prompts from there. Its "For test agents" / "For impl agents" type-specific
+additions carry the tests-only and do-not-modify-tests rules this wave order
+depends on, and its user-facing-surface block carries the runtime-verification
+requirement.
 
 Pull the full bead description templates from [handoff-templates.md](../beads/reference/handoff-templates.md).
 

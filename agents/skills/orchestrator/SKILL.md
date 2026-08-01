@@ -55,50 +55,14 @@ favor of this discipline).
 cd /home/ubuntu/<project>     # absolute path OR: cd "$(git -C <known> rev-parse --show-toplevel)"
 ```
 
-Then proceed with the merge sequence:
-
-```bash
-BRANCH=worktree-agent-XXXX
-TARGET=main          # the branch that must RECEIVE the work
-
-# 1. Merge — assert the target branch FIRST. This is step 0's failure made
-#    mechanical: if the cwd drifted into the worktree, you are on $BRANCH, the
-#    merge no-ops, and `--is-ancestor $BRANCH HEAD` passes because HEAD *is*
-#    $BRANCH. Assert the branch; never infer it from HEAD.
-test "$(git branch --show-current)" = "$TARGET" \
-  || { echo "ABORT: on '$(git branch --show-current)', not '$TARGET' — re-run step 0"; exit 1; }
-
-BEFORE=$(git rev-parse HEAD)
-git merge "$BRANCH" --no-edit || { echo "ABORT: merge failed (conflicts?)"; exit 1; }
-
-#    The guard: $TARGET must have actually MOVED, and must now contain $BRANCH.
-#    The SHA comparison is what catches an agent that committed nothing — a case
-#    the ancestry test passes vacuously.
-test "$(git rev-parse HEAD)" != "$BEFORE" \
-  || { echo "ABORT: $TARGET did not move — the agent committed nothing, or this was already merged"; exit 1; }
-git merge-base --is-ancestor "$BRANCH" "$TARGET" \
-  || { echo "ABORT: $BRANCH is still not in $TARGET"; exit 1; }
-
-# 2. Close bead (orchestrator owns lifecycle)
-br close <bead-id>
-
-# 3. Commit bead state
-git add .beads/issues.jsonl
-git commit -m ":card_file_box: beads: close <bead-id>"
-
-# 4. Clean up worktree and branches
-# Double --force: the subagent's worktree lock can briefly outlive its
-# final reply (single -f overrides modified files but NOT locks). The
-# work is merged by this point, so forcing past the lock is safe.
-git worktree remove --force --force ".claude/worktrees/${BRANCH#worktree-}"
-git branch -D "$BRANCH"
-
-# Remote branch: delete only if it exists. A blanket `2>/dev/null || true` hides
-# real auth/network failures and is blocked by the pre-bash-stderr-guard hook.
-if git remote | grep -qx origin && git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
-  git push origin --delete "$BRANCH"
-fi
-```
+Then run the merge sequence — **single owner: `~/dotfiles/agents/AGENTS.md`,
+"Delegation"** (assert `$TARGET` → `BEFORE=$(git rev-parse HEAD)` → guarded
+merge → SHA-moved + `--is-ancestor` checks → `br close` → commit
+`.beads/issues.jsonl` → `git worktree remove --force --force` + `git branch -D`
+→ conditional remote delete). That block is loaded in every session; copying it
+here is how the two drift. Step 0 above is the orchestrator-specific
+precondition for it: the merge's `$TARGET` assertion is exactly the cwd-drift
+failure made mechanical.
 
 **Why standalone cd, not `cd && cmd` compound:** the orchestrator's
 shell state lives across Bash calls. A standalone `cd` cleanly
@@ -123,13 +87,9 @@ command. Keep them separate.
 
 ### Batching Bead Closures
 
-When closing multiple beads at once (e.g., after parallel agents):
-
-```bash
-br close <id-1> && br close <id-2> && br close <id-3>
-git add .beads/issues.jsonl
-git commit -m ":card_file_box: beads: close <id-1>, <id-2>, <id-3>"
-```
+Closing several beads after a parallel wave batches into one
+`br close … && br close …` + one bead-state commit — the exact form is in
+AGENTS.md "Delegation" alongside the merge sequence.
 
 ## Worktree Beads Symlink
 
@@ -285,36 +245,15 @@ That's a one-line directive in the prompt, not a hook concern.
 
 ## Subagent Prompt Template
 
-Every subagent prompt should include:
+**Single owner: [`/dispatch`](../dispatch/SKILL.md)** — the mandatory blocks
+(bead ID + trailer, merge target, task, context, acceptance criteria,
+pre-commit verification, the commit-don't-push rule) plus the type-specific
+additions for test / impl / spec / check / fix / scrutinize / cross-repo
+agents. Render from there; don't keep a second template here to drift.
 
-```
-Your bead is `<bead-id>`. Include `Bead: <bead-id>` in your commit trailer.
-
-## CRITICAL: No Nested Agents
-You are a subagent. Do NOT use the Agent tool to spawn further subagents.
-Do all work directly using Read, Write, Edit, Bash, Grep, and Glob.
-Nested agents create 796MB worktree copies that compound exponentially.
-
-## Task
-[Clear description of what to build/fix/test]
-
-## Scope
-- Module: [which module or component]
-- Files to create/modify: [list]
-- Files to reference: [list]
-
-## Acceptance Criteria
-- [ ] [Specific, testable criterion]
-- [ ] Tests pass
-- [ ] Lint clean
-
-## Context
-[Any relevant design decisions, specs, or constraints]
-
-## Pre-Commit Verification
-Before committing, run:
-[project-specific quality checks]
-```
+Note the no-nested-agents CRITICAL block is **no longer pasted** — the
+`subagent` type's tool list has no Agent tool, so spawning is structurally
+impossible rather than merely forbidden (`/dispatch`, 2026-06-09).
 
 ## Dispatching Parallel Agents
 
@@ -326,22 +265,11 @@ When multiple beads are independent, dispatch agents in parallel:
 4. Merge each sequentially (order doesn't matter for independent work)
 5. Close all beads and commit bead state
 
-```bash
-# After parallel agents complete:
-git merge worktree-agent-AAA --no-edit
-git merge worktree-agent-BBB --no-edit
-git merge worktree-agent-CCC --no-edit
-
-br close <id-a> && br close <id-b> && br close <id-c>
-git add .beads/issues.jsonl
-git commit -m ":card_file_box: beads: close <id-a>, <id-b>, <id-c>"
-
-# Clean up all worktrees (double --force — locks can outlive agents)
-git worktree remove --force --force .claude/worktrees/agent-AAA
-git worktree remove --force --force .claude/worktrees/agent-BBB
-git worktree remove --force --force .claude/worktrees/agent-CCC
-git branch -D worktree-agent-AAA worktree-agent-BBB worktree-agent-CCC
-```
+Run the **full guarded merge sequence once per branch** (AGENTS.md
+"Delegation") — a bare `git merge worktree-agent-AAA --no-edit` per agent is
+exactly the unguarded form that no-ops silently when the cwd drifted or the
+agent committed nothing. Then batch the closes into one bead-state commit, and
+clean up every worktree + branch (double `--force`) before the next wave.
 
 ## Merge Targets
 
@@ -367,41 +295,13 @@ orchestrator does NOT scrutinize its own wave inline — a separate
 agent with no stake in the wave completing is the point; the
 orchestrator is structurally incented to declare the wave done. The
 verdict is SHIP / FIX-FIRST / REJECT; the gate is not cleared until
-SHIP. The checklist below is what that reviewer hunts for.
+SHIP.
 
-Before merging an impl-wave worktree, **open the primary modified file
-and read each function body**. Spend 60 seconds. Look for:
-
-- Empty bodies after a directive (`"use step";` followed by `}`)
-- Functions returning `{}`, `""`, `null`, or input passthroughs
-- Missing imports of dependencies the function should call (e.g.,
-  a `publishToGoogleDocs` that doesn't import a Google client; a
-  `searchSlack` that doesn't import the Slack SDK)
-- Functions whose bodies are SHORTER than the test that verifies them
-  — usually a tell that the test mocks the function entirely and the
-  body is just-enough to typecheck
-
-Quick triage greps:
-
-```bash
-# TypeScript: empty bodies after "use step" / "use workflow" directives
-rg -n '"use (step|workflow)";\s*\n\s*}' app/
-
-# Functions returning trivial values
-rg -n 'return (\{\}|""|null|undefined);' app/ lib/ connectors/
-
-# Adapter modules that don't import their underlying SDK
-rg -L '@slack/web-api|googleapis|@anthropic-ai/sdk' app/workflows/steps.ts
-```
-
-If you find a stub body, **do not merge**. Dispatch a follow-up impl
-wave to wire it up. Require a delegation-assertion test (per
-[/test SKILL Step 3.5](../test/SKILL.md)) for each wired body — that's
-the regression guard for next time.
-
-This audit is the orchestrator's responsibility. The impl agent's
-self-report ("tests pass") is not the gate; the orchestrator's read of
-the actual bodies is.
+**What the reviewer hunts — single owner: `/scrutinize` "The audit
+checklist."** Stub bodies (empty bodies after a directive, trivial
+returns, missing SDK imports, a body shorter than its test), the triage
+greps, and the composition check for user-facing surfaces all live
+there, once. Don't re-copy them into a dispatch or run them here inline.
 
 ## Wave Ordering: Test → Merge → Impl
 
