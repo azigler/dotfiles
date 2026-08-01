@@ -136,8 +136,9 @@ remote either fails outright (`! [rejected] … fetch first`) or, worse, tempts 
 `--force` that silently discards the other machine's work.
 
 A linear history is *preferred* — but not at the price of the verb. **Do not
-reach for `git pull --rebase` to get it**: AGENTS.md's measured table
-(2026-08-01) is why. Rebase refuses on ANY unrelated dirty file (rc 128), and a
+reach for `git pull --rebase` to get it**: the measured 2026-08-01 comparison in
+`agents/hooks/pre-shared-tree-guard.sh` (header, and again in its block message)
+is why. Rebase refuses on ANY unrelated dirty file (rc 128), and a
 `/pulse` tick or a sibling session can be a second writer in this very tree at
 any moment; the refusal is exactly what tempts an agent toward `git stash`,
 which "succeeds" by silently taking the other writer's work. `git fetch origin
