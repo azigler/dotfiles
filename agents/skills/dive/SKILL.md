@@ -224,6 +224,7 @@ When the task is to bring an intriguing topic into this compendium (recent examp
    - **"Verify the frontmatter is as careful as the body."** Give the reviewer the `what:` / `index_bullet` fields explicitly and tell it these propagate verbatim into `CHILDREN.md` / `INDEX.md` with no hedge following, so a hedge present in the body but stripped from the metadata is a **real finding**, not a nitpick. Both 2026-07-27 catches happened *only* because the dispatch said this; it was ad-hoc both times.
    - **"Check every characterisation of another exploration."** The `Related explorations` section makes claims about sibling entries the reviewer can open and check. A mischaracterised sibling corrupts the crawl graph, and it is invisible to `verify-quotes.py` (which only greps this topic's `refs/`).
    - **"Re-derive every number yourself."** Counts, dates, intervals and sizes are where a confident writeup is most often quietly wrong, and they are the cheapest thing for a reviewer to check independently.
+   - **"Adjudicate the card audit."** Run `python3 bin/check-card-claims.py <topic>` and open `<topic>/refs/card-claims-audit.md`. Every flagged row — **UNRESOLVED as well as UNSUPPORTED** — gets a line beginning `resolution:` written under it, in your own words: what the source actually says, or why the claim cannot be checked and what you did about it. **An UNRESOLVED is not a pass**; it is a claim nothing local can check, and the card that motivated this gate held four of its six real errors in exactly those rows (`explore-xjn4`, `explore-pksf`). Where a correction is needed it goes in FINDINGS prose — **do not write back to Asana** (Zig's call, 2026-07-31; the broker would allow it). Re-run when done: it carries your resolutions forward by fingerprint and must exit 0. Note the tool narrows where you must read; it does not decide — on the worked example only two of five flagged errors are *named* by a rung, the rest are flagged for their citation and would have been flagged had they been correct.
 
    Expect **FIX-FIRST**, not SHIP, on a substantial entry — that is the gate working. Re-verify each load-bearing finding against the captures yourself before adopting it (a reviewer can also be wrong), then fix.
 
@@ -268,6 +269,28 @@ See `~/explore/CHILDREN.md` for the roster (the flat children table) and `~/expl
 3. **Research question** (optional) — a specific lens. If absent, the implicit lens is "what's genuinely interesting or worth understanding here, on its own terms" — a harness/research/content or social-post angle is welcome when it's real, never forced (see "Where the opportunity can land").
 
 ## Step 1: Verify the Asana target
+
+⚠️ **Capture the Vibes card itself, verbatim, before you read it as truth.** Write the
+complete card — name and notes, exactly as stored — to `<topic>/refs/vibes-card-<gid>.md`
+with a `capture: verbatim` header. The card is this dive's INPUT, so a framing error in it
+becomes the exploration's premise: one audited card carried six wrong claims, one of which
+**inverted** its cited source, and two of the last three dives spent real effort correcting
+their own card. `bin/check-card-claims.py` cannot audit a card it cannot read and reports
+`BLOCKED` (exit 3) rather than passing quietly (`explore-xjn4`).
+
+⚠️ **Put a `date:` line in the header of every capture you write.** One ISO date — the date
+the SOURCE was published or submitted, never the date you fetched it:
+
+```
+capture: verbatim — fetched 2026-07-31 via curl
+source: https://arxiv.org/abs/2607.25398
+date: 2026-07-28
+```
+
+This is what makes a "landed the same morning" claim checkable instead of a guess — a
+defect that has now occurred twice. **New captures only** (Zig's call, 2026-07-31): the
+~480 existing ones are not backfilled, and a missing `date:` reads as UNRESOLVED, never as
+a pass and never as an error.
 
 ```bash
 FLEET_URL="${FLEET_URL:-http://localhost:7100}"   # NEVER a bare assignment — see below

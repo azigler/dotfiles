@@ -399,7 +399,19 @@ explorations. Not a list. Lists are how the rot started.
   but it must be *measured*, not assumed, because every failure this section exists
   to catch logged `done` at the time.
 - **evidence layer** — under the MANDATORY literal heading `### EVIDENCE LAYER`
-  (the proof greps it too). One line, from `python3 bin/check-captures-declared.py
+  (the proof greps it too). **Two** lines, both run rather than estimated.
+
+  The second is `python3 bin/check-card-claims.py --corpus` (`explore-xjn4`,
+  2026-07-31): how many explorations hold a Vibes-card capture at all, and how many
+  claim-flags sit **unadjudicated** across them. This is the CONSUMER that makes the
+  done-proof's fifth clause non-optional — that clause is wrapped in an `ls` guard so a
+  dive with no upstream card is not blocked, which means a tick that **skips** capturing
+  its card also skips the gate entirely. Nothing else in the fleet would notice. Report
+  a rising unadjudicated count or a falling card-capture rate as a LOOP HEALTH item, not
+  a curiosity. Watch for `UNVERIFIABLE (markerless audit)` too: it means an audit file
+  exists that the script did not write and cannot vouch for.
+
+  The first is `python3 bin/check-captures-declared.py
   --corpus` (run it; do not estimate): how many entries have **settled** their
   capture claim vs are **unsettled**, the qualifier distribution, and the NAMES of
   any **majority-derived** entry — one holding more `(derived)` files than real
