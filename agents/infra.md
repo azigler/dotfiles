@@ -1,23 +1,44 @@
-# Machine & infra baseline — zig-computer
+# The computing demesne
 
-The box this harness runs on. Read when work touches infra / ports / deploy /
-networking (the `/daemon` shape always needs it). **Infra drifts — re-verify a
-fact with a live command before depending on it.** Last verified **2026-08-01**
-(runtimes, vhosts, ports, and the full timer list re-derived live that day).
+Every machine Zig's harness runs on or reaches. Read when work touches infra / ports
+/ deploy / networking (the `/daemon` shape always needs it).
 
-## This box
+**Infra drifts — re-verify a fact with a live command before depending on it.** That
+warning is load-bearing, not ritual: on 2026-08-01 this file was claiming a `go 1.25`
+toolchain that was `1.24.4`, two nginx vhosts that no longer existed, a public port
+that was closed, and — worst — that `pulse-dive` and `pulse-desk` were "prepared but
+UNINSTALLED" when both were installed and running. An agent reading it would have
+concluded two live loops were switched off.
+
+Last full re-derivation: **2026-08-01** (runtimes, vhosts, ports, timers).
+
+## The demesne at a glance
+
+| Host | Reached by | Kind | Role |
+|---|---|---|---|
+| **zig-computer** | public IP + tailnet | Linux VPS | the **harness host** — Claude Code, skills, beads, `/pulse` systemd timers, nginx edge |
+| **pico** | tailnet only | macOS, **no systemd** (launchd) | **where most user-facing production runs**; home, behind NAT |
+| **marketing-vps** (`vps-8a9eb245`) | **plain SSH, NOT on the tailnet** | Linux VPS | LinearB marketing work; a second writer on shared repos |
+| metis | tailnet | macOS | — |
+| iphone-15-pro | tailnet | iOS | Termius client |
+| homeassistant | tailnet, **tag:server** | HAOS rpi5 | "948 Palm" install (`ssh hassio@homeassistant`, key `~/.ssh/id_ha`); managed from `~/picod` |
+
+⚠️ **The demesne is not the tailnet.** `marketing-vps` is reached by ordinary SSH and
+does not appear in `tailscale status` — so a mesh-shaped assumption ("everything is a
+peer, everything is private") is wrong for exactly the host with a history of
+stranding commits. Treat it as a separate machine that happens to share repos.
+
+⚠️ **Two writers, one repo.** `marketing-vps` commits to the same repos as this box.
+That is why `/commit` demands a push proof against `git ls-remote` rather than
+`git rev-parse HEAD` (4 commits were stranded there 2026-07-31 by a re-detached HEAD),
+and why the fleet rule is `git fetch && git merge` — never `pull --rebase`, never
+`stash`.
+
+## zig-computer — the harness host
 - **hostname `zig-computer`** — a public VPS AND the dev box + Claude Code harness
   host (skills, beads, `/pulse` systemd timers all live here).
 - Public IPv4 **`51.81.33.136`** (IPv6 `2604:2dc0:101:200::51fe`).
 - Tailscale **`100.98.174.21`** (`zig-computer.tailfb4637.ts.net`).
-
-## Tailnet peers
-| Peer | Tailnet IP | Kind | Note |
-|---|---|---|---|
-| pico | `100.72.47.4` | macOS | **where most user-facing production runs** (home, no systemd) |
-| metis | `100.106.120.98` | macOS | — |
-| iphone-15-pro | `100.102.6.100` | iOS | — |
-| homeassistant | `100.83.136.26` | HAOS rpi5, **tag:server** | "948 Palm" HA install (`ssh hassio@homeassistant`, key `~/.ssh/id_ha`); managed from `~/picod` (joined 2026-06-27; graduated out of `~/explore/shell-home-assistant` 2026-07-26) |
 
 ## Mesh ops — ACL changes, and getting back in
 

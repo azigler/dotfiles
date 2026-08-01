@@ -27,9 +27,11 @@ Run `/onboard`. It reads CLAUDE.md, MEMORY.md, the prior session's handoff note
 (`refs/session-handoff.md`), and the skills digest `~/.claude/skills/TOOLKIT.md` —
 in the main session, not via an Explore agent. At session end run `/offboard`.
 
-For infra / ports / deploy / networking work, also read `agents/infra.md` — the
-machine baseline (hostname, public IP, tailnet peers, nginx vhosts, free ports,
-installed runtimes, secrets, and sibling projects that consume shared keys).
+For infra / ports / deploy / networking work, also read `agents/infra.md` — **the
+computing demesne**: every machine the harness runs on or reaches (zig-computer,
+pico, marketing-vps, and the tailnet peers), with each one's role, IPs, ports,
+services, secrets-by-pointer and gotchas. Note the demesne is NOT the tailnet —
+`marketing-vps` is plain SSH and is a second writer on shared repos.
 
 ## Effort — a per-dispatch choice, not a session setting
 
