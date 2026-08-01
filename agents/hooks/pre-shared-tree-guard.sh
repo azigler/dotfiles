@@ -411,7 +411,7 @@ while IFS= read -r SEG; do
         [ "$CFG" = "true" ] || continue
       fi
       VERB="git $SUB (autostash is on)"
-      ALT="absorb the remote with a PLAIN merge: git fetch origin && git merge --no-edit origin/<branch> — and leave rebase.autoStash / merge.autoStash UNSET" ;;
+      ALT="absorb the remote with a PLAIN merge: git fetch origin && git merge --no-edit origin/<branch> — and leave rebase.autoStash / merge.autoStash UNSET. Autostash is the worst possible fix for rebase friction: it turns the obstructive command into the destructive one, with no prompt and no error. It is unset at repo AND global scope fleet-wide and must stay that way" ;;
   esac
 
   tree_dirty "$REPO" || continue
