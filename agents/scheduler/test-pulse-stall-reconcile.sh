@@ -96,6 +96,23 @@ if echo "$NOTE" | grep -q "NOT CHECKED HERE"; then
   echo "  ok   note names what it did NOT establish"; PASS=$((PASS+1))
 else echo "  FAIL note does not name its own limits"; FAIL=$((FAIL+1)); fi
 
+# === Case 5 — ATTRIBUTION WINDOW (the second half of dotfiles-05jn) ==========
+# A manual `systemctl start` hours after the trigger must NOT be blamed on it.
+# Live instance 2026-08-01: a start at 22:44 was attributed to the 19:05 re-arm
+# stamp, 3.5h earlier, and wrote a stall for a fire that never happened.
+: > "$LEDGER"
+printf '%s' "$FIRE" > "$FAKE_STATE/pulse-fixture.timer.LastTriggerUSec"
+printf '%s' "Sat 2026-08-01 22:44:00 UTC" > "$FAKE_STATE/pulse-fixture.service.ExecMainStartTimestamp"
+run >/dev/null
+check "a start 3.5h after the trigger is NOT that fire" 0 "$(stall_rows)"
+
+# === Case 6 — but a start WITHIN the window still counts =====================
+# Guards the fix from over-correcting into "never attribute anything".
+: > "$LEDGER"
+printf '%s' "Sat 2026-08-01 19:07:00 UTC" > "$FAKE_STATE/pulse-fixture.service.ExecMainStartTimestamp"
+run >/dev/null
+check "a start 90s after the trigger IS that fire" 1 "$(stall_rows)"
+
 echo
 echo "PASS: $PASS  FAIL: $FAIL"
 [ "$FAIL" -eq 0 ]

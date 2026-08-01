@@ -72,6 +72,14 @@ DEFAULT_GRACE_MINUTES = 90
 #: would get a "stalled" row written underneath it while it is still working.
 STALL_MARGIN_MINUTES = 30
 
+# How long after a trigger a service start can still be ATTRIBUTED to it.
+# systemd starts the service within seconds; the slack is for RandomizedDelaySec
+# and a loaded box. Anything later was started by something else (a manual
+# `systemctl start`, pulse-retry, a hand-run) while LastTriggerUSec still points
+# at the older stamp — and attributing it to that stamp writes a stall for a fire
+# that never happened (dotfiles-05jn, second half).
+ATTRIBUTION_WINDOW_MINUTES = 15
+
 
 def parse_iso(s: str | None) -> datetime | None:
     if not s or not isinstance(s, str):
@@ -279,8 +287,22 @@ def reconcile(manifest_path: Path, now: datetime, dry_run: bool) -> list[dict]:
             # re-arm / install / rename manufactures a stall row for a tick that was
             # never invoked — and does it at exactly the moment an operator is least
             # sure whether the loop is healthy.
+            # The start must ALSO belong to THIS trigger. systemd starts the
+            # service within seconds of firing, so a start hours later was caused
+            # by something else — a manual `systemctl start`, pulse-retry, a
+            # hand-run — while LastTriggerUSec still points at the old (or
+            # enable-time) stamp. Without this window the manual run gets
+            # attributed to the stale trigger and we write a stall for a fire that
+            # never happened. Found 2026-08-01: a `systemctl start` at 22:44 was
+            # blamed on the 19:05 re-arm stamp, 3.5h earlier.
             svc_start = service_last_start(f"{timer}.service")
-            if svc_start is None or svc_start < fire:
+            attributable = (
+                svc_start is not None
+                and fire
+                <= svc_start
+                <= fire + timedelta(minutes=ATTRIBUTION_WINDOW_MINUTES)
+            )
+            if not attributable:
                 log(
                     {
                         "ts": now.isoformat(),
