@@ -1,7 +1,7 @@
 ---
 description: Create git commits following gitmoji conventions with bead integration. Claude commits autonomously at natural checkpoints (bead closure, file created, test passing) — this is expected, not an extra confirmation step.
 argument-hint: "[message]"
-allowed-tools: Bash(git add *) Bash(git pull *) Bash(git commit *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git push) Bash(git push *) Bash(br close *) Bash(br sync *)
+allowed-tools: Bash(git add *) Bash(git fetch *) Bash(git merge *) Bash(git commit *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git push) Bash(git push *) Bash(br close *) Bash(br sync *)
 when_to_use: Autonomous-OK at natural checkpoints (bead closure, test pass, config update); also when the user asks for a specific commit. Runs AFTER bead closure and selective staging.
 ---
 
@@ -12,7 +12,12 @@ when_to_use: Autonomous-OK at natural checkpoints (bead closure, test pass, conf
 - **Every bead closure** triggers a commit + push. One bead = one commit.
 - **Natural checkpoints** between beads: file created, test passing, config updated.
 - **Never batch** multiple beads into one commit.
-- **Always pull --rebase, THEN push** after committing -- unless you're in a worktree (branch starts with `worktree-agent-`). This is a multi-machine fleet now; never push blind.
+- **Never push blind.** After committing, push; if the push is rejected, another
+  machine committed — absorb it with **`git fetch origin && git merge --no-edit origin/<branch>`**,
+  then push again. (Worktree exception: if your branch starts with `worktree-agent-`,
+  do not push at all.) The verb is AGENTS.md's "Two writers, one working tree" rule —
+  merge, never rebase, NEVER stash — and that rule is canonical; this skill does not
+  restate it.
 
 ## Commit Message Format
 
@@ -86,15 +91,20 @@ EOF
 )"
 ```
 
-### 3. PULL FIRST, then push — and PROVE the push against the remote
+### 3. Push — never blind — and PROVE the push against the remote
 
 ```bash
 # Assert the branch. Never infer it, never trust it from earlier in the session.
 BRANCH=$(git branch --show-current)
 test -n "$BRANCH" || { echo "ABORT: detached HEAD — commits here are not on any branch"; exit 1; }
 
-git pull --rebase origin "$BRANCH"   # ALWAYS. Never push blind.
-git push origin "$BRANCH"
+# Never push blind. If this is rejected, another machine committed — absorb it
+# with fetch+merge (AGENTS.md's rule; NOT rebase, NEVER stash), then push again.
+git push origin "$BRANCH" || {
+  git fetch origin && git merge --no-edit "origin/$BRANCH" || {
+    echo "ABORT: merge refused — the remote touches another writer's files. Stop and wait."; exit 1; }
+  git push origin "$BRANCH"
+}
 
 # Prove it landed by comparing to the REMOTE.
 test "$(git rev-parse "$BRANCH")" = "$(git ls-remote origin "$BRANCH" | cut -f1)" \
@@ -125,9 +135,15 @@ interactive session commits here constantly. A bare `git push` against a moved
 remote either fails outright (`! [rejected] … fetch first`) or, worse, tempts a
 `--force` that silently discards the other machine's work.
 
-`--rebase` and not a merge commit: it keeps a linear history and, for
-`.beads/issues.jsonl`, replays your bead row on top of theirs so the union
-driver resolves it cleanly.
+A linear history is *preferred* — but not at the price of the verb. **Do not
+reach for `git pull --rebase` to get it**: AGENTS.md's measured table
+(2026-08-01) is why. Rebase refuses on ANY unrelated dirty file (rc 128), and a
+`/pulse` tick or a sibling session can be a second writer in this very tree at
+any moment; the refusal is exactly what tempts an agent toward `git stash`,
+which "succeeds" by silently taking the other writer's work. `git fetch origin
+&& git merge --no-edit origin/<branch>` fails safely instead, and costs only a
+merge commit. `.beads/issues.jsonl` is fine either way — the `jsonl-union`
+driver below resolves it by bead ID + `updated_at`, not by replay order.
 
 **Bead state survives concurrent writes — but only because of the driver.**
 `.beads/*.jsonl merge=jsonl-union` is committed in all 48 bead repos, and the
@@ -144,7 +160,7 @@ line also *overrides* `jsonl-union` when it sorts later, since the last matching
 `.gitattributes` rule wins.
 
 🚫 **Never `git push --force` / `--force-with-lease` to shared `main`** to escape
-a rejected push. A rejection means someone else committed; pull and replay.
+a rejected push. A rejection means someone else committed; fetch, merge, push again.
 
 **Worktree exception:** If you are working in a git worktree (your branch name
 starts with `worktree-agent-`), do NOT push. The orchestrator handles merging
