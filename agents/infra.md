@@ -250,10 +250,13 @@ phantom catch-up tick. Same reason a re-armed timer needs its stamp touched firs
 - `~/explore` — exploration compendium (DuckDB, agent-memory, honcho research, etc.).
 - `~/harnessd` — harness observability daemon + PWA dashboard (state-bus SSOT).
   Graduated from `~/explore` 2026-07-04; co-located on this box (NOT pico) per
-  `~/harnessd/refs/topology.md`. ⚠️ **NOT live — `state-bus.timer` AND
-  `state-bus.service` are both `masked`** (verified 2026-08-01), so the dashboard
-  pico serves on :10000 has been frozen since 2026-07-29. A `KeepAlive` job serving
-  stale state looks identical to a healthy one. Was described here as "Live now" via
+  `~/harnessd/refs/topology.md`. **LIVE and healthy** — harnessd generates state
+  **in-proc in Go** (`HARNESSD_GEN_MODE=go`) and serves it same-origin on
+  `100.98.174.21:14174/state.json` (verified 2026-08-01: HTTP 200,
+  `generated_at` minutes old).
+  ⚠️ **`state-bus.{timer,service}` are `masked` ON PURPOSE** — that is the migration
+  off the Python generator, documented at `~/harnessd/CLAUDE.md:51`. Masked here does
+  NOT mean broken; do not "fix" it by unmasking. The old
   `state-bus.timer` →
   `~/harnessd/bin/harness-refresh`; Go daemon binds the tailnet IP at Phase 1.
 - `~/linearb`, `~/reef`, ss14 game server, `~/hermes` (VPS agent, archived).
