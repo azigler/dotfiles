@@ -1,159 +1,121 @@
-# Session handoff — 2026-07-28 · f331fe58 · the vault-sync alarm was crying wolf
+# Session handoff — 2026-08-01 · the Opus-5 bloat audit, and what it turned up
 
-Session id: `f331fe58-8f36-4774-8c66-d6d5c5e05f2d` (on **zig-computer**, not the vps
-the previous handoff described)
+Long session. It started as a harness-bloat audit and turned into a fleet audit, because
+almost every "bloat" finding was really a **stale or false claim**, and checking those
+against live state kept finding real defects.
 
 ## State at offboard
 
-- **Branch**: main @ `10c492e`, working tree clean, pushed
-- **Open beads**: 34 (1 in-progress: `dotfiles-mhn`, the /pulse spec — pre-existing,
-  untouched this session)
-- **In-flight subagents**: none. No worktrees.
-- **Markers**: `.offboard-pending` cleared
+- **Branch**: `main`, clean, pushed. No worktrees. No unpushed commits.
+- **Beads**: 49 open / 236 closed (287 total). **0 in_progress, 0 blocked.**
+- **Both P0s closed** (`dotfiles-6wdw`, `dotfiles-2smz` is still open — see below).
+- **In flight when this note was written**: one background agent finishing the
+  `daily-ao3` consolidation in `~/autonoveld` (see "Unfinished" below).
 
-## What happened this session
+## The headline: the premise was half right
 
-Zig brought two symptoms. One was a real defect with a false face; the other turned
-out not to be on this box at all.
+Zig's framing was "Anthropic removed 80% of Opus 5's harness instructions; ours is
+similarly bloated." The vendor guide's actual remove-list is **six named classes**, and
+it opens by saying Opus 5 "performs well out of the box on existing Opus 4.8 prompts."
+Across four independent audits the defensible cut was **14–27% per corpus, not 80%** —
+because this harness is overwhelmingly *facts about this machine*, and Opus 5 being
+smarter doesn't tell it that `marketing-vps` re-detaches HEAD.
 
-### 1. "The vault sync timer says it's blocked" — FIXED (`dotfiles-tqjk`, closed)
+**Audit B resolved all 39 inline bead citations: 27 of 27 scar-tissue rules trace to a
+real, confirmed incident.** Not one invented.
 
-**It was never not-pushing.** Both tiers were 0/0 against `origin/main` with fresh
-success stamps the whole time. The dashboard was reporting a *false* alarm:
+Full report: `refs/opus5-bloat-audit-2026-08-01.md`. Working files:
+`refs/audit-2026-08-01/`.
 
-```
-"state": "blocked", "detail": "fired 31m ago, tick BLOCKED — parked on you"
-```
+## What shipped
 
-Root cause, evidenced from the journal — **two** `vault-sync.sh` runs start in the
-same second, from two independent schedulers that are both scheduled on the hour:
-
-```
-14:00:43 vault-sync[1083379]: == vault-sync DEGRADED — memory=ok transcripts=deferred (exit 10) ==   <- pulse-dispatch-remote.sh "sync T2/T3 (local push)"
-14:00:43 vault-sync[1083457]: == vault-sync OK      — memory=ok transcripts=ok       (exit 0)  ==   <- claude-vault-sync.service
-```
-
-The loser of the `flock -w 10` race exits 3 (DEFERRED). `vault-sync.sh`'s verdict
-block treated *every* non-zero tier status as bad, so a benign "someone else is
-doing this work" became DEGRADED / exit 10 / ledger `outcome:"blocked"`. Both runs
-append to the same ledger at the same ts, and harnessd's `newestRow` tie-break
-(`internal/gen/loop.go`, `blocked` > `done` at an identical ts) correctly preferred
-the `blocked` row — correct logic, fed a wrong row.
-
-The fix **re-aims the alarm rather than weakening it**:
-
-| tier status 3 (deferred) + … | verdict |
+| | |
 |---|---|
-| success stamp FRESH (< `STALE_HOURS`) | exit 0, `OK (deferred — concurrent run holds the lock)`, ledger `quiet` |
-| stamp >= `STALE_HOURS` old | unchanged: STALE, exit 2x, `blocked` |
-| no stamp at all | DEGRADED, exit 1x, `blocked` |
+| `agents/AGENTS.md` | **5,525 → ~2,000 words**, re-scored 12/12 on a validated A/B rig |
+| always-loaded tier | ~10,400 → ~6,670 words (−36%) |
+| 4 fleet CLAUDE.md | −7,400 words (`agent-dev-interrupted` was teaching stash + tmux subagents + a `br` subcommand that errors) |
+| skills dedup | −999 words, 45/45 distinctive phrases verified at their new owner |
+| `agents/infra.md` | 595 → 2,300 words — retitled **"The computing demesne"**, now covers pico + marketing-vps |
 
-FAILED (1) and BLOCKED (2) are untouched. The stale-stamp backstop is what makes the
-green case safe — a permanently wedged lock still reddens the unit within 6h. The
-summary line still reads `transcripts=deferred`, so a deferred run never *looks*
-like a push that happened.
+## THE RECURRING DEFECT — read this before anything else
 
-**Verified end-to-end against the real vaults**, not just the scratch harness — held
-the real `.transcripts.lock` and ran the merged script:
+**Four separate instances in one day of: the mechanism exists, nothing calls it, and the
+doc reads as though it's live.**
 
-```
-== vault-sync OK (deferred — concurrent run holds the lock) — memory=ok transcripts=deferred (exit 0) ==
-{"ts":"2026-07-28T15:54:28Z","row":"vault-sync","outcome":"quiet",...}
-```
+1. `pulse-ledger-lint.py` had **no hook caller** (`dotfiles-775y`)
+2. `agentgateway-run` on pico sourced `~/.secrets` correctly — and the launchd plist
+   invoked the raw binary instead. Written 2026-07-26, never wired.
+3. `check-frontmatter` is deliberately advisory-only
+4. `state-bus.timer` masked while a `KeepAlive` job served month-old state
 
-and the dashboard then read `"state": "healthy"`. Regression cases T14–T17 added to
-`agents/vault/test/vault-sync-alarm-test.sh` (65 passed / 0 failed; demonstrated
-FAILING pre-fix with a line byte-identical to the live journal). Suite runtime grew
-~2m10s → ~3m20s because the new cases wait on four real `flock -w 10` timeouts.
+**And its twin: the consumer asserts what the step never established.** `pulse-stall-
+reconcile` claimed pulse-inject "reported INJECTED", that the tick "did not bounce" and
+"did not block" — while reading only `LastTriggerUSec` and the ledger. Same class as the
+open `dotfiles-kel5` and the P1 `dotfiles-cxle`.
 
-**Adjacent finding the fix also resolves** (agent's, no separate bead — it is fully
-covered): `pulse-dispatch-remote.sh`'s `vault_memory_failed()` treats units digit
-1/2 as fatal, so a *memory*-tier deferral (rc 11/12) used to `fail failed-vault 79`
-and abort the entire dispatch — not merely mis-render a dashboard row.
+**If you build one thing next, build the standing check for this class.** `dotfiles-cxle`
+has 17 confirmed instances and no detector.
 
-### 2. "Every time I cd into a folder the terminal fires a command" — DROPPED, not reproducible
+## Corrections I had to make to my own work
 
-Zig could not reproduce it on demand and called it off. Recording what was ruled out
-so nobody re-runs this search:
+Recorded because the pattern matters more than the individual errors — **I twice inferred
+a defect from systemd state without reading the owning project's records, and wrote it
+into an always-loaded doc:**
 
-Symptom was a *second* command line submitted in the same second as one he typed,
-where the second is a dictionary-shaped mangling of a word in the first —
-`dotfiles`→`dot-files`, `linearv`→`linear`, `cd`→`bcc'd`, and once `cd` arriving
-split as `c` then `d`. Confirmed in `~/.zsh_history` (extended timestamps, five
-occurrences 14:21–14:37 UTC) and in the pane scrollback.
+- **harnessd "broken pipeline"** — retracted (`dotfiles-df88`). `state-bus` is masked
+  *on purpose*; harnessd/CLAUDE.md:51 documents the migration to in-proc Go. The tell I
+  walked past: the mask predates the "freeze" by three weeks.
+- **autonoveld "silently OFF"** — corrected. The pause was commit `9888d0e` ("Zig's call,
+  for the time being") **and** a PAUSED banner in `refs/pulse.md` carrying the exact
+  stamp-first restore procedure I later "discovered" independently.
+- **`git add agents/`** — a directory add, which `/commit:211` forbids. It swept two
+  scratch files with a LinearB doc ID into this PUBLIC repo. Untracked + gitignored;
+  Zig chose to leave history. Verified the doc is `linearb.io`-domain-only, no
+  `type:anyone` permission.
+- **frontmatter measured at 6,972 words** — wrong; `sed` between `---` also matched
+  markdown rules in bodies. Real figure **3,362**.
 
-Ruled out, each with evidence:
+## Fleet work
 
-- `chpwd` hooks — only `_direnv_hook`; direnv has **no** `.envrc` in `~/dotfiles`,
-  `~/linearb` or `~`, empty whitelist, `direnv status` = "No .envrc or .env loaded"
-- tmux hooks — zero set (global and both sessions); no `send-keys` source
-- `~/.oh-my-zsh/custom/` — empty but for the stock `example.zsh`
-- key bindings — stock; nothing bound to `autosuggest-execute`
-- `auto_cd` (on, working) and `cdpath` (empty, never set in this repo)
-- `~/.zshrc.zwc` — a compiled zshrc written **Jul 28 00:32**, i.e. inside the
-  "started in the last day" window, so it was a prime suspect. Its string table is
-  **identical** to a fresh compile of the readable `.zshrc` (only the embedded path
-  differs) — no hidden content. Nobody knows who compiled it; it is benign, and zsh
-  falls back to the plain file whenever `.zshrc` is newer, so it cannot strand a
-  future edit.
-- processes able to write to his pane's tty (`lsof /dev/pts/24`) — only his own
-  `zsh` and p10k's `gitstatus` helper
+- **marketing-vps**: **10,635 failed SSH auths in 24h**, password auth on, no firewall,
+  no fail2ban, 2 NOPASSWD-root accounts. **Not breached** (all successful logins were
+  publickey from zig-computer, or one consistent teammate IP). **fail2ban installed and
+  verified banning** — 3 IPs in nftables within a minute. `ignoreip` needed a second fix:
+  `[DEFAULT]` isn't inherited at runtime, and without it zig-computer could self-ban and
+  kill the hourly refresh. **`dotfiles-2smz` stays open** — password auth, ufw, and the
+  sudo accounts are Zig's call (mike/ben have no SSH keys).
+- **`qcfx` closed**: marketing-vps now runs the tracked 610-line refresh script, receipt
+  written, `--assert` green. `readonly` → `watch` (old spelling kept as a silent alias).
+- **picod**: drain loop retired from the harness manifest; `picod-health.timer` KEPT —
+  it's a guard, not a heartbeat (`bd-zdj`).
 
-The discriminating control: driving the **exact** commands (bare relative
-`cd dotfiles`, `cd ..`, `cd linearv`) through `tmux send-keys` into a real shell in
-his own `work` session — same pty, same ZLE — never reproduced it, across three
-attempts. His keystrokes produced it; identical bytes originating on the box did
-not. A `cat -v` probe window was set up to settle client-vs-server definitively;
-by the time he ran it the symptom had stopped.
+## Unfinished — for the next session
 
-**If it returns**, start from the probe (a `cat -v` cannot execute or correct
-anything, so anything appearing in it arrived as input over the wire) rather than
-re-auditing the shell tier.
+1. **`daily-ao3`** — a background agent was consolidating autonoveld's four pulses into
+   one row/one session (`mail → voice-correction → conceive → write`), folding in
+   `autonoveld-zx5m`, and wiring the metis conduit. **Verify it landed**: `refs/pulse.md`
+   has one row, `list-timers` shows `pulse-daily-ao3` and none of the four old ones, and
+   the ledger lint accepts the new row name. **Then register it in
+   `~/harnessd/refs/harness-manifest.json`** — that was NOT done.
+2. **`dotfiles-2smz`** — the marketing-vps auth decision.
+3. **`dotfiles-nneb`** — the close gate has no escape hatch. It cost two cycles today, and
+   note the second trap: the hook blocks the *whole chained command*, so
+   `br update … && br close …` never runs the update.
+4. **`dotfiles-9gyl`** — `/scrutinize` prompt-size is still UNPROVEN. The corpus is sound
+   (catchability gate passed); the rig can't separate the arms. 39/39 rollouts returned
+   FIX-FIRST including a control told to sign off.
+5. `dotfiles-q9tr` (doclint lints an eval corpus), `dotfiles-du2y` (2 skills fail strict
+   YAML), `dotfiles-dpbn` (hevyd wildcard bind).
 
-## Decisions made this session
+## Watch-outs
 
-- None filed as `-t decision` beads. (`dotfiles-qydv` shows up in the harvest window
-  but belongs to the **previous** session, not this one.)
-- One judgment call worth naming, recorded here rather than as an ADR because it is
-  a decision *not* to act: I had announced moving `claude-vault-sync.timer` off
-  `:00` to stop the routine collision, then **did not**, because the classification
-  fix makes the collision harmless and the timer file is untracked machine state.
-  See "What's next".
-
-## Proposed practices — where each one landed
-
-- "A deferral is not a failure; re-aim the alarm, don't weaken it" → **written into
-  `agents/vault/vault-sync.sh`'s header** as the `DEFERRAL IS NOT FAILURE
-  (dotfiles-tqjk)` block, at the site it governs, with the three-case table and the
-  stale-stamp rationale. Not left in this note.
-
-## What's next
-
-1. **Optional, now low-value**: `claude-vault-sync.timer` still fires at `:00:00`, so
-   it still races the on-the-hour pulse-dispatch loops every time both run — the race
-   is now harmless (one run does the work, the other logs `quiet`) but it is wasted
-   work. Moving the primary to `:07` and the peer to `:22` preserves the documented
-   15-min offset. The live unit at `~/.config/systemd/user/claude-vault-sync.timer`
-   is untracked, so the template at
-   `agents/scheduler/templates/claude-vault-sync.timer` must change with it.
-2. `dotfiles-qcfx` (P2) — carried from the prior session: the hourly repo-refresh
-   timer still runs the 49-line untracked stub at `~/bin/vps-repo-refresh.sh`.
-3. `dotfiles-6wdw` (P0, pre-existing) — unauthenticated internet→tailnet pivot on
-   :7575. Untouched again this session.
-
-## Warnings / watch-outs
-
-- The vault-sync alarm test suite now takes **~3m20s** (was ~2m10s) — the new cases
-  spend ~50s waiting on real `flock -w 10` timeouts. That is deliberate: it exercises
-  the real lock path in `vault-lib.sh` / `transcripts-lib.sh` rather than a stub. If
-  it ever needs to be faster, a stub injector is the trade, at the cost of no longer
-  testing the thing that actually broke.
-- The `quiet` outcome is new for the `vault-sync` ledger row. It is in
-  `pulse-ledger-lint.py`'s `ALLOWED_OUTCOMES` (asserted mechanically by T14, not by
-  eye), and harnessd ranks it below both `blocked` and `done`, so a `quiet` row can
-  never mask a same-ts `blocked` one.
-- harnessd was deliberately **not** touched. Its `newestRow` tie-break is correct;
-  it was being fed a wrong row. Don't "fix" it there.
-- `~/.zshrc.zwc` exists and is newer than `.zshrc` (see above). Harmless, but if you
-  ever wonder why a `.zshrc` edit seems not to apply, check whether the `.zwc` won
-  the mtime comparison before hunting anything subtler.
+- **AO3 was genuinely down most of 2026-08-01** (525 = Cloudflare↔origin). A paired probe
+  showed metis (residential) failing identically and a third-party monitor dark all day —
+  so it was NOT an IP block. **But Zig hit a Cloudflare captcha in a browser on metis**,
+  so both are true: struggling origin *and* defensive posture. Per his call, metis becomes
+  the conduit he can unblock by hand.
+- `ps -p <pid> --no-headers` **errors and still exits 0** on this box — it gave me a false
+  "process alive" reading. Use `/proc`.
+- `grep -c` prints `0` **and** exits 1, so `|| echo 0` emits `"0\n0"`.
+- A mutant that doesn't mutate proves nothing — the formatter wrapped a constant across
+  lines and my regex silently no-opped. `assert old in s` before writing.
