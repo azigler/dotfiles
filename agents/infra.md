@@ -61,6 +61,128 @@ prior policy is kept in the admin changelog, so a bad paste is a **one-click rev
 Full runbook, incl. the Tailscale gotchas paid for once and the Taildrop file-transfer
 route: `~/explore/.claude/skills/zig-zone/SKILL.md`.
 
+## pico — the home production Mac (NO systemd; launchd instead)
+
+Verified live **2026-08-01** (`dotfiles-5da3`). Reach it: `ssh pico` → resolves to
+`pico.tailfb4637.ts.net:2222` with `~/.ssh/id_ha`. **Port 2222, not 22** — tailscaled only
+intercepts :22 on the tailnet IP and Tailscale SSH has no grammar for tag-src → user-owned-dst
+(`com.zig.sshd-alt-port`, `dotfiles-wzh`).
+
+- **hostname `pico`** — macOS 14.4 (23E214), arm64 (T6000), user `pico` (uid 501, admin).
+  Uptime 64 d. Disk 175 GiB used / 724 GiB free.
+- Tailscale **`100.72.47.4`** (`pico.tailfb4637.ts.net`), tailscale 1.98.3. Home LAN behind
+  `192.168.1.1`; WAN egress `172.116.51.187`. Path to zig-computer is **direct**, not relay.
+- **Role:** where most user-facing production runs — Vacation Station 14 (game server, web,
+  admin, CDN, maps, keycloak, grafana/loki/prometheus, nightly builds), the **agentgateway**
+  LLM/MCP proxy the whole fleet's Claude Code traffic flows through, ollama, the ha-portal LAN
+  proxy, and the go-jamming webmention receiver.
+- ⚠️ **No systemd.** `launchctl list` is the source of truth — and **`sudo launchctl list` for
+  system daemons**, which are invisible from the user domain (the `bd-9qi` trap). User agents:
+  `~/Library/LaunchAgents/com.zig.*.plist`. System: `/Library/LaunchDaemons/com.zig.*.plist`.
+  A schedule is `StartCalendarInterval` / `StartInterval`, not a `.timer`; a last-exit status of
+  0 in `launchctl list` is the only "did it work" signal, so **read the job's log too**.
+- ⚠️ **NO HOST FIREWALL.** ALF disabled, pf disabled. A wildcard bind here is genuinely reachable
+  from every device on the home LAN — unlike zig-computer, where ufw `INPUT DROP` covers it.
+- ⚠️ **SSH password auth is ON** (`sshd -T`: `passwordauthentication yes`,
+  `kbdinteractiveauthentication yes`) on both :22 and the wildcard :2222.
+
+### Ports
+Tailnet-bound (`100.72.47.4`): **8080** nginx (the vs14 front door), **3300** vs14-web (next/bun),
+**11434** ollama (loopback does NOT reach it), **6006** phoenix, **15000** agentgateway admin UI,
+**10000** the stale harness PWA.
+⚠️ **Wildcard (`*:`) binds — LAN-reachable:** **15001** agentgateway MCP, **15003** agentgateway
+LLM, **17017** agentgateway `claude`→api.anthropic.com relay (**no apiKey policy** — transparent
+passthrough, caller must supply their own Anthropic key), **14829** go-jamming, **4317** phoenix
+OTLP, **5432** postgres@17, **5218 / 5427 / 8087** colima ssh forwards (vs14 mapserver / admin /
+cdn), **53** lima usernet, **2222** alt sshd, **50051** multipassd, **5900** Screen Sharing,
+**88** kdc. `0.0.0.0:7378` picod-proxy is **intentional** (homeowner ha-portal at
+`http://pico.local:7378` → zig-computer:19632). Loopback: 15020/15021 agentgateway,
+3100/3200/9090/18080/60121 colima forwards.
+
+### Secrets — `~/.secrets` (600, sourced by `~/.local/bin/agentgateway-run`)
+`AGW_GOOSE_KEY` · `AGW_CC_KEY`. That is the whole file. `~/.config/agentgateway/config.yaml` is
+600 and references them as `${…}` (3 key lines, 2 vars — lines 58 and 129 share the goose value);
+expansion is **verified working** (goose key → HTTP 200 on `15003/v1/models`; the literal string
+`${AGW_CC_KEY}` → 401). ⚠️ agentgateway's apiKey policy accepts **`Authorization: Bearer`, NOT
+`x-api-key`** — an `x-api-key` probe 401s and looks like a config failure.
+⚠️ `~/gojamming/config.json` still holds a plaintext token and is **not** a `~/.secrets` pointer.
+
+### Gotchas
+- **pico cannot run Claude Code** — no `claude` CLI. `~/.claude/*` symlinks into `~/dotfiles`
+  exist but are inert, and that clone is pinned at **2026-06-05** with 8 staged modifications and
+  no `core.hooksPath`. Harness changes do NOT propagate here.
+- `com.zig.harness` (:10000, `--auth none`) serves `state.json` pushed by zig-computer's
+  `harness-refresh` — whose `state-bus.timer` is **masked**, so the data is frozen since
+  2026-07-29. A `KeepAlive=true` job serving stale state looks identical to a healthy one.
+- Nightly `vs14-guidebook-build` (exit 128, `/var/lib` permission denied) and
+  `vs14-cookbook-build` (exit 1, `spawn git ENOENT` — launchd's PATH has no git) have been
+  failing every night with no alarm.
+- `ollama --version` **on pico** says "could not connect to a running Ollama instance" even when
+  ollama is up — it binds the tailnet IP only, not loopback.
+- The tailscale "can't reach the configured DNS servers" health warning is **zig-computer's**,
+  not pico's. pico reports no health warnings.
+
+## marketing-vps (`vps-8a9eb245`) — the LinearB company seat
+
+**NOT on the tailnet.** Plain SSH only, by the `marketing-vps` host alias.
+`tailscale status` lists zig-computer, homeassistant, iphone-15-pro, metis, pico
+— this box is not a mesh peer.
+
+| | |
+|---|---|
+| hostname | `vps-8a9eb245` |
+| public IP | `15.204.114.210/32` on `ens3` (OVH; gw `15.204.112.1`) |
+| OS / kernel | Ubuntu 26.04 LTS · `7.0.0-14-generic` |
+| resources | 8 vCPU · 22 GiB RAM · 193 GB `/` (16 G used, 9%) |
+| accounts | `ubuntu`, `kevin` (Kevin Fayle), `andrew`, `mike` (Mike Noel), `ben` (Ben Lloyd Pearson) — **a genuinely shared box** |
+| `andrew` sudo | **passwordless root** (`sudo -n whoami` → `root`) |
+
+**Role.** Executes the five migrating Dev-Interrupted + weekly-report pulse rows
+on the LinearB company seat (`explore-7iz9` architecture (c)). zig-computer's
+`pulse-dispatch-remote.sh` drives them; `vps-preflight.sh` gates every dispatch
+from zig-computer, never from here. It is a **read-only consumer** of dotfiles —
+`vps-repo-refresh.sh --self-update` dies if the tree has local commits.
+Interactive work happens in the durable tmux session `work`
+(`di-monday`, `di-wednesday`, `pipeline-website`, `imc-aug26`).
+
+**Ports.** `0.0.0.0:22` sshd — the only internet-reachable port.
+`127.0.0.1:7100` is a **loopback-only** `ssh -L` to zig-computer's fleet proxy,
+opened from this side by `ensure-fleet-tunnel.sh` so the box can self-heal when
+zig-computer's reverse `-R` forward dies. `gatewayports no`. No web server, no
+nginx, no other listener.
+
+**User timers** (all enabled, all firing; `crontab -l` is empty):
+`lb-granola-pull` every 2 min · `imc-pull` every 10 min ·
+`vps-repo-refresh` hourly (+300 s jitter) · `claude-vault-sync` at `*:15:00`
+(offset from zig-computer's `*:00:00`, so the two never clobber each other's push).
+
+**Repos.** `~/dotfiles` (main, read-only consumer) · `~/linearb` umbrella with
+`dashboard-dev-interrupted` + `weekly-reporting` + `agent-factory` as submodules
+(detached HEADs are normal for submodules) · `~/marketing-vps` (the team's shared
+`lb-marketing/marketing-vps` setup repo, deliberately agent-free) · `~/work/`
+(pulse-dispatch run dirs, fable-*, vet drafts).
+
+**Secrets, by pointer.** `~/.secrets/google-service-account.json` (0600) ·
+`~/.config/gh/hosts.yml` — `oauth_token` for `azigler` ·
+`~/linearb/pipeline-website/.env.local` — `STRAPI_URL`, `STRAPI_API_TOKEN`.
+All `0600`. Nothing pasted into a doc, bead, or memory file.
+
+**Gotchas.**
+- ⚠️ **It has re-detached HEAD before, stranding 4 commits (2026-07-31).** Prove a
+  push against `git ls-remote`, never `git rev-parse HEAD`. (Clean as of
+  2026-08-01: on `main`, tree clean.)
+- ⚠️ **Its GitHub PAT 404s on every `lb-marketing/*` repo**, so `agent-factory`,
+  `weekly-reporting` and six other submodules cannot be initialized from here
+  (`explore-lc15`).
+- ⚠️ **`core.hooksPath` is unset** on both `~/dotfiles` and `~/linearb` —
+  `tools/githooks/pre-commit` exists but does not fire.
+- ⚠️ **`~/bin/vps-repo-refresh.sh` is a 49-line stub, not the tracked 604-line
+  script** (`dotfiles-qcfx`, still open 2026-08-01). The hourly timer runs the
+  stub, which writes no receipt; `vps-preflight` invokes the tracked path
+  directly, which is why dispatch still works.
+- ⚠️ **Password SSH is on and there is no firewall** — see the P0 in
+  `refs/audit/H-marketing-vps.md`. Do not assume this box is hardened.
+
 ## The production norm (and its exception)
 Andrew's default: *production runs on **pico** over tailscale, forwarded from
 nginx here.* **Exception:** things that ARE part of the agent harness (e.g. a
@@ -128,7 +250,11 @@ phantom catch-up tick. Same reason a re-armed timer needs its stamp touched firs
 - `~/explore` — exploration compendium (DuckDB, agent-memory, honcho research, etc.).
 - `~/harnessd` — harness observability daemon + PWA dashboard (state-bus SSOT).
   Graduated from `~/explore` 2026-07-04; co-located on this box (NOT pico) per
-  `~/harnessd/refs/topology.md`. Live now via `state-bus.timer` →
+  `~/harnessd/refs/topology.md`. ⚠️ **NOT live — `state-bus.timer` AND
+  `state-bus.service` are both `masked`** (verified 2026-08-01), so the dashboard
+  pico serves on :10000 has been frozen since 2026-07-29. A `KeepAlive` job serving
+  stale state looks identical to a healthy one. Was described here as "Live now" via
+  `state-bus.timer` →
   `~/harnessd/bin/harness-refresh`; Go daemon binds the tailnet IP at Phase 1.
 - `~/linearb`, `~/reef`, ss14 game server, `~/hermes` (VPS agent, archived).
 
