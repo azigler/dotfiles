@@ -51,6 +51,14 @@ cross-tailnet trigger. Name the deviation when you make it.
 Existing vhosts (live 2026-08-01): `granola.zig.computer`, `hevyd.zig.computer`,
 `vs14.zig.computer`, `webmention.andrewzigler.com`, plus `default`.
 (`linearb.zig.computer` and `reef-router` are **gone** — reef retired, `dotfiles-13qu`.)
+
+⚠️ **Granola terminates HERE, not on pico** — `granola.zig.computer` :443 proxies to
+`127.0.0.1:8787` (lb-granola), cutover 2026-07-26. The old `:7575 → pico` route is
+retired and the port is closed. The webhook's header key is enforced **in lb-granola**
+(`internal/server/server.go` `safeCompare` — sha256 both sides, then constant-time, so
+the compare can't short-circuit on length), not at the nginx edge. And there are
+deliberately **no read routes** on that listener: mounting one beside an authenticated
+webhook is what leaked a 73 KB client transcript from reef (`lb-granola/AGENTS.md`).
 Pattern: per-project `<name>.zig.computer.conf` + certbot TLS; `nginx -t` before
 reload. Use the `/nginx` skill.
 
