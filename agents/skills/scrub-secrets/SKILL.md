@@ -1,5 +1,5 @@
 ---
-description: Detect + redact secrets in the claude-vault tiers (memory files and transcript JSONL / tool-results) with two detectors — high-confidence provider-prefix patterns AND a live-value denylist derived at runtime from `~/.secrets`. A stdlib CLI with three modes — `scan` (report + nonzero exit, usable as a gate), `redact` (replace each secret with a JSON-safe marker via an atomic, validity-checked rewrite), and `denylist` (print the denylist decision table: names + verdicts, never values). Layer 0 of the secret-hygiene system (explore-r2iq); the pre-commit hook + periodic memory scan call it.
+description: Detect + redact secrets in the claude-vault tiers (memory files and transcript JSONL / tool-results) with two detectors — high-confidence provider-prefix patterns AND a live-value denylist derived at runtime from `~/.secrets`. Stdlib CLI — `scan` (nonzero-exit gate), `redact` (atomic, validity-checked JSON-safe rewrite), `denylist` (decision table — names + verdicts, never values).
 when_to_use: Before a vault commits (block a secret entering permanent history), on a periodic sweep of the memory tier (catch a leaked literal between commits), or any time you need to find/strip provider credentials that landed in memory/notes/transcripts. Callable by other skills as a CLI — check the exit code (1 = found, 0 = clean).
 ---
 
