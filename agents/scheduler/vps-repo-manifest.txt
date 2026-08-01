@@ -89,15 +89,15 @@
 # ---- umbrella checkouts ------------------------------------------------------
 repo      $HOME/dotfiles  origin main
 repo      $HOME/linearb   origin main
-readonly  $HOME/dotfiles
-readonly  $HOME/linearb
+watch     $HOME/dotfiles
+watch     $HOME/linearb
 beadstore $HOME/linearb   .beads/issues.jsonl
 
 # ---- the two submodules the five migrating rows actually need ----------------
 submodule $HOME/linearb dashboard-dev-interrupted main
 submodule $HOME/linearb weekly-reporting          main
-readonly  $HOME/linearb/dashboard-dev-interrupted
-readonly  $HOME/linearb/weekly-reporting
+watch     $HOME/linearb/dashboard-dev-interrupted
+watch     $HOME/linearb/weekly-reporting
 
 # The ledger is TRACKED in both submodules, so a remote tick's proof row would
 # otherwise make the checkout dirty and block the next fast-forward pull.

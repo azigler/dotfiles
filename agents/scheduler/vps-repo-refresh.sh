@@ -161,7 +161,13 @@ while read -r kind a b c _rest; do
     ''|'#'*)     continue ;;
     repo)        REPOS+=("$(expand "$a")|${b:-origin}|${c:-main}") ;;
     submodule)   SUBS+=("$(expand "$a")|$b|${c:-main}") ;;
-    readonly)    READONLY+=("$(expand "$a")") ;;
+    # `watch` is the honest name: this list is REPORTED on, never enforced.
+    # `readonly` is the historical spelling and stays as a silent alias so an
+    # older manifest keeps working — but it says something false about this box,
+    # which is a full participant with a git identity (Zig, 2026-08-01), so new
+    # manifests should say `watch`. Behaviour is identical either way: warn on
+    # dirty tracked files, never block, never clean (dotfiles-f4ub).
+    watch|readonly) READONLY+=("$(expand "$a")") ;;
     beadstore)   BEADSTORES+=("$(expand "$a")|$b") ;;
     harvest)     HARVESTS+=("$(expand "$a")|$b") ;;
     require)     REQS+=("$(expand "$a")") ;;
