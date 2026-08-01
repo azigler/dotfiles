@@ -192,7 +192,8 @@ Pass A's other bulk inputs: `refs/desk/<previous>.md` (so you do not re-pitch a
 program he already declined — the golem phantom-backlog failure, memory
 `project_golem_phantom_backlog`; on early runs also the last archived
 `refs/elevate/sweep-*.md`, this loop's pre-rename history); `refs/desk/axes.md`;
-`refs/desk/signals.md`; and `git log` since the last memo.
+`refs/desk/signals.md`; **`refs/crosslink.md` (newest dated section only — see
+below)**; and `git log` since the last memo.
 
 ### How Pass A actually loads the corpus — do not improvise this
 
@@ -263,6 +264,44 @@ not `done`, and say so in the memo. §6 logs the number every run.
 This is the one observable that converts "Pass B cannot notice what Pass A missed"
 from an *invisible* ceiling into a *visible* one — which is the ground on which
 the architecture accepts that trade at all.
+
+### `refs/crosslink.md` — pre-digested, and deliberately NOT part of the corpus read
+
+Pass A globs `*/FINDINGS.md` and **never reads beads**. That absence is the
+finding `explore-12cf` is about, and `refs/crosslink.md` is the one input that
+closes it: `bin/crosslink.py` takes every bead filed since its last run and
+crosses it against the FINDINGS tier of the zettel index, recording the corpus
+entries that already answer, contradict, or supply a missing mechanism for it.
+(Decision `explore-y8ju`: producer in `bin/`, consumer here, gated below. `/desk`
+runs the producer itself — see "The run" step 2.)
+
+**Read the newest `## YYYY-MM-DD` section under `<!-- BEGIN CROSSINGS -->`, and
+nothing else.** It is hard-bounded to 8 crossings per run and each carries a
+verified quoted span, so the whole input is a few hundred tokens. ⚠️ **It does NOT
+go through the 4-slice map-reduce above, and must never be "improved" into that
+path** — the map-reduce exists because the FINDINGS corpus is ~1M tokens; this
+file is pre-digested by construction and slicing it would cost four agents to
+read one page. Take the section verbatim into the A1 context.
+
+**Calibrate the reader, or the section trains him to skip it.** The first real
+run (2026-08-01, 8 crossings from 209 beads) measured out as: **5 of 8 matched
+bookkeeping headings** — `§ Scrutiny — …`, `§ Related explorations`, `§ Novel
+opportunities` — which share vocabulary with every harness bead ever filed; and
+**#1 was a tautology**, a dive bead matching the exploration that dive produced.
+Genuine discoveries: **~2–3 of 8.** The tool's own `--help` says the same in more
+detail, including the measured case where it fails to reproduce the hand crawl's
+best find. So:
+
+- A crossing is a **candidate**, never a finding. It reaches Pass B only when the
+  `matched on:` line shows the match rests on substantive prose rather than a
+  bookkeeping heading, and the bead and the entry are not the same piece of work
+  wearing two hats.
+- An **already-linked** crossing (the marker) is not automatically dead — the
+  articraft case the tool was built for is a *contradiction inside an existing
+  link* — but the memo has to say what is new about the juxtaposition, or drop it.
+- A quiet week writes a section saying so. **Zero crossings is a result**, not a
+  broken producer; the freshness gate, not the crossing count, is what detects a
+  broken one.
 
 ## Pass B — the narrow verify-and-write pass
 
@@ -441,6 +480,18 @@ carrier everything §3 pushed below the waterline is unrecoverable in weeks 2–
   required.
 - **clusters at critical mass** — a theme heavy enough to write up, build,
   or pitch.
+
+**This is where a surviving `refs/crosslink.md` crossing lands** — it is the
+bead↔corpus direction of the first two sub-items, arriving pre-quoted. It is
+*not* exempt from anything §3 already requires: Pass B re-reads the quoted span
+in place like every other candidate, `br show`s the bead (a closed one is a KILL,
+not a footnote), and dedups against `signals.md`. Write it as the fact, never as
+the tool's output — *"`explore-w4zd`'s premise is already answered by
+`standing-rules/FINDINGS.md`'s 2026-07-30 scrutiny block, which says …"*, not
+*"crosslink surfaced …"*. Given the measured ~2–3-in-8 precision, **most weeks
+contribute zero or one §3 item from this input, and that is the expected
+outcome** — forwarding a bookkeeping-heading match to fill the section is how the
+section stops being read.
 
 **§4 THE ONE CONNECTION** — exactly ONE non-obvious link between distant
 explorations. Not a list. Lists are how the rot started.
@@ -641,7 +692,32 @@ two), the grant lives in its `.service` `--cmd` — check it is still there.
 
 1. **Decide the shape.** Wide (`--wide`, or no wide refresh in
    `refs/desk/axes.md` for 28 days) or weekly-delta. Note which in §6.
-2. **Dispatch Pass A** — A1 (axis scan, `effort:'high'`) and A2 (opportunity
+2. **Refresh `refs/crosslink.md`, then dispatch Pass A.** The producer is run by
+   this pass, first, before anything is dispatched:
+   ```bash
+   python3 bin/crosslink.py     # defaults: --db .zettel/index.duckdb, --out refs/crosslink.md
+   ```
+   The index is **gitignored**, so a worktree does not have one — from a worktree,
+   pass `--db ~/explore/.zettel/index.duckdb` explicitly.
+   **Why the pass runs its own producer, rather than a timer doing it.** The
+   freshness clause in step 9 would otherwise be a gate that fails for a reason
+   the pass could have fixed — nothing schedules `crosslink.py`, so a clause
+   asserting an 8-day-old section would block the very next desk pass on a
+   producer no timer runs. Self-healing removes that failure mode without making
+   the gate vacuous: it still fails, loudly and on day one, if the producer is
+   **broken**, which is the only thing it was ever meant to detect. (The
+   alternative — a grace path that skips the clause when the file is stale — is a
+   gate that cannot fail, which is the vacuity this lab keeps rediscovering.)
+   Cost is real and bounded: **4m24s for a 206-bead cold start**; a normal week is
+   30–50 beads, about a minute.
+   **Read its exit code, do not just look at the file** (house contract):
+   `0` crossed · `1` NO-CROSSING (searched, proven live, nothing cleared the
+   threshold — a **normal** week, the section is still written) · `3`
+   COULD-NOT-CROSS, a control failed and **nothing was searched**. Treat `3` as a
+   blocked pass: fix it or log `outcome:"blocked"` and say so in the memo; never
+   read it as a quiet week.
+
+   Then **dispatch Pass A** — A1 (axis scan, `effort:'high'`) and A2 (opportunity
    lens, `effort:'max'` via Workflow) in parallel, both fresh. Each returns a
    **candidate list only**: id / path / quoted span / axis, **plus the one
    ≤5-line `FIELD DELTA` block** carved out above (step 7's only source).
@@ -711,11 +787,22 @@ two), the grant lives in its `.service` `--cmd` — check it is still there.
    proof the commit hook RE-RUNS (bare `artifact` is rejected fleet-wide,
    `explore-len0`):
    ```json
-   {"ts":"<date -u +%FT%TZ>","row":"desk","outcome":"done","proof":{"kind":"cmd","cmd":"D=refs/desk/<date>.md; test $(sed '/<!-- retraction-start/,/<!-- retraction-end -->/d' $D | wc -w) -le 1200 && test $(sed -n '/<!-- retraction-start/,/<!-- retraction-end -->/p' $D | wc -w) -le 400 && python3 bin/check-memo-beads.py $D --quiet && grep -qF '## §1 THE ASK' $D && grep -qF '## §2 WHAT TO STOP' $D && test $(grep -c '^### ASK ' $D) -le 3 && test $(grep -c '^### ASK ' $D) -ge 1 && test $(grep -c '^### STOP' $D) -le 1 && test $(sed -n '/^### STOP/,/^## /p' $D | grep -Evc '^(#|$)') -ge 1 && test $(grep -c '^### CONNECTION' $D) -le 1 && grep -qF '### CANDIDATE QUEUE' $D && grep -qF '### EVIDENCE LAYER' $D && grep -qF '### LOOP HEALTH' $D && test $(git diff HEAD~1 -- .beads/issues.jsonl | grep -c '\"title\":\"desk:') -le 2"},"note":"desk pass (wide|delta) — N asks, M beads/E edges; C candidates dropped on quote-verify; corpus_bytes N of M; reviewed W new explorations (F flagged); field-delta appended; loops audited: dive=<state> digest=<state>, X fixed / Y escalated"}
+   {"ts":"<date -u +%FT%TZ>","row":"desk","outcome":"done","proof":{"kind":"cmd","cmd":"D=refs/desk/<date>.md; test $(sed '/<!-- retraction-start/,/<!-- retraction-end -->/d' $D | wc -w) -le 1200 && test $(sed -n '/<!-- retraction-start/,/<!-- retraction-end -->/p' $D | wc -w) -le 400 && python3 bin/check-memo-beads.py $D --quiet && grep -qF '## §1 THE ASK' $D && grep -qF '## §2 WHAT TO STOP' $D && test $(grep -c '^### ASK ' $D) -le 3 && test $(grep -c '^### ASK ' $D) -ge 1 && test $(grep -c '^### STOP' $D) -le 1 && test $(sed -n '/^### STOP/,/^## /p' $D | grep -Evc '^(#|$)') -ge 1 && test $(grep -c '^### CONNECTION' $D) -le 1 && grep -qF '### CANDIDATE QUEUE' $D && grep -qF '### EVIDENCE LAYER' $D && grep -qF '### LOOP HEALTH' $D && CL=$(grep -oE '^## [0-9]{4}-[0-9]{2}-[0-9]{2}' refs/crosslink.md | sort -r | head -1 | cut -d' ' -f2) && test ${#CL} -eq 10 && test $(( ($(date +%s) - $(date -d $CL +%s)) / 86400 )) -le 8 && test $(git diff HEAD~1 -- .beads/issues.jsonl | grep -c '\"title\":\"desk:') -le 2"},"note":"desk pass (wide|delta) — N asks, M beads/E edges; C candidates dropped on quote-verify; corpus_bytes N of M; reviewed W new explorations (F flagged); field-delta appended; loops audited: dive=<state> digest=<state>, X fixed / Y escalated"}
    ```
    A pass that found nothing new logs `"outcome":"quiet"` (no proof needed) —
    but see the empty-week rule below: "nothing to report" is a failure, not a
    quiet tick.
+
+   **The `refs/crosslink.md` clause is the freshness gate** (`explore-y8ju`): it
+   takes the newest `## YYYY-MM-DD` section in the file and requires it to be
+   **within 8 days**. 8, not 7, so a pass firing a few hours early does not fail
+   on its own cadence. It is the answer to *what would notice if this silently
+   stopped happening* — without it, Pass A reads a frozen file forever and every
+   gate stays green. It cannot be satisfied by an empty run: the producer writes
+   a dated section even on a week with zero crossings, precisely so the gate
+   measures the producer's liveness rather than the corpus's. And because step 2
+   runs the producer, a failure here means `crosslink.py` is **broken** — fix it
+   or log `blocked`; do not delete the clause.
 #### The registration assertion — run it right after appending the row
 
 Appending a well-formed row is **not** the same as the row being *readable*. Every gate
@@ -807,8 +894,8 @@ against Pass A's return; Pass A never reads them.**
 - **`/desk` never blocks on AskUserQuestion.** It is a scheduled loop: it
   notifies, files beads, and ends.
 - **The caps are enforced, not aspirational.** The proof command in the
-  ledger row checks both, plus the 300-word retraction budget and the
-  closed-bead citation gate.
+  ledger row checks both, plus the 400-word retraction budget, the
+  closed-bead citation gate, and `refs/crosslink.md`'s 8-day freshness.
 - **The ledger row is `desk`, and it starts fresh.** The archived `elevate`
   rows stay under their old name as history — they key the old cap counters
   and must not be rewritten (`explore-b47q`). Never migrate them.
@@ -865,6 +952,9 @@ autonomously.
   `refs/desk/field-notes.md` — the append-only cross-pass trend layer (moved
   from `refs/elevate/` 2026-07-26, history preserved);
   `refs/desk/controls.md` — frozen regression controls, **not a Pass A input**
+- `~/explore/refs/crosslink.md` — the bead↔corpus crossing report this pass
+  produces (step 2) and consumes (Pass A); `bin/crosslink.py --help` carries the
+  measured precision, the known retrieval hole, and the exit-code contract
 - `/dive` — the executor this desk allocates to
 - `/elevate` — max-effort fresh eyes on ONE finished thing; its technique is
   what Pass A's A2 lens dispatches
