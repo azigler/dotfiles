@@ -196,6 +196,12 @@ Umbrella-scoped libraries load on demand: `~/explore/.claude/skills/INDEX.md` is
 toybox catalog; read a `SKILL.md` from it by absolute path when the global set lacks
 a capability. Project-scoped sets are documented in their own project's CLAUDE.md.
 
+A toybox skill **graduates to the global set when OTHER UMBRELLAS actually reach for
+it** — usage-driven, not threshold-driven. `toybox-usage.sh` logs every cross-umbrella
+load to `~/explore/.claude/skills/USAGE.log`. Count **distinct umbrellas, not log
+lines**: one agent reading a file four times in one worktree is one consumer, and
+graduating adds ~120 words to the always-loaded tier permanently.
+
 ## Reference material conventions
 
 - **`refs/`** at project root — active reference material the agent loads to do its
