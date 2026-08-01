@@ -1,6 +1,5 @@
 ---
-name: cdn
-description: Upload a local file to Cloudflare R2 and get back a stable PUBLIC url (served at cdn.zig.computer). Full lifecycle — up / get / ls / rm / purge — for two jobs: durable homes for PUBLISHED images (AAIF tutorials, andrewzigler.com/blog markdown; screenshots + generated art that need embeddable urls, since Zig won't put images in his site folder), and killing the scp->view loop (post an openable url instead of scp'ing a screenshot for review). Content-addressed keys => idempotent, IMMUTABLE urls; re-runs are free. Stateless + secure — creds read from ~/.secrets, handed to rclone via env-var backend config so no secret lands in argv.
+description: Upload a local file to Cloudflare R2 and get back a stable PUBLIC url at cdn.zig.computer — full lifecycle up / get / ls / rm / purge. Content-addressed keys make urls idempotent and IMMUTABLE, so re-runs are free; creds live in ~/.secrets.
 when_to_use: You have a local image/file that needs a public url — embedding a screenshot or figure in a published markdown post/gist/tutorial, or you generated an image on this box and want to hand Zig an openable link instead of scp'ing it. Also to fetch an object back (get), audit/clean up what's stored (ls/rm), or force-refresh a cached url (purge). NOT for private/sensitive files — the bucket is PUBLIC.
 argument-hint: "up <file> [--key aaif/x.png|--review] | get <key> [dest] | ls [prefix] | rm <key> | purge <url>"
 allowed-tools: Bash(*/cdn.sh *) Bash(rclone *) Bash(curl *) Bash(sha256sum *) Bash(file *)
@@ -47,7 +46,9 @@ not infinite, so:
 
 ## Setup (one-time — already done on zig-computer)
 
-Creds live in `~/.secrets` (mode 600, source-able). Required vars:
+Creds live in `~/.secrets` (mode 600, source-able) and are handed to rclone via
+**env-var backend config** — no secret ever lands in `argv`, so nothing leaks to
+`ps`, a shell history, or a hook that logs the command line. Required vars:
 
 ```sh
 export R2_ACCOUNT_ID=...          # Cloudflare account id (the S3 endpoint host)

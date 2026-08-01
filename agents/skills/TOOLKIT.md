@@ -28,13 +28,13 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 ### /cdn
 **Job:** Upload a local file to Cloudflare R2 → stable PUBLIC url (`cdn.zig.computer`). Full lifecycle: `up`/`get`/`ls`/`rm`/`purge`. Content-addressed keys => idempotent, immutable urls. Hosts published/AAIF/blog images (Zig won't put images in his site folder) + kills the scp->view review loop.
 **Fire when:** A local image/file needs a public embeddable url (screenshot/figure in a gist/post/tutorial), or you want to hand Zig an openable link instead of scp'ing. Also get/ls/rm/purge for retrieval + cleanup.
-**Prereqs/side-effects:** creds in `~/.secrets` (R2_ACCOUNT_ID/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY/R2_BUCKET/CDN_BASE_URL) + `rclone`; the bucket is PUBLIC; free-tier caps (10 GB storage, 1M Class-A, 10M Class-B ops, egress free — storage is the real cap).
+**Prereqs/side-effects:** creds in `~/.secrets` (R2_ACCOUNT_ID/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY/R2_BUCKET/CDN_BASE_URL) + `rclone`, handed over via env-var backend config so no secret lands in `argv`; the bucket is PUBLIC; free-tier caps (10 GB storage, 1M Class-A, 10M Class-B ops, egress free — storage is the real cap).
 **Anti-pattern:** Uploading private/sensitive files (public bucket); overwriting a fixed key and expecting an instant refresh (edge caches until TTL — use content-addressed keys or `purge`); HEAD/GET-ing the canonical url right after upload to "verify" (negative-caches a 404 for hours — verify via R2, cache-bust any public probe).
 
 ### /cfp
 **Job:** Conference proposal / paper-submission orchestrator — bootstraps ~/cfp/<slug>/, interview→research→draft→critic→submit loop, post-acceptance shepherd.
 **Fire when:** Explicit-invoke; user wants a CFP, paper submission, Sessionize form, camera-ready revision.
-**Prereqs/side-effects:** Beads unconditional; creates refs/ + research/; Asana planning hub is canonical for milestones.
+**Prereqs/side-effects:** Beads unconditional; creates refs/ + research/; Asana planning hub is canonical for milestones; peer-reviewed venues fire the sub-arc in `reference/scientific-paper-arc.md` (revision specs, artifact bundles, arXiv); hands off to /talk on acceptance.
 **Anti-pattern:** Drafting from cold — angle-exploration step first; it's a multi-week arc, not a one-shot.
 
 ### /check
