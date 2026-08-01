@@ -220,14 +220,18 @@ proofs — `explore-z1k6`. A tick is the generator AND writes its own outcome, s
 unproven `done` is a self-report. `artifact` and `commit` are REJECTED fleet-wide as
 zero-distance (`explore-len0`). Use `kind:cmd`, and pick by what the run produced:
 
-```json
-// proposals filed → the beads themselves are the deliverable; check they exist
-// AND are proposals, not any bead id that happens to resolve.
-"proof":{"kind":"cmd","cmd":"for b in explore-ab1 explore-ab2; do br show $b | grep -qi 'propose' || exit 1; done"}
+Proposals filed → the beads themselves are the deliverable; check they exist **and
+are proposals**, not any bead id that happens to resolve:
 
-// nothing worth proposing (the common, correct outcome) → the deliverable is the
-// judged run itself; grep this run's own date out of the handoff note it wrote.
-"proof":{"kind":"cmd","cmd":"grep -q '2026-08-02' refs/session-handoff--dream.md"}
+```jsonc
+{"proof":{"kind":"cmd","cmd":"for b in explore-ab1 explore-ab2; do br show $b | grep -qi 'propose' || exit 1; done"}}
+```
+
+Nothing worth proposing (the common, correct outcome) → the deliverable is the judged
+run itself; grep this run's own date out of the handoff note it wrote:
+
+```jsonc
+{"proof":{"kind":"cmd","cmd":"grep -q '2026-08-02' refs/session-handoff--dream.md"}}
 ```
 
 A run that cannot produce either did not reach its wrap step — log `blocked` or

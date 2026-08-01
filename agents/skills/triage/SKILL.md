@@ -29,11 +29,37 @@ If any of these surface unexpected items, you have triage work to do.
 
 ## Step 2: Walk each population
 
-### `br orphans` (highest priority)
+### `br orphans` (check the commit FIRST — most are false positives)
 
 A bead in `br orphans` is referenced in a `Bead: bd-XXXX` commit
-trailer but its status is still `open`. This means an agent
-committed work but forgot to close.
+trailer but its status is still `open`. The intended meaning is "an
+agent committed work but forgot to close."
+
+⚠️ **In practice most orphans are the FILING commit, not a handoff
+failure.** The `:card_file_box: beads: file <id>` convention means
+every bead created in a commit becomes an "orphan" the instant it is
+filed. Measured in `~/dotfiles` on 2026-08-01: **11 orphans, 0 real
+handoff failures** — 9 were filing/bookkeeping commits and the other
+2 were commits that merely *cited* a decision bead as context.
+
+So the walk is: read the referencing commit before touching the bead.
+
+```bash
+for ID in $(br orphans --json | jq -r '.[].id'); do
+  git log --all --oneline --grep="$ID" | head -1   # ← do this FIRST
+done
+```
+
+- Commit subject is `beads: file …` / `:card_file_box:` → **false
+  positive**, leave it alone.
+- Bead type is `decision` / `note` → a durable **record**, not a
+  deliverable. Being cited in a commit is expected. Close only when
+  the decision is executed *and verified*, and say so in `--reason`.
+- Anything else → the real population. Usually just close.
+
+A `-t note` finding should also never be a **blocker** on an epic: a
+record can never "complete", so it blocks forever. Remove the dep
+(`br dep remove <epic> <note>`) rather than leaving the epic stuck.
 
 ```bash
 for ID in $(br orphans --json | jq -r '.[].id'); do
