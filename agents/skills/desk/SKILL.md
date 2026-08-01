@@ -337,13 +337,24 @@ correction impossible is a cap that buys silent rewriting. So the cap governs
     <!-- retraction-start YYYY-MM-DD -->  … the retraction …  <!-- retraction-end -->
 
     HARD CAP: 1,200 words, EXCLUDING delimited retraction blocks
-    HARD CAP: 300 words TOTAL across every retraction block in one memo
+    HARD CAP: 400 words TOTAL across every retraction block in one memo
 
 Both are step-9 proof clauses. The delimiters exempt only text *added* by the
 correction — the struck original still counts, so a memo never gets cheaper to
-write by having been wrong. A retraction needing more than 300 words is not a
+write by having been wrong. A retraction needing more than 400 words is not a
 retraction, it is next week's §1. (`explore-6g3l`; worked example:
 `refs/desk/2026-07-31.md` §1 ASK 1 + §2.)
+
+**300 → 400 on 2026-08-01 (`explore-mdww`), and the reason generalises.** The
+300 was sized for ONE correction round. Correction is iterative: a scrutiny of
+the retraction found three more self-contradictions in the same memo (a "nearly
+shipped one" that shipped one, a "the brief is fixed" that fixed only half the
+pipeline, a footer count of four that was five), and at 296/300 the honest
+action — say what was wrong — was *arithmetically unavailable*, which is the
+exact failure the paragraph above was written to prevent, one round later. The
+lesson to carry: a cap on corrections must leave room for correcting the
+correction, or it re-creates the incentive to rewrite silently. 400 is still
+under a third of the authored cap.
 
 Register: chief of research pitching the lab owner on a resourcing decision.
 Urgency, signal, expected return, ROI, honest risk. Not a summary. Assume he
@@ -390,7 +401,23 @@ correct behaviour and the artifact it asked to fund was already on disk
 
 **§2 WHAT TO STOP** — MANDATORY, ≥1 candidate to defund / close / table,
 with reasoning. A chief who only proposes new programs is not doing the job.
-This section is the loop's real **drain**. It explicitly admits
+This section is the loop's real **drain**.
+
+> **The requirement binds at AUTHORING time, and the proof reads content, not
+> the heading.** Two halves, and they were confused for each other on
+> 2026-08-01 (`explore-mdww`). (a) A stop candidate later **retracted in
+> place** does not retroactively make the memo non-compliant: the memo is a
+> dated artifact, the retraction naming its bug **is** the drain doing its
+> job, and a memo may never invent a fresh stop candidate after the fact to
+> satisfy a counter — that is the theatre this rule exists against. (b) What
+> the proof forbids is a §2 that was **never filled**: step 9's clause used to
+> count the `### STOP` heading with `grep -c`, which a heading followed by
+> nothing at all would satisfy. It now requires content under the heading. The
+> honest residual: a §2 whose only candidate is born struck would still pass,
+> because distinguishing "struck at birth" from "struck a day later" needs
+> more than a shell one-liner and the day-later case must keep passing.
+
+It explicitly admits
 **per-exploration stop candidates**: a week's exploration that drifted or
 overclaimed is a defunding candidate in exactly this register (OQ3). `/desk`
 **retains the authority to dispatch a `/scrutinize`** on such an
@@ -631,6 +658,10 @@ two), the grant lives in its `.service` `--cmd` — check it is still there.
    exits 0); apply the artifact caps; write §1–§6; then run
    `python3 bin/check-memo-beads.py refs/desk/<date>.md` before step 9 — it is a
    clause of the done-proof, so finding out at commit time is finding out late.
+   **rc 3 is BLOCKED, not a pass**: it means the citations could not be
+   evaluated (no `br`, a bead closed with no date, every id unknown, an
+   unbalanced code fence, or no citations found at all). Fix the cause; never
+   read it as green. `--help` documents both escape rungs and their limits.
 4. **Refuter pass** on §1. Record the verdict in the footer.
 5. **Update the two registers.** `axes.md`: add axes that earned entry (≥2
    positions), strike resolved ones with the memo date, record the wide-refresh
@@ -680,7 +711,7 @@ two), the grant lives in its `.service` `--cmd` — check it is still there.
    proof the commit hook RE-RUNS (bare `artifact` is rejected fleet-wide,
    `explore-len0`):
    ```json
-   {"ts":"<date -u +%FT%TZ>","row":"desk","outcome":"done","proof":{"kind":"cmd","cmd":"D=refs/desk/<date>.md; test $(sed '/<!-- retraction-start/,/<!-- retraction-end -->/d' $D | wc -w) -le 1200 && test $(sed -n '/<!-- retraction-start/,/<!-- retraction-end -->/p' $D | wc -w) -le 300 && python3 bin/check-memo-beads.py $D --quiet && grep -qF '## §1 THE ASK' $D && grep -qF '## §2 WHAT TO STOP' $D && test $(grep -c '^### ASK ' $D) -le 3 && test $(grep -c '^### ASK ' $D) -ge 1 && test $(grep -c '^### STOP' $D) -le 1 && test $(grep -c '^### STOP' $D) -ge 1 && test $(grep -c '^### CONNECTION' $D) -le 1 && grep -qF '### CANDIDATE QUEUE' $D && grep -qF '### EVIDENCE LAYER' $D && grep -qF '### LOOP HEALTH' $D && test $(git diff HEAD~1 -- .beads/issues.jsonl | grep -c '\"title\":\"desk:') -le 2"},"note":"desk pass (wide|delta) — N asks, M beads/E edges; C candidates dropped on quote-verify; corpus_bytes N of M; reviewed W new explorations (F flagged); field-delta appended; loops audited: dive=<state> digest=<state>, X fixed / Y escalated"}
+   {"ts":"<date -u +%FT%TZ>","row":"desk","outcome":"done","proof":{"kind":"cmd","cmd":"D=refs/desk/<date>.md; test $(sed '/<!-- retraction-start/,/<!-- retraction-end -->/d' $D | wc -w) -le 1200 && test $(sed -n '/<!-- retraction-start/,/<!-- retraction-end -->/p' $D | wc -w) -le 400 && python3 bin/check-memo-beads.py $D --quiet && grep -qF '## §1 THE ASK' $D && grep -qF '## §2 WHAT TO STOP' $D && test $(grep -c '^### ASK ' $D) -le 3 && test $(grep -c '^### ASK ' $D) -ge 1 && test $(grep -c '^### STOP' $D) -le 1 && test $(sed -n '/^### STOP/,/^## /p' $D | grep -Evc '^(#|$)') -ge 1 && test $(grep -c '^### CONNECTION' $D) -le 1 && grep -qF '### CANDIDATE QUEUE' $D && grep -qF '### EVIDENCE LAYER' $D && grep -qF '### LOOP HEALTH' $D && test $(git diff HEAD~1 -- .beads/issues.jsonl | grep -c '\"title\":\"desk:') -le 2"},"note":"desk pass (wide|delta) — N asks, M beads/E edges; C candidates dropped on quote-verify; corpus_bytes N of M; reviewed W new explorations (F flagged); field-delta appended; loops audited: dive=<state> digest=<state>, X fixed / Y escalated"}
    ```
    A pass that found nothing new logs `"outcome":"quiet"` (no proof needed) —
    but see the empty-week rule below: "nothing to report" is a failure, not a
