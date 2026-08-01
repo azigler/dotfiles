@@ -1,0 +1,27 @@
+Short answer: don't — for a **web-search-heavy** task, max effort is the one setting that will break it.
+
+**The mechanism** (documented in your global CLAUDE.md, verified by A/B on 2026-07-25 and confirmed first-party by Anthropic's Opus 5 prompting guide on 2026-07-27):
+
+Opus 5 rejects `output_config.effort` of `xhigh`/`max` whenever thinking is disabled:
+
+```
+400 output_config.effort 'xhigh' is not supported when thinking is
+disabled on this model. Use effort 'high' or below, or enable thinking.
+```
+
+Claude Code **disables thinking on the WebSearch path**. So a session pinned to `max` has no working web search — every search 400s. Worse, it's quiet: the model falls back to in-weights knowledge and the research reads as complete while being stale.
+
+**What to do instead**
+
+1. **Leave the session at `high`.** On Opus 5 that's the vendor default — identical to omitting the effort parameter. You give up nothing by sitting there, and search works.
+2. **Escalate per-dispatch, on the steps that earn it.** The plain `Agent` tool doesn't expose effort (subagents inherit the session level); the only lever is a Workflow:
+   ```js
+   agent(synthesisPrompt, { effort: 'max' })   // synthesis / cross-cutting design
+   agent(fanOutPrompt,    { effort: 'xhigh' }) // deep multi-tool sub-tasks
+   ```
+   Keep the *searching* agents at `high` and raise effort only on the synthesis/judging stages that don't call WebSearch. That's the correct architecture, not a workaround — cost and the 400 land only on the step you chose.
+3. If you ever do want the session dial anyway, it's the `/effort` menu (`effortLevel` in `~/.claude/settings.json`) — but for this task that's the trap, not the fix.
+
+One caveat worth naming: `max` also overthinks structured/mechanical work. Even setting the 400 aside, a research fan-out wants `high` searchers plus a `max` synthesizer, not `max` everywhere.
+
+Want me to scaffold the research workflow that way — `high` search fan-out, `max` synthesis — once you've got the topic?

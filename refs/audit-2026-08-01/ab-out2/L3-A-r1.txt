@@ -1,0 +1,1 @@
+Which repo is the retry code in? Point me at it and I'll file the bead there — and if you want, read the retry policy first to confirm the cap and jitter questions, then fold the answers into the record rather than leaving them as open flags.

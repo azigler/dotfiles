@@ -1,0 +1,18 @@
+Confirmed from your installed CLI:
+
+```
+--effort <level>    Effort level for the current session
+                    (low, medium, high, xhigh, max)
+```
+
+**Two ways to get to max:**
+
+1. **In this session** — open `/config` and change the effort setting there. It applies immediately, no restart, and this conversation's context carries forward.
+2. **On launch** — `claude --effort max`, which sets it for the whole session from the start.
+
+Note that `max` sits above `xhigh`, so it's the top of the scale — nothing higher to reach for.
+
+Two things worth knowing for the research task specifically:
+
+- Effort governs reasoning depth per turn, not how many web searches I'll run. For breadth of searching, the bigger lever is telling me the scope you want up front (how many sources, whether to prefer primary sources, what to exclude). Max effort makes me think harder about *each* result; it doesn't by itself make me fetch more of them.
+- Max effort meaningfully increases token consumption and latency per turn. On a long research session with many fetches that compounds, so if you hit rate limits mid-task, dropping to `xhigh` is usually the cheaper trade than shortening the research.

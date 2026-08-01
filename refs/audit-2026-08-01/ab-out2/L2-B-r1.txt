@@ -1,0 +1,59 @@
+Repo inspected. Before the dispatch itself, three things I found that change how it gets launched:
+
+**The repo is empty.** `git ls-files` returns exactly one file — `README.md`, containing `# Demo` and one sentence. No source tree, no language, no build system, no existing config file, no `.beads/`, no `.claude/`, no git remote.
+
+**`subagent_type: "subagent"` isn't registered in this session.** Available types are `claude`, `Explore`, `general-purpose`, `Plan`, `statusline-setup`. `Explore` and `Plan` are read-only and can't commit, so the only write-capable options are `claude` and `general-purpose` — neither of which carries the hooks your `subagent` type does, including `pre-tool-use-require-isolation.sh`. I'd still pass `isolation: "worktree"` (that's an Agent-tool parameter, independent of type), so the worktree isolation itself is intact; what's missing is the hook enforcement behind it.
+
+**No remote**, so "commit AND push as you go" can only do the commit half. And with no `.beads/`, there's no project prefix and no bead ID for a `Bead:` trailer.
+
+## The dispatch
+
+```js
+Agent({
+  description: "Implement config parser module",
+  subagent_type: "general-purpose",   // would be "subagent" if registered
+  isolation: "worktree",
+  run_in_background: true,
+  // no `name` — fire-and-forget, self-terminates
+  prompt: `
+Implement a config parser module in this repo and commit it.
+
+TARGET:      <language/runtime>
+FORMAT:      <config format to parse>
+PATH:        <module path>
+SCHEMA:      <keys, types, required vs optional, defaults>
+ON BAD INPUT:<raise / return Result / return defaults>
+
+SCOPE — do exactly this, nothing more:
+- The parser module at PATH.
+- Unit tests covering: valid parse, each required key missing,
+  one type-mismatch case, malformed-input case.
+- No CLI, no logging framework, no config-file discovery/search-path
+  logic, no dependency additions beyond the format library itself.
+
+EVIDENCE REQUIRED — paste actual terminal output in your final message:
+- the test command you ran and its full output
+- \`git log --oneline -1\` and \`git show --stat HEAD\`
+
+COMMIT: explicit paths only, never \`git add -A\`. Do not push —
+this repo has no remote configured.
+
+You are a subagent: do NOT spawn subagents of your own. Do the work directly.
+
+Final message: under 200 words — files created, test results, commit SHA.
+Do not restate the code.
+`
+})
+```
+
+## What's blocking
+
+The five capitalized fields at the top of that prompt are holes I can't fill from the repo, and they aren't cosmetic — they determine the entire deliverable. There's no prior art to infer from: no language to match, no existing config file to mirror, no dependency manifest, no sibling module whose idiom I'd follow. "The new config parser module" points at a shared referent I don't have.
+
+I could pick — say Python + TOML at `src/config.py` — but a wrong guess on language or format means the agent produces a complete, well-tested module that's 100% discarded. That's the one case where guessing is worse than asking, so I've stopped here rather than launching.
+
+Tell me language, config format, and target path (plus the schema if you have it), and I'll fill those in and launch. If you'd rather I just pick a reasonable default and go, say so and I'll commit to Python + TOML and note the assumption in the bead.
+
+Two smaller calls I'd like your read on, though I'll proceed either way: whether `general-purpose` is an acceptable stand-in for the missing `subagent` type, and whether to `git init` a `.beads/` for this repo so the commit gets a proper `Bead:` trailer.
+
+One note — I'd normally surface this through AskUserQuestion per your tmux lexicon, but that tool isn't available in this session, so this turn will read as ✅ rather than 🔔.

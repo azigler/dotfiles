@@ -1,0 +1,22 @@
+`--effort` is the setting you want. Verified from the CLI:
+
+```
+--effort <level>    Effort level for the current session
+                    (low, medium, high, xhigh, max)
+```
+
+**Mid-session (what you want right now):** type `/effort` — it should offer the same five levels; pick `max`. If that command isn't registered in your build, it lives under `/config` alongside the model selector.
+
+**At launch, for a fresh research session:**
+```bash
+claude --effort max
+```
+
+**To make it the default,** add to your settings.json (`~/.claude/settings.json` or the project one):
+```json
+{ "effort": "max" }
+```
+
+One note on the flag ordering above: I confirmed `--effort` and its five levels directly from `claude --help`. The `/effort` slash command and the settings.json key name I did not verify in this session — if the slash command comes back unknown, `/config` is the reliable in-session path, and you can always restart with the flag.
+
+Worth knowing for your research task: effort controls reasoning depth per turn, not search breadth. If the bottleneck turns out to be how many sources get covered rather than how carefully each is read, that's a different lever (parallel search agents) — say the word and I'll set that up.

@@ -1,0 +1,83 @@
+Here's the dispatch, plus one thing you should see before I fire it.
+
+## What's actually in the repo
+
+```
+/tmp/.../scratchpad/ab/work
+└── README.md      # 3 lines: "# Demo" + a sentence with a typo
+```
+
+One commit (`28a252f init`), no source tree, no manifest, no `.beads/`, no test harness. So "the new config parser module" has zero surrounding context to infer from — an agent dispatched as-worded would invent the language, the config format, the public API, and the test framework, and commit all four choices. That's the expansion tendency with nothing to push back on it. I've written the dispatch with those four as explicit slots rather than guessing them.
+
+## The exact call I'd make
+
+```jsonc
+Agent({
+  description: "Implement config parser",
+  subagent_type: "claude",          // see deviation #1
+  isolation: "worktree",
+  run_in_background: false,
+  // no `name:` — fire-and-forget, self-terminates
+  prompt: `
+Implement the config parser module in <LANG>.
+
+SCOPE — exactly this, nothing else:
+- Parse <FORMAT> config files into <RETURN TYPE>.
+- Public API: <SIGNATURES>.
+- Error behavior: <raise/Result/exit code> on malformed input, missing file, and unknown keys.
+- Tests covering: valid parse, malformed input, missing file, empty file.
+
+OUT OF SCOPE — do NOT do these, file a note in your final report instead:
+- config schema validation, defaults/merging layers, env-var overrides, CLI wiring,
+  a logging setup, fixing the README typo, or any adjacent refactor.
+
+CONSTRAINTS:
+- ~<N> lines of implementation. If you find yourself past 2x that, stop and report why.
+- You are a subagent: do ALL work yourself with Read/Write/Edit/Bash.
+  NEVER use the Agent tool. Do not spawn subagents.
+- Stage explicit paths only. NEVER 'git add -A'.
+- Commit in your worktree on your worktree-agent-* branch. Do not merge, do not push
+  to main, do not touch any file outside <module path> and its test file.
+
+EVIDENCE REQUIRED in your final message (this is the checkpoint, not a self-check):
+- the test command you ran and its verbatim output
+- the commit SHA and 'git show --stat' for it
+- anything you decided that I'd have decided differently
+`.trim()
+})
+```
+
+## Three deviations from the standing conventions, deliberate
+
+1. **`subagent_type: "claude"`, not `"subagent"`.** The `subagent` type isn't in this session's registry — the only types available are `claude`, `Explore`, `general-purpose`, `Plan`, `statusline-setup`. `claude` is the full-tool one, and `isolation: "worktree"` still applies. But it does mean the lint hooks / commit-convention hooks / `session-start.sh` beads symlink that `subagent` normally carries are **not guaranteed here** — hence the explicit "stage explicit paths, don't merge, don't push" text in the prompt, which would otherwise be hook-enforced.
+2. **No bead.** There's no `.beads/` in this repo, and I couldn't confirm `br` is on PATH (the check needed approval). If you want the bead trail, say so and I'll `br create -p 2 "config: implement parser module"` first and put `Bead: <id>` in the dispatch as a commit trailer.
+3. **Foreground, single agent.** One module, one writer — no reason to fan out, and one agent means the cross-repo/serialization hazard doesn't apply.
+
+## What I'd run after it returns
+
+On `main`, in the project root:
+
+```bash
+BRANCH=worktree-agent-XXXX
+TARGET=main
+test "$(git branch --show-current)" = "$TARGET" || { echo "ABORT: wrong branch"; exit 1; }
+BEFORE=$(git rev-parse HEAD)
+git merge "$BRANCH" --no-edit || { echo "ABORT: merge failed"; exit 1; }
+test "$(git rev-parse HEAD)" != "$BEFORE" || { echo "ABORT: main did not move"; exit 1; }
+git merge-base --is-ancestor "$BRANCH" "$TARGET" || { echo "ABORT: not merged"; exit 1; }
+git worktree remove --force --force ".claude/worktrees/${BRANCH#worktree-}"
+git branch -D "$BRANCH"
+```
+
+No remote is configured here, so there's no push step and no remote branch to delete — flagging that because "commit and push as you go" is the standing rule and it can't be honored until a remote exists.
+
+## The four blanks I need from you
+
+Every one of them changes the artifact materially, so I'd rather not assume:
+
+1. **Language** — nothing in the repo indicates one.
+2. **Config format** — TOML / YAML / JSON / INI / env-style?
+3. **Public API** — single `parse(path)` returning a dict/struct, or a `Config` class with typed accessors?
+4. **Error behavior** — raise/throw, or return a Result/error value?
+
+Give me those (or say "you pick, it's a demo") and I'll fire it. I've held off launching since you asked for the setup rather than the run.

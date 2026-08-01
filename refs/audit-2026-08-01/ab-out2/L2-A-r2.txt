@@ -1,0 +1,94 @@
+Repo state first, because it changes the answer: the working tree is a single `README.md` (3 lines, a demo stub). No source files, no language, no build config, no existing config handling, no `.beads/`.
+
+## The blocker
+
+There is no "new config parser module" to implement — no spec, no language, no format, no consumer. Dispatching now means the agent invents the format, the language, the file layout, and the API, and per your own Opus-5 tendency table the predicted failure is exactly that: scope expansion into a reviewable surface you didn't ask for. I need two answers:
+
+1. **Language + format** — e.g. Python/TOML, TS/JSON+env-overlay, Go/YAML.
+2. **The contract** — what keys, what defaults, what happens on a missing key vs. a malformed file (raise? fall back? merge layers?).
+
+Everything below is ready to fire the moment those two slots are filled.
+
+## Two harness discrepancies you should know about
+
+- **`subagent_type: "subagent"` does not exist in this session.** Available types are `claude`, `Explore`, `general-purpose`, `Plan`, `statusline-setup`. CLAUDE.md mandates `subagent` for anything that writes code, specifically for its lint hooks / commit conventions / bead tracking. `isolation: "worktree"` is an Agent-tool parameter and still works on any type, so I'd use `general-purpose` + worktree and compensate by writing the conventions into the prompt body — but the hook-enforced half is not there, so `pre-tool-use-require-isolation.sh` and friends may not be live either.
+- **`br` is unverified** (the check needed approval, and there's no `.beads/` in the tree). If beads isn't available here, the `Bead: <id>` trailer and the post-merge `br close` drop out of the sequence.
+
+## The dispatch, exactly as I'd launch it
+
+```
+Agent({
+  subagent_type: "general-purpose",   // "subagent" unavailable — see note above
+  isolation: "worktree",
+  // no `name` — fire-and-forget, self-terminates on completion
+  description: "Implement config parser",
+  run_in_background: false,
+  prompt: `
+Implement the config parser module in <LANG>, reading <FORMAT>.
+
+## Scope — exactly this, nothing adjacent
+- Parse <FORMAT> from <PATH>; expose <API surface>.
+- Defaults: <...>. Missing key: <...>. Malformed file: <...>.
+- Unit tests covering: happy path, missing file, malformed input, default fallback.
+
+## Explicitly OUT of scope — file a bead, do NOT implement
+- CLI flag parsing / env-var overlay layer
+- Config schema validation beyond the keys named above
+- Refactoring or "fixing" anything else in the repo, including README.md
+If you believe one of these is required, stop and report it as a blocker.
+
+## Size
+Surgical. One module + one test file. Do not restructure the repo, do not
+add a framework, do not introduce dependencies without reporting it first.
+
+## You are a subagent
+You are running in a worktree (branch starts with worktree-agent-). NEVER use
+the Agent tool. Do all work directly with Read, Write, Edit, Bash.
+
+## Commit
+Explicit paths only — never \`git add -A\`. Gitmoji convention, and include
+the trailer:  Bead: <bead-id>
+Commit AND push your branch.
+
+## Escalate instead of proceeding if the work becomes
+destructive, irreversible, security-sensitive, or changes agreed scope.
+
+## Final report — these five fields, required
+1. Status
+2. What completed
+3. Evidence it works  (paste the actual test-run output — not "tests pass")
+4. Blocker or decision made
+5. Recommended next action
+`
+})
+```
+
+Notes on the knobs: I'd **omit `model` and `effort`** — the plain Agent tool doesn't expose effort at all, so it inherits the session's `high`. Getting this to `medium` (correct for a well-specified mechanical implementation) would require routing through Workflow, and a single agent doesn't justify multi-agent orchestration you haven't opted into. `run_in_background: false` because I want the report before I merge.
+
+## What I'd run after it returns
+
+```bash
+BRANCH=worktree-agent-XXXX
+TARGET=main
+
+test "$(git branch --show-current)" = "$TARGET" \
+  || { echo "ABORT: on '$(git branch --show-current)', not '$TARGET'"; exit 1; }
+
+BEFORE=$(git rev-parse HEAD)
+git merge "$BRANCH" --no-edit || { echo "ABORT: merge failed"; exit 1; }
+test "$(git rev-parse HEAD)" != "$BEFORE" \
+  || { echo "ABORT: $TARGET did not move"; exit 1; }
+git merge-base --is-ancestor "$BRANCH" "$TARGET" \
+  || { echo "ABORT: $BRANCH not in $TARGET"; exit 1; }
+
+br close <bead-id>                       # skipped if beads is unavailable
+git add .beads/issues.jsonl
+git commit -m ":card_file_box: beads: close <bead-id>"
+
+git worktree remove --force --force ".claude/worktrees/${BRANCH#worktree-}"
+git branch -D "$BRANCH"
+```
+
+I have not launched anything — you asked how I'd launch it, and the two slots above are load-bearing. Give me language+format and the missing-key/malformed-file behavior, and I'll fire it as written.
+
+(Sidenote, unrelated and not something I touched: `README.md:3` has "recieve".)

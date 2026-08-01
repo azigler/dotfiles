@@ -204,7 +204,39 @@ a known-large gap, a null is meaningless (the rig is ceilinged / blind)."* My va
 nulls are uninterpretable as evidence that the text is worthless.** n=1 per cell; `/ab`
 specifies n≥8.
 
-**What it does legitimately establish** — and it aligns with what all six auditors found
+### 4a. The second run — a validated rig, and the answer
+
+Zig authorized track 7, so I rebuilt the corpus around the thing the pilot got wrong:
+**cases that require unguessable local facts**, each targeting a block track 3 proposes
+cutting. 4 cases × 3 variants × 3 reps = **36 runs**.
+
+| case | what it tests (block, words) | **A** 5,525w | **B** 966w | **C** 14w |
+|---|---|:--:|:--:|:--:|
+| L1 | Opus-5 400 kills WebSearch (Effort, 847w) | **3/3** | **3/3** | **0/3** |
+| L2 | worktree isolation (Delegation, 945w) | 3/3 | 3/3 | 3/3 |
+| L3 | record the decision (decide-and-proceed, 269w) | **3/3** | **3/3** | **1/3** |
+| L4 | AskUserQuestion not prose (Surfacing, 508w) | **3/3** | **3/3** | **0/3** |
+| | **total** | **12/12** | **12/12** | **4/12** |
+
+**The rig is now validated** — the positive control splits hard (12/12 vs 4/12), which is
+exactly what the pilot could not produce. So the nulls in this run *are* interpretable.
+
+**The answer to your question: A and B are indistinguishable across 24 runs. The 82% strip
+costs nothing measurable.** What the control loses is precisely the unguessable local facts:
+asked how to set `max` effort for a research task, C cheerfully explains how — and adds
+*"effort governs reasoning depth per turn, not how many web searches I'll run"* — which
+would have silently killed WebSearch on the exact task described. B catches it verbatim.
+
+**L2 is a finding in its own right:** even the 14-word control gets worktree isolation
+right, because the **Agent tool's own schema documents `isolation`** to every variant. The
+945-word Delegation section is restating something the harness already injects — the
+single best-evidenced cut in the report.
+
+**Caveat that survives:** this tests four blocks, not the whole file, and it tests
+*recall of a stated fact*, not judgment under pressure. It says the strip is safe for
+what it keeps. It does not license cutting a fact.
+
+**What the first run legitimately established** — and it aligns with what all six auditors found
 independently: I happened to pick four *general-competence* cases, and on those, Opus 5's
 defaults already produce the behavior the rules describe. That is precisely the
 MODEL-SCAFFOLD class the vendor says to strip, and this is a (weak) fourth line of evidence

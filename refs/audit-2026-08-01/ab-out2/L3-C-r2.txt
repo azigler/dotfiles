@@ -1,0 +1,11 @@
+Nothing in this working directory relates to it — it's just a README and the `init` commit — so I'm going on your description alone.
+
+Short answer: probably nothing. Exponential is the more defensible default of the two, and "low-stakes, picked one, moved on" is the right call for a fork like that. Reversing it later is a one-function change.
+
+Three things would flip it from low-stakes to worth a second look. Worth a 30-second check rather than a revisit:
+
+- **Cap and jitter.** Uncapped exponential is where this actually bites — a few retries in and you're sleeping a minute-plus, which behaves very differently from fixed 5s. And without jitter, concurrent clients retry in lockstep and re-spike the thing you're backing off from. Fixed 5s quietly gives you a bounded worst case; exponential only does if you set the cap.
+- **Total retry budget vs. the caller's timeout.** If something upstream gives up at 30s, exponential may only fit two attempts where fixed 5s fits five. That changes observed reliability, not just timing.
+- **Idempotency.** Unchanged by this choice, but longer gaps widen the window where a retried request lands after the original actually succeeded. Only matters if the operation isn't safe to repeat.
+
+If all three are fine, leave it. I wouldn't write up a decision record for this — the code is the record, and a comment on the cap value is the only part a future reader can't infer.

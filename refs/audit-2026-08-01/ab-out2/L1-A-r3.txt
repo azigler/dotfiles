@@ -1,0 +1,23 @@
+Short answer: don't — not for this task specifically.
+
+**The mechanism** (since you asked): session effort is `effortLevel` in `~/.claude/settings.json`, set through the effort menu and surfaced as `$CLAUDE_EFFORT`. I can't change my own session effort from in here; it's your menu setting.
+
+**Why max is the wrong move for a web-search-heavy session:** Opus 5 rejects `output_config.effort` of `xhigh`/`max` whenever thinking is disabled —
+
+```
+400 output_config.effort 'xhigh' is not supported when thinking is
+disabled on this model. Use effort 'high' or below, or enable thinking.
+```
+
+and Claude Code disables thinking on the **WebSearch** path. So a session pinned to max has no working web search. Worse, it doesn't fail loudly in a way you'd notice mid-research — the searches just don't return, and answers come from in-weights knowledge that looks fine and is quietly stale.
+
+Also worth knowing: `high` **is** the vendor default on Opus 5 — identical to omitting the effort parameter. Sitting there gives up nothing.
+
+**What to do instead** — keep the session at `high`, and escalate per-dispatch. Effort is only raisable through a Workflow `agent(…, {effort: …})`; the plain Agent tool inherits the session level. For a deep research run that splits cleanly:
+
+- **Gathering/search agents → `high` or `medium`.** These are the ones calling WebSearch, so they must stay at `high` or below. Medium is genuinely fine for fetch-and-extract work and funds the expensive step.
+- **Synthesis / cross-source judging → `max`.** Those agents don't search; they reason over what came back. That's where max actually earns its cost, and pinning it there can't break search because search already happened.
+
+Net effect is better than a max session would have been even without the 400: the divergent step gets max, the mechanical crawling doesn't burn tokens overthinking, and web search keeps working throughout.
+
+If you want, point me at the research topic and I'll draft that workflow with the effort split wired in.

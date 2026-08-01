@@ -1,0 +1,10 @@
+Via the **AskUserQuestion tool**, with the two next steps as the options — not as trailing prose at the end of a turn.
+
+The reason is mechanical: the tmux lexicon keys off the tool call. An open AskUserQuestion renders 🔔 (blocked on Zig); a turn that just ends with a question in the text renders ✅, so the work sits unnoticed. Pair it with a `PushNotification` if you might be away from the terminal — and if the push comes back *"Remote Control inactive"*, it didn't deliver, so the AskUserQuestion is the only thing reaching you.
+
+Two caveats:
+
+- **Autonomous contexts don't do this.** A /pulse tick or scheduled run never blocks on AskUserQuestion — it files a P1 `human:` bead, pushes, and ends the tick.
+- **This session doesn't have AskUserQuestion in its toolset.** So for the migration report specifically I can't render the 🔔; I'd give you the two options inline with a recommendation and send a push if you're away. Worth knowing before you rely on the 🔔 showing up.
+
+If you tell me what the two next steps are, I'll lay them out with a recommendation rather than a neutral survey.

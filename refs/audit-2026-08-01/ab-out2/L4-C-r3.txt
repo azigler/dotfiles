@@ -1,0 +1,15 @@
+Give me the decision in one message, roughly this shape:
+
+**1. The fork itself** — both options in a sentence each, stated as actions ("migrate the remaining 40 tables now in one cutover" vs. "dual-write for two weeks, then cut over"). Name them so we can refer back to them.
+
+**2. What actually differs** — not a full pro/con table, just the axes where they diverge: risk, time, reversibility, who's affected. If they're identical on an axis, skip it.
+
+**3. The constraints I can't see** — deadlines, who has to sign off, what's already been promised to someone, budget, whether anyone has a stated preference. This is the part I'm most likely to get wrong on my own, and it's usually what decides it.
+
+**4. Your lean, if you have one** — say it plainly and say why. It's useful signal, and if I disagree you'll get a sharper answer than if I'm guessing in the dark.
+
+**5. Reversibility** — how expensive it is to switch paths in a week. If it's cheap, we should just pick and move; if it's a one-way door, that changes how much scrutiny it's worth.
+
+Paste the relevant section of the report inline or point me at the file rather than summarizing it — I'd rather read the evidence than your compression of it. If either option depends on something in the codebase I can check, say so and I'll go look before answering.
+
+One caveat: I'll give you a real recommendation, not a survey. If you'd rather have the tradeoffs laid out for you to decide, say that instead — it's a different answer.

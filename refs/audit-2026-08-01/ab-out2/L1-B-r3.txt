@@ -1,0 +1,17 @@
+Short answer: don't. For a web-search-heavy task, max effort is the one setting that will quietly break it.
+
+Your own baseline in `~/.claude/CLAUDE.md` covers this case exactly:
+
+> ⚠️ **Opus 5 returns 400 on `xhigh`/`max` when thinking is disabled, and Claude Code disables thinking on the WebSearch path** — so a session pinned above `high` has no working web search.
+
+So a session pinned to `max` + deep research = every `WebSearch` call 400s, and in a non-interactive path that failure is silent — the turn answers from weights and reports `done`. You'd get confident, unsourced research and no error to tip you off.
+
+**What to do instead:**
+
+- **Leave the session where it is.** It's already at `high`, which is the Opus 5 vendor default and identical to omitting the parameter. Nothing to set.
+- **Escalate per-dispatch, and only on stages that don't search.** Effort is a per-dispatch knob, never a session setting. The plain `Agent` tool has no `effort` parameter at all — a dispatched agent just inherits the session level. The only place you can raise it is a Workflow: `agent(prompt, {effort: 'xhigh'})`.
+- **Split the pipeline by whether the stage touches the network.** Search/fetch agents stay at `high` (or lower — they're mechanical). A final synthesis or adversarial-review stage that reads already-collected material and never calls `WebSearch` is where `xhigh`/`max` is safe and actually buys you something.
+
+The general lever, when a research run isn't going deep enough: **lower effort with thinking ON**, never thinking off. More search breadth and more verification passes beat a higher effort number on a single pass.
+
+If you want the research run structured that way — parallel search fan-out at `high`, high-effort synthesis at the end — say the word and I'll write the workflow. I haven't started anything; that needs your explicit go-ahead.

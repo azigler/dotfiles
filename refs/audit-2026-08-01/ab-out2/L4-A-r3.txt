@@ -1,0 +1,13 @@
+Via **AskUserQuestion**, not a question at the end of a message — with the two options as the choices and the report itself delivered inline above it.
+
+Why that specific mechanism:
+
+- The tmux lexicon keys off the tool, not the prose. An open AskUserQuestion shows 🔔 (blocked on you); a turn that merely *ends* with a question shows ✅ — you'd get no signal I'm waiting, and the decision would sit.
+- Alongside it, a `PushNotification` naming the decision and the window ("migration report done — two paths, question waiting in the *work* window"). The pane is always focused, so the 🔔 never tells me you're actually at the keyboard; the push is the best-effort nudge on top.
+- If that push comes back *"Mobile push not sent (Remote Control inactive)"*, it didn't reach you — but the AskUserQuestion is still the reliable channel, since the app notification and the 🔔 fire regardless.
+
+One caveat for this session: **AskUserQuestion isn't in my available toolset here** — I have PushNotification but not the question tool. So in this particular session the honest answer is that I'd deliver the report inline, state the two options and my recommendation explicitly as the last thing in the turn, and push-notify you that a decision is pending. That's the degraded form, not the right one.
+
+And to be clear about the shape of the call: a finished deliverable plus an obvious next-step fork *is* the 🔔 moment. It doesn't get rationalized into a ✅ on the grounds that it's "just an instruction, not a question."
+
+If you want the actual decision now, say the word and I'll lay out the two paths with a recommendation.

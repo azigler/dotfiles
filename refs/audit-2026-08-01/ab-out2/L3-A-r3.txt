@@ -1,0 +1,27 @@
+Yes — one thing, and it's the second half of the rule rather than a problem with the first.
+
+**The judgment was right.** Reversible, low-stakes, real alternatives weighed → propose-and-proceed is the correct rung. Escalating that to a 🔔 would have been noise.
+
+**"And moved on" is the gap.** That decision now lives only in running context, where compaction eats it. It clears the recording bar on two counts: it picks among alternatives someone could reasonably have chosen differently (fixed 5s is a defensible pick for a low-fanout client), and a reviewer walking in later would want to know it was made autonomously. So it wants a `-t decision` bead — which `/offboard` then harvests into the handoff note, so it survives the session boundary.
+
+Draft:
+
+```bash
+br create -t decision "decision: exponential backoff for <service> retries" -d "$(cat <<'EOF'
+Context: Retry strategy fork — exponential backoff vs a flat 5s delay.
+Decision: Exponential backoff.
+Why: <the load-bearing trade-off — e.g. flat 5s synchronizes retries across
+     callers and hammers a recovering dependency; exponential spreads them
+     and bounds worst-case load. Cost is a longer tail on the unlucky request.>
+Reversibility: Single-call-site constant change, no data migration, no API
+     surface — undoable in one commit. That is why it did not need Zig.
+EOF
+)"
+```
+
+Two things I can't fill in without you:
+
+- **Which repo.** This checkout (`scratchpad/ab/work`) is a bare README with no `.beads/`, so the bead belongs wherever the retry code actually lives.
+- **The "Why" line.** I know *what* you picked but not the trade-off you weighed — and that's the load-bearing field. A bead that says "chose exponential because it's better" is a record of the outcome, not the reasoning, and it won't help the reviewer who wants to revisit it.
+
+Tell me the repo and a sentence on the reasoning and I'll file it. If jitter wasn't part of the call, that's worth a look too — unjittered exponential still lets a synchronized herd stay synchronized, just at widening intervals.

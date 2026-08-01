@@ -1,0 +1,9 @@
+Yes — one thing: file it as a `decision` bead.
+
+The bar for that isn't stakes, it's whether you picked among real alternatives and a reviewer would want to know it was made autonomously. Exponential vs fixed 5s clears that. "Low-stakes" is the reason it was right to proceed without asking — not a reason to skip the record. And decisions like this are exactly what compaction eats: three sessions from now the code says exponential and nothing says why, so someone re-opens the fork from scratch.
+
+The bead wants Context / Decision / Why / Reversibility. Reversibility is the field that does the work here — it's a swap of one function, so "cheap to revert" is what licenses having moved on.
+
+One substantive flag while you're writing it: exponential backoff is only low-stakes once it has a **cap, a max-attempt count, and jitter**. Without a cap it grows unbounded; without jitter, a fleet of retriers that failed together retries together, which fixed-5s at least doesn't pretend to solve. If you left those unspecified, the decision you actually made is bigger than the one you judged. Pin the three values in the bead.
+
+I can't file it from here — this checkout is the empty `ab/work` demo repo (one commit, just a README, no `.beads/`). Tell me which project the retry work is in and I'll create the bead with the prefix; or if you've already got the numbers for cap/jitter/max-attempts, paste them and I'll write it up complete.

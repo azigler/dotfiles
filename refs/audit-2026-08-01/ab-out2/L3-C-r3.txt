@@ -1,0 +1,13 @@
+Short answer: no, don't reopen the decision. Exponential is the conventional default and fixed 5s has no advantage that would justify going back. Judging it low-stakes and moving on was the right call.
+
+The thing worth a second look isn't the strategy, it's the parameters — that's where "exponential backoff" quietly stops being low-stakes:
+
+- **Jitter.** Exponential without jitter synchronizes retries. If several clients fail on the same upstream blip, they all come back at 1s, 2s, 4s together. Fixed 5s has the same problem, so this isn't a regression, but exponential is where people usually assume it's solved and it isn't.
+- **A cap and a max attempt count.** Uncapped doubling gets to 30s+ fast. If anything upstream is holding a request open with a deadline, you'll blow the caller's timeout before you exhaust retries — the failure mode moves from "slow" to "times out somewhere else," which is much harder to read from logs.
+- **Idempotency of whatever you're retrying.** Unchanged by this decision, but if it wasn't already true, more retries makes it bite more often.
+
+Process-wise: a call at this altitude doesn't need retroactive approval. What's worth thirty seconds is a one-line note in the commit or next to the constant saying it was a deliberate pick over fixed-interval — otherwise the next person reads the doubling as arbitrary and "simplifies" it.
+
+One flag: the repo here is empty apart from a README, so I couldn't look at the actual implementation and the above is from the strategy choice alone. If the retry code is somewhere else, point me at it and I'll check the jitter/cap/deadline interaction concretely rather than in the abstract.
+
+Unrelated, since I opened it: `README.md:3` has "recieve" → "receive".

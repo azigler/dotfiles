@@ -1,0 +1,13 @@
+Bring it as an **AskUserQuestion**, not as a question at the end of your message.
+
+The reason is mechanical, not stylistic: the tmux lexicon keys off the tool. An open AskUserQuestion renders 🔔 ("blocked on Zig"); a turn that simply ends — even one ending in a perfectly clear question — renders ✅, which reads as "idle, nothing pending." A prose question gets no signal and the work sits.
+
+The full pattern for your situation:
+
+1. **AskUserQuestion** with the two next steps as the options — each labeled with what it actually gets you, not just its name. Finished deliverable + a real fork is exactly the 🔔 moment; don't talk yourself into "that's just an instruction, not a question."
+2. **PushNotification alongside it**, naming the decision and the window (e.g. "migration report done — next step A or B? question waiting in the *work* window"). The 🔔 is a pane signal, and the pane is always focused, so it never tells you whether Zig is at the keyboard. Skip the push only during an obviously live exchange.
+3. If the push comes back **"Mobile push not sent (Remote Control inactive)"**, it did not reach him — but the AskUserQuestion itself still fires the harness app notification and the 🔔, so that's the reliable channel and no further action is needed.
+
+One caveat for right now: **AskUserQuestion isn't in this session's toolset.** So if you're asking how to surface it *here*, the fallback is to state the two options crisply with your recommendation and fire a PushNotification naming the window — and end the turn there rather than picking one and proceeding.
+
+The exception that doesn't apply to you: an autonomous loop tick (`/pulse`, scheduled run) never blocks on AskUserQuestion — it files a P1 `human:` bead plus a push and ends. You're in an interactive session, so ask.

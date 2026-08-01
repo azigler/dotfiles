@@ -1,0 +1,57 @@
+Repo checked first — and it changes the dispatch materially. `/tmp/.../ab/work` contains exactly one file (`README.md`, 3 lines, "Demo"), one commit, **no remote**, and **no `.beads/`**. So "the *new* config parser module" has no referent in the tree: no language, no build system, no existing config format to parse.
+
+Here's the exact call I'd make. I have not launched it.
+
+```js
+Agent({
+  description: "Implement config parser",
+  subagent_type: "claude",
+  isolation: "worktree",
+  // no `name` → fire-and-forget, self-terminates
+  prompt: `
+Implement a new config parser module in this repo. The repo is empty apart from
+README.md — you are creating this from scratch, so there is no existing style to match.
+
+Scope — build exactly this, nothing more:
+- config/parser.py — loads a TOML file, overlays environment variables, returns a
+  validated config object.
+- Precedence, lowest to highest: in-code defaults < TOML file < environment variables.
+- Env var mapping: APP_<SECTION>_<KEY>, uppercased, "." -> "_".
+- Values coerced to the type of the corresponding default. Unknown keys are an error;
+  a missing config file is not.
+- One ConfigError for all user-facing failures; message names the offending key and
+  which source it came from.
+- Python 3.11+, stdlib only (tomllib, os). No third-party deps, no packaging files, no CLI.
+- tests/test_parser.py — pytest, covering each precedence layer, type coercion, the
+  unknown-key error, and the missing-file case.
+
+Do NOT add: logging config, YAML/JSON/INI support, a CLI entry point, CI files, or a
+settings singleton. If you believe one is needed, say so in your final message rather
+than building it.
+
+Verification before committing — actually run these, paste the real output:
+- python -m pytest tests/ -q
+- python -c "import config.parser"   (from repo root)
+
+Commit: stage explicit paths only, never 'git add -A'. One commit, message:
+"feat: add TOML + env config parser". Do NOT push — this repo has no remote configured.
+
+You are a subagent: do the work directly, do not spawn further subagents.
+
+Final message: <=15 lines — files created, the pytest result line, and anything you
+deliberately left out.
+`,
+})
+```
+
+Four things you should overrule me on before I fire it:
+
+**1. The spec above is invented.** Python, TOML, env-overlay, that precedence order — none of it comes from the repo, because there's nothing in the repo. That's the one answer I actually need; every other decision is downstream of it. If it's meant to be Rust/serde or a TS module, the whole prompt gets rewritten, not tweaked.
+
+**2. `subagent_type: "subagent"` doesn't exist in this session.** Your CLAUDE.md mandates it for anything that writes code. The registry here offers only `claude`, `general-purpose`, `Explore`, `Plan`, `statusline-setup`. I substituted `claude` (full tool access, so it can write and commit) and kept `isolation: "worktree"`. Worth knowing your standing rule is silently un-followable here — `Explore`/`Plan` can't commit, so there's no compliant option.
+
+**3. No remote, so there's nothing to push to.** I've told the agent to commit and stop. That's the narrow exception to your commit-and-push rule rather than me inferring hold-back — `git push` would just fail.
+
+**4. No `.beads/` directory,** so there's no bead to claim and no `Bead: <id>` trailer for the commit. Say the word and I'll init beads and cut the bead before dispatching.
+
+Also: I'd normally surface this as an AskUserQuestion so it reads as 🔔 in your tmux lexicon, but that tool isn't in my kit this session — this turn will show ✅ despite being blocked on you.

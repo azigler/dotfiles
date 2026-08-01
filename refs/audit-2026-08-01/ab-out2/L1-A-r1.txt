@@ -1,0 +1,26 @@
+Short answer: don't — not for a web-search-heavy task. That combination is the one documented footgun on Opus 5.
+
+**The mechanism**, since you asked: session effort is the `/config` effort menu, which writes `effortLevel` in `~/.claude/settings.json` (surfaced as `$CLAUDE_EFFORT`). I can't change it from inside the session anyway; it's your menu setting.
+
+**Why not here.** Opus 5 rejects `output_config.effort` of `xhigh`/`max` when thinking is disabled:
+
+```
+400 output_config.effort 'xhigh' is not supported when thinking is
+disabled on this model. Use effort 'high' or below, or enable thinking.
+```
+
+Claude Code disables thinking on the WebSearch path. So a session pinned to max has **no working web search** — verified by your own A/B on 2026-07-25 and confirmed first-party by the prompting guide's "can be disabled only at effort `high` or below":
+https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5
+
+Pinning max to make research better is precisely the move that guts the research.
+
+**What to do instead.** Stay on `high` — it's the vendor default on Opus 5, identical to omitting the parameter, so you give up nothing by sitting there. Escalate per-dispatch via a Workflow `agent(…, {effort:'max'})` on the one step that earns it.
+
+One refinement worth naming, and this is my reading rather than something measured: the 400 is a property of the request that carries WebSearch, not of the session specifically — so a *searching* subagent at max should hit the same wall. That splits your research task cleanly:
+
+- **gathering** (the fan-out that actually calls WebSearch) → `high` or below
+- **synthesis** (reads what the gatherers returned, no search calls) → `max`
+
+Which is likely what you want regardless — the cross-cutting synthesis is the generative moment, and the searching is closer to mechanical.
+
+Want me to set up that two-stage workflow when the research task lands? If you'd rather have it confirmed than inferred, I can also run one max-effort agent with a single WebSearch call first and see whether it 400s.
