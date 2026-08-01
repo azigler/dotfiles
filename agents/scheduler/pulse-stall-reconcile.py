@@ -107,6 +107,47 @@ def timer_last_fire(unit: str) -> datetime | None:
     return None
 
 
+def service_last_start(unit: str) -> datetime | None:
+    """When the .service last actually EXECUTED, or None if it never has.
+
+    THE DEFECT THIS EXISTS FOR (dotfiles-05jn). ``systemctl enable --now`` starts the
+    TIMER unit and stamps its ``LastTriggerUSec`` **without ever running the service**.
+    Reading the timer alone therefore reports a fire that never invoked anything, and
+    this script would then write a ``stalled`` row for it. Live instance 2026-08-01:
+    re-arming autonoveld's four timers produced four phantom stall rows, all pinned to
+    the enable-time second, while all four services showed an EMPTY
+    ``ExecMainStartTimestamp``.
+
+    So a fire is only real if the service ran AT OR AFTER it. Empty means never ran;
+    older than the trigger means some previous fire ran it, not this one.
+    """
+    try:
+        out = subprocess.run(
+            [
+                "systemctl",
+                "--user",
+                "show",
+                unit,
+                "-p",
+                "ExecMainStartTimestamp",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    val = out.split("=", 1)[1].strip() if "=" in out else ""
+    if not val or val == "n/a":
+        return None
+    for fmt in ("%a %Y-%m-%d %H:%M:%S %Z", "%a %Y-%m-%d %H:%M:%S UTC"):
+        try:
+            return datetime.strptime(val, fmt).replace(tzinfo=UTC)
+        except ValueError:
+            continue
+    return None
+
+
 def load_jsonl(path: Path) -> list[dict]:
     try:
         text = path.read_text(errors="replace")
@@ -166,14 +207,24 @@ def stalled_row(
         "reconciled": True,
         "fire_ts": fire.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "timer": timer,
+        # Every clause below is something this script ACTUALLY established. The
+        # previous wording asserted three things it never checked — that pulse-inject
+        # "reported the tick INJECTED", that the tick "did not bounce (it was typed
+        # into a ready window)", and that it "did not block (nothing chose to park on
+        # Andrew)" — while reading only LastTriggerUSec and the ledger. That is the
+        # dotfiles-cxle class (the consumer reports what the step never established),
+        # and its sibling dotfiles-kel5. State what was checked; name what was not.
         "note": (
-            f"STALLED — {timer}.timer fired at {fire:%Y-%m-%dT%H:%M:%SZ} and pulse-inject "
-            f"reported the tick INJECTED, but no ledger row landed in the {waited}m since. "
-            "The tick did not bounce (it was typed into a ready window) and did not block "
-            "(nothing chose to park on Andrew) — it started and died without reporting. "
+            f"STALLED — {timer}.timer triggered at {fire:%Y-%m-%dT%H:%M:%SZ} AND "
+            f"{timer}.service executed (ExecMainStartTimestamp at or after that "
+            f"trigger), but no `{row_name}` row landed in the {waited}m since, and no "
+            "bounce was recorded for this timer in that window. So the tick started "
+            "and did not report. NOT CHECKED HERE: whether pulse-inject typed "
+            "successfully, and whether the tick parked on Zig — this script reads the "
+            "timer, the service start, the ledger and the bounce log, nothing else. "
             "Row written by pulse-stall-reconcile, NOT by the tick: a tick that cannot "
-            "complete a turn cannot log its own failure (explore-88k9). Check the window's "
-            "pane and the session transcript for the first turn's error."
+            "complete a turn cannot log its own failure (explore-88k9). Check the "
+            "window's pane and the session transcript for the first turn's error."
         ),
     }
 
@@ -220,6 +271,32 @@ def reconcile(manifest_path: Path, now: datetime, dry_run: bool) -> list[dict]:
 
             fire = timer_last_fire(f"{timer}.timer")
             if fire is None:
+                continue
+
+            # dotfiles-05jn: a timer trigger is NOT a fire. `enable --now` stamps
+            # LastTriggerUSec without executing the service, so gate on whether the
+            # SERVICE actually ran at or after the trigger. Without this, every
+            # re-arm / install / rename manufactures a stall row for a tick that was
+            # never invoked — and does it at exactly the moment an operator is least
+            # sure whether the loop is healthy.
+            svc_start = service_last_start(f"{timer}.service")
+            if svc_start is None or svc_start < fire:
+                log(
+                    {
+                        "ts": now.isoformat(),
+                        "event": "skipped-timer-armed-but-service-never-ran",
+                        "timer": timer,
+                        "fire_ts": fire.isoformat(),
+                        "service_last_start": (
+                            svc_start.isoformat() if svc_start else None
+                        ),
+                        "why": (
+                            "the timer unit was activated (enable --now / install / "
+                            "rename) but the service did not execute for this "
+                            "trigger — not a stall"
+                        ),
+                    }
+                )
                 continue
 
             grace = loop.get("grace_minutes") or DEFAULT_GRACE_MINUTES
@@ -272,7 +349,6 @@ def reconcile(manifest_path: Path, now: datetime, dry_run: bool) -> list[dict]:
     return written
 
 
-
 # --------------------------------------------------------------------------- #
 # Self-test fixtures. Hermetic: a tmpdir manifest + ledgers, a stubbed timer
 # reader. No real project, ledger, systemd unit, or tmux server is touched.
@@ -291,7 +367,9 @@ def _selftest() -> int:
             failures.append(f"{name}: got {got!r}, want {want!r}")
 
     fire = datetime(2026, 7, 28, 13, 0, 30, tzinfo=UTC)
-    late = datetime(2026, 7, 28, 16, 0, 0, tzinfo=UTC)   # past 90m grace + 30m margin
+    late = datetime(
+        2026, 7, 28, 16, 0, 0, tzinfo=UTC
+    )  # past 90m grace + 30m margin
     early = datetime(2026, 7, 28, 14, 0, 0, tzinfo=UTC)  # inside grace
 
     with tempfile.TemporaryDirectory() as td:
@@ -303,11 +381,26 @@ def _selftest() -> int:
         LOG_PATH = root / "reconcile.log"
         BOUNCES_PATH = root / "bounces.jsonl"
 
-        manifest.write_text(json.dumps({"projects": [{
-            "key": "proj", "path": str(root / "proj"),
-            "loops": [{"timer": "pulse-fake", "ledger": "refs/pulse-ledger.jsonl",
-                       "ledger_row": "fake", "grace_minutes": 90}],
-        }]}))
+        manifest.write_text(
+            json.dumps(
+                {
+                    "projects": [
+                        {
+                            "key": "proj",
+                            "path": str(root / "proj"),
+                            "loops": [
+                                {
+                                    "timer": "pulse-fake",
+                                    "ledger": "refs/pulse-ledger.jsonl",
+                                    "ledger_row": "fake",
+                                    "grace_minutes": 90,
+                                }
+                            ],
+                        }
+                    ]
+                }
+            )
+        )
 
         timer_last_fire = lambda unit: fire  # noqa: E731
 
@@ -316,7 +409,9 @@ def _selftest() -> int:
 
         # 1. inside grace -> silent, even with an empty ledger
         ledger.write_text("")
-        check("inside-grace writes nothing", reconcile(manifest, early, False), [])
+        check(
+            "inside-grace writes nothing", reconcile(manifest, early, False), []
+        )
 
         # 2. past deadline, no row -> exactly one stalled row
         written = reconcile(manifest, late, False)
@@ -330,23 +425,39 @@ def _selftest() -> int:
         check("still exactly one row", len(rows()), 1)
 
         # 4. the tick DID report -> never reconciled
-        ledger.write_text(json.dumps(
-            {"ts": "2026-07-28T13:45:00Z", "row": "fake", "outcome": "done"}) + "\n")
-        check("reported tick is left alone", reconcile(manifest, late, False), [])
+        ledger.write_text(
+            json.dumps(
+                {"ts": "2026-07-28T13:45:00Z", "row": "fake", "outcome": "done"}
+            )
+            + "\n"
+        )
+        check(
+            "reported tick is left alone", reconcile(manifest, late, False), []
+        )
 
         # 5. a BOUNCE for that fire -> skipped (tick never started; self-healing)
         ledger.write_text("")
-        BOUNCES_PATH.write_text(json.dumps(
-            {"ts": "2026-07-28T13:00:35Z", "loop": "pulse-fake",
-             "reason": "blocked_on_andrew"}) + "\n")
+        BOUNCES_PATH.write_text(
+            json.dumps(
+                {
+                    "ts": "2026-07-28T13:00:35Z",
+                    "loop": "pulse-fake",
+                    "reason": "blocked_on_andrew",
+                }
+            )
+            + "\n"
+        )
         check("bounced fire is skipped", reconcile(manifest, late, False), [])
         BOUNCES_PATH.write_text("")
 
         # 6. ledger_row: null -> skipped, never guessed
         manifest.write_text(manifest.read_text().replace('"fake"', "null"))
         check("null row is skipped", reconcile(manifest, late, False), [])
-        manifest.write_text(manifest.read_text().replace(
-            '"ledger_row": null', '"ledger_row": "fake"'))
+        manifest.write_text(
+            manifest.read_text().replace(
+                '"ledger_row": null', '"ledger_row": "fake"'
+            )
+        )
 
         # 7. --dry-run touches nothing
         ledger.write_text("")
@@ -355,19 +466,25 @@ def _selftest() -> int:
 
         # 8. a timer that never fired -> nothing to reconcile
         timer_last_fire = lambda unit: None  # noqa: E731
-        check("never-fired timer is skipped", reconcile(manifest, late, False), [])
+        check(
+            "never-fired timer is skipped", reconcile(manifest, late, False), []
+        )
 
     timer_last_fire, BOUNCES_PATH, LOG_PATH = real_timer, real_bounces, real_log
 
     if failures:
         for f in failures:
             print(f"  FAIL {f}", file=sys.stderr)
-        print(f"pulse-stall-reconcile selftest: {len(failures)} FAILURE(S)",
-              file=sys.stderr)
+        print(
+            f"pulse-stall-reconcile selftest: {len(failures)} FAILURE(S)",
+            file=sys.stderr,
+        )
         return 1
-    print("pulse-stall-reconcile selftest: PASS (8 cases — grace window, "
-          "stalled write, idempotency, reported tick, bounce, null row, "
-          "dry-run, never-fired)")
+    print(
+        "pulse-stall-reconcile selftest: PASS (8 cases — grace window, "
+        "stalled write, idempotency, reported tick, bounce, null row, "
+        "dry-run, never-fired)"
+    )
     return 0
 
 
@@ -381,7 +498,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--now", help="ISO8601 override for tests")
     ap.add_argument(
-        "--selftest", action="store_true", help="run hermetic regression fixtures"
+        "--selftest",
+        action="store_true",
+        help="run hermetic regression fixtures",
     )
     args = ap.parse_args(argv)
 
