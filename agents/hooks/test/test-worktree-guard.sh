@@ -126,6 +126,50 @@ run_case "block: stderr surfaces corrected path" 2 \
       '{tool_name:"Write", cwd:$cwd, tool_input:{file_path:$fp, content:"x"}}')" \
   "$WORKTREE/spec/autoschool-spec.md"
 
+# --- normalization is the guard (dotfiles-5vz2) ----------------------------
+# Cases 1/3/6/9 above all FAILED on macOS until 2026-08-02 because the hook
+# normalized with GNU `realpath -m`, whose failure was swallowed by
+# `2>/dev/null || echo "$FILE_PATH"` — so the prefix test ran on the raw path.
+# 10 and 11 are the two shapes that DEFINE the guard: a path that only reaches
+# the main repo once normalized, and the normalizer itself being unavailable.
+
+# 10. A symlink INSIDE the worktree pointing at the main root. Un-normalized,
+#     the path is literally prefixed by $CWD, so the "inside the worktree"
+#     arm allows it — this is the walk-around, and it needs no `..` at all.
+ln -s "$MAIN" "$WORKTREE/escape"
+run_case "block: symlink out of the worktree is resolved, not trusted" 2 \
+  "$(jq -nc \
+      --arg cwd "$WORKTREE" \
+      --arg fp "$WORKTREE/escape/leaked.md" \
+      '{tool_name:"Write", cwd:$cwd, tool_input:{file_path:$fp, content:"x"}}')" \
+  "Blocked: worktree subagent"
+
+# 11. FAIL CLOSED. With lib/portable.sh unreachable the hook cannot normalize
+#     anything; the answer must be a refusal that says so, never a silent
+#     "allow". Run a copy of the hook from a directory with no lib/ beside it.
+NOLIB="$TMPROOT/nolib"
+mkdir -p "$NOLIB"
+cp "$HOOK" "$NOLIB/pre-tool-use-worktree-guard.sh"
+NOLIB_STDERR=$(jq -nc \
+    --arg cwd "$WORKTREE" \
+    --arg fp "/tmp/scratch.txt" \
+    '{tool_name:"Write", cwd:$cwd, tool_input:{file_path:$fp, content:"x"}}' \
+  | bash "$NOLIB/pre-tool-use-worktree-guard.sh" 2>&1 >/dev/null)
+NOLIB_RC=$?
+if [ "$NOLIB_RC" -eq 2 ] && echo "$NOLIB_STDERR" | grep -qF "could not NORMALIZE"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  FAILED_NAMES+=("fail-closed when the normalizer is unavailable (rc=$NOLIB_RC)")
+fi
+
+# 12. ...and the fail-closed path is NOT how cases 2/7/8 pass. With the lib
+#     present, the same /tmp path is a plain ALLOW.
+run_case "allow: /tmp path allowed for real, not by fail-closed accident" 0 \
+  "$(jq -nc \
+      --arg cwd "$WORKTREE" \
+      '{tool_name:"Write", cwd:$cwd, tool_input:{file_path:"/tmp/scratch.txt", content:"x"}}')"
+
 # --- Summary ---
 
 TOTAL=$((PASS + FAIL))

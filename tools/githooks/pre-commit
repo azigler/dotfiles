@@ -115,6 +115,17 @@ mapped_suites_for() { # <staged path> -> newline-separated suite paths
       printf '%s\n' agents/hooks/test/test-require-isolation.sh ;;
     agents/hooks/pre-tool-use-worktree-guard.sh)
       printf '%s\n' agents/hooks/test/test-worktree-guard.sh ;;
+    # lib/portable.sh HAS a test-portable.sh (the convention finds it), but its
+    # whole reason to exist is the four guards that depend on it. Naming the
+    # CONSUMERS alongside the producer is the point: an edit that makes
+    # _p_realpath return an empty string still passes the shim's own suite while
+    # turning the worktree guard into a fail-closed brick (dotfiles-5vz2).
+    agents/hooks/lib/portable.sh)
+      printf '%s\n' \
+        agents/hooks/test/test-worktree-guard.sh \
+        agents/hooks/test/test-stop-context-guard.sh \
+        agents/hooks/test/test-pre-shared-tree-guard.sh \
+        agents/hooks/test/test-always-loaded-staleness.sh ;;
   esac
 }
 

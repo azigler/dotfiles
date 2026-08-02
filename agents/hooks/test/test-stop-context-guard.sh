@@ -8,6 +8,7 @@
 set -u
 
 HOOKS="$(cd "$(dirname "$0")/.." && pwd)"
+. "$HOOKS/lib/portable.sh"
 GUARD="$HOOKS/stop-context-guard.sh"
 OBSERVE="$HOOKS/pre-compact-observe.sh"
 STATUSLINE="$(cd "$HOOKS/../.." && pwd)/claude/statusline.sh"
@@ -67,9 +68,30 @@ guard "$PAYLOAD_BASE"
 
 # 6b. STALE offboard match (hours old) does NOT release — the session
 #     kept working past its offboard; the warning must still fire.
-touch -d '2 hours ago' "$PROJ/.claude/last-offboard-session"
+#     NOT `touch -d '2 hours ago'`: that is GNU-only, and on BSD it dies with
+#     "out of range or illegal time specification" — which leaves the fixture
+#     at NOW and turns this case into a silent duplicate of case 6. Same defect
+#     class as the hook bug it is testing (dotfiles-5vz2).
+_p_touch_at "$(( $(date +%s) - 7200 ))" "$PROJ/.claude/last-offboard-session"
 guard "$PAYLOAD_BASE"
 [ $? -eq 2 ] && ok || bad "stale offboard does not silence the guard"
+rm -f "$STATE/$SID.fired" "$PROJ/.claude/last-offboard-session"
+
+# 6c. FAIL CLOSED (dotfiles-5vz2). If the mtime cannot be read at all, the
+#     release — the permissive branch — must not be taken, and the hook must
+#     SAY so. Proven against a copy of the guard with no lib/ beside it, which
+#     is the only way to make _p_mtime genuinely unavailable.
+rm -f "$STATE/$SID.fired"
+echo "$SID" > "$PROJ/.claude/last-offboard-session"   # FRESH: case 6 would release
+NOLIB="$STATE/nolib"
+mkdir -p "$NOLIB"
+cp "$GUARD" "$NOLIB/stop-context-guard.sh"
+NL_ERR=$(printf '%s' "$PAYLOAD_BASE" | CONTEXT_GUARD_STATE_DIR="$STATE" \
+  CONTEXT_GUARD_PCT=85 bash "$NOLIB/stop-context-guard.sh" 2>&1 >/dev/null)
+NL_RC=$?
+[ "$NL_RC" -eq 2 ] && ok || bad "unreadable mtime must NOT grant the release (got $NL_RC)"
+echo "$NL_ERR" | grep -q "could not read the mtime" && ok \
+  || bad "the fail-closed mtime path announces itself"
 rm -f "$STATE/$SID.fired" "$PROJ/.claude/last-offboard-session"
 
 # 7. Threshold env override: 90 → 85% no longer fires

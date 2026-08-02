@@ -26,8 +26,8 @@
 #    reports the LINK's mtime, not the target's. On this machine the link says
 #    Jun 10 while the target says Jul 26 — a naive detector would have sat
 #    silent through exactly the event it was built for. So: hash the CONTENT
-#    (md5sum follows symlinks) and read mtime DEREFERENCED — `stat -Lc %Y` on
-#    GNU, `stat -Lf %m` on BSD/macOS (see trap 3 at _al_mtime).
+#    (md5sum follows symlinks) and read mtime DEREFERENCED — which is what
+#    lib/portable.sh's `_p_mtime` does on both flavours (see trap 3 below).
 #
 # 2. Hashing a whole SKILL.md would fire on every skill-body edit, which is
 #    NOT always-loaded context — only the frontmatter (name/description/
@@ -83,17 +83,19 @@ _al_hash_stdin() {
 # silently degraded fleet-wide (dotfiles-yr2h). Detect the flavour ONCE at
 # source time and define the function accordingly; never stack two suppressed
 # stat calls, which would make the same failure invisible all over again.
-# The `2>/dev/null` below is on the PROBE only — a genuine capability test.
-if stat -Lc %Y . >/dev/null 2>&1; then
-  _AL_STAT_FLAVOUR=gnu
-  _al_mtime() { stat -Lc %Y "$1" || echo 0; }   # GNU coreutils
-elif stat -Lf %m . >/dev/null 2>&1; then
-  _AL_STAT_FLAVOUR=bsd
-  _al_mtime() { stat -Lf %m "$1" || echo 0; }   # BSD / macOS
-else
-  _AL_STAT_FLAVOUR=none
-  _al_mtime() { echo 0; }                       # no usable stat — last resort
-fi
+#
+# Since dotfiles-5vz2 the probe+bind lives in lib/portable.sh, because this was
+# not the only place doing it — four more sites had the same GNU-only call with
+# the same silent fallback. `_al_mtime` is now a thin policy wrapper over
+# `_p_mtime`: the SHIM refuses to guess (empty + non-zero), and the `0` is
+# chosen HERE, at the call site, where the reason is visible. It is defensible
+# only here: _al_emit has already passed `[ -f "$path" ]`, and the manifest's
+# detector is the CONTENT HASH — mtime is display-only ("changed 3 minutes
+# ago"). Nothing branches on it, so a 0 degrades a sentence, not a verdict.
+# Do NOT copy this `|| echo 0` into anything that decides something.
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portable.sh"
+_AL_STAT_FLAVOUR=$_P_STAT
+_al_mtime() { _p_mtime "$1" || echo 0; }
 
 # _al_emit <kind> <path> <full|frontmatter>
 _al_emit() {

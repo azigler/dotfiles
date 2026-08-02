@@ -36,6 +36,11 @@ SCRUB="${SCRUB:-$HOME/.claude/skills/scrub-secrets/scrub.py}"
 # PUSHING, instead of letting the fail-closed gate stall the vault. Sourced from
 # alongside this file so both tiers share one implementation.
 _TL_HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+# The coreutils-flavour shim (dotfiles-5vz2) — `stat -c%s` below is GNU-only.
+if [ -r "$_TL_HERE/../hooks/lib/portable.sh" ]; then
+  # shellcheck source=/dev/null
+  . "$_TL_HERE/../hooks/lib/portable.sh"
+fi
 if [ -f "$_TL_HERE/scrub-continue.sh" ]; then
   # shellcheck source=/dev/null
   . "$_TL_HERE/scrub-continue.sh"
@@ -154,7 +159,11 @@ _transcripts_apply_size_guard() {
   while IFS= read -r -d '' path; do
     f="$TRANSCRIPTS_WORKTREE/$path"
     [ -f "$f" ] || continue
-    sz=$(stat -c%s "$f" 2>/dev/null || echo 0)
+    # NOT `stat -c%s … || echo 0` (dotfiles-5vz2): BSD stat has no -c, so on
+    # macOS every file measured 0 bytes and the >=99 MiB chunker — the thing
+    # standing between this vault and GitHub's hard 100 MiB reject — could
+    # never fire. A size guard that reports 0 for everything is not a guard.
+    sz=$(_p_size "$f") || sz=0
     if [ "$sz" -ge "$TS_SPLIT_TRIGGER" ]; then
       _chunk_oversize_into_index "$path" "$f" || rc=1
     elif [ "$sz" -ge "$TS_WARN_BYTES" ]; then
@@ -220,7 +229,7 @@ _transcripts_scrub_and_continue() {
       echo "      but the session is still writing to it; rewriting a live transcript" >&2
       echo "      would lose the writer's later lines. Unstaged this run only; it is" >&2
       echo "      redacted and committed on the next fire after the session goes quiet." >&2
-      _sc_ledger transcripts deferred-live "$f" "${_SC_COUNTS[$f]:-}"
+      _sc_ledger transcripts deferred-live "$f" "$(_sc_counts_get "$f")"
     done
   fi
   return 0

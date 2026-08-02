@@ -58,6 +58,14 @@
 
 VAULT_DIR="${VAULT_DIR:-$HOME/.claude/vaults}"
 SCRUB="${SCRUB:-$HOME/.claude/skills/scrub-secrets/scrub.py}"
+
+# The coreutils-flavour shim (dotfiles-5vz2). `stat -c %Y` below is GNU-only and
+# was failing on every macOS call behind a `2>/dev/null`.
+_SC_HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+if [ -r "$_SC_HERE/../hooks/lib/portable.sh" ]; then
+  # shellcheck source=/dev/null
+  . "$_SC_HERE/../hooks/lib/portable.sh"
+fi
 VAULT_SCRUB_CONTINUE="${VAULT_SCRUB_CONTINUE:-1}"
 VAULT_REDACTION_LEDGER="${VAULT_REDACTION_LEDGER:-$HOME/.claude/vault-redactions.jsonl}"
 VAULT_REDACTION_LEDGER_MAX="${VAULT_REDACTION_LEDGER_MAX:-5000}"
@@ -148,7 +156,10 @@ _sc_is_live() {
   case $'\n'"$_sc_open_fds_cache" in
     *$'\n'"$f"$'\n'*) return 0 ;;
   esac
-  mtime=$(stat -c %Y "$f" 2>/dev/null) || return 1
+  # NOT `stat -c %Y` (dotfiles-5vz2): BSD stat has no -c, so on macOS this
+  # returned 1 for EVERY file and no transcript was ever treated as live —
+  # a redaction-deferral policy that had silently stopped applying.
+  mtime=$(_p_mtime "$f") || return 1
   now=$(date +%s)
   [ $(( now - mtime )) -lt "$VAULT_LIVE_WINDOW_SEC" ]
 }
@@ -159,9 +170,40 @@ _sc_is_live() {
 #   0  scanned (OUTVAR may be empty = clean)
 #   1  scrub.py is broken (unexpected exit) — caller must FAIL
 #   2  inert (no scrub.py / no python3) — caller continues without redaction
-# The per-file `counts` dict is stashed in the global _SC_COUNTS[<file>].
+# The per-file `counts` dict is stashed under _sc_counts_get <file>.
+#
+# ⚠️ NOT `declare -A` (dotfiles-5vz2, same shape as dotfiles-yr2h). macOS
+# /bin/bash is 3.2.57 and has no associative arrays. `declare -gA X 2>/dev/null
+# || declare -A X` does not save you: BOTH fail, and then every `X["$f"]=...`
+# is parsed as an INDEXED subscript, i.e. as ARITHMETIC on the path — "syntax
+# error: operand expected (error token is /Users/...)". The shebang here is
+# /usr/bin/env bash, which finds bash 5 on this box TODAY, so the failure is
+# latent rather than live; it becomes live the moment anything invokes these
+# libs with /bin/bash. Parallel indexed arrays cost a linear scan over a set
+# that is at most a few staged files.
 # --------------------------------------------------------------------------- #
-declare -gA _SC_COUNTS 2>/dev/null || declare -A _SC_COUNTS
+_SC_COUNTS_K=()
+_SC_COUNTS_V=()
+
+# _sc_counts_put <file> <counts>   — last write for a key wins.
+_sc_counts_put() {
+  local i=0
+  while [ "$i" -lt "${#_SC_COUNTS_K[@]}" ]; do
+    if [ "${_SC_COUNTS_K[$i]}" = "$1" ]; then _SC_COUNTS_V[$i]="$2"; return 0; fi
+    i=$((i + 1))
+  done
+  _SC_COUNTS_K+=("$1"); _SC_COUNTS_V+=("$2")
+}
+
+# _sc_counts_get <file> [default]  — echoes the counts dict, or the default.
+_sc_counts_get() {
+  local i=0
+  while [ "$i" -lt "${#_SC_COUNTS_K[@]}" ]; do
+    if [ "${_SC_COUNTS_K[$i]}" = "$1" ]; then printf '%s' "${_SC_COUNTS_V[$i]}"; return 0; fi
+    i=$((i + 1))
+  done
+  printf '%s' "${2:-}"
+}
 sc_scan_hits() {
   local tier="$1" outvar="$2"; shift 2
   [ "$#" -gt 0 ] || return 0
@@ -182,7 +224,7 @@ sc_scan_hits() {
   while IFS= read -r line; do
     if [[ "$line" =~ ^(.*):\ ([0-9]+)\ \ (\{.*\})$ ]]; then
       f="${BASH_REMATCH[1]}"; pats="${BASH_REMATCH[3]}"
-      _SC_COUNTS["$f"]="$pats"          # pattern NAMES + counts only, never the match
+      _sc_counts_put "$f" "$pats"       # pattern NAMES + counts only, never the match
       eval "$outvar+=(\"\$f\")"
     fi
   done <<< "$out"
@@ -198,7 +240,7 @@ sc_scan_hits() {
 sc_redact_files() {
   local tier="$1"; shift
   [ "$#" -gt 0 ] || return 0
-  local out rc line f reason
+  local out rc line f reason n detail
   out=$(python3 "$SCRUB" redact --apply "$@" 2>&1); rc=$?
   if [ "$rc" -ne 0 ] && [ "$rc" -ne 1 ]; then
     echo "WARN: scrub-and-continue ($tier): scrub.py redact exited $rc — refusing to" >&2
@@ -209,9 +251,12 @@ sc_redact_files() {
   fi
   while IFS= read -r line; do
     if [[ "$line" =~ ^redacted\ ([0-9]+)\ in\ (.*)$ ]]; then
-      f="${BASH_REMATCH[2]}"
-      echo "WARN: scrub-and-continue ($tier) REDACTED ${BASH_REMATCH[1]} secret(s) in $f ${_SC_COUNTS[$f]:-}" >&2
-      _sc_ledger "$tier" redacted "$f" "${_SC_COUNTS[$f]:-${BASH_REMATCH[1]}}"
+      # Read BASH_REMATCH into locals BEFORE any function call — calling
+      # _sc_counts_get runs a `[` test that resets it.
+      f="${BASH_REMATCH[2]}"; n="${BASH_REMATCH[1]}"
+      detail=$(_sc_counts_get "$f" "$n")
+      echo "WARN: scrub-and-continue ($tier) REDACTED $n secret(s) in $f $(_sc_counts_get "$f")" >&2
+      _sc_ledger "$tier" redacted "$f" "$detail"
     elif [[ "$line" =~ ^SKIP\(unsafe\)\ (.*):\ (.*)$ ]]; then
       f="${BASH_REMATCH[1]}"; reason="${BASH_REMATCH[2]}"
       echo "WARN: scrub-and-continue ($tier) COULD NOT redact $f ($reason) — file left" >&2
@@ -224,8 +269,8 @@ sc_redact_files() {
   sc_scan_hits "$tier" survivors "$@" || return 1
   local s
   for s in ${survivors[@]+"${survivors[@]}"}; do
-    echo "WARN: scrub-and-continue ($tier) SECRET SURVIVED redaction in $s ${_SC_COUNTS[$s]:-}" >&2
-    _sc_ledger "$tier" survived "$s" "${_SC_COUNTS[$s]:-}"
+    echo "WARN: scrub-and-continue ($tier) SECRET SURVIVED redaction in $s $(_sc_counts_get "$s")" >&2
+    _sc_ledger "$tier" survived "$s" "$(_sc_counts_get "$s")"
   done
   return 0
 }
