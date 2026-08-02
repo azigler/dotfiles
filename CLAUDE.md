@@ -30,7 +30,9 @@ Consequences that bite:
 | `agents/lib/` | shared shell libs the hooks source |
 | `agents/scheduler/` | `pulse-inject.sh`, unit templates, `pulse-ledger-lint.py` |
 | `agents/infra.md` | machine + mesh baseline; **re-verify before depending on a fact** |
-| `ubuntu.upgrade.sh` / `pico.upgrade.sh` / `mac.setup.sh` | machine provisioning |
+| `mac.setup.sh` / `ubuntu.setup.sh` | first-run machine provisioning |
+| `mac.upgrade.sh` / `ubuntu.upgrade.sh` / `pico.upgrade.sh` | per-machine binary upgrades — one per OS/role |
+| `sync.sh` / `download.sh` | symlink dotfiles into `$HOME` / vendor supporting resources |
 
 ## Rules specific to this repo
 
@@ -77,7 +79,17 @@ Consequences that bite:
    `effortLevel` is currently **absent** from every settings file — the `high` you
    get is the default, not a pin, and nothing warns if that changes.
 
-6. **`$0`/`$1`/`$N` in a `SKILL.md` are rewritten before the agent ever sees them.**
+6. **Upgrade ≠ vendor ≠ provision — keep the three scripts separate.** `download.sh`
+   once did upgrades too, in a branch reachable only with NO argument, so you got
+   binary upgrades and destructive repo regeneration together or neither
+   (`dotfiles-7bij`). Binary upgrades now live only in `mac.upgrade.sh` /
+   `ubuntu.upgrade.sh` / `pico.upgrade.sh`; `download.sh` only vendors. When adding
+   a tool, add it to **every** upgrade script it applies to — and remember the
+   asset names differ (`darwin_arm64`, not `linux_x64`), BSD grep has no `-oP`,
+   and macOS has no `sha256sum`. `mac.upgrade.sh --dry-run` exercises every
+   section without touching the machine; use it before committing a change there.
+
+7. **`$0`/`$1`/`$N` in a `SKILL.md` are rewritten before the agent ever sees them.**
    Skill-argument substitution replaces `/\$(\d+)(?!\w)/` in the **rendered** body with
    the invocation's argument words — **0-indexed, so `$0` is the FIRST argument**
    (verified against `claude` 2.1.220). An awk `$0` becomes a path and dies `division by
