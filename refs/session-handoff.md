@@ -91,21 +91,45 @@ into an always-loaded doc:**
 
 ## Unfinished — for the next session
 
-1. **`daily-ao3`** — a background agent was consolidating autonoveld's four pulses into
-   one row/one session (`mail → voice-correction → conceive → write`), folding in
-   `autonoveld-zx5m`, and wiring the metis conduit. **Verify it landed**: `refs/pulse.md`
-   has one row, `list-timers` shows `pulse-daily-ao3` and none of the four old ones, and
-   the ledger lint accepts the new row name. **Then register it in
-   `~/harnessd/refs/harness-manifest.json`** — that was NOT done.
-2. **`dotfiles-2smz`** — the marketing-vps auth decision.
-3. **`dotfiles-nneb`** — the close gate has no escape hatch. It cost two cycles today, and
-   note the second trap: the hook blocks the *whole chained command*, so
+**`daily-ao3` LANDED and is live.** One row, one session, four stages
+(`mail → voice-correction → conceive → write`). `pulse-daily-ao3.timer` armed
+stamp-first (next 09:07 PT); the four old timers are `disabled` with unit files
+retained. Registered in `~/harnessd/refs/harness-manifest.json` — dashboard reads
+`pulse-daily-ao3 | healthy`. autonoveld suite **1143 passed**, 12 mutants written
+and 12 died.
+
+**Smoketest ran** (`2026-08-02T00:06:57Z`): all four stages executed in one session,
+`stages: {mail: blocked, voice-correction: quiet, conceive: quiet, write: quiet}`,
+roll-up `blocked`. **Not green, and correctly so** — `mail` blocked because BOTH of
+that day's fixes fired on real events: `zx5m`'s new check returned rc 2 naming
+"Salt Comes Late" as an archived work with no digest, and the challenge detector
+caught the **first live `AO3HumanGate`** this project has ever seen.
+
+What is actually left:
+
+1. **`/scrutinize` gate on three autonoveld impl beads** — `autonoveld-7d1f`,
+   `-ma15`, `-mw3t`. The implementing agent correctly refused to self-certify;
+   `pre-bead-close.sh` blocks the close until a fresh-context reviewer records a
+   verdict. This is the only thing standing between them and closed.
+2. **`autonoveld-i6ad`** — the tick found our conduit design is incomplete:
+   *routing through metis does not clear a Cloudflare challenge, because a SOCKS
+   tunnel carries no `cf_clearance` cookie.* Proxying the egress IP doesn't help;
+   the challenge is cleared by a cookie a browser earns. A real conduit needs to
+   capture `cf_clearance` after Zig solves the captcha and feed it to the client.
+3. **`autonoveld-86hf`** — record the AO3 work URL for "Salt Comes Late". This is
+   what lets `zx5m` close *completely* rather than just loudly.
+4. **`dotfiles-nneb`** — the close gate has no escape hatch. It cost two cycles
+   today. Second trap: the hook blocks the **whole chained command**, so
    `br update … && br close …` never runs the update.
-4. **`dotfiles-9gyl`** — `/scrutinize` prompt-size is still UNPROVEN. The corpus is sound
-   (catchability gate passed); the rig can't separate the arms. 39/39 rollouts returned
-   FIX-FIRST including a control told to sign off.
-5. `dotfiles-q9tr` (doclint lints an eval corpus), `dotfiles-du2y` (2 skills fail strict
-   YAML), `dotfiles-dpbn` (hevyd wildcard bind).
+5. **`dotfiles-cxle`** — the highest-value item in the backlog. 17 confirmed
+   instances, no standing check. See the defect-class section above.
+6. `dotfiles-9gyl` (scrutinize prompt-size UNPROVEN), `q9tr` (doclint lints an eval
+   corpus), `du2y` (2 skills fail strict YAML), `dpbn` (hevyd wildcard bind).
+
+**`dotfiles-2smz` was CLOSED as accepted risk**, not fixed: fail2ban is holding
+(~440/hr → 66/hr, 7 IPs banned) but password auth, ufw and both NOPASSWD accounts
+remain. Four reopen triggers are recorded on the bead — the cheapest is mike/ben
+acquiring SSH keys, which makes `PasswordAuthentication no` free.
 
 ## Watch-outs
 
