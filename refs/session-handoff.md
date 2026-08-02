@@ -8,7 +8,9 @@ the `core.hooksPath` item in it is the reason this session found a live gap.
 ## State at offboard
 
 - Branch: `main`, pushed and clean (`0 0` vs origin), last commit `2c70a59`
-- Open beads: 7 pre-existing, untouched. `dotfiles-v26x` created AND closed this session
+- Open beads: **54**, in-progress 0. `dotfiles-v26x` created AND closed this session.
+  (The 7 shown by the session-start hook was a **pre-pull** snapshot — `.beads/` is
+  tracked, so the 515-commit fast-forward brought zig's board with it.)
 - In-flight subagents: none — one worktree merged, branch deleted, worktree removed
 - Dirty: `sketchybar/sketchybarrc` (modified) + `sketchybar/hooks/` (untracked) —
   **deliberately left uncommitted**, see below
@@ -142,8 +144,10 @@ makes a clean `brew outdated` untrustworthy.
 - `brew update` still emits `gh auth git-credential get: gh: command not found` during a
   private-tap credential fetch — brew sanitizes PATH, so the bare `gh` credential helper
   (from `3c1ab2f`) is not found. Harmless for public taps; unresolved, not filed.
-- 7 pre-existing open beads untouched (`ukx.6`, `ukx`, `cl8`, `ukx.10`, `5e2`, `st2`,
-  `406`) — the local-models arc. Nothing here blocks them.
+- 54 open beads, none touched this session. metis's own local-models arc (`ukx.6`, `ukx`,
+  `cl8`, `ukx.10`, `5e2`, `st2`, `406`) plus zig's board, which arrived with the pull.
+  Nothing in this session blocks any of them. Worth a `/triage` pass now that two
+  machines' boards are merged into one view.
 
 ## Warnings / watch-outs
 
