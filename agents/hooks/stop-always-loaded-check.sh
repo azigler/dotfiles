@@ -50,13 +50,34 @@ LIB="$(dirname "$(readlink -f "${BASH_SOURCE[0]:-$0}")")/lib/always-loaded.sh"
 CURRENT=$(always_loaded_manifest "$CWD")
 [ -n "$CURRENT" ] || exit 0
 
-declare -A OLD_HASH=()
-declare -A OLD_KIND=()
+# BASH 3.2 ONLY (dotfiles-yr2h). This hook's shebang is /bin/bash, and on macOS
+# /bin/bash is 3.2.57 — which has NO associative arrays. `declare -A` there is
+# not a soft failure: it errors, every subsequent `${OLD_HASH[$path]}` is parsed
+# as ARITHMETIC, and the whole detector dies mid-run while still exiting 0. So
+# the staleness warning simply never appeared on any Mac. Parallel indexed
+# arrays + a linear scan are portable and the set is ~50 files, so the cost is
+# nil. Do not "simplify" this back to `declare -A` unless the shebang moves.
+OLD_PATHS=()
+OLD_HASHES=()
+OLD_KINDS=()
 while IFS=$'\t' read -r kind hash mtime path; do
   [ -n "${path:-}" ] || continue
-  OLD_HASH["$path"]=$hash
-  OLD_KIND["$path"]=$kind
+  OLD_PATHS+=("$path")
+  OLD_HASHES+=("$hash")
+  OLD_KINDS+=("$kind")
 done < "$MANIFEST"
+
+# Sets $_OLD_IDX to the index of <path> in OLD_PATHS, or -1. Returns 1 if
+# absent. Assigns a global rather than echoing so the hot loop forks nothing.
+_OLD_IDX=-1
+_old_index() { # <path>
+  local i
+  for ((i = 0; i < ${#OLD_PATHS[@]}; i++)); do
+    if [ "${OLD_PATHS[$i]}" = "$1" ]; then _OLD_IDX=$i; return 0; fi
+  done
+  _OLD_IDX=-1
+  return 1
+}
 
 LINES=()
 COUNT=0
@@ -79,11 +100,15 @@ _label() { # <kind> <path>
   esac
 }
 
-declare -A SEEN=()
+# Newline-delimited membership set — the bash-3.2 stand-in for `declare -A SEEN`.
+# Paths never contain a newline, so the sentinel form below cannot false-match.
+SEEN=$'\n'
+_seen() { case "$SEEN" in *$'\n'"$1"$'\n'*) return 0 ;; esac; return 1; }
+
 while IFS=$'\t' read -r kind hash mtime path; do
   [ -n "${path:-}" ] || continue
-  SEEN["$path"]=1
-  old=${OLD_HASH["$path"]:-}
+  SEEN="$SEEN$path"$'\n'
+  if _old_index "$path"; then old=${OLD_HASHES[$_OLD_IDX]}; else old=""; fi
   if [ -z "$old" ]; then
     _already_reported "$path" "$hash" && continue
     _mark_reported "$path" "$hash"
@@ -97,11 +122,12 @@ while IFS=$'\t' read -r kind hash mtime path; do
   fi
 done <<< "$CURRENT"
 
-for path in "${!OLD_HASH[@]}"; do
-  [ -n "${SEEN[$path]:-}" ] && continue
+for ((i = 0; i < ${#OLD_PATHS[@]}; i++)); do
+  path=${OLD_PATHS[$i]}
+  _seen "$path" && continue
   _already_reported "$path" "<removed>" && continue
   _mark_reported "$path" "<removed>"
-  LINES+=("  • REMOVED since session start — $(_label "${OLD_KIND[$path]}" "$path"): $(always_loaded_pretty_path "$path")")
+  LINES+=("  • REMOVED since session start — $(_label "${OLD_KINDS[$i]}" "$path"): $(always_loaded_pretty_path "$path")")
   COUNT=$((COUNT + 1))
 done
 

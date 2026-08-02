@@ -26,7 +26,8 @@
 #    reports the LINK's mtime, not the target's. On this machine the link says
 #    Jun 10 while the target says Jul 26 — a naive detector would have sat
 #    silent through exactly the event it was built for. So: hash the CONTENT
-#    (md5sum follows symlinks) and read mtime with `stat -Lc` (dereference).
+#    (md5sum follows symlinks) and read mtime DEREFERENCED — `stat -Lc %Y` on
+#    GNU, `stat -Lf %m` on BSD/macOS (see trap 3 at _al_mtime).
 #
 # 2. Hashing a whole SKILL.md would fire on every skill-body edit, which is
 #    NOT always-loaded context — only the frontmatter (name/description/
@@ -75,7 +76,24 @@ _al_hash_stdin() {
 }
 
 # DEREFERENCED mtime (trap 1). Missing file / broken link -> 0.
-_al_mtime() { stat -Lc %Y "$1" 2>/dev/null || echo 0; }
+#
+# TRAP 3: `stat -Lc %Y` is GNU-ONLY. BSD/macOS stat has no -c at all, so on a
+# Mac EVERY call failed, the old blanket `2>/dev/null` hid the usage error, and
+# `|| echo 0` handed back 0 as the mtime of every file — staleness detection
+# silently degraded fleet-wide (dotfiles-yr2h). Detect the flavour ONCE at
+# source time and define the function accordingly; never stack two suppressed
+# stat calls, which would make the same failure invisible all over again.
+# The `2>/dev/null` below is on the PROBE only — a genuine capability test.
+if stat -Lc %Y . >/dev/null 2>&1; then
+  _AL_STAT_FLAVOUR=gnu
+  _al_mtime() { stat -Lc %Y "$1" || echo 0; }   # GNU coreutils
+elif stat -Lf %m . >/dev/null 2>&1; then
+  _AL_STAT_FLAVOUR=bsd
+  _al_mtime() { stat -Lf %m "$1" || echo 0; }   # BSD / macOS
+else
+  _AL_STAT_FLAVOUR=none
+  _al_mtime() { echo 0; }                       # no usable stat — last resort
+fi
 
 # _al_emit <kind> <path> <full|frontmatter>
 _al_emit() {
