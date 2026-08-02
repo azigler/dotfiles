@@ -126,6 +126,10 @@ mapped_suites_for() { # <staged path> -> newline-separated suite paths
         agents/hooks/test/test-stop-context-guard.sh \
         agents/hooks/test/test-pre-shared-tree-guard.sh \
         agents/hooks/test/test-always-loaded-staleness.sh ;;
+    # Not under agents/, so no convention arm below reaches it — and its bug was
+    # an ORDERING bug (dotfiles-v26x), the kind an unrun suite is written for.
+    mac.upgrade.sh)
+      printf '%s\n' agents/hooks/test/test-mac-upgrade-brew-order.sh ;;
   esac
 }
 

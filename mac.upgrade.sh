@@ -168,6 +168,35 @@ sec_brew() {
         return
     fi
 
+    local bare untrusted=() blocked=() t f out
+
+    # ORDER IS LOAD-BEARING BELOW (bead dotfiles-v26x): update → migrate → probe
+    # → trust → upgrade. The untrusted-tap probe asks brew whether a formula is
+    # behind, and brew can only answer out of LOCAL tap metadata. Probing before
+    # the refresh interrogates a stale index, which answers "nothing outdated"
+    # for a formula that is genuinely behind — so the probe found nothing,
+    # printed "✓ no untrusted taps blocking upgrades", `--trust-taps` had
+    # nothing to trust, and `brew upgrade` then silently skipped those formulae
+    # in the same run. Measured on metis 2026-08-01, same formula either side of
+    # the refresh:
+    #   before: brew outdated --verbose dicklesworthstone/tap/bv -> (empty)
+    #   after : brew outdated --verbose dicklesworthstone/tap/bv
+    #           -> dicklesworthstone/tap/bv (0.16.4) < 0.18.0
+    # A FAILED update must NOT skip the probe: stale metadata is a reason to
+    # look harder, not a reason to stop looking. `set -uo pipefail` (no `-e`)
+    # is what keeps the section going past the failure — keep it that way.
+    # agents/hooks/test/test-mac-upgrade-brew-order.sh pins this order.
+    run brew update || fail "brew update failed"
+
+    # A formula rename left unmigrated makes EVERY later brew command error out,
+    # aborting the whole upgrade over an unrelated package. Clear those before
+    # the probe (which shells out to `brew outdated` once per third-party
+    # formula) and, necessarily, before `brew upgrade`.
+    for f in $(brew outdated 2>&1 | sed -n 's/^Error: \(.*\) was renamed to .*/\1/p'); do
+        warn "migrating renamed formula: $f"
+        run brew migrate "$f" || warn "migrate failed for $f"
+    done
+
     # Untrusted taps are excluded from `brew outdated` / `brew upgrade` WITHOUT
     # a non-zero exit. Probe each INSTALLED third-party formula by FULL name and
     # compare against what bare `brew outdated` admits to — the gap is exactly
@@ -175,8 +204,7 @@ sec_brew() {
     # A tap with nothing installed from it cannot cause a missed upgrade.
     # HOMEBREW_NO_AUTO_UPDATE for the probes only: brew's "==> Auto-updating
     # Homebrew..." banner goes to stderr and otherwise lands in the report as a
-    # bogus "frozen" entry. The real `brew update` still runs below.
-    local bare untrusted=() blocked=() t f out
+    # bogus "frozen" entry. The real `brew update` above runs unguarded.
     bare=$(HOMEBREW_NO_AUTO_UPDATE=1 brew outdated --verbose)
     for f in $(brew list --formula --full-name | grep '/' || true); do
         out=$(HOMEBREW_NO_AUTO_UPDATE=1 brew outdated --verbose "$f" 2>&1)
@@ -209,14 +237,9 @@ sec_brew() {
         ok "no untrusted taps blocking upgrades"
     fi
 
-    # A formula rename left unmigrated makes EVERY later brew command error out,
-    # aborting the whole upgrade over an unrelated package. Clear those first.
-    for f in $(brew outdated 2>&1 | sed -n 's/^Error: \(.*\) was renamed to .*/\1/p'); do
-        warn "migrating renamed formula: $f"
-        run brew migrate "$f" || warn "migrate failed for $f"
-    done
-
-    run brew update || fail "brew update failed"
+    # Only now — after the taps above have been trusted, or reported as blocking
+    # — is an upgrade able to include them. Trusting AFTER this line would have
+    # no effect until the next run.
     run brew upgrade || fail "brew upgrade failed"
     if [ "$DO_CASKS" -eq 1 ]; then
         # OPT-IN, and it stays opt-in: a cask upgrade force-quits the running
