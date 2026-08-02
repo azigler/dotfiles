@@ -91,7 +91,14 @@ into an always-loaded doc:**
 
 ## Unfinished — for the next session
 
-**`daily-ao3` LANDED and is live.** One row, one session, four stages
+**`daily-ao3` LANDED and is live**, and it runs in the **`autonoveld`** window with
+`--fresh` (Zig's call — the project keeps one window under its own name regardless of
+how its rows are packaged). The smoketest had created a separate `daily-ao3` window;
+that one was renamed into place rather than left as a stray nothing targets. `--fresh`
+is deliberate: warm process, cold context, so a tick starts near the onboard floor and
+`refs/session-handoff.md` stays the only channel between yesterday's tick and today's.
+
+**The shape:** One row, one session, four stages
 (`mail → voice-correction → conceive → write`). `pulse-daily-ao3.timer` armed
 stamp-first (next 09:07 PT); the four old timers are `disabled` with unit files
 retained. Registered in `~/harnessd/refs/harness-manifest.json` — dashboard reads
