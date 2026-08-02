@@ -48,6 +48,9 @@ node_modules/
 # session state — created by harness hooks, never committed
 .offboard-pending
 .claude/scheduled_tasks.lock
+# /offboard Step 4 writes this; the skill states both markers are gitignored,
+# but this one never was — it is a per-machine session id, not shared state.
+.claude/last-offboard-session
 
 # bv (beads viewer) local config and caches
 .bv/
