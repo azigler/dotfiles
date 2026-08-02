@@ -8,6 +8,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 . "$HERE/vault-lib.sh"
+# shellcheck source=/dev/null
+[ -r "$HERE/../hooks/lib/portable.sh" ] && . "$HERE/../hooks/lib/portable.sh"
 
 pass=0; fail=0
 ok(){ echo "PASS: $1"; pass=$((pass+1)); }
@@ -54,7 +56,10 @@ rm -f "$VAULT_DIR/.memory-visibility"          # force a fresh gh lookup next re
 
 # T5 — a stale (>5min) index.lock is swept (OQ-A2) ---------------------------
 lk="$MEMORY_GIT/index.lock"
-touch "$lk"; touch -d '10 minutes ago' "$lk" 2>/dev/null || true
+# NOT `touch -d '10 minutes ago'` (dotfiles-5vz2): GNU-only, and its failure
+# left the lock at NOW — so `find -mmin +5` matched nothing and T5 asserted the
+# stale-lock sweep works while the sweep had nothing to sweep.
+touch "$lk"; _p_touch_at "$(( $(date +%s) - 600 ))" "$lk" || true
 find "$MEMORY_GIT" -name index.lock -mmin +5 -delete 2>/dev/null
 if [ ! -e "$lk" ]; then ok "stale-lock-recovered"; else no "stale-lock-recovered"; rm -f "$lk"; fi
 

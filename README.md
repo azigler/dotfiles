@@ -8,6 +8,8 @@
 
 - [Background](#background)
 - [Usage](#usage)
+  - [Three jobs, three scripts](#three-jobs-three-scripts)
+  - [Extension lists are additive](#extension-lists-are-additive)
   - [Install](#install)
   - [Add or remove dotfiles](#add-or-remove-dotfiles)
   - [Add or remove resources](#add-or-remove-resources)
@@ -29,9 +31,47 @@ This repository contains dotfiles[^1] for [azigler](https://github.com/azigler).
 `sync.sh` and `download.sh` are two bash scripts to assist with managing your dotfiles. In both scripts, `$SCRIPT_DIR` resolves to the location of the script (the root of the repository).
 
 - `sync.sh` is used to synchronize your machine's dotfiles with your local clone of this repository. It creates symlinks from your home directory to the dotfiles in this repository. In most cases, you only need to run this script once per machine. If existing dotfiles are found in your home directory, they are backed up to the `$SCRIPT_DIR/.backup` directory.
-- `download.sh` is used to download supporting resources, such as plugins and fonts, for the dotfiles synchronized by this repository. This script also updates the `$SCRIPT_DIR/vscode/install_extensions.sh` script with your machine's installed VS Code extensions. Depending on how you use the repository, you may wish to run this script at regular intervals to keep your downloaded resources up to date.
+- `download.sh` is used to download supporting resources, such as plugins and fonts, for the dotfiles synchronized by this repository. This script also updates the `$SCRIPT_DIR/vscode/install_extensions.sh` and `$SCRIPT_DIR/cursor/install_extensions.sh` scripts with your machine's installed extensions. Depending on how you use the repository, you may wish to run this script at regular intervals to keep your downloaded resources up to date.
 
 Both scripts are idempotent[^2]. You should [fork this repository](https://github.com/azigler/dotfiles/fork) to save any modifications.
+
+### Three jobs, three scripts
+
+`sync.sh` links, `download.sh` vendors, and the per-machine `*.upgrade.sh` scripts upgrade. They are separate on purpose: `download.sh` used to do the upgrades too, in a branch that only ran when it was invoked with no argument — so you could never upgrade your binaries without also regenerating every vendored resource, and never regenerate one resource without skipping the upgrades.
+
+| Script | Job |
+|---|---|
+| `sync.sh` | symlink dotfiles from this repo into `$HOME` |
+| `download.sh` | vendor supporting resources (plugins, fonts, keys, extension lists) |
+| `mac.setup.sh` / `ubuntu.setup.sh` | first-run provisioning of a new machine |
+| `mac.upgrade.sh` | upgrade every off-the-shelf binary on a macOS workstation |
+| `ubuntu.upgrade.sh` | the same, for Linux |
+| `pico.upgrade.sh` | the same, for a headless macOS server |
+
+`mac.upgrade.sh` runs sections you can list and select, and supports a dry run:
+
+```bash
+bash mac.upgrade.sh --dry-run          # print every command, change nothing
+bash mac.upgrade.sh --list             # section names
+bash mac.upgrade.sh --only brew        # one section
+bash mac.upgrade.sh --casks            # also upgrade casks (force-quits GUI apps)
+bash mac.upgrade.sh --trust-taps       # unblock third-party taps first (see below)
+```
+
+Two behaviors worth knowing before you run it:
+
+- On Homebrew 6, formulae from an **untrusted third-party tap are silently excluded** from `brew outdated` and `brew upgrade`, both of which still exit `0`. `mac.upgrade.sh` detects and names the frozen upgrades instead of reporting success; `--trust-taps` fixes them.
+- `claude update` is **skipped when `CLAUDECODE=1`**, so running this from inside a live Claude Code session will not swap the binary underneath it. Pass `--claude` to force.
+
+### Extension lists are additive
+
+The `cursor` and `vscode` cases of `download.sh` write files that are tracked in git. Running them on a machine that has only a subset of the extensions **adds** its own and removes nothing, so a subset machine can never silently shrink the canonical list. To make the tracked list match the current machine exactly, ask for it:
+
+```bash
+./download.sh cursor --prune     # deliberate removal; review the diff before committing
+```
+
+If the editor CLI is missing, or reports zero extensions, the tracked file is left alone.
 
 ### Install
 

@@ -66,6 +66,11 @@
 # opening the log file.
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+# The coreutils-flavour shim (dotfiles-5vz2) — `stat -c %Y` below is GNU-only.
+if [ -r "$HERE/../hooks/lib/portable.sh" ]; then
+  # shellcheck source=/dev/null
+  . "$HERE/../hooks/lib/portable.sh"
+fi
 VDIR="${VAULT_DIR:-$HOME/.claude/vaults}"
 WT="$HOME/.claude/projects"
 LEDGER="${VAULT_SYNC_LEDGER:-$HOME/.claude/vault-sync-ledger.jsonl}"
@@ -197,7 +202,11 @@ tier_counts() { [ "$1" -ne 9 ]; }
 stamp_age_hours() {
   local f="$VDIR/.last-success-$1" mtime now
   [ -f "$f" ] || return 1
-  mtime=$(stat -c %Y "$f" 2>/dev/null) || return 1
+  # NOT `stat -c %Y` (dotfiles-5vz2): BSD stat has no -c, so on macOS this
+  # returned 1 for a stamp that EXISTS — "no stamp, never succeeded here" —
+  # which is exactly the branch that suppresses the STALE escalation. The
+  # staleness backstop was inert on this machine.
+  mtime=$(_p_mtime "$f") || return 1
   now=$(date +%s)
   echo $(( (now - mtime) / 3600 ))
 }

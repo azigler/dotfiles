@@ -1,152 +1,162 @@
-# Session handoff — 2026-08-01 · the Opus-5 bloat audit, and what it turned up
+# Session handoff — 2026-08-01 (metis)
 
-Long session. It started as a harness-bloat audit and turned into a fleet audit, because
-almost every "bloat" finding was really a **stale or false claim**, and checking those
-against live state kept finding real defects.
+Machine: **metis** (personal Mac). The note previously in this slot was written the
+same day from **zig** (work Mac) — same task shape, different box, and its warnings
+were load-bearing here. Recover it with `git show 976710f:refs/session-handoff.md`;
+the `core.hooksPath` item in it is the reason this session found a live gap.
 
 ## State at offboard
 
-- **Branch**: `main`, clean, pushed. No worktrees. No unpushed commits.
-- **Beads**: 49 open / 236 closed (287 total). **0 in_progress, 0 blocked.**
-- **Both P0s closed** (`dotfiles-6wdw`, `dotfiles-2smz` is still open — see below).
-- **In flight when this note was written**: one background agent finishing the
-  `daily-ao3` consolidation in `~/autonoveld` (see "Unfinished" below).
+- Branch: `main`, pushed and clean (`0 0` vs origin), last commit `2c70a59`
+- Open beads: **54**, in-progress 0. `dotfiles-v26x` created AND closed this session.
+  (The 7 shown by the session-start hook was a **pre-pull** snapshot — `.beads/` is
+  tracked, so the 515-commit fast-forward brought zig's board with it.)
+- In-flight subagents: none — one worktree merged, branch deleted, worktree removed
+- Dirty: `sketchybar/sketchybarrc` (modified) + `sketchybar/hooks/` (untracked) —
+  **deliberately left uncommitted**, see below
+- Markers: stale `.offboard-pending` (0 bytes, dated 2026-06-05) cleared
 
-## The headline: the premise was half right
+## What happened this session
 
-Zig's framing was "Anthropic removed 80% of Opus 5's harness instructions; ours is
-similarly bloated." The vendor guide's actual remove-list is **six named classes**, and
-it opens by saying Opus 5 "performs well out of the box on existing Opus 4.8 prompts."
-Across four independent audits the defensible cut was **14–27% per corpus, not 80%** —
-because this harness is overwhelmingly *facts about this machine*, and Opus 5 being
-smarter doesn't tell it that `marketing-vps` re-detaches HEAD.
+Task: pull latest dotfiles onto metis, walk the conflicts, then upgrade the binaries.
 
-**Audit B resolved all 39 inline bead citations: 27 of 27 scar-tissue rules trace to a
-real, confirmed incident.** Not one invented.
+### The pull — 515 commits, zero real conflicts
 
-Full report: `refs/opus5-bloat-audit-2026-08-01.md`. Working files:
-`refs/audit-2026-08-01/`.
+metis was pinned at `3c1ab2f` (2026-06-05), **515 behind and 0 ahead**, so a pure
+fast-forward. Five tracked files were dirty. The useful finding: **four of the five were
+already upstream, byte-identical** — the `~/.local/bin` PATH line in `bash/.profile`,
+`zsh/.zprofile`, `zsh/.zshrc`, and a two-key reorder in `claude/settings.json`. zig had
+committed the same edits months earlier. Each was verified against
+`git show origin/main:<file>` *before* discarding, so nothing was lost.
 
-## What shipped
+The only genuine local change was `sketchybar/sketchybarrc` (dynamic hook glob → curated
+`ts4`/`zig-computer`/`ss14` list) plus the untracked `sketchybar/hooks/` (5 scripts).
+Upstream has **0 commits** touching either path, so both survived untouched. Zig chose
+not to commit them — they stay metis-local, consistent with what the prior note already
+recorded about `sketchybar/hooks/`.
 
-| | |
-|---|---|
-| `agents/AGENTS.md` | **5,525 → ~2,000 words**, re-scored 12/12 on a validated A/B rig |
-| always-loaded tier | ~10,400 → ~6,670 words (−36%) |
-| 4 fleet CLAUDE.md | −7,400 words (`agent-dev-interrupted` was teaching stash + tmux subagents + a `br` subcommand that errors) |
-| skills dedup | −999 words, 45/45 distinctive phrases verified at their new owner |
-| `agents/infra.md` | 595 → 2,300 words — retitled **"The computing demesne"**, now covers pico + marketing-vps |
+### The upgrade — `mac.upgrade.sh --trust-taps --casks`
 
-## THE RECURRING DEFECT — read this before anything else
+66 formulae + 3 casks. All four window-manager services came back healthy (rc=0). The
+final sweep — including third-party taps probed by **full name**, since bare
+`brew outdated` cannot be trusted here (`dotfiles-0fdc`) — shows nothing outdated.
+`sf-symbols` was completed by Zig by hand; it needs interactive sudo, which a
+non-interactive run cannot supply.
 
-**Four separate instances in one day of: the mechanism exists, nothing calls it, and the
-doc reads as though it's live.**
+Three sections reported failure. **None were broken binaries:**
 
-1. `pulse-ledger-lint.py` had **no hook caller** (`dotfiles-775y`)
-2. `agentgateway-run` on pico sourced `~/.secrets` correctly — and the launchd plist
-   invoked the raw binary instead. Written 2026-07-26, never wired.
-3. `check-frontmatter` is deliberately advisory-only
-4. `state-bus.timer` masked while a `KeepAlive` job served month-old state
+1. **A real defect, now fixed — `dotfiles-v26x`.** See below.
+2. **`pnpm self-update`** failed on `/home/ubuntu/.local/share/pnpm`. **Not a dotfile
+   bug** — under `env -i zsh -l` the var is correctly unset. It is a stale `PNPM_HOME`
+   baked into the long-running tmux server's environment, inherited by every child.
+   Same reason the server was still tmux 3.6b. ⚠️ The first probe of this was **invalid**:
+   plain `zsh -l -c` inherits the parent's exported env and merely echoed the stale value
+   back. `env -i` is the correct probe — worth remembering, it nearly produced a
+   confident wrong diagnosis.
+3. **`sf-symbols`** needed interactive sudo, and `brew update` itself errored on a dead
+   `homebrew/cask-fonts` tap.
 
-**And its twin: the consumer asserts what the step never established.** `pulse-stall-
-reconcile` claimed pulse-inject "reported INJECTED", that the tick "did not bounce" and
-"did not block" — while reading only `LastTriggerUSec` and the ledger. Same class as the
-open `dotfiles-kel5` and the P1 `dotfiles-cxle`.
+### Cleanups applied
 
-**If you build one thing next, build the standing check for this class.** `dotfiles-cxle`
-has 17 confirmed instances and no detector.
+- `brew untap homebrew/cask-fonts` — dead tap; `brew update` now exits 0 clean
+- `brew uninstall bv` — dropped brew's frozen 0.16.4. The curl-installed 0.18.0 at
+  `~/.local/bin/bv` already won on PATH; this is `mac.upgrade.sh`'s own documented
+  decision and makes `br`/`bv` agree with the pico + ubuntu boxes
+- **`git config core.hooksPath tools/githooks`** — see below
 
-## Corrections I had to make to my own work
+## `core.hooksPath` was UNSET on metis too
 
-Recorded because the pattern matters more than the individual errors — **I twice inferred
-a defect from systemd state without reading the owning project's records, and wrote it
-into an always-loaded doc:**
+The prior handoff said: *"It is a per-clone setting; check it first on any other
+machine."* Checked — **unset here**. So `tools/githooks/pre-commit` had never gated a
+commit on this clone, and the guard added below would have had no caller on the very
+machine that found the bug.
 
-- **harnessd "broken pipeline"** — retracted (`dotfiles-df88`). `state-bus` is masked
-  *on purpose*; harnessd/CLAUDE.md:51 documents the migration to in-proc Go. The tell I
-  walked past: the mask predates the "freeze" by three weeks.
-- **autonoveld "silently OFF"** — corrected. The pause was commit `9888d0e` ("Zig's call,
-  for the time being") **and** a PAUSED banner in `refs/pulse.md` carrying the exact
-  stamp-first restore procedure I later "discovered" independently.
-- **`git add agents/`** — a directory add, which `/commit:211` forbids. It swept two
-  scratch files with a LinearB doc ID into this PUBLIC repo. Untracked + gitignored;
-  Zig chose to leave history. Verified the doc is `linearb.io`-domain-only, no
-  `type:anyone` permission.
-- **frontmatter measured at 6,972 words** — wrong; `sed` between `---` also matched
-  markdown rules in bodies. Real figure **3,362**.
+Now set. Proven to fire, not assumed: staging an unmodified file exits 0 **silently**
+(nothing staged → nothing checked), which is *not* evidence. With a real staged diff:
 
-## Fleet work
+```
+pre-commit: running agents/hooks/test/test-mac-upgrade-brew-order.sh
+PASS: 20/20 sec_brew() ordering cases
+```
 
-- **marketing-vps**: **10,635 failed SSH auths in 24h**, password auth on, no firewall,
-  no fail2ban, 2 NOPASSWD-root accounts. **Not breached** (all successful logins were
-  publickey from zig-computer, or one consistent teammate IP). **fail2ban installed and
-  verified banning** — 3 IPs in nftables within a minute. `ignoreip` needed a second fix:
-  `[DEFAULT]` isn't inherited at runtime, and without it zig-computer could self-ban and
-  kill the hourly refresh. **`dotfiles-2smz` stays open** — password auth, ufw, and the
-  sudo accounts are Zig's call (mike/ben have no SSH keys).
-- **`qcfx` closed**: marketing-vps now runs the tracked 610-line refresh script, receipt
-  written, `--assert` green. `readonly` → `watch` (old spelling kept as a silent alias).
-- **picod**: drain loop retired from the harness manifest; `picod-health.timer` KEPT —
-  it's a guard, not a heartbeat (`bd-zdj`).
+Note this is local git config, so it is **not** carried by a pull. Any further clone —
+including a fresh one on this box — needs it again. CLAUDE.md rule 1 documents it.
 
-## Unfinished — for the next session
+## The fix (`dotfiles-v26x`, merged `6e7db80`, pushed in `2c70a59`)
 
-**`daily-ao3` LANDED and is live**, and it runs in the **`autonoveld`** window with
-`--fresh` (Zig's call — the project keeps one window under its own name regardless of
-how its rows are packaged). The smoketest had created a separate `daily-ao3` window;
-that one was renamed into place rather than left as a stray nothing targets. `--fresh`
-is deliberate: warm process, cold context, so a tick starts near the onboard floor and
-`refs/session-handoff.md` stays the only channel between yesterday's tick and today's.
+**Symptom:** the script printed `✓ no untrusted taps blocking upgrades` and then, in the
+same run, brew printed `Skipping sketchybar / bv / yabai / borders: tap formula is not
+trusted`. `--trust-taps` was passed, found nothing to trust, and silently no-opped —
+the exact silent-no-op class the script's own header was written to prevent.
 
-**The shape:** One row, one session, four stages
-(`mail → voice-correction → conceive → write`). `pulse-daily-ao3.timer` armed
-stamp-first (next 09:07 PT); the four old timers are `disabled` with unit files
-retained. Registered in `~/harnessd/refs/harness-manifest.json` — dashboard reads
-`pulse-daily-ao3 | healthy`. autonoveld suite **1143 passed**, 12 mutants written
-and 12 died.
+**Root cause:** the untrusted-tap probe ran *before* `brew update`, reading stale tap
+metadata. Proof, same formula either side of the refresh:
 
-**Smoketest ran** (`2026-08-02T00:06:57Z`): all four stages executed in one session,
-`stages: {mail: blocked, voice-correction: quiet, conceive: quiet, write: quiet}`,
-roll-up `blocked`. **Not green, and correctly so** — `mail` blocked because BOTH of
-that day's fixes fired on real events: `zx5m`'s new check returned rc 2 naming
-"Salt Comes Late" as an archived work with no digest, and the challenge detector
-caught the **first live `AO3HumanGate`** this project has ever seen.
+```
+at probe time : brew outdated --verbose dicklesworthstone/tap/bv -> (empty)
+after update  : ...                                              -> 0.16.4 < 0.18.0
+```
 
-What is actually left:
+**Fix:** reorder to update → migrate → probe → trust → upgrade. Verified independently
+on merged main (not taken on the subagent's word): `update`(26) → `probe`(47) →
+`trust`(61) → `upgrade`(80), suite 20/20.
 
-1. **`/scrutinize` gate on three autonoveld impl beads** — `autonoveld-7d1f`,
-   `-ma15`, `-mw3t`. The implementing agent correctly refused to self-certify;
-   `pre-bead-close.sh` blocks the close until a fresh-context reviewer records a
-   verdict. This is the only thing standing between them and closed.
-2. **`autonoveld-i6ad`** — the tick found our conduit design is incomplete:
-   *routing through metis does not clear a Cloudflare challenge, because a SOCKS
-   tunnel carries no `cf_clearance` cookie.* Proxying the egress IP doesn't help;
-   the challenge is cleared by a cookie a browser earns. A real conduit needs to
-   capture `cf_clearance` after Zig solves the captcha and feed it to the client.
-3. **`autonoveld-86hf`** — record the AO3 work URL for "Salt Comes Late". This is
-   what lets `zx5m` close *completely* rather than just loudly.
-4. **`dotfiles-nneb`** — the close gate has no escape hatch. It cost two cycles
-   today. Second trap: the hook blocks the **whole chained command**, so
-   `br update … && br close …` never runs the update.
-5. **`dotfiles-cxle`** — the highest-value item in the backlog. 17 confirmed
-   instances, no standing check. See the defect-class section above.
-6. `dotfiles-9gyl` (scrutinize prompt-size UNPROVEN), `q9tr` (doclint lints an eval
-   corpus), `du2y` (2 skills fail strict YAML), `dpbn` (hevyd wildcard bind).
+The subagent also found something the bead missed: **`tools/githooks/pre-commit` had no
+arm reaching `mac.upgrade.sh`**, so a new guard there would have had no caller — the same
+failure mode as `dotfiles-dijt`. It added a `mapped_suites_for` entry.
 
-**`dotfiles-2smz` was CLOSED as accepted risk**, not fixed: fail2ban is holding
-(~440/hr → 66/hr, 7 IPs banned) but password auth, ufw and both NOPASSWD accounts
-remain. Four reopen triggers are recorded on the bead — the cheapest is mike/ben
-acquiring SSH keys, which makes `PasswordAuthentication no` free.
+`agents/hooks/test/test-mac-upgrade-brew-order.sh` — 20 cases in three layers: static
+anchor-ordering; a runtime layer driving the script against a **stub `brew`** that
+reproduces the measured staleness; and a mutant-dies check. The guard was **observed
+failing** (9/20) against a deliberately reintroduced bug, reproducing the original
+symptom end to end. A guard never seen to fail is not a guard.
 
-## Watch-outs
+Nuances worth keeping:
 
-- **AO3 was genuinely down most of 2026-08-01** (525 = Cloudflare↔origin). A paired probe
-  showed metis (residential) failing identically and a third-party monitor dark all day —
-  so it was NOT an IP block. **But Zig hit a Cloudflare captcha in a browser on metis**,
-  so both are true: struggling origin *and* defensive posture. Per his call, metis becomes
-  the conduit he can unblock by hand.
-- `ps -p <pid> --no-headers` **errors and still exits 0** on this box — it gave me a false
-  "process alive" reading. Use `/proc`.
-- `grep -c` prints `0` **and** exits 1, so `|| echo 0` emits `"0\n0"`.
-- A mutant that doesn't mutate proves nothing — the formatter wrapped a constant across
-  lines and my regex silently no-opped. `assert old in s` before writing.
+- Both detection branches are stale-sensitive but fail *differently*. The
+  `trust|No available formula` branch fires off **error text**, which is
+  metadata-independent, so a tap whose formulae fail to load is caught either way. The
+  branch that genuinely goes silent under stale metadata is the second one (the `bv`
+  case). Blast radius is taps whose formulae still load — which is why `--dry-run` on
+  this box reports one tap rather than four.
+- **`--dry-run` cannot exercise the fix's happy path.** `run brew update` is withheld, so
+  the probe still sees the pre-run index. Dry run proves ordering and inertness only; the
+  stub-driven suite is what proves behavior. Do not read a green `--dry-run` as evidence.
+- `shellcheck` is not installed on this box, so that check did not run.
+
+Related and still open: **`dotfiles-0fdc`** (bare `brew outdated` returns rc=0 while
+formulae from an *untapped* tap are invisible). Distinct from `v26x` — that one is about
+taps being absent, this one about metadata being stale. They compose badly: either alone
+makes a clean `brew outdated` untrustworthy.
+
+## What's next
+
+- **tmux server restart.** Zig elected to `tmux kill-server` to adopt 3.7b (binary 3.7b,
+  server 3.6b) and clear the stale `PNPM_HOME`. Deferred to the very end of the session
+  because it ends every window, including the one this session ran in. If it did not
+  happen, it is **not urgent** — `dotfiles-3iyn` records the measurement that a 3.7b
+  client attaches to a 3.6x server fine. After a restart, `pnpm self-update` should
+  succeed; it is also simply unnecessary, since pnpm 10.28.1 at `~/Library/pnpm/pnpm`
+  is not brew-managed and works.
+- **`sketchybar/sketchybarrc` + `hooks/` remain uncommitted by choice.** If they should
+  reach the other machines they need a commit; until then, dirty state here is expected
+  and is not something to "clean up".
+- `brew update` still emits `gh auth git-credential get: gh: command not found` during a
+  private-tap credential fetch — brew sanitizes PATH, so the bare `gh` credential helper
+  (from `3c1ab2f`) is not found. Harmless for public taps; unresolved, not filed.
+- 54 open beads, none touched this session. metis's own local-models arc (`ukx.6`, `ukx`,
+  `cl8`, `ukx.10`, `5e2`, `st2`, `406`) plus zig's board, which arrived with the pull.
+  Nothing in this session blocks any of them. Worth a `/triage` pass now that two
+  machines' boards are merged into one view.
+
+## Warnings / watch-outs
+
+- **`env -i` when probing whether a dotfile fix took.** A plain login shell inherits the
+  caller's exported environment and will happily confirm your bug still exists when it
+  does not, or vice versa. This session nearly mis-filed the pnpm failure as a dotfile
+  defect on exactly that mistake.
+- **A gate that exits 0 with no output has not run.** Staging an unmodified file produces
+  a clean, silent, meaningless pass. Force a real staged diff before believing a hook.
+- **`core.hooksPath` is per-clone and invisible to `git pull`.** Two machines have now
+  been found with it unset. Check it on any box before trusting that commit-time
+  guards ran there.

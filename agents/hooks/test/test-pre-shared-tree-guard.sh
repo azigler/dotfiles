@@ -33,13 +33,25 @@
 
 set -u
 
-HOOK="$(cd "$(dirname "$0")/.." && pwd)/pre-shared-tree-guard.sh"
+HOOKDIR="$(cd "$(dirname "$0")/.." && pwd)"
+HOOK="$HOOKDIR/pre-shared-tree-guard.sh"
+# The suite parses and renders timestamps for its own fixtures. `date -d` /
+# `date -u -d @N` are GNU-only, so on BSD every one of those lines died and
+# took the fixture with it — the same defect the hook had (dotfiles-5vz2).
+. "$HOOKDIR/lib/portable.sh"
 PASS=0
 FAIL=0
 SKIP=0
 FAILED_NAMES=()
 
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/stg-test.XXXXXX")
+# PHYSICAL path. The hook resolves the repo with `git rev-parse
+# --show-toplevel` from a `pwd -P` cwd, and detector B compares that against a
+# unit's WorkingDirectory / ExecStart verbatim. On macOS the fixture root is
+# under /var/folders, /var is a symlink to /private/var, and an unresolved
+# fixture path therefore never matches the resolved one the hook computes —
+# the detector-B cases fail for a reason that has nothing to do with the hook.
+TMP=$(cd "$TMP" && pwd -P)
 REPO="$TMP/repo"
 MANIFEST="$TMP/manifest.json"
 BOUNCES="$TMP/bounces.jsonl"
@@ -150,6 +162,113 @@ run_case "allow: 'git stash' inside a quoted commit message" 0 \
   'git commit -m "do not git stash on a shared tree"'
 
 # --- the writer: a REAL transient systemd timer -----------------------------
+#
+# ⚠️ WHY THERE IS ALSO A DOUBLE (dotfiles-5vz2). Everything from here to the
+# `fi # HAVE_SYSTEMD` at the bottom is the entire substance of this suite — 27
+# of its 29 cases — and on macOS it skipped WHOLESALE, because macOS has no
+# systemd. The suite then printed a green "PASS: 2/2 (skipped: 1)" while the
+# hook's `date -d` was failing on every call on that box. A skip is not a pass,
+# and a skip that swallows 93% of a suite is indistinguishable from one.
+#
+# So: REAL transient units when systemd is there (Linux — unchanged, and still
+# the authority, because the whole point of this suite is that the hook reads
+# real systemd state), and a PATH-level `systemctl` / `systemd-run` DOUBLE when
+# it is not. The double is deliberately at the PATH boundary, not inside the
+# hook: there is no test-only branch in the hook, so the code path exercised is
+# byte-for-byte the production one, including the LastTriggerUSec string format
+# that the timestamp parse has to cope with. The summary line says which mode
+# ran, every time — a double you cannot see in the output is the same problem
+# as a skip you cannot see.
+FAKE_SYSTEMD=0
+if ! command -v systemctl >/dev/null 2>&1 || ! command -v systemd-run >/dev/null 2>&1; then
+  FAKE_SYSTEMD=1
+  FAKEBIN="$TMP/bin"
+  FAKEUNITS="$TMP/units"
+  mkdir -p "$FAKEBIN" "$FAKEUNITS"
+
+  cat > "$FAKEBIN/systemctl" <<'STUB'
+#!/bin/bash
+# Minimal `systemctl --user` double: answers exactly the four queries
+# pre-shared-tree-guard.sh and this suite make, off flat files in $FAKEUNITS.
+D=${FAKEUNITS:?}
+CMD=""; UNIT=""; VALUE=0; PROPS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --user|--no-legend|--plain|--no-pager|--type=*|--state=*|--quiet) ;;
+    --value) VALUE=1 ;;
+    -p) shift; PROPS+=("$1") ;;
+    -p*) PROPS+=("${1#-p}") ;;
+    -*) ;;
+    *) if [ -z "$CMD" ]; then CMD=$1; elif [ -z "$UNIT" ]; then UNIT=$1
+       else UNITS_EXTRA="${UNITS_EXTRA:-} $1"; fi ;;
+  esac
+  shift
+done
+case "$CMD" in
+  show)
+    if [ -z "$UNIT" ]; then                 # `show -p Version --value`
+      for p in ${PROPS[@]+"${PROPS[@]}"}; do
+        [ "$p" = Version ] && echo 255 || echo ""
+      done
+      exit 0
+    fi
+    for p in ${PROPS[@]+"${PROPS[@]}"}; do
+      v=""
+      [ -f "$D/$UNIT" ] && v=$(sed -n "s/^$p=//p" "$D/$UNIT" | head -1)
+      if [ "$VALUE" = 1 ]; then printf '%s\n' "$v"; else printf '%s=%s\n' "$p" "$v"; fi
+    done ;;
+  list-units)
+    for f in "$D"/*.service; do
+      [ -e "$f" ] || continue
+      grep -q '^ActiveState=activating' "$f" || continue
+      printf '%s loaded activating start running\n' "$(basename "$f")"
+    done ;;
+  stop)
+    for u in $UNIT ${UNITS_EXTRA:-}; do
+      [ -f "$D/$u" ] || continue
+      sed 's/^ActiveState=.*/ActiveState=inactive/' "$D/$u" > "$D/$u.new" && mv "$D/$u.new" "$D/$u"
+    done ;;
+esac
+exit 0
+STUB
+
+  cat > "$FAKEBIN/systemd-run" <<'STUB'
+#!/bin/bash
+# Minimal `systemd-run --user` double: materializes the unit files the
+# systemctl double above reads. A timer unit records LastTriggerUSec in
+# systemd's OWN rendering ("Sat 2026-08-01 14:00:21 PDT") — that exact string
+# is what the hook has to parse, and parsing it is what was broken.
+D=${FAKEUNITS:?}
+UNIT=""; TYPE=simple; WD=""; TIMER=0; EXECSTART=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --user|--no-block|--quiet) ;;
+    --unit=*) UNIT=${1#--unit=} ;;
+    --on-active=*) TIMER=1 ;;
+    --timer-property=*) ;;
+    --property=Type=*) TYPE=${1#--property=Type=} ;;
+    --property=WorkingDirectory=*) WD=${1#--property=WorkingDirectory=} ;;
+    --property=*) ;;
+    -*) ;;
+    *) EXECSTART="$*"; break ;;
+  esac
+  shift
+done
+[ -n "$UNIT" ] || exit 1
+mkdir -p "$D"
+printf 'Type=%s\nWorkingDirectory=%s\nExecStart=%s\nActiveState=activating\n' \
+  "$TYPE" "$WD" "$EXECSTART" > "$D/$UNIT.service"
+[ "$TIMER" = 1 ] && printf 'LastTriggerUSec=%s\nActiveState=waiting\n' \
+  "$(date '+%a %Y-%m-%d %H:%M:%S %Z')" > "$D/$UNIT.timer"
+exit 0
+STUB
+
+  chmod +x "$FAKEBIN/systemctl" "$FAKEBIN/systemd-run"
+  export FAKEUNITS
+  PATH="$FAKEBIN:$PATH"
+  export PATH
+fi
+
 HAVE_SYSTEMD=0
 # ⚠️ NOT `systemctl --user is-system-running`: it prints "degraded" and exits
 # 1 whenever ANY user unit is in the failed state, which is a normal steady
@@ -171,9 +290,13 @@ if command -v systemd-run >/dev/null 2>&1 \
   fi
 fi
 
+if [ "$FAKE_SYSTEMD" = 1 ]; then SYSTEMD_MODE=double; else SYSTEMD_MODE=real; fi
+
 if [ "$HAVE_SYSTEMD" = 0 ]; then
-  echo "SKIP: no usable systemd --user — the writer-dependent cases cannot run." >&2
+  echo "SKIP: no usable systemd --user AND the double did not come up — 27 of 29" >&2
+  echo "      cases (every writer-dependent one) did NOT run. This is not a pass." >&2
   SKIP=1
+  SYSTEMD_MODE=none
 else
 
 # The fixture loop has now FIRED and written no ledger row since → in flight.
@@ -264,22 +387,28 @@ run_case "allow: a plain git pull (merge, no autostash)" 0 'git pull'
 # --- THE NEGATIVE CONTROLS: the writer stops looking active ----------------
 
 # 24. the tick REPORTS (its ledger row lands after the fire) → ALLOW.
-FIRE_EPOCH=$(date -d "$FIRE" +%s)
+#     ⚠️ This is the case that HID the hook's `date -d` bug for as long as it
+#     existed. It is the only one whose verdict depends on parsing systemd's
+#     LastTriggerUSec, and it lived behind a systemd gate that skips wholesale
+#     on macOS — so the suite reported a green 2/2 while never once evaluating
+#     the comparison. It now runs on both flavours (see FAKE_SYSTEMD above),
+#     and its own `date -d` is gone.
+FIRE_EPOCH=$(_p_epoch "$FIRE") || { echo "FATAL: cannot parse LastTriggerUSec '$FIRE'" >&2; exit 1; }
 printf '{"ts":"%s","row":"t","outcome":"done"}\n' \
-  "$(date -u -d "@$((FIRE_EPOCH + 60))" +%FT%TZ)" >> "$REPO/refs/test-ledger.jsonl"
+  "$(_p_iso_utc "$((FIRE_EPOCH + 60))")" >> "$REPO/refs/test-ledger.jsonl"
 run_case "allow: the tick already logged its ledger row" 0 'git stash'
 
 # 25. a row for a DIFFERENT row name does not count as this loop reporting.
 git -C "$REPO" checkout -q -- refs/test-ledger.jsonl
 printf '{"ts":"%s","row":"other","outcome":"done"}\n' \
-  "$(date -u -d "@$((FIRE_EPOCH + 60))" +%FT%TZ)" >> "$REPO/refs/test-ledger.jsonl"
+  "$(_p_iso_utc "$((FIRE_EPOCH + 60))")" >> "$REPO/refs/test-ledger.jsonl"
 run_case "BLOCK: another loop's row is not this loop's receipt" 2 'git stash' \
   "another writer is"
 git -C "$REPO" checkout -q -- refs/test-ledger.jsonl
 
 # 26. a BOUNCE at/after the fire means the tick never started → ALLOW.
 printf '{"ts":"%s","loop":"%s","reason":"not_ready"}\n' \
-  "$(date -u -d "@$((FIRE_EPOCH + 1))" +%FT%TZ)" "$UNIT_A" >> "$BOUNCES"
+  "$(_p_iso_utc "$((FIRE_EPOCH + 1))")" "$UNIT_A" >> "$BOUNCES"
 run_case "allow: a bounced fire is not a writer" 0 'git stash'
 : > "$BOUNCES"
 
@@ -363,11 +492,11 @@ clean
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then
-  echo "PASS: $PASS/$PASS shared-tree-guard cases (skipped: $SKIP)"
+  echo "PASS: $PASS/$PASS shared-tree-guard cases (skipped: $SKIP, systemd: $SYSTEMD_MODE)"
   exit 0
 else
   printf 'FAILED:\n'
   for n in "${FAILED_NAMES[@]}"; do printf '  - %s\n' "$n"; done
-  echo "FAIL: $FAIL failed, $PASS passed (skipped: $SKIP)"
+  echo "FAIL: $FAIL failed, $PASS passed (skipped: $SKIP, systemd: $SYSTEMD_MODE)"
   exit 1
 fi

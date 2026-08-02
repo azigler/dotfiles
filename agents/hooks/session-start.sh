@@ -347,11 +347,31 @@ if command -v br &>/dev/null; then
     _md_try "git config driver" \
       git config merge.jsonl-union.driver "$HOME/.claude/hooks/merge-jsonl.sh %O %A %B"
 
-    # `sed -i` on a missing .gitattributes is an expected no-op, not an error.
-    if [ -f .gitattributes ]; then
-      _md_try "strip legacy merge=union" \
-        sed -i -E '/^\.beads\/\*\.jsonl[[:space:]]+merge=union[[:space:]]*$/d' .gitattributes
-    fi
+    # Strip the legacy plain `merge=union` line (git's builtin union driver
+    # resurrects closed beads — lin-eqh).
+    #
+    # NOT `sed -i` (dotfiles-1rj5): GNU sed reads `-i` as "in place, no
+    # backup", BSD/macOS sed REQUIRES `-i` to take a backup-suffix argument
+    # and so swallowed the following `-E` as that suffix. Silent double
+    # failure — the regex then ran in BRE where `+` is a literal plus, so the
+    # migration never once fired on a Mac, and every session start dropped a
+    # stray `.gitattributes-E` in the repo root. `sed -i '' -E` would just
+    # invert the breakage onto Linux. Filter to a temp file and mv: one code
+    # path, correct on both seds.
+    _MD_UNION_RE='^\.beads/\*\.jsonl[[:space:]]+merge=union[[:space:]]*$'
+    _strip_legacy_union() {
+      # A missing .gitattributes is an expected no-op, not an error.
+      [ -f .gitattributes ] || return 0
+      grep -qE "$_MD_UNION_RE" .gitattributes || return 0
+      local tmp=".gitattributes.tmp.$$" rc
+      grep -vE "$_MD_UNION_RE" .gitattributes > "$tmp"
+      rc=$?
+      # grep rc 1 == "no lines left", which is a legitimate result here
+      # (a .gitattributes holding ONLY the legacy line). Only rc>1 is an error.
+      if [ "$rc" -gt 1 ]; then rm -f "$tmp"; return 1; fi
+      mv "$tmp" .gitattributes || { rm -f "$tmp"; return 1; }
+    }
+    _md_try "strip legacy merge=union" _strip_legacy_union
     if ! grep -q 'merge=jsonl-union' .gitattributes 2>/dev/null; then
       if ! echo '.beads/*.jsonl merge=jsonl-union' >> .gitattributes 2>>"$LOG"; then
         MD_ERR="${MD_ERR}append .gitattributes: write failed"$'\n'

@@ -166,8 +166,12 @@ check
 if [ -n "$(msg "$OUT")" ]; then ok; else bad "a further edit reports again (new hash)"; fi
 
 # ── 5. Skill DESCRIPTION change fires and names the skill ──────────────────
-sed -i 's/The research lab.s allocator./The research lab allocator, reworded./' \
-  "$DOTFILES/agents/skills/desk/SKILL.md"
+# No `sed -i`: BSD sed takes the script as `-i`'s backup suffix and then dies
+# on the filename ("invalid command code"), so this test silently never ran on
+# macOS (dotfiles-1rj5). Temp file + mv is correct on both seds.
+sed 's/The research lab.s allocator./The research lab allocator, reworded./' \
+  "$DOTFILES/agents/skills/desk/SKILL.md" > "$DOTFILES/desk.SKILL.md.tmp" \
+  && mv "$DOTFILES/desk.SKILL.md.tmp" "$DOTFILES/agents/skills/desk/SKILL.md"
 check
 M=$(msg "$OUT")
 if printf '%s' "$M" | grep -q "skill description: /desk"; then ok; else bad "skill frontmatter change names the skill (got: $M)"; fi

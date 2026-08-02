@@ -91,7 +91,9 @@ INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
 [ -z "$COMMAND" ] && exit 0
 
-source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/hook-helpers.sh" 2>/dev/null
+_STG_LIBDIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib"
+source "$_STG_LIBDIR/hook-helpers.sh" 2>/dev/null
+[ -r "$_STG_LIBDIR/portable.sh" ] && . "$_STG_LIBDIR/portable.sh"
 if declare -F command_skeleton >/dev/null; then
   SKEL=$(command_skeleton "$COMMAND" 2>/dev/null)
 else
@@ -139,7 +141,26 @@ stg_unquote() {
   printf '%s' "$v"
 }
 
-epoch_of() { date -d "$1" +%s 2>/dev/null; }
+# Timestamps arrive in three shapes — systemd's LastTriggerUSec ("Sat
+# 2026-08-01 14:00:21 PDT"), a ledger row's ISO-8601 `ts`, and a bounce
+# record's `ts` — and every window decision below is a comparison between two
+# of them. This used to be `date -d "$1" +%s 2>/dev/null`, which is GNU-only:
+# on BSD it prints nothing, every caller's `[ -n "$x" ] || continue` fires, and
+# the hook concludes there is NO WRITER — the permissive answer — for a reason
+# that never appears anywhere (dotfiles-5vz2).
+#
+# The parse now comes from lib/portable.sh. This hook's documented posture is
+# fail-OPEN (see the header: it must not refuse every stash on a machine with
+# no harness), so a parse failure ANNOUNCES rather than blocks. That is the
+# other half of the class rule — fail closed OR say something; never quietly
+# take the permissive branch on an error you swallowed.
+epoch_of() {
+  local out
+  if out=$(_p_epoch "$1"); then printf '%s\n' "$out"; return 0; fi
+  echo "pre-shared-tree-guard: could not parse the timestamp \"$1\" — this repo's" >&2
+  echo "  in-flight-writer check is degraded and the destructive-verb gate is OPEN." >&2
+  return 1
+}
 
 # --- detector A: a declared loop of THIS repo, fired and not yet reported ---
 # Echoes a one-line description of the in-flight loop, or nothing.

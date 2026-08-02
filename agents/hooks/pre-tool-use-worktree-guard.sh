@@ -29,9 +29,29 @@
 # scripts that pipe a JSON payload into the hook and assert the exit
 # code + stderr.
 #
+# ⚠️ NORMALIZATION IS THE GUARD (dotfiles-5vz2). For most of this hook's life
+# the normalization step was:
+#
+#     NORM_PATH=$(realpath -m "$FILE_PATH" 2>/dev/null || echo "$FILE_PATH")
+#
+# `realpath -m` is GNU-only. On macOS it fails on EVERY call (`realpath:
+# illegal option -- m`, exit 1), the blanket `2>/dev/null` hid the usage error,
+# and the `||` handed back the RAW path — so the prefix comparison ran against
+# an UNNORMALIZED string on every Mac, and a path with `..` or through a
+# symlink was never caught. The guard reported success the entire time.
+#
+# So: normalization comes from lib/portable.sh, which returns NON-ZERO rather
+# than a plausible-looking wrong answer, and this hook FAILS CLOSED on that —
+# it blocks and says it could not normalize. That direction is deliberate.
+# Every path that reaches the normalizer here is (a) absolute and (b) inside a
+# worktree session, so a fail-closed block is scoped to exactly the agents this
+# guard exists for, and it is LOUD: the agent gets the reason on stderr and can
+# re-issue with a worktree-relative path. A guard that answers "I could not
+# check, carry on" is the defect, not the safe default.
+#
 # Edge cases handled:
 #   - file_path with `..` traversal: we normalize the file_path with
-#     `realpath -m` (no requirement that the file exist) before the
+#     `_p_realpath` (no requirement that the file exist) before the
 #     prefix comparison, so `<main>/../foo` no longer slips through
 #   - symlinks in cwd: we resolve `cwd` with `pwd -P` / `realpath` so
 #     symlink shenanigans don't fool the prefix check
@@ -43,6 +63,12 @@
 
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
+
+# The portability shim. If it is missing, `_p_realpath` is undefined, every
+# call returns 127, and the fail-closed branch below blocks with a message —
+# which is the correct outcome for "the guard's normalizer is gone".
+_WG_LIB="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/portable.sh"
+[ -r "$_WG_LIB" ] && . "$_WG_LIB"
 
 # Only act on Write or Edit; ignore everything else (Bash, Read, etc.)
 case "$TOOL_NAME" in
@@ -80,9 +106,34 @@ esac
 MAIN_ROOT=$(echo "$CWD" | sed -E 's|/\.claude/worktrees/agent-[^/]+(/.*)?$||')
 [ -z "$MAIN_ROOT" ] && exit 0
 
-# Normalize file_path so traversal sequences (`..`) can't bypass the
-# prefix check. `realpath -m` doesn't require the path to exist.
-NORM_PATH=$(realpath -m "$FILE_PATH" 2>/dev/null || echo "$FILE_PATH")
+# Normalize file_path so traversal sequences (`..`) and symlinks can't bypass
+# the prefix check. `_p_realpath` does not require the path to exist, and it
+# returns non-zero rather than a fallback when it cannot answer.
+NORM_PATH=$(_p_realpath "$FILE_PATH")
+if [ -z "$NORM_PATH" ]; then
+  # FAIL CLOSED. Without a normalized path the two `case` tests below are
+  # comparing an attacker-shaped string; "allow" would be a guess dressed as a
+  # verdict. See the NORMALIZATION IS THE GUARD note at the top.
+  cat >&2 <<EOF
+Blocked: the worktree guard could not NORMALIZE this path, so it cannot
+certify the write lands inside your worktree:
+
+  $FILE_PATH
+
+You are working in the worktree at:
+
+  $CWD
+
+This is a fail-closed refusal, not a detection: normalization is the whole
+guard (dotfiles-5vz2), and a guard that cannot normalize is a guard that can
+be walked around with \`..\` or a symlink. Re-issue the write with a plain
+worktree-relative path, or an absolute path anchored at the worktree above.
+
+If \$(dirname \$0)/lib/portable.sh is missing or unreadable, that is the real
+bug — repair it rather than working around this message.
+EOF
+  exit 2
+fi
 
 # Allow: path is inside the worktree.
 case "$NORM_PATH" in

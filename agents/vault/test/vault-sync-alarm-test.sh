@@ -19,6 +19,11 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 VAULTDIR="$(dirname "$HERE")"
 SYNC="$VAULTDIR/vault-sync.sh"
+# The coreutils-flavour shim (dotfiles-5vz2). This suite forges file mtimes to
+# drive the staleness contract, and `touch -d '2 hours ago'` is GNU-only: on
+# BSD it errors and leaves the fixture at NOW, so every age-dependent assertion
+# silently tests the wrong thing.
+. "$VAULTDIR/../hooks/lib/portable.sh"
 
 # A FABRICATED, never-real AWS-key-shaped token: "AKIA" + exactly 16 [0-9A-Z].
 # Assembled at runtime so this file itself never contains a scannable literal.
@@ -88,11 +93,11 @@ GH
       # truncated line: valid-looking prefix, no closing brace -> unparseable JSON,
       # so scrub.py's safe_rewrite refuses to rewrite it and the gate blocks.
       printf '{"role":"user","text":"key is %s\n' "$FAKE_SECRET" > "$WT/-test-slug/t.jsonl"
-      touch -d '2 hours ago' "$WT/-test-slug/t.jsonl"
+      _p_touch_at "$(( $(date +%s) - 7200 ))" "$WT/-test-slug/t.jsonl"
       ;;
     redactable)
       printf '{"role":"user","text":"key is %s"}\n' "$FAKE_SECRET" > "$WT/-test-slug/t.jsonl"
-      touch -d '2 hours ago' "$WT/-test-slug/t.jsonl"
+      _p_touch_at "$(( $(date +%s) - 7200 ))" "$WT/-test-slug/t.jsonl"
       ;;
     live)
       printf '{"role":"user","text":"key is %s"}\n' "$FAKE_SECRET" > "$WT/-test-slug/t.jsonl"
@@ -158,10 +163,11 @@ remote_blob() {  # $1 = tier, $2 = path — echo the committed content on the RE
   git --git-dir="$SCRATCH/remotes/$1.git" show "main:$2" 2>/dev/null
 }
 
-stamp_age_set() {   # arg1: tier, arg2: `date -d` offset — forge stamp mtime + body
-  local f="$SCRATCH/home/.claude/vaults/.last-success-$1"
-  printf '%s\n' "$(date -u -d "$2" +%FT%TZ)" > "$f"
-  touch -d "$2" "$f"
+stamp_age_set() {   # arg1: tier, arg2: age in SECONDS — forge stamp mtime + body
+  local f="$SCRATCH/home/.claude/vaults/.last-success-$1" e
+  e=$(( $(date +%s) - $2 ))
+  printf '%s\n' "$(_p_iso_utc "$e")" > "$f"
+  _p_touch_at "$e" "$f"
 }
 
 # =========================================================================== #
@@ -231,11 +237,11 @@ build_scratch seeded
 run_sync                                        # first blocked run: no stamp yet
 [ "$RUN_RC" -eq 10 ] && ok "no-stamp-means-degraded-not-stale" \
                      || no "no-stamp-means-degraded-not-stale (rc=$RUN_RC)"
-stamp_age_set transcripts '1 hour ago'
+stamp_age_set transcripts 3600
 run_sync
 [ "$RUN_RC" -eq 10 ] && ok "1h-old-stamp-is-degraded-not-stale" \
                      || no "1h-old-stamp-is-degraded-not-stale (rc=$RUN_RC)"
-stamp_age_set transcripts '7 hours ago'
+stamp_age_set transcripts 25200
 run_sync
 [ "$RUN_RC" -eq 20 ] && ok "7h-old-stamp-escalates-to-STALE-20" \
                      || no "7h-old-stamp-escalates-to-STALE-20 (rc=$RUN_RC)"
@@ -327,7 +333,7 @@ build_scratch redactable
 run_sync
 BEFORE_N=$(redl_count)
 BEFORE_SUM=$(md5sum < "$SCRATCH/home/.claude/projects/-test-slug/t.jsonl")
-touch -d '2 hours ago' "$SCRATCH/home/.claude/projects/-test-slug/t.jsonl"
+_p_touch_at "$(( $(date +%s) - 7200 ))" "$SCRATCH/home/.claude/projects/-test-slug/t.jsonl"
 run_sync
 [ "$RUN_RC" -eq 0 ] && ok "second-run-exits-0" || no "second-run-exits-0 (rc=$RUN_RC)"
 [ "$(redl_count)" -eq "$BEFORE_N" ] \
@@ -373,7 +379,7 @@ printf '%s' "$RUN_OUT" | grep -q 'scrub=\[deferred-live=1\]' \
   || no "live-deferral-is-visible-in-the-verdict
 $RUN_OUT"
 # ...and once the session goes quiet, the very next fire cleans it up and pushes.
-touch -d '2 hours ago' "$SCRATCH/home/.claude/projects/-test-slug/t.jsonl"
+_p_touch_at "$(( $(date +%s) - 7200 ))" "$SCRATCH/home/.claude/projects/-test-slug/t.jsonl"
 run_sync
 [ "$RUN_RC" -eq 0 ] && ok "deferred-file-lands-on-the-next-fire" \
                     || no "deferred-file-lands-on-the-next-fire (rc=$RUN_RC)"
@@ -470,7 +476,7 @@ outcome_is_allowed "$T14_OUTCOME" \
 echo "--- T15: DEFERRED tier + STALE stamp still escalates (the backstop) --"
 build_scratch clean
 run_sync                                    # stamps written now...
-stamp_age_set transcripts '7 hours ago'     # ...then aged past STALE_HOURS
+stamp_age_set transcripts 25200     # ...then aged past STALE_HOURS
 hold_tier_lock transcripts
 run_sync
 release_tier_locks

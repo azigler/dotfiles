@@ -22,6 +22,14 @@
 # frequently an edit to the test alone, and a script-only trigger walks
 # straight past the highest-value failure mode.
 #
+# AND IT SAYS SO WHEN IT DOES NOT GATE (dotfiles-dijt). Suite selection is by
+# filename convention, so a suite named for something other than its subject is
+# invisible to it — and "no suite found" used to look exactly like "suite
+# passed". Two mechanisms now: an explicit `mapped_suites_for()` for the
+# off-name suites (a map entry pointing at a missing file BLOCKS — that is the
+# gate breaking, not the repo), and a banner, printed FIRST and repeated last,
+# naming every staged script that ran nothing.
+#
 # Everything here runs under BASH on purpose: `scrutiny_verdict_ok` ends in
 # `grep -qv` over possibly-empty input, which exits 0 under zsh and 1 under
 # bash — a zsh-run harness reports the no-verdict cases as ACCEPTED.
@@ -43,14 +51,86 @@ STAGED=$(git diff --cached --name-only --diff-filter=ACMR)
 FAILED=0
 
 SUITES=()
-NOTES=()
+UNCOVERED=()
+MAP_BROKEN=()
+CUR_FILE=""
+CUR_MAPPED=0
 
+_push_suite() {
+  local existing
+  for existing in ${SUITES+"${SUITES[@]}"}; do [ "$existing" = "$1" ] && return; done
+  SUITES+=("$1")
+}
+
+# Convention-derived (test-<n>.sh). A missing file here is a COVERAGE GAP in
+# the repo, not a bug in this hook — reported loudly, but it does not block.
 add_suite() {
   local s=$1
-  [ -f "$ROOT/$s" ] || { NOTES+=("no suite found: $s"); return; }
-  local existing
-  for existing in ${SUITES+"${SUITES[@]}"}; do [ "$existing" = "$s" ] && return; done
-  SUITES+=("$s")
+  if [ ! -f "$ROOT/$s" ]; then
+    [ "$CUR_MAPPED" -eq 1 ] || UNCOVERED+=("$CUR_FILE   (convention wanted $s)")
+    return
+  fi
+  _push_suite "$s"
+}
+
+# Explicit-map entry. A missing file here is a BUG IN THE GATE — someone
+# renamed or deleted a suite the map still names — so it BLOCKS. The gate is
+# the one thing in this repo that must not be allowed to degrade quietly.
+add_mapped_suite() {
+  local s=$1 f=$2
+  if [ ! -f "$ROOT/$s" ]; then
+    MAP_BROKEN+=("$f -> $s")
+    return
+  fi
+  _push_suite "$s"
+}
+
+# --- THE EXPLICIT SUITE MAP (dotfiles-dijt) -------------------------------
+# Name-derivation is the underlying fragility: a suite whose FILENAME does not
+# match its subject is invisible to the convention, and nothing said so. Live
+# instance — staging agents/hooks/session-start.sh derived
+# agents/hooks/test/test-session-start.sh, which has never existed, so every
+# edit to the fleet's session-start hook gated on NOTHING. Found 2026-08-01
+# while landing dotfiles-1rj5 in that exact file: the merge-driver suite had to
+# be run by hand and the commit went through ungated. A 2026-08-02 sweep of all
+# four gated dirs found six more subjects in the same shape.
+#
+# Entries are ADDITIVE to the convention below, so a script that has both a
+# test-<n>.sh and an off-name suite runs both.
+mapped_suites_for() { # <staged path> -> newline-separated suite paths
+  case "$1" in
+    agents/hooks/session-start.sh)
+      printf '%s\n' \
+        agents/hooks/test/test-session-start-merge-driver.sh \
+        agents/hooks/test/test-session-start-settings-symlink.sh \
+        agents/hooks/test/test-secret-alert.sh \
+        agents/hooks/test/test-always-loaded-staleness.sh ;;
+    agents/hooks/session-end.sh)
+      printf '%s\n' agents/hooks/test/test-secret-alert.sh ;;
+    agents/hooks/lib/always-loaded.sh|agents/hooks/stop-always-loaded-check.sh)
+      printf '%s\n' agents/hooks/test/test-always-loaded-staleness.sh ;;
+    agents/hooks/post-bash-beads-merge-check.sh)
+      printf '%s\n' agents/hooks/test/test-beads-merge-check.sh ;;
+    agents/hooks/pre-tool-use-require-isolation.sh)
+      printf '%s\n' agents/hooks/test/test-require-isolation.sh ;;
+    agents/hooks/pre-tool-use-worktree-guard.sh)
+      printf '%s\n' agents/hooks/test/test-worktree-guard.sh ;;
+    # lib/portable.sh HAS a test-portable.sh (the convention finds it), but its
+    # whole reason to exist is the four guards that depend on it. Naming the
+    # CONSUMERS alongside the producer is the point: an edit that makes
+    # _p_realpath return an empty string still passes the shim's own suite while
+    # turning the worktree guard into a fail-closed brick (dotfiles-5vz2).
+    agents/hooks/lib/portable.sh)
+      printf '%s\n' \
+        agents/hooks/test/test-worktree-guard.sh \
+        agents/hooks/test/test-stop-context-guard.sh \
+        agents/hooks/test/test-pre-shared-tree-guard.sh \
+        agents/hooks/test/test-always-loaded-staleness.sh ;;
+    # Not under agents/, so no convention arm below reaches it — and its bug was
+    # an ORDERING bug (dotfiles-v26x), the kind an unrun suite is written for.
+    mac.upgrade.sh)
+      printf '%s\n' agents/hooks/test/test-mac-upgrade-brew-order.sh ;;
+  esac
 }
 
 # --- map each staged script to the suite that covers it -------------------
@@ -59,6 +139,13 @@ add_suite() {
 # the script under agents/scheduler and agents/lib.
 while IFS= read -r f; do
   [ -z "$f" ] && continue
+  CUR_FILE=$f
+  CUR_MAPPED=0
+  while IFS= read -r m; do
+    [ -z "$m" ] && continue
+    CUR_MAPPED=1
+    add_mapped_suite "$m" "$f"
+  done <<< "$(mapped_suites_for "$f")"
   base=$(basename "$f"); base=${base%.sh}; base=${base%.py}
   case "$f" in
     # Handled by name in the SELFTEST / consumer block below — it is a matcher
@@ -98,6 +185,41 @@ fi
 if printf '%s\n' "$STAGED" | grep -qx 'agents/hooks/lib/scrutiny-verdict.sh'; then
   add_suite agents/hooks/test/test-pre-commit-checks.sh
   add_suite agents/hooks/test/test-pre-bead-close.sh
+fi
+
+# --- say what is NOT covered, BEFORE anything green scrolls past -----------
+# "No suite found" and "suite passed" used to be indistinguishable: the only
+# signal was a `note —` line printed AFTER every suite's output, worded "not a
+# block". A P1 hook fix went through this gate on 2026-08-02 with zero suites
+# run and nothing but two of those lines to show for it. A gate that cannot
+# tell you it did not gate is the same defect it exists to prevent, so this
+# goes FIRST, to stderr, and names the count.
+if [ ${#UNCOVERED[@]} -gt 0 ]; then
+  {
+    echo
+    echo "############################################################"
+    echo "# pre-commit: ${#UNCOVERED[@]} STAGED SCRIPT(S) HAVE NO TEST SUITE."
+    echo "# For these files this commit is gated on NOTHING:"
+    for u in "${UNCOVERED[@]}"; do echo "#   • $u"; done
+    echo "#"
+    echo "# If a suite for one of them EXISTS under a different name, add it"
+    echo "# to mapped_suites_for() in tools/githooks/pre-commit — that is the"
+    echo "# bug dotfiles-dijt was filed for. If none exists, this is a real"
+    echo "# coverage gap: verify by hand and say so in the commit message."
+    echo "############################################################"
+    echo
+  } >&2
+fi
+
+if [ ${#MAP_BROKEN[@]} -gt 0 ]; then
+  {
+    echo
+    echo "pre-commit: FAIL — the EXPLICIT SUITE MAP names ${#MAP_BROKEN[@]} file(s) that do not exist:"
+    for b in "${MAP_BROKEN[@]}"; do echo "    $b"; done
+    echo "  A suite was renamed or deleted and mapped_suites_for() was not updated."
+    echo "  This is a bug in the gate itself, so it blocks rather than warns."
+  } >&2
+  FAILED=1
 fi
 
 # --- run them -------------------------------------------------------------
@@ -166,9 +288,12 @@ if [ -n "$DOCS" ] && [ -f "$ROOT/agents/doclint/doc-example-lint.py" ]; then
   fi
 fi
 
-for n in ${NOTES+"${NOTES[@]}"}; do
-  echo "pre-commit: note — $n (staged script has no matching suite; coverage gap, not a block)"
-done
+# Repeat the coverage gap as the LAST line too — the banner above is printed
+# before ~90s of suite output on the slow path, and the last line of a hook is
+# the one the agent actually reads.
+if [ ${#UNCOVERED[@]} -gt 0 ]; then
+  echo "pre-commit: ⚠ ${#UNCOVERED[@]} staged script(s) ran NO suite (see the banner above). Not a block; not a pass either." >&2
+fi
 
 if [ "$FAILED" -ne 0 ]; then
   cat >&2 <<'EOF'

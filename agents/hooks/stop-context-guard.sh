@@ -28,8 +28,21 @@
 #
 # Always exits 0 on the no-op paths; exit 2 is the single deliberate
 # "keep going, offboard now" signal.
+#
+# ⚠️ THE FRESHNESS WINDOW NEEDS A REAL MTIME (dotfiles-5vz2). It used to read
+#   AGE=$(( $(date +%s) - $(stat -c %Y "$F" 2>/dev/null || echo 0) ))
+# and `stat -c` is GNU-only: on macOS every call failed, the suppression hid
+# the usage error, and `|| echo 0` made the offboard file ~56 years old. The
+# guard therefore NEVER released a freshly-offboarded session on a Mac — it
+# fired at the end of a turn that had just finished wrapping up. Now the mtime
+# comes from lib/portable.sh, which returns non-zero instead of a wrong number,
+# and an unreadable mtime FAILS CLOSED: no release, plus a line on stderr, so
+# the degradation cannot be silent a second time.
 
 INPUT=$(cat 2>/dev/null || echo '{}')
+
+_CG_LIB="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/portable.sh"
+[ -r "$_CG_LIB" ] && . "$_CG_LIB"
 
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
 [ -z "$SESSION_ID" ] && exit 0
@@ -57,8 +70,15 @@ CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 OFFBOARD_FILE="$CWD/.claude/last-offboard-session"
 if [ -n "$CWD" ] && [ -f "$OFFBOARD_FILE" ] \
    && grep -q "$SESSION_ID" "$OFFBOARD_FILE" 2>/dev/null; then
-  AGE=$(( $(date +%s) - $(stat -c %Y "$OFFBOARD_FILE" 2>/dev/null || echo 0) ))
-  [ "$AGE" -lt "${CONTEXT_GUARD_OFFBOARD_FRESH_SECS:-1800}" ] && exit 0
+  if OFFBOARD_MTIME=$(_p_mtime "$OFFBOARD_FILE"); then
+    AGE=$(( $(date +%s) - OFFBOARD_MTIME ))
+    [ "$AGE" -lt "${CONTEXT_GUARD_OFFBOARD_FRESH_SECS:-1800}" ] && exit 0
+  else
+    # FAIL CLOSED + ANNOUNCE. Without an mtime there is no freshness answer,
+    # and the release is the permissive branch — so we do not take it, and we
+    # say why rather than letting a broken mtime read look like a stale file.
+    echo "stop-context-guard: could not read the mtime of $OFFBOARD_FILE — treating the offboard as NOT fresh (see lib/portable.sh)." >&2
+  fi
 fi
 
 touch "$MARKER" 2>/dev/null
