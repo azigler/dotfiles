@@ -20,6 +20,11 @@ last-touched
 # generic `*.db-wal` glob above, so it needs an explicit entry (#271).
 .br_recovery/
 
+# fsqlite namespace sidecars (br >= 0.2.x). Machine-local binary state with the
+# same lifecycle as the DB, but the suffix `.db-fsqlite-ns-*` slips past the
+# generic `*.db` / `*.db-wal` globs above — same reason as `.truncated-wal`.
+*.db-fsqlite-ns-*
+
 # Sync state (local-only, per-machine)
 .sync.lock
 sync_base.jsonl
