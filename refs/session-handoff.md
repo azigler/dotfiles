@@ -1,162 +1,144 @@
-# Session handoff — 2026-08-01 (metis)
+# Session handoff — 2026-08-02 a2e33a21 (metis)
 
-Machine: **metis** (personal Mac). The note previously in this slot was written the
-same day from **zig** (work Mac) — same task shape, different box, and its warnings
-were load-bearing here. Recover it with `git show 976710f:refs/session-handoff.md`;
-the `core.hooksPath` item in it is the reason this session found a live gap.
+Machine: **metis** (personal Mac). Two arcs in one session: a 515-commit pull +
+binary upgrade, then a **macOS Tahoe** upgrade mid-session that invalidated the
+result and had to be redone.
 
 ## State at offboard
 
-- Branch: `main`, pushed and clean (`0 0` vs origin), last commit `2c70a59`
-- Open beads: **54**, in-progress 0. `dotfiles-v26x` created AND closed this session.
-  (The 7 shown by the session-start hook was a **pre-pull** snapshot — `.beads/` is
-  tracked, so the 515-commit fast-forward brought zig's board with it.)
+- Current branch: `main`, pushed and clean (`0 0` vs origin)
+- Last commit: `33f84bd` (merge of `9286bec` :wrench: borders: blacklist iPhone Mirroring)
+- Open beads: 55; in-progress: 0 (as of this offboard — run `br ready` for live state).
+  Created this session: `dotfiles-v26x` (closed), `dotfiles-66k6` (open)
 - In-flight subagents: none — one worktree merged, branch deleted, worktree removed
-- Dirty: `sketchybar/sketchybarrc` (modified) + `sketchybar/hooks/` (untracked) —
-  **deliberately left uncommitted**, see below
-- Markers: stale `.offboard-pending` (0 bytes, dated 2026-06-05) cleared
+- Dirty files: `sketchybar/sketchybarrc` (modified) + `sketchybar/hooks/` (untracked),
+  **deliberately uncommitted** — metis-local, Zig's call, matches the prior note
+- Markers: stale `.offboard-pending` (from 2026-06-05) cleared
 
 ## What happened this session
 
-Task: pull latest dotfiles onto metis, walk the conflicts, then upgrade the binaries.
+### 1. The pull — 515 commits, zero real conflicts
 
-### The pull — 515 commits, zero real conflicts
+metis was pinned at `3c1ab2f` (2026-06-05), **515 behind, 0 ahead** — a pure
+fast-forward. Five tracked files were dirty; **four were byte-identical to what zig
+had already committed** (the `~/.local/bin` PATH line ×3, a two-key reorder in
+`claude/settings.json`). Verified against `git show origin/main:<file>` before
+discarding. The only genuine local change was the sketchybar pair, which upstream has
+**0 commits** touching, so it survived untouched.
 
-metis was pinned at `3c1ab2f` (2026-06-05), **515 behind and 0 ahead**, so a pure
-fast-forward. Five tracked files were dirty. The useful finding: **four of the five were
-already upstream, byte-identical** — the `~/.local/bin` PATH line in `bash/.profile`,
-`zsh/.zprofile`, `zsh/.zshrc`, and a two-key reorder in `claude/settings.json`. zig had
-committed the same edits months earlier. Each was verified against
-`git show origin/main:<file>` *before* discarding, so nothing was lost.
+### 2. First upgrade — and a real defect (`dotfiles-v26x`, fixed)
 
-The only genuine local change was `sketchybar/sketchybarrc` (dynamic hook glob → curated
-`ts4`/`zig-computer`/`ss14` list) plus the untracked `sketchybar/hooks/` (5 scripts).
-Upstream has **0 commits** touching either path, so both survived untouched. Zig chose
-not to commit them — they stay metis-local, consistent with what the prior note already
-recorded about `sketchybar/hooks/`.
+`mac.upgrade.sh --trust-taps --casks`: 66 formulae + 3 casks.
 
-### The upgrade — `mac.upgrade.sh --trust-taps --casks`
+The script printed `✓ no untrusted taps blocking upgrades` and then, in the SAME run,
+brew printed `Skipping sketchybar / bv / yabai / borders: tap formula is not trusted`.
+`--trust-taps` found nothing to trust and silently no-opped. **Root cause:** the probe
+ran *before* `brew update`, reading stale tap metadata. Proof either side of the refresh:
 
-66 formulae + 3 casks. All four window-manager services came back healthy (rc=0). The
-final sweep — including third-party taps probed by **full name**, since bare
-`brew outdated` cannot be trusted here (`dotfiles-0fdc`) — shows nothing outdated.
-`sf-symbols` was completed by Zig by hand; it needs interactive sudo, which a
-non-interactive run cannot supply.
+    at probe time : brew outdated --verbose dicklesworthstone/tap/bv -> (empty)
+    after update  : ...                                              -> 0.16.4 < 0.18.0
 
-Three sections reported failure. **None were broken binaries:**
+Fixed by reorder (update → migrate → probe → trust → upgrade), verified independently on
+merged main: `update`(26) → `probe`(47) → `trust`(61) → `upgrade`(80), suite 20/20.
 
-1. **A real defect, now fixed — `dotfiles-v26x`.** See below.
-2. **`pnpm self-update`** failed on `/home/ubuntu/.local/share/pnpm`. **Not a dotfile
-   bug** — under `env -i zsh -l` the var is correctly unset. It is a stale `PNPM_HOME`
-   baked into the long-running tmux server's environment, inherited by every child.
-   Same reason the server was still tmux 3.6b. ⚠️ The first probe of this was **invalid**:
-   plain `zsh -l -c` inherits the parent's exported env and merely echoed the stale value
-   back. `env -i` is the correct probe — worth remembering, it nearly produced a
-   confident wrong diagnosis.
-3. **`sf-symbols`** needed interactive sudo, and `brew update` itself errored on a dead
-   `homebrew/cask-fonts` tap.
+The subagent also found **`tools/githooks/pre-commit` had no arm reaching
+`mac.upgrade.sh`** — the guard would have had no caller (the `dotfiles-dijt` failure
+mode). It added a `mapped_suites_for` entry. The new suite
+(`agents/hooks/test/test-mac-upgrade-brew-order.sh`, 20 cases) has a static layer, a
+runtime layer driving the script against a **stub `brew`**, and a mutant-dies check; it
+was **observed failing 9/20** against a reintroduced bug before being trusted.
 
-### Cleanups applied
+Cleanups: `brew untap homebrew/cask-fonts` (dead tap that was failing `brew update`),
+`brew uninstall bv` (brew's frozen 0.16.4; curl-installed 0.18.0 already won on PATH).
 
-- `brew untap homebrew/cask-fonts` — dead tap; `brew update` now exits 0 clean
-- `brew uninstall bv` — dropped brew's frozen 0.16.4. The curl-installed 0.18.0 at
-  `~/.local/bin/bv` already won on PATH; this is `mac.upgrade.sh`'s own documented
-  decision and makes `br`/`bv` agree with the pico + ubuntu boxes
-- **`git config core.hooksPath tools/githooks`** — see below
+### 3. `core.hooksPath` was UNSET on metis too
 
-## `core.hooksPath` was UNSET on metis too
+The prior handoff said to check it on any other machine. Checked — **unset here**, so
+`tools/githooks/pre-commit` had never gated a commit on this clone. Now set. Proven to
+fire, not assumed: staging an *unmodified* file exits 0 **silently** (nothing staged →
+nothing checked), which is not evidence. With a real staged diff it runs the suite.
 
-The prior handoff said: *"It is a per-clone setting; check it first on any other
-machine."* Checked — **unset here**. So `tools/githooks/pre-commit` had never gated a
-commit on this clone, and the guard added below would have had no caller on the very
-machine that found the bug.
+### 4. Then Zig upgraded to macOS Tahoe — which invalidated all of the above
 
-Now set. Proven to fire, not assumed: staging an unmodified file exits 0 **silently**
-(nothing staged → nothing checked), which is *not* evidence. With a real staged diff:
+Every Homebrew bottle is per-OS, but versions are identical, so **`brew outdated` sees
+nothing**. Post-Tahoe measurement: 154 kegs built on macOS 14.x or older, **0 on macOS
+26**. Filed as **`dotfiles-66k6`**.
 
-```
-pre-commit: running agents/hooks/test/test-mac-upgrade-brew-order.sh
-PASS: 20/20 sec_brew() ordering cases
-```
+Remediation, in the order that actually works:
 
-Note this is local git config, so it is **not** carried by a pull. Any further clone —
-including a fresh one on this box — needs it again. CLAUDE.md rule 1 documents it.
+1. **CLT first.** `brew doctor` flagged CLT 16.2 as too outdated (Tahoe wants Xcode 26.3).
+   Zig reinstalled → **CLT 26.6.0.0, clang 21.0.0**, and `xcode-select` auto-switched to
+   `/Library/Developer/CommandLineTools`.
+2. **A reinstall attempted while CLT was absent poured 0 bottles** and aborted on
+   `python@3.11: the bottle needs the Xcode Command Line Tools`. It looked like it ran.
+3. After CLT landed: **147 formulae, 147 `arm64_tahoe`, 0 sonoma, 0 errors.** Kegs on
+   macOS 26 went 0 → 148. `ruby` now reports `arm64-darwin25`.
 
-## The fix (`dotfiles-v26x`, merged `6e7db80`, pushed in `2c70a59`)
+Deliberately excluded: `yabai`/`skhd`/`sketchybar`/`borders` (third-party taps, already
+current, working WM stack), `icu4c@75` (disabled upstream — aborts the batch if included),
+`openssl@1.1` (no formula), `ranger`/`ca-certificates` (noarch).
 
-**Symptom:** the script printed `✓ no untrusted taps blocking upgrades` and then, in the
-same run, brew printed `Skipping sketchybar / bv / yabai / borders: tap formula is not
-trusted`. `--trust-taps` was passed, found nothing to trust, and silently no-opped —
-the exact silent-no-op class the script's own header was written to prevent.
+### 5. borders vs. the new "iPhone Mirroring" app
 
-**Root cause:** the untrusted-tap probe ran *before* `brew update`, reading stale tap
-metadata. Proof, same formula either side of the refresh:
+Zig blacklisted it in `bordersrc` but wasn't sure the service restarted. It hadn't:
 
-```
-at probe time : brew outdated --verbose dicklesworthstone/tap/bv -> (empty)
-after update  : ...                                              -> 0.16.4 < 0.18.0
-```
+    borders PID 4011 started  09:43:33
+    bordersrc edited          10:39:48
 
-**Fix:** reorder to update → migrate → probe → trust → upgrade. Verified independently
-on merged main (not taken on the subagent's word): `update`(26) → `probe`(47) →
-`trust`(61) → `upgrade`(80), suite 20/20.
+The daemon predated the edit by 56 minutes and only reads the config **at startup**.
+Restarted with `launchctl kickstart -k gui/$(id -u)/homebrew.mxcl.borders` → new PID at
+10:46:49. Zig confirmed visually. The config string was correct all along —
+`CFBundleName` is exactly `iPhone Mirroring`. Committed as `9286bec`.
 
-The subagent also found something the bead missed: **`tools/githooks/pre-commit` had no
-arm reaching `mac.upgrade.sh`**, so a new guard there would have had no caller — the same
-failure mode as `dotfiles-dijt`. It added a `mapped_suites_for` entry.
+## Decisions made this session (autonomous decide-and-proceed calls)
 
-`agents/hooks/test/test-mac-upgrade-brew-order.sh` — 20 cases in three layers: static
-anchor-ordering; a runtime layer driving the script against a **stub `brew`** that
-reproduces the measured staleness; and a mutant-dies check. The guard was **observed
-failing** (9/20) against a deliberately reintroduced bug, reproducing the original
-symptom end to end. A guard never seen to fail is not a guard.
+None filed as `-t decision` beads — harvest receipt: `0 … (19 scanned, open+closed)`, a
+genuine zero. Two judgment calls worth noting narratively:
 
-Nuances worth keeping:
+- **Scoped the Tahoe reinstall to core formulae**, excluding the four third-party-tap
+  formulae. They were already at current versions, sit behind untrusted taps, and are the
+  live window-manager stack — churn with no bottle benefit. Recorded in `dotfiles-66k6`.
+- **Used `git checkout` on four dirty files** to take upstream. CLAUDE.md warns against
+  that verb for unblocking pulls; the rule guards shared trees with a second writer. Here
+  they were metis-local edits, on a personal box with no second writer, each verified
+  byte-identical to upstream *first*. Called out to Zig at the time rather than done quietly.
 
-- Both detection branches are stale-sensitive but fail *differently*. The
-  `trust|No available formula` branch fires off **error text**, which is
-  metadata-independent, so a tap whose formulae fail to load is caught either way. The
-  branch that genuinely goes silent under stale metadata is the second one (the `bv`
-  case). Blast radius is taps whose formulae still load — which is why `--dry-run` on
-  this box reports one tap rather than four.
-- **`--dry-run` cannot exercise the fix's happy path.** `run brew update` is withheld, so
-  the probe still sees the pre-run index. Dry run proves ordering and inertness only; the
-  stub-driven suite is what proves behavior. Do not read a green `--dry-run` as evidence.
-- `shellcheck` is not installed on this box, so that check did not run.
+## Proposed practices — where each one landed (Step 2.6)
 
-Related and still open: **`dotfiles-0fdc`** (bare `brew outdated` returns rc=0 while
-formulae from an *untapped* tap are invisible). Distinct from `v26x` — that one is about
-taps being absent, this one about metadata being stale. They compose badly: either alone
-makes a clean `brew outdated` untrustworthy.
+- Post-macOS-major-upgrade bottle staleness + the CLT-first ordering →
+  **filed as `dotfiles-66k6`** (with acceptance criteria and a regression guard).
+- `/offboard`'s GNU-only `stat -c %Y` / `date -d` decision-harvest snippet →
+  **already owned by `dotfiles-2ap6`**, which names `{offboard,pulse,desk}/SKILL.md` and
+  quotes this exact line. Hit live again here; confirming evidence, no new bead.
+- `core.hooksPath` per-clone check → **already CLAUDE.md rule 1**; applied to metis, no
+  doc change needed.
 
 ## What's next
 
-- **tmux server restart.** Zig elected to `tmux kill-server` to adopt 3.7b (binary 3.7b,
-  server 3.6b) and clear the stale `PNPM_HOME`. Deferred to the very end of the session
-  because it ends every window, including the one this session ran in. If it did not
-  happen, it is **not urgent** — `dotfiles-3iyn` records the measurement that a 3.7b
-  client attaches to a 3.6x server fine. After a restart, `pnpm self-update` should
-  succeed; it is also simply unnecessary, since pnpm 10.28.1 at `~/Library/pnpm/pnpm`
-  is not brew-managed and works.
-- **`sketchybar/sketchybarrc` + `hooks/` remain uncommitted by choice.** If they should
-  reach the other machines they need a commit; until then, dirty state here is expected
-  and is not something to "clean up".
-- `brew update` still emits `gh auth git-credential get: gh: command not found` during a
-  private-tap credential fetch — brew sanitizes PATH, so the bare `gh` credential helper
-  (from `3c1ab2f`) is not found. Harmless for public taps; unresolved, not filed.
-- 54 open beads, none touched this session. metis's own local-models arc (`ukx.6`, `ukx`,
-  `cl8`, `ukx.10`, `5e2`, `st2`, `406`) plus zig's board, which arrived with the pull.
-  Nothing in this session blocks any of them. Worth a `/triage` pass now that two
-  machines' boards are merged into one view.
+1. **`dotfiles-66k6`** — teach `mac.upgrade.sh` to detect an OS-major/bottle mismatch and
+   to gate on CLT before any reinstall. This session had to do all of it by hand.
+2. **`tmux kill-server`** whenever convenient — binary 3.7b, server still 3.6b. Also
+   clears the stale `PNPM_HOME=/home/ubuntu/...` that this server's env carries.
+3. **Xcode 16.2** at `/Applications/Xcode.app` is pre-Tahoe and is now `brew doctor`'s only
+   substantive complaint. Harmless while `xcode-select` points at the CLT; update via App
+   Store or delete the app if unused.
 
 ## Warnings / watch-outs
 
-- **`env -i` when probing whether a dotfile fix took.** A plain login shell inherits the
-  caller's exported environment and will happily confirm your bug still exists when it
-  does not, or vice versa. This session nearly mis-filed the pnpm failure as a dotfile
-  defect on exactly that mistake.
-- **A gate that exits 0 with no output has not run.** Staging an unmodified file produces
-  a clean, silent, meaningless pass. Force a real staged diff before believing a hook.
-- **`core.hooksPath` is per-clone and invisible to `git pull`.** Two machines have now
-  been found with it unset. Check it on any box before trusting that commit-time
-  guards ran there.
+- **A clean brew report is not evidence of currency — three distinct ways now.**
+  `dotfiles-0fdc` (untapped taps invisible), `dotfiles-v26x` (probe before `brew update`),
+  `dotfiles-66k6` (OS-major bottle staleness, versions identical). Always cross-check by
+  full formula name and by `built_on.os_version`.
+- **`env -i` when probing whether a dotfile fix took.** A plain `zsh -l` inherits the
+  caller's exported environment; it confirmed a "bug" that did not exist. That is how the
+  pnpm failure was nearly mis-filed as a dotfile defect (it is a stale tmux-server env).
+- **A gate that exits 0 with no output has not run.** Staging an unmodified file gives a
+  clean, silent, meaningless pass.
+- **`ps` is aliased to `ps auxf` in this shell**, so `ps -o pid,lstart -p N` dies with
+  `illegal option -- f`. Use `/bin/ps` for scripted process queries.
+- **`brew services` was NOT used to restart borders** — `launchctl kickstart -k` was, on
+  the theory that `brew services` is blinded by the untrusted tap. That theory is
+  **unverified**; kickstart was simply the robust path. Do not cite it as measured.
+- `brew update` still emits `gh auth git-credential get: gh: command not found` on a
+  private-tap credential fetch (brew sanitizes PATH, so the bare `gh` helper from `3c1ab2f`
+  is not found). Harmless for public taps; unresolved, not filed.
