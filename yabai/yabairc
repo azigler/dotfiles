@@ -61,6 +61,9 @@ apps_full_opacity=(
     "The Sims 4"
 )
 
+yabai -m rule --add app="^licecap$" manage=off
+yabai -m rule --add app="^Screen Studio$" manage=off
+
 for app in "${apps_full_opacity[@]}"; do
     yabai -m rule --add app="$app" opacity=1.0
 done

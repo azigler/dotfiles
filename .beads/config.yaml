@@ -1,4 +1,7 @@
 # Beads Project Configuration
-# issue_prefix: dotfiles
+# issue_prefix must stay UNCOMMENTED. Commented out, br falls back to its default
+# `bd-` prefix and a fresh clone silently mints bd-* ids alongside the dotfiles-*
+# ones (hit 2026-08-01, one stray bead).
+issue_prefix: dotfiles
 # default_priority: 2
 # default_type: task
