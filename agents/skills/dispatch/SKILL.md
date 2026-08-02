@@ -254,10 +254,21 @@ if [[ "$CURRENT_TOPLEVEL" != "$TARGET_REPO"* ]]; then
   cd "$TARGET_REPO"
   git worktree add "$WT" -b "worktree-agent-$(basename "$CURRENT_TOPLEVEL")"
   cd "$WT"
-  rm -rf .beads && ln -s "$TARGET_REPO/.beads" .beads
+  # Refuse to touch .beads unless we are provably inside the FRESH worktree.
+  [ "$(git rev-parse --show-toplevel)" = "$WT" ] || { echo "ABORT: not in $WT"; exit 1; }
+  # -T is load-bearing: without it, `ln -s TARGET .beads` onto an existing
+  # .beads DIRECTORY silently nests .beads/.beads -> .beads (an ELOOP that
+  # 500s dev servers and flakes test gates). -T makes ln fail instead.
+  rm -rf "$WT/.beads" && ln -sfT "$TARGET_REPO/.beads" "$WT/.beads"
 fi
 # All subsequent work happens here.
 ```
+
+The three guards are the fix for `bd-8uqr` (a `.beads/.beads` loop that sat
+unnoticed for two weeks): the `rev-parse` assert makes the block a no-op
+outside the fresh worktree, the absolute `"$WT/..."` paths keep `rm -rf` from
+ever reaching a live bead store, and `-T` stops the nested symlink.
+`session-start.sh` heals the loop if one is created some other way.
 
 The orchestrator's post-merge step then runs from `$TARGET_REPO`, not
 its own anchor, and may need `git cherry-pick` instead of `git merge`

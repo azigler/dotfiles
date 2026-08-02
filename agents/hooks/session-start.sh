@@ -270,6 +270,41 @@ if command -v br &>/dev/null; then
     fi
   fi
 
+  # Self-referential .beads/.beads loop: detect + heal (dotfiles bd-8uqr).
+  # `ln -s "$repo/.beads" .beads` run from a repo ROOT instead of a fresh
+  # worktree nests the link INSIDE the store as .beads/.beads -> .beads.
+  # Symlink-following tree walkers then hit ELOOP: one sat in andrewzigler3
+  # from 2026-07-17 to 2026-08-02, 500-ing the dev server's font route and
+  # flaking a Playwright spec, while handoff notes wrote it off as "the usual
+  # symlink artifact". Nothing looked for it, so nothing found it.
+  #
+  # PREDICATE — deliberately narrow. We act ONLY on a path literally named
+  # .beads/.beads that IS a symlink AND resolves to its own parent. A
+  # worktree's LEGITIMATE .beads symlink is named `.beads` (one level up) and
+  # points at the MAIN repo's store, so it can never match — deleting those
+  # would break bead sharing on every worktree on the machine, far worse than
+  # the bug. Anything else at that path (a real dir, a link elsewhere) is
+  # reported, never touched, and removal is plain `rm` on the LINK — never
+  # `rm -rf`, so a live bead store is unreachable from here.
+  #
+  # Runs AFTER the worktree symlink step above on purpose: in a worktree
+  # `.beads` then resolves to the main repo's store, so a subagent session
+  # heals the main checkout too. Sits under `command -v br` because a repo
+  # with a .beads/ store is by definition a repo where br is in use.
+  if [ -L ".beads/.beads" ]; then
+    _loop_tgt=$(readlink -f ".beads/.beads")
+    _loop_par=$(readlink -f ".beads")
+    if [ -n "$_loop_tgt" ] && [ "$_loop_tgt" = "$_loop_par" ]; then
+      rm ".beads/.beads"
+      echo "⚠ Removed self-referential .beads/.beads -> $_loop_par (ELOOP source, dotfiles bd-8uqr)"
+      echo "BEADS LOOP HEALED: .beads/.beads -> $_loop_par" >> "$LOG"
+    else
+      echo "⚠ .beads/.beads is a symlink to $_loop_tgt — not self-referential, so left in place. Inspect it."
+      echo "BEADS LOOP FOREIGN: .beads/.beads -> $_loop_tgt" >> "$LOG"
+    fi
+    unset _loop_tgt _loop_par
+  fi
+
   # JSONL merge protection for worktree merges (lin-eqh fix, 2026-06-10).
   # Two layers, BOTH set here because git config never travels with a clone:
   #   1. git config: merge.jsonl-union.driver -> ~/.claude/hooks/merge-jsonl.sh
