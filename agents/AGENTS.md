@@ -208,8 +208,51 @@ So when the work is in another repo: dispatch them **one at a time**; tell the a
 its worktree is incidental and to `cd` to the real repo; and have it stage precisely
 (never `git add -A`), since that checkout may hold another session's WIP.
 
-The merge / bead-close / worktree-cleanup sequence after a subagent finishes, with
-all of its guards, lives in **`/orchestrator`** — run it, don't retype it.
+### The merge / bead-close / worktree-cleanup sequence
+
+**This block is the single owner.** `/orchestrator` points here for it and adds only
+its own precondition (a MANDATORY standalone `cd` to the project root first — a
+compound `cd && …` does not fix the drift it exists to prevent).
+
+*Restored 2026-08-02: this section said "lives in `/orchestrator`" while
+`/orchestrator` said "single owner: AGENTS.md, Delegation". **They pointed at each
+other and neither held the steps** — a single-owner refactor applied in both
+directions deletes the content. Recovered from a live run; do not re-replace it
+with a pointer.*
+
+```bash
+cd /home/ubuntu/<project>        # standalone, its own call. /orchestrator step 0.
+```
+```bash
+TARGET=main
+CUR=$(git rev-parse --abbrev-ref HEAD)
+[ "$CUR" = "$TARGET" ] || { echo "ABORT: on '$CUR', expected '$TARGET'"; exit 1; }
+BEFORE=$(git rev-parse HEAD)
+
+git merge --no-edit worktree-agent-<id>
+
+AFTER=$(git rev-parse HEAD)
+[ "$BEFORE" != "$AFTER" ] || { echo "ABORT: SHA did not move — merge silently no-oped"; exit 1; }
+git merge-base --is-ancestor <agent-sha> HEAD || { echo "ABORT: agent commit not an ancestor"; exit 1; }
+```
+
+The two post-merge assertions are the point. **"Already up to date" is a SUCCESS
+exit code for a merge that did nothing** — cwd drift into the agent's own branch,
+or an agent that committed nothing, both land there silently.
+
+Then, in order: **run the project's suites on `$TARGET`** (not in the worktree — a
+green worktree proves nothing about the merge result) → `br close <id>` with a
+reason that cites the evidence → commit `.beads/issues.jsonl` → push → cleanup:
+
+```bash
+git worktree remove --force --force /home/ubuntu/<project>/.claude/worktrees/agent-<id>
+git branch -D worktree-agent-<id>
+git worktree list          # verify OTHER agents' worktrees survived
+```
+
+With several agents in flight, name the path explicitly and re-check
+`git worktree list` after — a broad cleanup kills a running agent's tree.
+
 `session-start.sh` already symlinks `.beads/` into worktrees and runs `direnv allow`;
 no setup needed.
 
