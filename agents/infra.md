@@ -107,6 +107,41 @@ expansion is **verified working** (goose key → HTTP 200 on `15003/v1/models`; 
 `x-api-key`** — an `x-api-key` probe 401s and looks like a config failure.
 ⚠️ `~/gojamming/config.json` still holds a plaintext token and is **not** a `~/.secrets` pointer.
 
+### Request attribution — `user` is the SESSION, `group` is the MACHINE
+Verified live 2026-08-03 (`dotfiles-ogkz`). `config.standardAttributes` maps two request
+headers into two columns of `~/.local/share/agentgateway/requests.db`:
+
+| header (sent by `claude-identity-wrapper.sh`) | CEL → column | value |
+|---|---|---|
+| `X-Session-Identity` | `user` → `agentgateway_user` | `<tmux session>:<window>` |
+| `X-Machine-Origin` | `group` → `agentgateway_group` | `hostname -s` |
+
+⚠️ **`agentgateway_user` is NOT a machine name**, however much `zig-computer:hevyd` looks
+like one — the first field is the tmux SESSION. zig-computer and marketing-vps both run a
+session called `work`, and metis shares the namespace, so ≥3 machines collide there. That
+is why `group` exists. `src.addr` cannot substitute: tunnelled traffic arrives as
+zig-computer's tailnet IP.
+
+⚠️ **The identity is NOT in `attributes_json`** — 0 of 78,848 rows ever matched
+`%session-identity%`. It is a COLUMN, via the CEL expression. Query
+`agentgateway_user` / `agentgateway_group`, and filter the admin API through
+`filters.attributes` (`agentgateway.group`), verified with a positive and negative control.
+
+A client whose wrapper predates the machine header logs `group='unknown'` (the CEL
+default), which is indistinguishable from a client that never sent one.
+
+⚠️ **`config:` applies ONLY AT STARTUP** — agentgateway hot-reloads `modelCatalog` and
+nothing else, so any `standardAttributes` change needs
+`launchctl kickstart -k gui/501/com.zig.agentgateway` (≈10 s, `KeepAlive` recovers it) and
+drops every in-flight fleet request. Validate first: `agentgateway --validate-only -f <cfg>`
+exits non-zero on bad CEL and names the offending field — pair it with a deliberately
+broken control, since a validator you have not watched reject anything proves nothing.
+
+⚠️ **The gateway's healthy signature on `/claude/v1/models` is `401`, not `200`** — it is a
+transparent passthrough with no key attached, so 401 means the request reached Anthropic.
+`/claude/` and `/v1/models` both 404 (the route matches `pathPrefix: /claude` and rewrites
+to `/`), so a probe that omits the prefix reads as broken when it is fine.
+
 ### Gotchas
 - **pico cannot run Claude Code** — no `claude` CLI. `~/.claude/*` symlinks into `~/dotfiles`
   exist but are inert, and that clone is pinned at **2026-06-05** with 8 staged modifications and
