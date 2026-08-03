@@ -47,13 +47,24 @@ cat > "$STUB/ssh" <<'STUBEOF'
 #!/bin/bash
 # shellcheck disable=SC1090
 [ -n "${STUB_KNOBS:-}" ] && [ -f "$STUB_KNOBS" ] && . "$STUB_KNOBS"
-args=("$@"); last="${args[${#args[@]}-1]}"
+args=("$@"); last="${args[${#args[@]}-1]}"; raw_last="$last"
 # rsh() ships the remote command through `printf %q`, so spaces arrive as "\ ".
 # Strip backslashes before matching AND before logging — the real ssh never sees
 # these patterns, and a caller grepping the log for `foo down` should not have to
 # know that the escaping put a backslash between the two words.
+# `raw_last` keeps the UNSTRIPPED word, because one branch below does not want to
+# pattern-match the command, it wants to RUN it (see list-windows).
 [ -n "${SSH_LOG:-}" ] && printf '%s\n' "${*//\\/}" >> "$SSH_LOG"
 last="${last//\\/}"
+# The knob that used to answer for the whole window lookup with a precomputed id.
+# It is gone (dotfiles-dajp) — the stub now runs the real awk over synthetic
+# list-windows lines, so the knob is WIN_LINES and its VALUE means something
+# different. A stale `WIN_LIST=` would otherwise be a silent no-op that reads as
+# "no window found", i.e. a case quietly asserting something else than it says.
+if [ -n "${WIN_LIST-}" ]; then
+  printf 'ssh stub: WIN_LIST is retired; use WIN_LINES with full "<@id> <name>" lines\n' >&2
+  exit 3
+fi
 # nth <count-file> — how many times this stub has been asked for a given thing.
 # Some cases need a DIFFERENT answer on the retry than on the first try (the
 # reclaim-and-retry path, and A3's self-heal), and the two calls are otherwise
@@ -92,7 +103,34 @@ case "$last" in
   *"rev-parse HEAD"*)         printf '%s\n' "${REMOTE_VAULT_HEAD:-deadbeefdeadbeef}"; exit 0 ;;
   *"br sync --import-only"*)  exit "${REMOTE_IMPORT_RC:-0}" ;;
   *"br sync --status --json"*) printf '%s\n' "${REMOTE_BEAD_JSON-{\"jsonl_content_hash\":\"BEADSHA\",\"jsonl_newer\":false\}}"; exit 0 ;;
-  *"list-windows"*)           printf '%s\n' "${WIN_LIST-}"; exit 0 ;;   # empty => window absent
+  # ── THE WINDOW LOOKUP IS EXECUTED, NOT ANSWERED (dotfiles-dajp) ──────────
+  # Every other branch here returns a canned answer. This one must not: the
+  # remote command is `tmux list-windows … | awk …`, and that awk is the
+  # LEXICON-STRIPPING MATCHER — the fix for a real leak (a glyph-prefixed
+  # `✅ weekly-report` failing to match the row `weekly-report`, so every
+  # dispatch created ANOTHER window on a box five people share). Answering with
+  # a precomputed id left it with zero coverage.
+  #
+  # So: run the bytes the dispatcher actually sent, against a synthetic tmux.
+  # There is deliberately NO COPY of the awk program in this file — a copy is
+  # the two-copies defect, and it would drift silently while both sides stayed
+  # green. What runs here is the production text, transported through the same
+  # `printf %q` round-trip, so a change to the matcher (or to its ssh quoting,
+  # which is the fragile part) is felt here immediately.
+  #
+  # rsh() sends exactly one word: `bash -lc <%q-quoted command>`. Re-running it
+  # as `bash -c <same word>` is what the remote shell would do, minus the login
+  # profile — which we skip on purpose, since a login shell would reset PATH and
+  # find the real tmux instead of the fake one.
+  *"list-windows"*)
+    _rest=${raw_last#bash -lc }
+    if [ "$_rest" = "$raw_last" ]; then
+      printf 'ssh stub: remote command is no longer `bash -lc <cmd>` (rsh changed?): %s\n' "$raw_last" >&2
+      exit 3
+    fi
+    ( PATH="${REMOTE_BIN:?ssh stub: REMOTE_BIN unset — no fake tmux to run against}:$PATH"
+      eval "bash -c $_rest" )
+    exit 0 ;;
   *"new-window"*)             printf '%s\n' "${NEW_WIN_ID:-@7}"; exit 0 ;;
   # The box answers whether the tmux SESSION already existed. `existed` by default
   # (the steady state); `created` is how a case says "this run made the session,
@@ -111,6 +149,37 @@ esac
 exit 0
 STUBEOF
 chmod +x "$STUB/ssh"
+
+# ---------------------------------------------------------------------------
+# The synthetic `tmux` that the ssh stub's list-windows branch runs against.
+# It lives in its OWN directory, never on the dispatcher's PATH — only the ssh
+# stub prepends it, and only for that one branch. Otherwise the local half of
+# the dispatcher would start talking to it too.
+#
+# It emits $WIN_LINES verbatim: the knob is now realistic `#{window_id}
+# #{window_name}` output, exactly what the box would print, glyphs and all.
+# The format guard matters — if the dispatcher ever changes its `-F`, the
+# synthetic lines would no longer be the shape the awk parses, and the suite
+# would keep passing against a shape production had abandoned. Refuse instead.
+# ---------------------------------------------------------------------------
+REMOTE_BIN="$ROOT/remotebin"; mkdir -p "$REMOTE_BIN"; export REMOTE_BIN
+cat > "$REMOTE_BIN/tmux" <<'TMUXEOF'
+#!/bin/bash
+# shellcheck disable=SC1090
+[ -n "${STUB_KNOBS:-}" ] && [ -f "$STUB_KNOBS" ] && . "$STUB_KNOBS"
+case "${1:-}" in
+  list-windows) ;;
+  *) printf 'fake tmux: only list-windows is implemented, got: %s\n' "$*" >&2; exit 9 ;;
+esac
+case "$*" in
+  *"-F #{window_id} #{window_name}"*) ;;
+  *) printf 'fake tmux: list-windows -F changed in the dispatcher (%s) — WIN_LINES no longer models it\n' "$*" >&2
+     exit 9 ;;
+esac
+[ -n "${WIN_LINES-}" ] && printf '%s\n' "$WIN_LINES"
+exit 0
+TMUXEOF
+chmod +x "$REMOTE_BIN/tmux"
 
 # pulse-inject stub: records the injected cmd, returns a settable verdict.
 cat > "$STUB/inject" <<'INJEOF'
@@ -151,7 +220,13 @@ cat > "$PROJ/refs/pulse.md" <<'EOF'
 |---|---|---|---|---|---|
 | 1 | di-friday | time: Fri | `true` | do the thing | 1/week |
 | 2 | di-tuesday | time: Tue | `true` | do the other thing | 1/week |
+| 3 | di-mon | time: Mon | `true` | prefix-collision fixture | 1/week |
+| 3 | di-monday | time: Mon | `true` | the row di-mon is a prefix of | 1/week |
 EOF
+# ⚠️ `di-mon` and `di-monday` are NOT filler. One row name being a strict prefix of
+# another is the shape that a substring matcher gets wrong and an equality matcher
+# gets right, and the remote window lookup is an equality matcher — see the
+# lexicon-glyph section near the end of this file. Do not "tidy" them away.
 : > "$PROJ/refs/pulse-ledger.jsonl"
 git init -q -b main "$PROJ" && git -C "$PROJ" add -A && git -C "$PROJ" commit -qm fixture
 
@@ -980,7 +1055,7 @@ if grep -q "di-tuesday" "$ROOT/ssh.log"
   else ok "a different row targets a different window"; fi
 # An EXISTING window must be reused, not duplicated — otherwise a weekly row grows
 # a new window every week and --fresh clears the wrong one.
-: > "$ROOT/ssh.log"; WIN_LIST='@4 di-tuesday' run_row di-tuesday
+: > "$ROOT/ssh.log"; WIN_LINES='@4 di-tuesday' run_row di-tuesday
 if grep -q "new-window" "$ROOT/ssh.log"
   then bad "an existing window is REUSED, not recreated" "created a second di-tuesday window"
   else ok "an existing window is REUSED, not recreated"; fi
@@ -1497,7 +1572,7 @@ DRW=('PANE_CMD=claude' "REMOTE_MEM_SHA=$MEMSHA" "REMOTE_BEAD_JSON=$BEADJSON")
 
 # (1) CREATED -> removed again, targeted by the id captured at creation.
 : > "$ROOT/ssh.log"
-OUT=$(run_dry "${DRW[@]}" 'WIN_LIST=' 'NEW_WIN_ID=@7')
+OUT=$(run_dry "${DRW[@]}" 'WIN_LINES=' 'NEW_WIN_ID=@7')
 check_verdict "a dry run with no pre-existing window still reaches dry-run-ok" "$OUT" dry-run-ok
 if grep -q 'new-window' "$ROOT/ssh.log"
 then ok "precondition: the dry run really did create a remote window"
@@ -1509,13 +1584,12 @@ case "$OUT" in *"CREATED by this dry run, and REMOVED again"*) ok "the removal i
   *) bad "the removal is announced" "no created-and-removed line in the output" ;; esac
 
 # (2) ★ THE ONE THAT MATTERS. PRE-EXISTING -> not created, and NEVER killed.
-#     WIN_LIST is the id ALONE, not a `<id> <name>` line: the stub answers for the
-#     whole remote lookup (list-windows piped through the lexicon-stripping awk),
-#     not for tmux, so its output is that pipeline's RESULT. Which also means this
-#     suite cannot exercise the glyph-stripping matcher itself — that lives in the
-#     awk the stub never runs.
+#     WIN_LINES is what tmux would PRINT — `<@id> <name>` lines — and the real
+#     matcher awk runs over it inside the stub (dotfiles-dajp), so "the window
+#     was found" here is the production lookup answering, not a canned id. The
+#     matcher's own behaviour gets its own section further down.
 : > "$ROOT/ssh.log"
-OUT=$(run_dry "${DRW[@]}" 'WIN_LIST=@4')
+OUT=$(run_dry "${DRW[@]}" 'WIN_LINES=@4 di-friday')
 check_verdict "a dry run that FINDS the window still reaches dry-run-ok" "$OUT" dry-run-ok
 if grep -q 'new-window' "$ROOT/ssh.log"
 then bad "precondition: an existing window is adopted" "the run created a SECOND window instead of finding the existing one"
@@ -1529,7 +1603,7 @@ case "$OUT" in *"PRE-EXISTING, left untouched"*) ok "the dry run says out loud t
 # (3) A REAL DISPATCH KEEPS ITS WINDOW. The tick is about to run in it; a cleanup
 #     that fired here would kill the pane mid-tick.
 : > "$ROOT/ssh.log"
-OUT=$(SSH_LOG="$ROOT/ssh.log" run_live "${BASE[@]}" 'WIN_LIST=' 'NEW_WIN_ID=@9' \
+OUT=$(SSH_LOG="$ROOT/ssh.log" run_live "${BASE[@]}" 'WIN_LINES=' 'NEW_WIN_ID=@9' \
       'RESULT_JSON={"row":"di-friday","outcome":"done","note":"n","proof":{"kind":"cmd","cmd":"true"}}')
 check_verdict "a live dispatch that created its window completes" "$OUT" completed
 if grep -q 'new-window' "$ROOT/ssh.log"
@@ -1543,7 +1617,7 @@ else ok "a non-dry dispatch never removes its window"; fi
 #     Both post-creation assertions are exercised: A7 (with a warm pane) and A4's
 #     in-pane probe (with a cold one).
 : > "$ROOT/ssh.log"
-OUT=$(run_dry "${DRW[@]}" 'WIN_LIST=' 'NEW_WIN_ID=@11' 'A7_BODY=connect: connection refused')
+OUT=$(run_dry "${DRW[@]}" 'WIN_LINES=' 'NEW_WIN_ID=@11' 'A7_BODY=connect: connection refused')
 check_verdict "A7 fails after the window exists -> failed-no-claude" "$OUT" failed-no-claude
 if grep -q "kill-window -t '@11'" "$ROOT/ssh.log"
 then ok "a dry run that DIES at A7 still removes the window it created"
@@ -1551,7 +1625,7 @@ else bad "cleanup on the A7 failure path" "the window leaked when the run failed
 
 : > "$ROOT/ssh.log"
 OUT=$(run_dry "REMOTE_MEM_SHA=$MEMSHA" "REMOTE_BEAD_JSON=$BEADJSON" \
-      'PANE_CMD=zsh' 'PROBE_BODY=PROBE_RC=1' 'WIN_LIST=' 'NEW_WIN_ID=@12')
+      'PANE_CMD=zsh' 'PROBE_BODY=PROBE_RC=1' 'WIN_LINES=' 'NEW_WIN_ID=@12')
 check_verdict "A4 fails after the window exists -> failed-no-claude" "$OUT" failed-no-claude
 if grep -q "kill-window -t '@12'" "$ROOT/ssh.log"
 then ok "a dry run that DIES at A4 still removes the window it created"
@@ -1562,7 +1636,7 @@ else bad "cleanup on the A4 failure path" "the window leaked when the run failed
 #     so list-windows FINDS the window, and a naive "created only via new-window"
 #     flag would leave a whole session behind.
 : > "$ROOT/ssh.log"
-OUT=$(run_dry "${DRW[@]}" 'BOX_SESSION=created' 'WIN_LIST=@4')
+OUT=$(run_dry "${DRW[@]}" 'BOX_SESSION=created' 'WIN_LINES=@4 di-friday')
 check_verdict "a dry run that created the session reaches dry-run-ok" "$OUT" dry-run-ok
 if grep -q "kill-window -t '@4'" "$ROOT/ssh.log"
 then ok "a window that came with the session THIS run created is removed too"
@@ -1572,7 +1646,7 @@ else bad "session-created ownership" "the window created alongside a new session
 #     (5) — only the box's answer about the session is unintelligible. Ownership
 #     must NOT be claimed: never remove a window you cannot prove you made.
 : > "$ROOT/ssh.log"
-OUT=$(run_dry "${DRW[@]}" 'BOX_SESSION=' 'WIN_LIST=@4')
+OUT=$(run_dry "${DRW[@]}" 'BOX_SESSION=' 'WIN_LINES=@4 di-friday')
 check_verdict "an unreadable session answer does not block the dry run" "$OUT" dry-run-ok
 if grep -q 'kill-window' "$ROOT/ssh.log"
 then bad "unreadable session answer leaves ownership unclaimed" "the run killed @4 on an answer it could not parse"
@@ -1581,7 +1655,7 @@ else ok "an unparseable session answer leaves ownership UNCLAIMED (fail safe)"; 
 # (7) THE ROOT CAUSE WAS INVISIBILITY, not mutation. The header has documented the
 #     mutations since it was written; the operator never saw them. Every one must
 #     be named in the run that made it.
-OUT=$(run_dry "${DRW[@]}" 'WIN_LIST=' 'NEW_WIN_ID=@7')
+OUT=$(run_dry "${DRW[@]}" 'WIN_LINES=' 'NEW_WIN_ID=@7')
 while IFS='|' read -r _pat _what; do
   case "$OUT" in *"$_pat"*) ok "the dry run names the mutation: $_what" ;;
     *) bad "dry run names $_what" "'$_pat' absent from the output" ;; esac
@@ -1594,6 +1668,85 @@ bead index REBUILT|the bead-index rebuild on the box
 SPENT REAL TOKENS|the billed claude call A7 makes
 tmux window work:di-friday|the remote window it created and removed
 MUT
+
+echo
+echo "== the LEXICON-GLYPH window matcher, executed for real (dotfiles-dajp) =="
+# THE LEAK IT FIXES, 2026-07-28. The tmux-status hook renames a window to carry a
+# state glyph — `di-friday` becomes `✅ di-friday` the moment a tick finishes in
+# it. The old matcher compared the whitespace-split $2, which is the GLYPH, so the
+# lookup missed EVERY window that had ever run, and each dispatch created another
+# one. Two live `weekly-report` windows on marketing-vps is how Zig found it.
+#
+# WHY THIS SECTION IS SHAPED THIS WAY. The awk that fixes it is one inline line
+# inside an `rsh "..."` string, and until now the ssh stub answered for the whole
+# pipeline with a precomputed id — so the matcher had zero coverage while its
+# symptom (window litter on a box five people share) is exactly the class of bug
+# dotfiles-77s4 was filed for. The stub now RUNS the dispatcher's own bytes
+# against a synthetic tmux; nothing here restates the awk, so these cases cannot
+# drift away from the code they cover.
+#
+# WHAT IS OBSERVED. `WIN_ID` is not printed anywhere, but the very next thing the
+# dispatcher does with it is `list-panes -t '<id>'` — so the ssh log carries the
+# matcher's answer, and a MISS is visible as a `new-window` call. Both directions
+# are asserted, because "found the wrong window" and "found nothing" are different
+# failures with different consequences on a shared box.
+: > "$ROOT/ssh.log"
+matcher_run() { # <row> <win-lines> — one dry run, log reset, all knobs default
+  : > "$ROOT/ssh.log"
+  WIN_LINES="$2" NEW_WIN_ID=@99 run_row "$1"
+}
+resolved_id() { sed -n "s/.*list-panes -t '\([^']*\)'.*/\1/p" "$ROOT/ssh.log" | head -1; }
+
+matches() { # <label> <row> <win-lines> <expected-id>
+  matcher_run "$2" "$3"
+  local got; got=$(resolved_id)
+  if [ "$got" != "$4" ]; then bad "$1" "resolved '${got:-<nothing>}', wanted '$4'"; return; fi
+  if grep -q 'new-window' "$ROOT/ssh.log"
+  then bad "$1" "resolved $4 but ALSO created a window — the leak, in miniature"
+  else ok "$1"; fi
+}
+no_match() { # <label> <row> <win-lines> — must find nothing and create @99
+  matcher_run "$2" "$3"
+  if ! grep -q 'new-window' "$ROOT/ssh.log"
+  then bad "$1" "adopted '$(resolved_id)' — it matched a window that is not the row's"; return; fi
+  if [ "$(resolved_id)" = "@99" ]
+  then ok "$1"
+  else bad "$1" "created a window but then used '$(resolved_id)' instead of it"; fi
+}
+
+matches "a bare window name matches its row"          di-friday '@4 di-friday'   @4
+matches "a ✅-prefixed window still matches its row"   di-friday '@4 ✅ di-friday' @4
+matches "a 🧠-prefixed window still matches its row"   di-friday '@4 🧠 di-friday' @4
+matches "a 🔔-prefixed window still matches its row"   di-friday '@4 🔔 di-friday' @4
+# 🌀 is in the lexicon but was never in the old fixed-glyph thinking. The strip is a
+# generic leading non-alphanumeric run precisely so a NEW glyph cannot reintroduce
+# the leak; this case is the claim, not an extra flavour of the ones above.
+matches "a 🌀-prefixed window matches too (the strip is generic, not a glyph list)" \
+        di-friday '@4 🌀 di-friday' @4
+# The realistic box: several rows' windows, each wearing whatever glyph its last
+# tick left. The matcher must walk past the near misses and stop on the right one.
+matches "the right row is picked out of a glyph-laden window list" \
+        di-friday $'@1 ✅ pulse\n@2 🧠 di-tuesday\n@3 🔔 di-friday\n@8 di-fridayish' @3
+
+# ── EXACTNESS. `name==n`, not a substring test. On a shared `work` session the
+#    consequence of a loose match is a dispatch typing into ANOTHER row's live
+#    pane — strictly worse than the litter this matcher exists to prevent.
+no_match "a row whose name is a PREFIX of a window does not cross-match" \
+         di-mon '@5 di-monday'
+matches "…and with both present, the row gets its OWN window, not the longer one" \
+        di-mon $'@5 di-monday\n@6 di-mon' @6
+matches "…and the longer row is not stolen by the shorter window either" \
+        di-monday $'@6 di-mon\n@5 di-monday' @5
+no_match "a glyph-prefixed near-miss is still a miss (strip, THEN compare exactly)" \
+         di-mon '@7 ✅ di-monday'
+
+# ── THE STRIP MUST NOT BECOME A WILDCARD. A window named only in glyphs strips
+#    down to the empty string; if that were allowed to match, one decorative
+#    window would be adopted by every row on the box.
+no_match "a window whose name is only glyphs matches nothing" \
+         di-friday '@3 ✅ 🧠'
+no_match "an unrelated window is not adopted"        di-friday '@2 something-else'
+no_match "an empty window list resolves to nothing"  di-friday ''
 
 echo
 echo "== --help actually lists the flags (bd-1gu0) =="
