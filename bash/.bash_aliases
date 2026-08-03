@@ -142,6 +142,20 @@ if [ -f "$HOME/.secrets" ]; then
     source "$HOME/.secrets"
 fi
 
+# Machine-local server aliases (UNTRACKED, per-box: e.g. `zig-computer` ->
+# ssh to the box). Guarded, so this is a no-op on any machine without the
+# file — which is why it costs upstream nothing to keep.
+#
+# This line was DROPPED in the 723-commit fast-forward on 2026-08-01 (the
+# local version of this file sourced it; origin's sourced ~/.secrets instead,
+# and the migration between them was flagged and then never done). Losing it
+# undefined `zig-computer`, so sketchybar's hook clicked open an Alacritty
+# window that ran `zsh -lic zig-computer`, failed, and closed instantly. The
+# breakage surfaced two layers away from the file that caused it.
+if [ -f "$HOME/.servers.bash_aliases" ]; then
+    source "$HOME/.servers.bash_aliases"
+fi
+
 # --- Tailscale tailnet SSH aliases (zig-zone) ---
 # `tailscale ip -4 <host>` is a tailnet-internal lookup that bypasses DNS —
 # works on macOS regardless of which Tailscale variant is installed (the
