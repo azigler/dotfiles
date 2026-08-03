@@ -18,12 +18,30 @@
 # identical pattern with a DIFFERENT target does not, and SIGTERM clears it in
 # ~11ms.
 #
-# THE CASES THAT MATTER MOST are the three "two concurrent tunnels" ones. A
-# target-blind FORWARD_PAT (or a shared pidfile) makes the fleet tunnel and the
-# gateway tunnel each other's property, and `down` then kills a forward it does
-# not own — on a shared box, mid-dispatch. Both mutants are proven to die here:
-#   * `ssh .*-L .* $PEER$`                 -> case 22 (down A kills B)
-#   * the old `…:$PORT:127\.0\.0\.1:$PORT` -> case 23 (down B owns nothing)
+# THE CASES THAT MATTER MOST are the "two concurrent tunnels" ones. A
+# target-blind FORWARD_PAT, an unescaped one, or a shared pidfile makes the fleet
+# tunnel and the gateway tunnel each other's property, and `down` then kills a
+# forward it does not own — on a shared box, mid-dispatch.
+#
+# MEASURED mutant -> failing cases (2026-08-03; re-measure if you change a case,
+# and do not write this map from memory — the first version of it named the wrong
+# cases in both entries):
+#
+#   M1  FORWARD_PAT="ssh .*-L .* $PEER\$"            -> 23 24 25 26 27 28
+#   M2  the pre-generalization hardwired pattern
+#       `…:$PORT:127\.0\.0\.1:$PORT $PEER\$`         -> 23 24 25 26 27 28
+#   M3  one shared local-forward.pid for every tunnel-> 10 23 24 25 26 27 28
+#   M4  re_escape neutered to an identity function   -> 28  (ONLY 28)
+#
+# M4 is why case 28 exists, and case 28 is its SOLE detector. It survived the
+# first version of this suite 26/26: nothing there depended on `.` being escaped,
+# because 127.0.0.1 and 100.72.47.4 differ in length. Case 28 uses two
+# SAME-LENGTH targets so an unescaped `.` genuinely matches the other tunnel's
+# process.
+#
+# The `[ -n "$A_PID" ]` guards on 24-28 are load-bearing too: without them a
+# mutant that loses ownership leaves the pid variable EMPTY, `alive ""` reads as
+# "dead", and the case passes vacuously. M2 passed case 26 that way once.
 #
 # Convention matches the other agents/scheduler suites: executable bash,
 # non-zero exit = failure, PASS/FAIL summary on the last line.
@@ -314,13 +332,31 @@ if [ "$RC1" -eq 64 ] && [ "$RC2" -eq 64 ] && [ "$RC3" -eq 64 ] && [ "$RC4" -eq 6
   ok "20 malformed --target / --probe-path / --expect / --port all exit 64 with a reason"
 else bad "20 malformed args exit 64" "rcs=$RC1,$RC2,$RC3,$RC4,$RC5 out1=$OUT1"; fi
 
+# An EXPLICIT empty value must be as loud as a malformed one. The next bead
+# writes systemd units passing these flags; a unit with an unset variable would
+# otherwise get fleet-proxy semantics on a gateway tunnel — failing safe, but
+# silently, which is the wrong shape.
+reset_case
+run status --expect ''
+RC1=$RC; OUT1=$OUT
+run status --target ''
+RC2=$RC
+run status --probe-path ''
+RC3=$RC
+run status --port ''
+RC4=$RC
+if [ "$RC1" -eq 64 ] && [ "$RC2" -eq 64 ] && [ "$RC3" -eq 64 ] && [ "$RC4" -eq 64 ] \
+   && printf '%s' "$OUT1" | grep -q 'EMPTY value'; then
+  ok "21 an EXPLICIT empty --expect/--target/--probe-path/--port exits 64, never a silent default"
+else bad "21 empty flag values exit 64" "rcs=$RC1,$RC2,$RC3,$RC4 out1=$OUT1"; fi
+
 reset_case
 curl_default REFUSED
 : > "$FAKE/ssh-fail"
 run ensure --host "$PEER"
 if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q 'FAILED to open the local forward'; then
-  ok "21 a refused forward fails LOUDLY with exit 1, never a silent 0"
-else bad "21 refused forward -> loud exit 1" "rc=$RC out=$OUT"; fi
+  ok "22 a refused forward fails LOUDLY with exit 1, never a silent 0"
+else bad "22 refused forward -> loud exit 1" "rc=$RC out=$OUT"; fi
 
 echo "== TWO CONCURRENT TUNNELS: neither may adopt the other's pid =="
 # This is the section the bead was filed for. Ports 39100/39017 are synthetic so
@@ -344,23 +380,23 @@ start_pair() {
 start_pair
 if [ "$A_RC" -eq 0 ] && [ "$B_RC" -eq 0 ] && [ -n "$A_PID" ] && [ -n "$B_PID" ] \
    && [ "$A_PID" != "$B_PID" ] && alive "$A_PID" && alive "$B_PID"; then
-  ok "22 two tunnels come up with DISTINCT pids in DISTINCT pidfiles"
-else bad "22 two tunnels, distinct pids" "a_rc=$A_RC b_rc=$B_RC a=[${A_PID:-}] b=[${B_PID:-}] a_out=$A_OUT b_out=$B_OUT"; fi
+  ok "23 two tunnels come up with DISTINCT pids in DISTINCT pidfiles"
+else bad "23 two tunnels, distinct pids" "a_rc=$A_RC b_rc=$B_RC a=[${A_PID:-}] b=[${B_PID:-}] a_out=$A_OUT b_out=$B_OUT"; fi
 
 # --- pidfile path: down A must not touch B ---
 run down --port 39100 --target 127.0.0.1:39100 --host "$PEER"
-if [ "$RC" -eq 0 ] && ! alive "$A_PID" && alive "$B_PID"; then
-  ok "23 down A kills A and LEAVES B ALIVE (pidfile path)"
-else bad "23 down A leaves B alive (pidfile)" "rc=$RC A=$(alive "$A_PID" && echo up || echo dead) B=$(alive "$B_PID" && echo up || echo DEAD)"; fi
+if [ -n "$A_PID" ] && [ -n "$B_PID" ] && [ "$RC" -eq 0 ] && ! alive "$A_PID" && alive "$B_PID"; then
+  ok "24 down A kills A and LEAVES B ALIVE (pidfile path)"
+else bad "24 down A leaves B alive (pidfile)" "rc=$RC a=[${A_PID:-}] b=[${B_PID:-}] A=$(alive "$A_PID" && echo up || echo dead) B=$(alive "$B_PID" && echo up || echo DEAD)"; fi
 
 # --- discovery path: same, with both pidfiles deleted so ONLY the pgrep
 #     pattern decides ownership. A target-blind FORWARD_PAT kills B here.
 start_pair
 rm -f "$(pidfile_of 39100 127.0.0.1:39100)" "$(pidfile_of 39017 100.72.47.4:39017)"
 run down --port 39100 --target 127.0.0.1:39100 --host "$PEER"
-if [ "$RC" -eq 0 ] && ! alive "$A_PID" && alive "$B_PID"; then
-  ok "24 down A via pgrep DISCOVERY kills A and leaves B alive (target-blind FORWARD_PAT dies here)"
-else bad "24 down A leaves B alive (discovery)" "rc=$RC out=$OUT A=$(alive "$A_PID" && echo UP || echo dead) B=$(alive "$B_PID" && echo up || echo DEAD)"; fi
+if [ -n "$A_PID" ] && [ -n "$B_PID" ] && [ "$RC" -eq 0 ] && ! alive "$A_PID" && alive "$B_PID"; then
+  ok "25 down A via pgrep DISCOVERY kills A and leaves B alive (target-blind FORWARD_PAT dies here)"
+else bad "25 down A leaves B alive (discovery)" "rc=$RC out=$OUT a=[${A_PID:-}] b=[${B_PID:-}] A=$(alive "$A_PID" && echo UP || echo dead) B=$(alive "$B_PID" && echo up || echo DEAD)"; fi
 
 # --- and the converse: B must still be able to find ITSELF by discovery. A
 #     pattern hardwired to 127.0.0.1:$PORT (the pre-generalization literal)
@@ -368,18 +404,40 @@ else bad "24 down A leaves B alive (discovery)" "rc=$RC out=$OUT A=$(alive "$A_P
 start_pair
 rm -f "$(pidfile_of 39100 127.0.0.1:39100)" "$(pidfile_of 39017 100.72.47.4:39017)"
 run down --port 39017 --target 100.72.47.4:39017 --host "$PEER"
-if [ "$RC" -eq 0 ] && ! alive "$B_PID" && alive "$A_PID"; then
-  ok "25 down B via pgrep DISCOVERY kills B and leaves A alive (a 127.0.0.1-hardwired pattern dies here)"
-else bad "25 down B leaves A alive (discovery)" "rc=$RC out=$OUT A=$(alive "$A_PID" && echo up || echo DEAD) B=$(alive "$B_PID" && echo UP || echo dead)"; fi
+if [ -n "$A_PID" ] && [ -n "$B_PID" ] && [ "$RC" -eq 0 ] && ! alive "$B_PID" && alive "$A_PID"; then
+  ok "26 down B via pgrep DISCOVERY kills B and leaves A alive (a 127.0.0.1-hardwired pattern dies here)"
+else bad "26 down B leaves A alive (discovery)" "rc=$RC out=$OUT a=[${A_PID:-}] b=[${B_PID:-}] A=$(alive "$A_PID" && echo up || echo DEAD) B=$(alive "$B_PID" && echo UP || echo dead)"; fi
 
 # --- the recycle path is the same ownership question with a kill in it ---
 start_pair
 curl_seq "$A_URL" REFUSED 200
 run ensure --port 39100 --target 127.0.0.1:39100 --host "$PEER"
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'recycling it' \
+if [ -n "$A_PID" ] && [ -n "$B_PID" ] && [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'recycling it' \
    && ! alive "$A_PID" && alive "$B_PID"; then
-  ok "26 the recycle path (our forward is up but the port is silent) recycles A, never B"
-else bad "26 recycle path spares the other tunnel" "rc=$RC out=$OUT A=$(alive "$A_PID" && echo UP || echo dead) B=$(alive "$B_PID" && echo up || echo DEAD)"; fi
+  ok "27 the recycle path (our forward is up but the port is silent) recycles A, never B"
+else bad "27 recycle path spares the other tunnel" "rc=$RC out=$OUT a=[${A_PID:-}] b=[${B_PID:-}] A=$(alive "$A_PID" && echo UP || echo dead) B=$(alive "$B_PID" && echo up || echo DEAD)"; fi
+
+# --- re_escape: an unescaped `.` in the target is a WILDCARD ------------------
+# Nothing above depends on the escaping, because 127.0.0.1 and 100.72.47.4 are
+# different lengths — a neutered re_escape survived the rest of this suite 26/26.
+# So: two targets of the SAME length differing only where the dots are, on the
+# SAME local port (never simultaneously bindable in production, but the ownership
+# question is the pgrep pattern, not the bind). Unescaped, C's pattern
+# `100.72.47.4` matches D's `100X72X47X4` cmdline, pgrep -n picks the newer (D),
+# and `down C` kills D.
+C_URL=http://127.0.0.1:39200/api/health
+reset_case
+curl_seq "$C_URL" REFUSED 200 REFUSED 200
+run ensure --port 39200 --target 100.72.47.4:39200 --host "$PEER"
+C_PID=$(read_pidfile 39200 100.72.47.4:39200)
+run ensure --port 39200 --target 100X72X47X4:39200 --host "$PEER"
+D_PID=$(read_pidfile 39200 100X72X47X4:39200)
+rm -f "$(pidfile_of 39200 100.72.47.4:39200)" "$(pidfile_of 39200 100X72X47X4:39200)"
+run down --port 39200 --target 100.72.47.4:39200 --host "$PEER"
+if [ -n "$C_PID" ] && [ -n "$D_PID" ] && [ "$C_PID" != "$D_PID" ] \
+   && [ "$RC" -eq 0 ] && ! alive "$C_PID" && alive "$D_PID"; then
+  ok "28 re_escape: a literal-dot target does not match a same-length wildcard sibling (neutered re_escape dies here)"
+else bad "28 re_escape escapes the target's dots" "rc=$RC out=$OUT c=[${C_PID:-}] d=[${D_PID:-}] C=$(alive "$C_PID" && echo UP || echo dead) D=$(alive "$D_PID" && echo up || echo DEAD)"; fi
 
 echo
 if [ "$FAIL" -eq 0 ]; then

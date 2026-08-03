@@ -84,6 +84,13 @@ CMD=ensure
 TARGET=""
 PROBE_PATH=""
 EXPECT=""
+# "was the flag given at all?" — distinct from "is the value empty?". A systemd
+# unit with an unset variable expands to `--expect ""`, and silently falling back
+# to the fleet-proxy default would give a GATEWAY tunnel fleet-proxy semantics.
+# It would fail safe (read BLOCKED) — but silently, which is the wrong shape.
+TARGET_SET=0
+PROBE_PATH_SET=0
+EXPECT_SET=0
 STATE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/fleet-tunnel"
 
 # Print the Usage block above verbatim. Range-matched on CONTENT, never on line
@@ -96,17 +103,29 @@ while [ $# -gt 0 ]; do
     ensure|status|down) CMD=$1; shift ;;
     --port) PORT=$2; shift 2 ;;
     --host) PEER=$2; shift 2 ;;
-    --target) TARGET=$2; shift 2 ;;
-    --probe-path) PROBE_PATH=$2; shift 2 ;;
-    --expect) EXPECT=$2; shift 2 ;;
+    --target) TARGET=$2; TARGET_SET=1; shift 2 ;;
+    --probe-path) PROBE_PATH=$2; PROBE_PATH_SET=1; shift 2 ;;
+    --expect) EXPECT=$2; EXPECT_SET=1; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "ensure-fleet-tunnel: unknown arg '$1'" >&2; exit 64 ;;
   esac
 done
 
+# An EXPLICIT empty value is an error, never a silent default. Omitting the flag
+# is the only way to ask for the default.
+require_value() { # <flag> <was-it-given> <value>
+  if [ "$2" -eq 1 ] && [ -z "$3" ]; then
+    echo "ensure-fleet-tunnel: $1 was given an EMPTY value. Omit the flag to get the default; an unset variable in a systemd unit must not silently become one." >&2
+    exit 64
+  fi
+}
+[ -n "$PORT" ] || { echo "ensure-fleet-tunnel: --port must not be empty" >&2; exit 64; }
+require_value --target "$TARGET_SET" "$TARGET"
+require_value --probe-path "$PROBE_PATH_SET" "$PROBE_PATH"
+require_value --expect "$EXPECT_SET" "$EXPECT"
+
 # Defaults are resolved AFTER parsing so `--target` may precede or follow
 # `--port` — the fleet-proxy default is "same port on the far end's loopback".
-[ -n "$PORT" ]       || { echo "ensure-fleet-tunnel: --port must not be empty" >&2; exit 64; }
 [ -n "$TARGET" ]     || TARGET="127.0.0.1:$PORT"
 [ -n "$PROBE_PATH" ] || PROBE_PATH="/api/health"
 [ -n "$EXPECT" ]     || EXPECT="200"
