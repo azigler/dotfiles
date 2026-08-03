@@ -32,6 +32,13 @@
 #       `…:$PORT:127\.0\.0\.1:$PORT $PEER\$`         -> 23 24 25 26 27 28
 #   M3  one shared local-forward.pid for every tunnel-> 10 23 24 25 26 27 28
 #   M4  re_escape neutered to an identity function   -> 28  (ONLY 28)
+#   M5  tunnel_down's kill target made blind         -> 24 25 27 28, and 23
+#       (ownership broken with both pids CORRECT)       must keep PASSING
+#
+# THAT MAP IS NOW EXECUTABLE, not a comment: mutate-tunnel-ownership.sh applies
+# all five and asserts each dies on exactly the cases named here. Run it — and
+# do not hand-edit this map without re-measuring, since the harness will block
+# the commit if the two disagree.
 #
 # M4 is why case 28 exists, and case 28 is its SOLE detector. It survived the
 # first version of this suite 26/26: nothing there depended on `.` being escaped,
@@ -41,7 +48,9 @@
 #
 # The `[ -n "$A_PID" ]` guards on 24-28 are load-bearing too: without them a
 # mutant that loses ownership leaves the pid variable EMPTY, `alive ""` reads as
-# "dead", and the case passes vacuously. M2 passed case 26 that way once.
+# "dead", and the case passes vacuously. M2 passed case 26 that way once. M5 is
+# the converse proof — it breaks ownership while leaving BOTH pids correct and
+# non-empty, so 24/25/27/28 are shown to detect ownership rather than emptiness.
 #
 # Convention matches the other agents/scheduler suites: executable bash,
 # non-zero exit = failure, PASS/FAIL summary on the last line.
