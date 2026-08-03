@@ -25,7 +25,18 @@ if [ -d "$HOOK_DIR" ]; then
   for hook in "$HOOK_DIR"/*.sh; do
     [ -f "$hook" ] || continue  # Skip if glob didn't match (literal * in filename)
     source "$hook"
-    register_$(basename "$hook" .sh)
+    # A shell function name cannot contain a hyphen, so a hook FILE named
+    # `zig-computer.sh` must define `register_zig_computer` — underscores. The
+    # bare `register_$(basename …)` this replaced derived `register_zig-computer`
+    # and called a command that does not exist, so the hook loaded and then
+    # registered NOTHING. Translate, and say so when the function is missing:
+    # a silently-unregistered hook looks identical to a hook that ran.
+    hook_fn="register_$(basename "$hook" .sh | tr '-' '_')"
+    if declare -F "$hook_fn" >/dev/null; then
+      "$hook_fn"
+    else
+      echo "sketchybarrc: $hook defines no $hook_fn() — not registered" >&2
+    fi
   done
 fi
 
