@@ -266,9 +266,13 @@ above), and the `since` the next tick would use. No writes.
 
 `pulse-dream.timer` is **enabled** and fires `OnCalendar=Sun *-*-* 04:13:00
 America/Los_Angeles` with `Persistent=true`. `pulse-dream.service` injects
-`/dream tick` into the durable **`dream`** tmux window (`work:dream`, cwd
-`~/explore`), unjailed — this loop reads transcript history, not the web, so it
-sits outside the untrusted-input threat the `bwrap` jail addresses.
+`/dream tick` into the durable **`dream`** tmux window (cwd `~/explore`),
+unjailed — this loop reads transcript history, not the web, so it sits outside
+the untrusted-input threat the `bwrap` jail addresses. Which tmux **session**
+that window lives in is whatever `pulse-dream.service`'s `--session` flag names
+(`zig-computer` since 2026-07-31, `work` before it) — **read the unit, not this
+line.** This sentence said `work:dream` for two days after the units moved
+(`explore-6abm`), which is why it now points at the flag instead of restating it.
 
 It has fired 2026-07-13, 07-19 and 07-26 (all under the old name). Templates live
 at `~/dotfiles/agents/scheduler/templates/pulse-dream.{service,timer}`; the loop

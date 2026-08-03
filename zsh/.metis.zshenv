@@ -2,7 +2,8 @@
 #
 # Same rationale as .zig-computer.zshenv: ANTHROPIC_BASE_URL used to live in the
 # fleet-wide claude/settings.json `env` block, and was removed there on
-# 2026-07-27 because vps-8a9eb245 cannot reach pico's tailnet address at all.
+# 2026-07-27 because marketing-vps could not reach pico's tailnet address at all
+# (it now reaches it through a chained ssh -L; see zsh/.marketing-vps.zshenv).
 # The setting isn't wrong, it's machine-scoped — so each host that CAN reach the
 # gateway opts in here, and a host that can't simply has no file saying so.
 #

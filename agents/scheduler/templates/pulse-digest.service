@@ -20,8 +20,11 @@
 # refs/daily-digest.md; the tmux window was already `digest`.
 #
 # WINDOW NAME = digest (changed 2026-07-24, by Zig's request — was `explore`
-# 2026-06-28..2026-07-24). The digest now fires into its OWN `work:digest`
-# window instead of mingling with the explore agent's session.
+# 2026-06-28..2026-07-24). The digest fires into its OWN `digest` window
+# instead of mingling with the explore agent's session. (The SESSION it lives
+# in is ExecStart's --session flag, below — `zig-computer` since 2026-07-31,
+# `work` before that. Don't restate it up here; this comment said `work:digest`
+# for two days after the move — explore-6abm.)
 #
 # WHY THE MOVE: the 2026-07-24 run went partial — 5 of 7 fetch subagents
 # produced no output for ~45 min and were stopped (bead explore-pvio). The
@@ -52,7 +55,7 @@
 # pulse-inject creates the window if it is missing (new-window -d, cwd --dir)
 # and cold-starts claude in it, so no manual setup is required after a reboot.
 [Unit]
-Description=Pulse tick: digest (tmux-injection into its own work:digest window — no explore-session interleaving)
+Description=Pulse tick: digest (tmux-injection into its own `digest` window — no explore-session interleaving)
 
 [Service]
 Type=oneshot

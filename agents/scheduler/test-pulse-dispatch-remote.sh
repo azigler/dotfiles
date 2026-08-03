@@ -94,6 +94,11 @@ case "$last" in
   *"br sync --status --json"*) printf '%s\n' "${REMOTE_BEAD_JSON-{\"jsonl_content_hash\":\"BEADSHA\",\"jsonl_newer\":false\}}"; exit 0 ;;
   *"list-windows"*)           printf '%s\n' "${WIN_LIST-}"; exit 0 ;;   # empty => window absent
   *"new-window"*)             printf '%s\n' "${NEW_WIN_ID:-@7}"; exit 0 ;;
+  # The box answers whether the tmux SESSION already existed. `existed` by default
+  # (the steady state); `created` is how a case says "this run made the session,
+  # so the window inside it is this run's too". Anything else — including the empty
+  # string — is the UNRECOGNISED answer, which must leave ownership unclaimed.
+  *"has-session"*)            printf 'PULSE_SESSION=%s\n' "${BOX_SESSION-existed}"; exit 0 ;;
   *"pane_id"*)                printf '%s\n' "${PANE_ID:-%3}"; exit 0 ;;
   *"pane_current_command"*)   printf '%s\n' "${PANE_CMD:-zsh}"; exit 0 ;;
   *"reply with exactly: PONG"*) printf '%s\n' "${A7_BODY-PONG}"; exit 0 ;;
@@ -101,7 +106,7 @@ case "$last" in
 PROBE_RC=0}"; exit 0 ;;
   *"capture-pane"*)           printf '%s\n' "${PANE_CAPTURE:-? for shortcuts}"; exit 0 ;;
   *"result.json"*)            printf '%s' "${RESULT_JSON:-}"; exit 0 ;;
-  *"has-session"*|*"send-keys"*|*"mkdir -p"*|*"setenv"*|*"DISPATCH.md"*|*"inflight"*|*"kill-window"*) exit 0 ;;
+  *"send-keys"*|*"mkdir -p"*|*"setenv"*|*"DISPATCH.md"*|*"inflight"*|*"kill-window"*) exit 0 ;;
 esac
 exit 0
 STUBEOF
@@ -1474,6 +1479,123 @@ else
 fi
 
 echo
+echo "== --dry-run LEAVES NO WINDOW IT CREATED — and never touches one it didn't (dotfiles-77s4) =="
+# THE INCIDENT, 2026-08-03. Zig found `di-monday` and `di-wednesday` windows on
+# marketing-vps on a FRIDAY, neither row due and neither timer fired since the
+# previous week. Nothing had run them: two `--dry-run` invocations days earlier had
+# each created a `work:<row>` window as part of A4 and left it there, and litter
+# from an inert-sounding flag reads to a human exactly like a tick firing on the
+# wrong day.
+#
+# The OWNERSHIP half is the one that matters most, and it is why this is a suite of
+# cases rather than one. `work` is a single shared session on a box five people
+# reach; a pre-existing `work:<row>` window may hold a live tick from the real
+# dispatch path or Zig's own attached session. A cleanup that kills the wrong window
+# is far worse than the litter it fixes — so "removes what it made" and "never
+# removes what it found" are asserted separately, and the second one is the guard.
+DRW=('PANE_CMD=claude' "REMOTE_MEM_SHA=$MEMSHA" "REMOTE_BEAD_JSON=$BEADJSON")
+
+# (1) CREATED -> removed again, targeted by the id captured at creation.
+: > "$ROOT/ssh.log"
+OUT=$(run_dry "${DRW[@]}" 'WIN_LIST=' 'NEW_WIN_ID=@7')
+check_verdict "a dry run with no pre-existing window still reaches dry-run-ok" "$OUT" dry-run-ok
+if grep -q 'new-window' "$ROOT/ssh.log"
+then ok "precondition: the dry run really did create a remote window"
+else bad "dry run creates a window" "no new-window in the ssh log — the removal cases below would prove nothing"; fi
+if grep -q "kill-window -t '@7'" "$ROOT/ssh.log"
+then ok "a dry run REMOVES the window it created, by the @id it captured (not by name)"
+else bad "dry run removes its own window" "no 'kill-window -t @7' among $(grep -c . "$ROOT/ssh.log") ssh calls"; fi
+case "$OUT" in *"CREATED by this dry run, and REMOVED again"*) ok "the removal is NAMED in the dry-run output" ;;
+  *) bad "the removal is announced" "no created-and-removed line in the output" ;; esac
+
+# (2) ★ THE ONE THAT MATTERS. PRE-EXISTING -> not created, and NEVER killed.
+#     WIN_LIST is the id ALONE, not a `<id> <name>` line: the stub answers for the
+#     whole remote lookup (list-windows piped through the lexicon-stripping awk),
+#     not for tmux, so its output is that pipeline's RESULT. Which also means this
+#     suite cannot exercise the glyph-stripping matcher itself — that lives in the
+#     awk the stub never runs.
+: > "$ROOT/ssh.log"
+OUT=$(run_dry "${DRW[@]}" 'WIN_LIST=@4')
+check_verdict "a dry run that FINDS the window still reaches dry-run-ok" "$OUT" dry-run-ok
+if grep -q 'new-window' "$ROOT/ssh.log"
+then bad "precondition: an existing window is adopted" "the run created a SECOND window instead of finding the existing one"
+else ok "precondition: the pre-existing window was FOUND, not created"; fi
+if grep -q 'kill-window' "$ROOT/ssh.log"
+then bad "a dry run NEVER kills a window it did not create" "a pre-existing window was killed — it could have held a live tick or Zig's own session"
+else ok "a dry run NEVER kills a window it did not create (the ownership guard)"; fi
+case "$OUT" in *"PRE-EXISTING, left untouched"*) ok "the dry run says out loud that the window was not its to remove" ;;
+  *) bad "pre-existing window is announced" "no PRE-EXISTING line in the output" ;; esac
+
+# (3) A REAL DISPATCH KEEPS ITS WINDOW. The tick is about to run in it; a cleanup
+#     that fired here would kill the pane mid-tick.
+: > "$ROOT/ssh.log"
+OUT=$(SSH_LOG="$ROOT/ssh.log" run_live "${BASE[@]}" 'WIN_LIST=' 'NEW_WIN_ID=@9' \
+      'RESULT_JSON={"row":"di-friday","outcome":"done","note":"n","proof":{"kind":"cmd","cmd":"true"}}')
+check_verdict "a live dispatch that created its window completes" "$OUT" completed
+if grep -q 'new-window' "$ROOT/ssh.log"
+then ok "precondition: the live dispatch created the window"
+else bad "live dispatch creates a window" "no new-window in the ssh log"; fi
+if grep -q 'kill-window' "$ROOT/ssh.log"
+then bad "a non-dry dispatch never removes its window" "a real dispatch killed the window its tick runs in"
+else ok "a non-dry dispatch never removes its window"; fi
+
+# (4) FAILURE PATHS. A dry run that dies AFTER creating the window still owns it.
+#     Both post-creation assertions are exercised: A7 (with a warm pane) and A4's
+#     in-pane probe (with a cold one).
+: > "$ROOT/ssh.log"
+OUT=$(run_dry "${DRW[@]}" 'WIN_LIST=' 'NEW_WIN_ID=@11' 'A7_BODY=connect: connection refused')
+check_verdict "A7 fails after the window exists -> failed-no-claude" "$OUT" failed-no-claude
+if grep -q "kill-window -t '@11'" "$ROOT/ssh.log"
+then ok "a dry run that DIES at A7 still removes the window it created"
+else bad "cleanup on the A7 failure path" "the window leaked when the run failed after creating it"; fi
+
+: > "$ROOT/ssh.log"
+OUT=$(run_dry "REMOTE_MEM_SHA=$MEMSHA" "REMOTE_BEAD_JSON=$BEADJSON" \
+      'PANE_CMD=zsh' 'PROBE_BODY=PROBE_RC=1' 'WIN_LIST=' 'NEW_WIN_ID=@12')
+check_verdict "A4 fails after the window exists -> failed-no-claude" "$OUT" failed-no-claude
+if grep -q "kill-window -t '@12'" "$ROOT/ssh.log"
+then ok "a dry run that DIES at A4 still removes the window it created"
+else bad "cleanup on the A4 failure path" "the window leaked when the run failed after creating it"; fi
+
+# (5) THE SECOND DOOR TO OWNERSHIP. When the box has no `work` session at all,
+#     `new-session -n <row>` creates the session AND the row's window in one go —
+#     so list-windows FINDS the window, and a naive "created only via new-window"
+#     flag would leave a whole session behind.
+: > "$ROOT/ssh.log"
+OUT=$(run_dry "${DRW[@]}" 'BOX_SESSION=created' 'WIN_LIST=@4')
+check_verdict "a dry run that created the session reaches dry-run-ok" "$OUT" dry-run-ok
+if grep -q "kill-window -t '@4'" "$ROOT/ssh.log"
+then ok "a window that came with the session THIS run created is removed too"
+else bad "session-created ownership" "the window created alongside a new session was left behind"; fi
+
+# (6) FAIL SAFE ON AN UNREADABLE ANSWER. Same window, same list-windows result as
+#     (5) — only the box's answer about the session is unintelligible. Ownership
+#     must NOT be claimed: never remove a window you cannot prove you made.
+: > "$ROOT/ssh.log"
+OUT=$(run_dry "${DRW[@]}" 'BOX_SESSION=' 'WIN_LIST=@4')
+check_verdict "an unreadable session answer does not block the dry run" "$OUT" dry-run-ok
+if grep -q 'kill-window' "$ROOT/ssh.log"
+then bad "unreadable session answer leaves ownership unclaimed" "the run killed @4 on an answer it could not parse"
+else ok "an unparseable session answer leaves ownership UNCLAIMED (fail safe)"; fi
+
+# (7) THE ROOT CAUSE WAS INVISIBILITY, not mutation. The header has documented the
+#     mutations since it was written; the operator never saw them. Every one must
+#     be named in the run that made it.
+OUT=$(run_dry "${DRW[@]}" 'WIN_LIST=' 'NEW_WIN_ID=@7')
+while IFS='|' read -r _pat _what; do
+  case "$OUT" in *"$_pat"*) ok "the dry run names the mutation: $_what" ;;
+    *) bad "dry run names $_what" "'$_pat' absent from the output" ;; esac
+done <<'MUT'
+MUTATIONS THIS DRY RUN PERFORMED|the block header (a dry run is NOT inert)
+ssh control master opened|the ssh master it opened
+fleet-proxy tunnel:|what it did to the tunnel
+T1 repos on|the repo fast-forwards on the box
+bead index REBUILT|the bead-index rebuild on the box
+SPENT REAL TOKENS|the billed claude call A7 makes
+tmux window work:di-friday|the remote window it created and removed
+MUT
+
+echo
 echo "== --help actually lists the flags (bd-1gu0) =="
 # The bug this guards: --help used `sed -n '2,150p'`, but the Usage block had
 # drifted down past line 245 as the header comment grew. So --help printed the
@@ -1492,6 +1614,15 @@ done
 if printf '%s\n' "$HELP_OUT" | grep -q '^Usage$'
 then ok "--help starts at the Usage heading (anchored, not a line range)"
 else bad "--help anchor" "the Usage heading is not in the output"; fi
+# dotfiles-77s4: the flag NAME promises inertness the flag does not deliver, and the
+# only reader of --help is someone deciding whether it is safe to run. So --help
+# must say both halves out loud: it mutates the box, and it spends money doing it.
+if printf '%s\n' "$HELP_OUT" | grep -q 'NOT INERT'
+then ok "--help warns that --dry-run is NOT inert"
+else bad "--help warns --dry-run is not inert" "no NOT INERT warning in the help output"; fi
+if printf '%s\n' "$HELP_OUT" | grep -q 'SPENDS REAL TOKENS'
+then ok "--help states that a dry run spends real tokens (the A7 probe)"
+else bad "--help states the A7 cost" "the paid claude call is not mentioned in --help"; fi
 
 echo "== outcome contract =="
 OUT=$(run_dry 'PANE_CMD=claude' "REMOTE_MEM_SHA=$MEMSHA" "REMOTE_BEAD_JSON=$BEADJSON")

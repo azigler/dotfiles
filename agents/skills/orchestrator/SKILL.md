@@ -151,11 +151,25 @@ if [[ "$CURRENT_TOPLEVEL" != "$TARGET_REPO"* ]]; then
   # Without the symlink, `br show / update / close` would operate on
   # the worktree's checkout-snapshot, diverging from the orchestrator's
   # view of bead state.
-  rm -rf .beads
-  ln -s "$TARGET_REPO/.beads" .beads
+  # Refuse to touch .beads unless we are provably inside the FRESH worktree.
+  [ "$(git rev-parse --show-toplevel)" = "$WT" ] || { echo "ABORT: not in $WT"; exit 1; }
+  # `ln -s TARGET .beads` onto an EXISTING .beads DIRECTORY does not fail —
+  # it nests .beads/.beads -> .beads, an ELOOP. Prove the destination is gone
+  # instead of trusting GNU-only `ln -T` (see dotfiles-1rj5 on BSD flag drift).
+  rm -rf "$WT/.beads"
+  [ ! -e "$WT/.beads" ] || { echo "ABORT: $WT/.beads survived rm"; exit 1; }
+  ln -s "$TARGET_REPO/.beads" "$WT/.beads"
 fi
 # All subsequent work happens from $WT (the target-repo worktree).
 ```
+
+The three `.beads` guards are the fix for `bd-8uqr` — a `.beads/.beads` loop
+this snippet created in `andrewzigler3` that sat unnoticed from 2026-07-17 to
+2026-08-02, flaking a font spec via `ELOOP`. Keep all three when you edit the
+block: the `rev-parse` assert makes it a no-op outside the fresh worktree, the
+absolute `"$WT/..."` paths keep `rm -rf` from ever reaching a live bead store,
+and the `! -e` assert makes the nest impossible (it needs an existing
+directory to nest into). `session-start.sh` heals a loop created any other way.
 
 The orchestrator's post-merge step then runs from the target repo
 (NOT its own anchor), and the branch is in the target's git. Use `git

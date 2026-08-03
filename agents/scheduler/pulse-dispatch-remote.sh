@@ -284,6 +284,22 @@
 #                    assertions for real, then stop. Dispatches nothing, writes no
 #                    ledger row, injects nothing.
 #
+#                    ⚠️ NOT INERT, AND IT NEVER WAS. "Dry" means "does not
+#                    DISPATCH"; everything before that point really happens, which
+#                    is the whole point — assertions that were skipped would prove
+#                    nothing. Concretely, a dry run MUTATES the box: it opens (or
+#                    adopts) the tunnel, fast-forwards the repos, syncs the vault,
+#                    rebuilds the bead index, and SPENDS REAL TOKENS on the A7
+#                    live `claude -p` probe. Every one of those is now NAMED in the
+#                    run's output — read the "MUTATIONS THIS DRY RUN PERFORMED"
+#                    block rather than assuming.
+#                    What it does NOT leave behind is a tmux window: since
+#                    dotfiles-77s4 a dry run REMOVES the `work:<row>` window it
+#                    created, and never touches one it found (an existing window
+#                    may hold a live tick or Zig's own session). Before that fix,
+#                    dry runs littered marketing-vps with windows that read like
+#                    ticks firing on the wrong day.
+#
 # ---------------------------------------------------------------------------
 # --resume: the cap escape hatch, and why it is a FLAG rather than a rule change
 # ---------------------------------------------------------------------------
@@ -427,6 +443,13 @@ fail() {
   local verdict=$1 code=$2; shift 2
   printf 'PULSE-DISPATCH: BLOCKED — %s\n' "$*" >&2
   note "BLOCKED($verdict/$code) $*"
+  # A dry run that dies AFTER creating the remote window still OWNS that window
+  # (dotfiles-77s4). cleanup() would catch it on the way out, but calling here puts
+  # the removal in the output BEFORE the result marker, which the outcome contract
+  # requires to be the last line. Idempotent, so the trap's call is then a no-op.
+  # `declare -F` because fail() can fire long before that function is defined —
+  # same guard, same reason, as the surface_locally check below.
+  declare -F release_dry_run_window >/dev/null 2>&1 && release_dry_run_window
   # RING THE BELL. A blocked tick was not invisible before this — the harnessd
   # loop list shows the row going STALE once its cadence + grace elapses, and Zig
   # does read that (his correction, 2026-07-27). But that signal is PULL, DELAYED
@@ -526,6 +549,15 @@ done
 # shared is the tmux ENVIRONMENT — `setenv` is per-session, not per-window — which
 # is why the credential teardown below is refcounted rather than unconditional.
 REMOTE_WINDOW="$ROW"
+
+# --- REMOTE WINDOW OWNERSHIP (dotfiles-77s4) --------------------------------
+# Declared HERE, above every path that can exit, because the ONE question the
+# dry-run cleanup asks is "did THIS run create that window?" and the fail-safe
+# answer must exist before anything can go wrong. 0 = not ours. See
+# release_dry_run_window() below for the full incident and the discipline.
+SESSION_CREATED=0            # this run ran `tmux new-session` on the box
+REMOTE_WINDOW_CREATED=0      # this run created work:<row> (directly or with the session)
+REMOTE_WINDOW_ID=""          # the tmux @N id captured AT CREATION — never a name
 
 # ---------------------------------------------------------------------------
 # SURFACE BACK TO ZIG — defined HERE, before the first fail() can fire.
@@ -654,8 +686,63 @@ TUNNEL_UP=0
 # the box is supposed to be in, so closing it would fight the chosen posture and
 # strand the NEXT tick. Do not "fix" this back into a cleanup (Zig, 2026-07-29).
 TUNNEL_MODE=""
+
+# ---------------------------------------------------------------------------
+# --dry-run MUST LEAVE NO WINDOW IT CREATED (dotfiles-77s4).
+#
+# THE INCIDENT, 2026-08-03. Zig found `di-monday` and `di-wednesday` windows on
+# marketing-vps on a FRIDAY, with neither row due and neither timer having fired
+# since the previous week. Nothing had run them: two `--dry-run` invocations days
+# earlier had each created a `work:<row>` window on the box as part of A4, and the
+# window outlived the run. A flag whose name promises inertness left litter that
+# reads to a human exactly like a scheduled tick firing on the wrong day.
+#
+# OWNERSHIP IS THE LOAD-BEARING PART, and it is the same discipline the tunnel
+# teardown above already keeps: NEVER REMOVE A WINDOW THIS RUN DID NOT CREATE.
+# `work` is one shared session on a box five people reach; a pre-existing
+# `work:<row>` window may hold a live tick from the real dispatch path, or Zig's
+# own attached session. Killing one of those is far worse than the litter this
+# fixes. So the removal is gated on REMOTE_WINDOW_CREATED — set ONLY where this
+# run actually ran `tmux new-window`, or where this run's `new-session` created
+# the window along with the session — and it targets the tmux WINDOW ID captured
+# AT CREATION (`@N`), never the name. The id is unique for the life of the tmux
+# server and is never reused; the name is neither (the tmux-status hook rewrites
+# it with a lexicon glyph, and a row can end up with two windows — that leak is
+# what the matcher above exists to prevent).
+#
+# Idempotent, and called from BOTH the normal dry-run exit (so the removal is
+# announced in order, before the result marker) and from fail()/cleanup() (so a
+# dry run that dies AFTER creating the window still cleans up). A non-dry run can
+# never reach the body: a real dispatch must KEEP its window — the tick is about
+# to run in it — which is why the DRY_RUN gate is the first line and not an
+# argument the caller could get wrong.
+# ---------------------------------------------------------------------------
+release_dry_run_window() {
+  [ "${DRY_RUN:-0}" = 1 ]              || return 0
+  [ "${REMOTE_WINDOW_CREATED:-0}" = 1 ] || return 0
+  # A window id we did not capture is a window we cannot prove is ours.
+  case "${REMOTE_WINDOW_ID:-}" in @[0-9]*) : ;; *) return 0 ;; esac
+  if [ "$TUNNEL_UP" != 1 ]; then
+    warn "DRY RUN LEFT LITTER: the control master to $HOST is already down, so the tmux window this run created ($REMOTE_SESSION:$REMOTE_WINDOW / $REMOTE_WINDOW_ID) could not be removed. Remove it by hand: ssh $HOST \"tmux kill-window -t '$REMOTE_WINDOW_ID'\""
+    return 1
+  fi
+  # Claimed BEFORE the attempt, same reasoning as SURFACED above: whether the kill
+  # lands or not, this run must not try it twice (fail() then cleanup()).
+  REMOTE_WINDOW_CREATED=0
+  if rsh "tmux kill-window -t '$REMOTE_WINDOW_ID'" >/dev/null 2>>"$LOCAL_STATE/remote.err"; then
+    say "    - tmux window $REMOTE_SESSION:$REMOTE_WINDOW ($REMOTE_WINDOW_ID) on $HOST: CREATED by this dry run, and REMOVED again just now$([ "$SESSION_CREATED" = 1 ] && printf ' (with the session it was the only window of)')"
+  else
+    warn "DRY RUN LEFT LITTER: could not remove the tmux window this run created on $HOST ($REMOTE_SESSION:$REMOTE_WINDOW / $REMOTE_WINDOW_ID) — see $LOCAL_STATE/remote.err. Remove it by hand: ssh $HOST \"tmux kill-window -t '$REMOTE_WINDOW_ID'\""
+  fi
+}
+
 cleanup() {
   local rc=$?
+  # BEFORE the master goes down — the kill needs the tunnel that is about to be
+  # torn down. A no-op on every path that already released (the normal dry-run
+  # exit and fail() both call it first, so the announcement lands in order); this
+  # is the backstop for a dry run that dies some other way.
+  release_dry_run_window
   if [ "$TUNNEL_UP" = 1 ]; then
     if [ "$WITH_TOKEN" = 1 ]; then
       # Unset before the socket dies: the token must not outlive the tunnel.
@@ -1333,9 +1420,23 @@ fi
 #     bash -lc`: that is a different shell with a different PATH, and passing
 #     there while the pane fails is precisely the login/non-login footgun.
 # ---------------------------------------------------------------------------
-rsh "tmux has-session -t '=$REMOTE_SESSION' || tmux new-session -d -s '$REMOTE_SESSION' -n '$REMOTE_WINDOW' -c '$REMOTE_DIR'" \
-  >/dev/null 2>>"$LOCAL_STATE/remote.err" \
+# WHICH of the two branches ran is now RECORDED rather than discarded (dotfiles-77s4):
+# `new-session -n <row>` creates the row's WINDOW along with the session, so a run
+# that takes that branch owns the window even though the lookup below will happily
+# find it. The box answers with an explicit marker; anything else — a chatty login
+# profile, an older path, a shell that ate the printf — leaves ownership UNCLAIMED,
+# which is the fail-safe direction. Never remove a window you cannot prove you made.
+# The exit-status gate is unchanged; only the stdout is new.
+SESSION_STATE=$(rsh "if tmux has-session -t '=$REMOTE_SESSION'; then printf 'PULSE_SESSION=existed\n'; else tmux new-session -d -s '$REMOTE_SESSION' -n '$REMOTE_WINDOW' -c '$REMOTE_DIR' && printf 'PULSE_SESSION=created\n'; fi" \
+  2>>"$LOCAL_STATE/remote.err") \
   || fail failed-no-claude 74 "could not create/find tmux session '$REMOTE_SESSION' on $HOST (see $LOCAL_STATE/remote.err)"
+SESSION_STATE=${SESSION_STATE//$'\r'/}
+case "$SESSION_STATE" in
+  *PULSE_SESSION=created*) SESSION_CREATED=1
+    note "created remote tmux session '$REMOTE_SESSION' on $HOST (and the '$REMOTE_WINDOW' window inside it)" ;;
+  *PULSE_SESSION=existed*) : ;;
+  *) note "WARN could not tell whether tmux session '$REMOTE_SESSION' pre-existed on $HOST (got '$SESSION_STATE') — window ownership stays UNCLAIMED, so nothing will be removed" ;;
+esac
 
 # The row's WINDOW inside that session. Exact-match on the name, and create it if
 # absent — same contract as pulse-inject.sh locally. Matching on #{window_name}
@@ -1368,12 +1469,23 @@ WIN_ID=${WIN_ID//$'\r'/}
 if [ -z "$WIN_ID" ]; then
   WIN_ID=$(rsh "tmux new-window -d -P -F '#{window_id}' -t '=$REMOTE_SESSION' -n '$REMOTE_WINDOW' -c '$REMOTE_DIR'" 2>>"$LOCAL_STATE/remote.err")
   WIN_ID=${WIN_ID//$'\r'/}
+  REMOTE_WINDOW_CREATED=1
   note "created remote window $REMOTE_SESSION:$REMOTE_WINDOW ($WIN_ID)"
+elif [ "$SESSION_CREATED" = 1 ]; then
+  # The lookup FOUND it, but only because this run's `new-session -n '$REMOTE_WINDOW'`
+  # made it moments ago. Same ownership, arrived by a different door — and missing
+  # this branch would let a dry run against a box with no `work` session leave a
+  # whole session behind (dotfiles-77s4).
+  REMOTE_WINDOW_CREATED=1
+  note "remote window $REMOTE_SESSION:$REMOTE_WINDOW ($WIN_ID) came with the session THIS run created"
 fi
 case "$WIN_ID" in
   @[0-9]*) : ;;
   *) fail failed-no-claude 74 "could not resolve a window id for '$REMOTE_SESSION:$REMOTE_WINDOW' on $HOST (got '$WIN_ID'; see $LOCAL_STATE/remote.err)" ;;
 esac
+# Recorded only once the id is PROVEN well-formed: the cleanup targets this value
+# and nothing else, so a garbage id must never become a kill target.
+[ "$REMOTE_WINDOW_CREATED" = 1 ] && REMOTE_WINDOW_ID="$WIN_ID"
 
 # Resolve the pane by its tmux-assigned unique id (%N), NOT by "session:0.0".
 # Index bases are a per-server option: marketing-vps sets `base-index 1` AND
@@ -1411,6 +1523,18 @@ PANE_WARM=0
 #
 # So: make one bounded, trivial request. It costs a handful of tokens on a weekly
 # row and it is the only assertion that can actually fail on a broken gateway.
+#
+# ⚠️ THIS IS A REAL, BILLED MODEL CALL, AND IT RUNS UNDER --dry-run TOO. Kept that
+# way deliberately (dotfiles-77s4): the 2026-07-27 outage above was survived by A4
+# for a whole day precisely BECAUSE every run that day was a dry run, and a dry run
+# that skipped the one assertion capable of catching it would rebuild that blind
+# spot exactly. A gate ("--with-a7") would default to off in the timer units, where
+# it matters most, and default to off in the hand-run diagnostics, which is when a
+# human is asking "is the box OK?" — so the honest fix is not to hide the cost but
+# to STATE it: at this call site, in --help, and in the dry run's own mutation list
+# below. One bounded `claude -p` per dispatch, capped at 90s; on the weekly rows
+# that is a handful of tokens a week against a tick that would otherwise burn its
+# whole window producing nothing.
 A7_OUT=$(rsh "cd ~ && timeout 90 claude -p 'reply with exactly: PONG' 2>&1 | tail -2" 2>>"$LOCAL_STATE/remote.err")
 A7_OUT=${A7_OUT//$'\r'/}
 case "$A7_OUT" in
@@ -1462,6 +1586,46 @@ fi
 # ---------------------------------------------------------------------------
 if [ "$DRY_RUN" = 1 ]; then
   say "DRY RUN: all preflight assertions passed."
+  # -------------------------------------------------------------------------
+  # WHAT THIS RUN ACTUALLY DID TO THE BOX (dotfiles-77s4).
+  #
+  # The root cause of the 2026-08-03 mystery-window incident was NOT that a dry
+  # run mutates the box — the comment directly above has said so since it was
+  # written, and the mutations are deliberate. It was that the mutations were
+  # INVISIBLE IN THE OUTPUT. A fact documented only in the source is a fact the
+  # operator discovers days later, in the shape of a `di-monday` window nobody
+  # opened. So every mutation gets named here, in the run that made it, at the
+  # moment it can still be acted on.
+  # -------------------------------------------------------------------------
+  say "  MUTATIONS THIS DRY RUN PERFORMED — a dry run is NOT inert:"
+  say "    - ssh control master opened to $HOST (torn down when this run exits)"
+  case "$TUNNEL_MODE" in
+    owned)   say "    - fleet-proxy tunnel: OPENED by this run (-R $PORT), closed on exit" ;;
+    adopted) say "    - fleet-proxy tunnel: ADOPTED the box's own standing forward — left exactly as found" ;;
+    *)       say "    - fleet-proxy tunnel: TUNNEL_MODE=${TUNNEL_MODE:-unknown}" ;;
+  esac
+  if [ "$NO_REFRESH" = 1 ]; then
+    say "    - T1 repos on $HOST: NOT refreshed (--no-refresh)"
+  else
+    say "    - T1 repos on $HOST were fetched and fast-forwarded by the refresh (this MOVED the box's checkouts)"
+  fi
+  if [ "$SKIP_SYNC" = 1 ]; then
+    say "    - T2/T3 vault + T4 bead index: NOT synced (--skip-sync)"
+  else
+    say "    - T2/T3 memory+transcript vault SYNCED to $HOST; T4 bead index REBUILT there (br sync --import-only)"
+  fi
+  # Named even though it is the point of A7, because it is the one mutation that
+  # costs money and the only one that is invisible on the box afterwards.
+  say "    - A7 SPENT REAL TOKENS: one live, billed 'claude -p' request ran on $HOST (bounded, 90s cap)"
+  [ "$PANE_WARM" = 1 ] || \
+    say "    - A4 typed a probe into $HOST pane $PANE and left $REMOTE_WORK/claude-probe.txt behind (kept: it is the forensic record of this run)"
+  if [ "$REMOTE_WINDOW_CREATED" = 1 ]; then
+    # release_dry_run_window() prints the line — it can only claim the removal
+    # after the kill has actually come back clean.
+    release_dry_run_window
+  else
+    say "    - tmux window $REMOTE_SESSION:$REMOTE_WINDOW on $HOST: PRE-EXISTING, left untouched (this run did not create it, so it is not this run's to remove)"
+  fi
   say "  tunnel mode:   TUNNEL_MODE=$TUNNEL_MODE  (recorded at $LOCAL_STATE/tunnel-mode)"
   # Surfaced like every other dispatch fact, and FIRST among them: a human must be
   # able to see the waiver before it fires, not discover it in the ledger after.
@@ -1583,7 +1747,8 @@ fi
 # rather than on zig-computer. di-wednesday needs this: its Fable positioning vet
 # normally fires onto marketing-vps with /vps, which would be a
 # self-hop when the tick already runs there. Inferring from hostname was the
-# alternative and it is worse — the box's hostname is vps-8a9eb245 while the ssh
+# alternative and it is worse — the box's hostname was vps-8a9eb245 (renamed to
+# marketing-vps 2026-08-03, dotfiles-v1uh) while the ssh
 # ALIAS is marketing-vps, so the obvious check is wrong in a way that fails
 # silently. An explicit signal from the dispatcher cannot drift.
 rsh "tmux setenv -t '$REMOTE_SESSION' PULSE_DISPATCH_REMOTE 1" >/dev/null 2>>"$LOCAL_STATE/remote.err" \

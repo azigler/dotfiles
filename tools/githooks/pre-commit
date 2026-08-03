@@ -126,6 +126,10 @@ mapped_suites_for() { # <staged path> -> newline-separated suite paths
         agents/hooks/test/test-stop-context-guard.sh \
         agents/hooks/test/test-pre-shared-tree-guard.sh \
         agents/hooks/test/test-always-loaded-staleness.sh ;;
+    # Not under agents/, so no convention arm below reaches it — and its bug was
+    # an ORDERING bug (dotfiles-v26x), the kind an unrun suite is written for.
+    mac.upgrade.sh)
+      printf '%s\n' agents/hooks/test/test-mac-upgrade-brew-order.sh ;;
   esac
 }
 
@@ -161,6 +165,12 @@ while IFS= read -r f; do
     # ever ran it against a memo that was supposed to FAIL.
     agents/skills/desk/SKILL.md)      add_suite "agents/hooks/test/test-desk-done-proof.sh" ;;
     agents/scheduler/test-*.sh)       add_suite "$f" ;;
+    # A mutation harness IS a gate; it has no test-<n>.sh of its own and never
+    # will. Handled by name in the tunnel-ownership block below, exactly as
+    # mutate-scrutiny-guards.sh is on the hooks side. Must precede the general
+    # scheduler arm or the convention asks for a suite that cannot exist and the
+    # UNCOVERED banner cries wolf on every edit to it.
+    agents/scheduler/mutate-*.sh)     ;;
     agents/scheduler/*.sh|agents/scheduler/*.py)
                                       add_suite "agents/scheduler/test-$base.sh" ;;
     agents/lib/test-*.sh)             add_suite "$f" ;;
@@ -254,6 +264,31 @@ if printf '%s\n' "$STAGED" | grep -qE '^agents/hooks/(pre-commit-checks\.sh|pre-
     bash "$ROOT/agents/hooks/test/mutate-scrutiny-guards.sh" || FAILED=1
   else
     echo "pre-commit: FAIL — agents/hooks/test/mutate-scrutiny-guards.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
+# --- the tunnel-ownership logic -> prove IT still bites --------------------
+# Same argument as the block above, on a script whose decision is WHICH PROCESS
+# TO KILL — running on marketing-vps, a box shared with four other human
+# accounts and with two of these tunnels live at once. A target-blind pgrep
+# pattern there kills somebody else's forward mid-dispatch; it was observed live
+# during dotfiles-47nf. Measured on a 12-core box:
+#
+#     test-ensure-fleet-tunnel.sh                        9s
+#     mutate-tunnel-ownership.sh (5 mutants + baseline) 63s
+#
+# The convention arm above already runs the 9s suite for these files, so this
+# adds ~55s — to commits touching THREE files, not to every scheduler edit. The
+# test file is a trigger on purpose: `re_escape`-neutered survived 26/26 and
+# case 28 is still its SOLE detector, so deleting one case is enough to lose the
+# bite while the suite stays green. That exact scenario is what this catches.
+if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(ensure-fleet-tunnel\.sh|test-ensure-fleet-tunnel\.sh|mutate-tunnel-ownership\.sh)$'; then
+  echo "pre-commit: staged changes touch the tunnel-ownership logic -> running mutation harness (~65s)"
+  if [ -f "$ROOT/agents/scheduler/mutate-tunnel-ownership.sh" ]; then
+    bash "$ROOT/agents/scheduler/mutate-tunnel-ownership.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/scheduler/mutate-tunnel-ownership.sh is missing" >&2
     FAILED=1
   fi
 fi

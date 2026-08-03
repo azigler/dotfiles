@@ -18,7 +18,7 @@ Last full re-derivation: **2026-08-01** (runtimes, vhosts, ports, timers).
 |---|---|---|---|
 | **zig-computer** | public IP + tailnet | Linux VPS | the **harness host** — Claude Code, skills, beads, `/pulse` systemd timers, nginx edge |
 | **pico** | tailnet only | macOS, **no systemd** (launchd) | **where most user-facing production runs**; home, behind NAT |
-| **marketing-vps** (`vps-8a9eb245`) | **plain SSH, NOT on the tailnet** | Linux VPS | LinearB marketing work; a second writer on shared repos |
+| **marketing-vps** (was `vps-8a9eb245` until 2026-08-03) | **plain SSH, NOT on the tailnet** | Linux VPS | LinearB marketing work; a second writer on shared repos; Claude Code routes through pico's agentgateway over a chained `ssh -L` |
 | metis | tailnet | macOS | — |
 | iphone-15-pro | tailnet | iOS | Termius client |
 | homeassistant | tailnet, **tag:server** | HAOS rpi5 | "948 Palm" install (`ssh hassio@homeassistant`, key `~/.ssh/id_ha`); managed from `~/picod` |
@@ -107,6 +107,41 @@ expansion is **verified working** (goose key → HTTP 200 on `15003/v1/models`; 
 `x-api-key`** — an `x-api-key` probe 401s and looks like a config failure.
 ⚠️ `~/gojamming/config.json` still holds a plaintext token and is **not** a `~/.secrets` pointer.
 
+### Request attribution — `user` is the SESSION, `group` is the MACHINE
+Verified live 2026-08-03 (`dotfiles-ogkz`). `config.standardAttributes` maps two request
+headers into two columns of `~/.local/share/agentgateway/requests.db`:
+
+| header (sent by `claude-identity-wrapper.sh`) | CEL → column | value |
+|---|---|---|
+| `X-Session-Identity` | `user` → `agentgateway_user` | `<tmux session>:<window>` |
+| `X-Machine-Origin` | `group` → `agentgateway_group` | `hostname -s` |
+
+⚠️ **`agentgateway_user` is NOT a machine name**, however much `zig-computer:hevyd` looks
+like one — the first field is the tmux SESSION. zig-computer and marketing-vps both run a
+session called `work`, and metis shares the namespace, so ≥3 machines collide there. That
+is why `group` exists. `src.addr` cannot substitute: tunnelled traffic arrives as
+zig-computer's tailnet IP.
+
+⚠️ **The identity is NOT in `attributes_json`** — 0 of 78,848 rows ever matched
+`%session-identity%`. It is a COLUMN, via the CEL expression. Query
+`agentgateway_user` / `agentgateway_group`, and filter the admin API through
+`filters.attributes` (`agentgateway.group`), verified with a positive and negative control.
+
+A client whose wrapper predates the machine header logs `group='unknown'` (the CEL
+default), which is indistinguishable from a client that never sent one.
+
+⚠️ **`config:` applies ONLY AT STARTUP** — agentgateway hot-reloads `modelCatalog` and
+nothing else, so any `standardAttributes` change needs
+`launchctl kickstart -k gui/501/com.zig.agentgateway` (≈10 s, `KeepAlive` recovers it) and
+drops every in-flight fleet request. Validate first: `agentgateway --validate-only -f <cfg>`
+exits non-zero on bad CEL and names the offending field — pair it with a deliberately
+broken control, since a validator you have not watched reject anything proves nothing.
+
+⚠️ **The gateway's healthy signature on `/claude/v1/models` is `401`, not `200`** — it is a
+transparent passthrough with no key attached, so 401 means the request reached Anthropic.
+`/claude/` and `/v1/models` both 404 (the route matches `pathPrefix: /claude` and rewrites
+to `/`), so a probe that omits the prefix reads as broken when it is fine.
+
 ### Gotchas
 - **pico cannot run Claude Code** — no `claude` CLI. `~/.claude/*` symlinks into `~/dotfiles`
   exist but are inert, and that clone is pinned at **2026-06-05** with 8 staged modifications and
@@ -122,11 +157,30 @@ expansion is **verified working** (goose key → HTTP 200 on `15003/v1/models`; 
 - The tailscale "can't reach the configured DNS servers" health warning is **zig-computer's**,
   not pico's. pico reports no health warnings.
 
-## marketing-vps (`vps-8a9eb245`) — the LinearB company seat
+## marketing-vps — the LinearB company seat
 
 **NOT on the tailnet.** Plain SSH only, by the `marketing-vps` host alias.
 `tailscale status` lists zig-computer, homeassistant, iphone-15-pro, metis, pico
 — this box is not a mesh peer.
+
+⚠️ **Renamed `vps-8a9eb245` → `marketing-vps` on 2026-08-03** (`dotfiles-v1uh`) so
+agentgateway's `group` column reads the name the box is actually called. The OVH FQDN
+`vps-8a9eb245.vps.ovh.us` and the bare old name are kept as `/etc/hosts` aliases, and
+`/etc/cloud/cloud.cfg` now sets `preserve_hostname: true` — it was `false` with
+`set_hostname`/`update_hostname` active, so cloud-init would have silently reverted the
+rename at the next reboot. Per-host dotfiles are keyed on `hostname -s`
+(`zsh/.zshrc:10`, `zsh/.zshenv:14`, `sync.sh:52,233,237`), so the three
+`zsh/.marketing-vps.*` / `bash/.marketing-vps.bashrc` files were added as COPIES and the
+old names deleted only after the rename was verified — moving them first would have
+stripped PATH and the gateway routing from every new shell in between.
+
+**Claude Code routes through pico's agentgateway** (since 2026-08-03, `dotfiles-ogkz`)
+via `ANTHROPIC_BASE_URL=http://127.0.0.1:17017/claude` in `zsh/.marketing-vps.zshenv` —
+a **loopback** address, because this box is not a tailnet peer. `claude-gateway-tunnel.timer`
+is the ONLY thing that opens that forward (`ssh -L 127.0.0.1:17017:100.72.47.4:17017
+zig-computer`; ssh resolves a `-L` destination on the FAR end, so zig-computer does the
+tailnet leg). Routing fails HARD with no fallback (`dotfiles-ucl4`). ⚠️ `CC_NO_GATEWAY=1`
+does NOT bypass it in any fresh zsh (`dotfiles-20rx`); comment out the export instead.
 
 | | |
 |---|---|
