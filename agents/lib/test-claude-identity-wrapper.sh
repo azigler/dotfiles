@@ -40,15 +40,42 @@
 #       tmux in unattended ticks), where a dropped flag hangs pulse ticks
 #       fleet-wide and an injected credential moves billing off the claude.ai
 #       subscription.  (assert_launch, called after EVERY run)
+#   R5  the CC_NO_GATEWAY hatch checked AFTER an inherited ANTHROPIC_BASE_URL
+#       rather than before, which makes it UNREACHABLE in every fresh zsh: zsh
+#       sources ~/.zshenv on EVERY invocation, that sources ~/.<host>.zshenv,
+#       and that EXPORTS ANTHROPIC_BASE_URL — so the inherited-wins rule has
+#       already matched by the time the hatch is looked at. The hatch then only
+#       works where the variable happens to be unset (bash), which is the
+#       opposite of where it is needed.  (dotfiles-20rx; T9 T10 T11 T12)
+#
+#       Two halves, and the second is the one a source read misses: clearing the
+#       variable INSIDE the wrapper does not bypass anything, because the value
+#       is EXPORTED in the calling shell and the child inherits it regardless.
+#       It has to be removed from the launched environment — see cases 2u/4u.
+#
+#       T6/T6b did NOT catch this, and the reason is worth keeping: `run()`
+#       launches under `env -i` with HOME=$FAKEHOME, so the shell it starts has
+#       no startup file to export the variable and no ambient environment —
+#       a shape that exists nowhere in production. Not a zsh-vs-bash gap: T6
+#       passed under BOTH shells. The suite could only see the bug once a test
+#       modelled a shell that starts with the variable ALREADY set, which is
+#       what $STARTHOME below exists for.
 #
 # Everything is asserted against `printenv` inside the child, so a change that
 # builds the right string but fails to EXPORT it still fails here.
 #
-# THE FOUR LAUNCH CASES AND WHO DRIVES THEM (keep this current):
-#   case 1  _hdrs && _base   T1  T2  T5  T7
-#   case 2  _hdrs only       T3  T3b T6      <- the marketing-vps shape
-#   case 3  _base only       T4b
-#   case 4  neither          T4
+# THE LAUNCH CASES AND WHO DRIVES THEM (keep this current):
+#   case 1   _hdrs && _base            T1  T2  T5  T7  T10
+#   case 2   _hdrs only                T3  T3b T6      <- the marketing-vps shape
+#   case 3   _base only                T4b
+#   case 4   neither                   T4
+#   case 2u  _hdrs, strip inherited    T9  T11
+#   case 4u  neither, strip inherited  T12
+# The `u` cases are the ones that must REMOVE ANTHROPIC_BASE_URL from the
+# launched environment (`env -u`) rather than merely decline to set it — an
+# exported value in the calling shell is inherited whatever the wrapper
+# computes, which is why clearing the variable internally does not bypass
+# anything. Each case is driven by at least one test on purpose (R4).
 
 DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
 WRAPPER="$DIR/claude-identity-wrapper.sh"
@@ -113,6 +140,22 @@ printf '%s\n' \
   'export ANTHROPIC_BASE_URL="http://127.0.0.1:17017/claude"' \
   'export LEAK_CANARY=leaked' > "$FAKEHOME/.testbox.zshenv"
 
+# --- $STARTHOME: a home whose SHELL STARTUP FILE exports the base URL --------
+# This is what production actually looks like and what $FAKEHOME cannot model
+# (see R5). zsh sources ~/.zshenv on EVERY invocation — interactive or not,
+# login or not — so on a real box the variable is in the environment before the
+# wrapper's first line runs. bash reaches the same shape via $BASH_ENV, which
+# non-interactive `bash -c` sources (it does NOT read ~/.bashrc), so both
+# shells are covered by one fixture and the tests below are shell-agnostic.
+#
+# The startup value is DELIBERATELY DIFFERENT from the per-host file's value,
+# so "the inherited value won" is distinguishable from "the per-host file was
+# re-read" — same string for both would make T10 unable to tell them apart.
+STARTHOME="$TMPROOT/starthome"; mkdir -p "$STARTHOME"
+cp "$FAKEHOME/.testbox.zshenv" "$STARTHOME/.testbox.zshenv"
+printf '%s\n' 'export ANTHROPIC_BASE_URL="http://start.example/v1"' \
+  > "$STARTHOME/.zshenv"
+
 export DUMPDIR MOCKDIR
 
 # run <shell> <env assignments...> -- launches `claude --resume x` through the
@@ -120,12 +163,18 @@ export DUMPDIR MOCKDIR
 # environment in $DUMPDIR. The dump files are removed FIRST, so a test that
 # fails to launch at all reads <UNSET>/<NO LAUNCH> rather than the previous
 # test's leftovers — the exact staleness that let M5 and M7 survive.
+#
+# $RUN_HOME selects the home the launched shell sees; it defaults to $FAKEHOME
+# (no startup file) and is switched to $STARTHOME for the R5 tests. Set it back
+# after — a leaked $STARTHOME would silently hand every later test an inherited
+# base URL.
+RUN_HOME="$FAKEHOME"
 run() {
   _sh=$1; shift
   rm -f "$DUMPDIR/hdrs" "$DUMPDIR/hdrs.od" "$DUMPDIR/base" "$DUMPDIR/args" \
         "$DUMPDIR/creds" "$DUMPDIR/leak"
   env -i \
-    HOME="$FAKEHOME" PATH="$MOCKDIR:/usr/bin:/bin" DUMPDIR="$DUMPDIR" \
+    HOME="$RUN_HOME" PATH="$MOCKDIR:/usr/bin:/bin" DUMPDIR="$DUMPDIR" \
     "$@" \
     "$_sh" -c '. "$0"; claude --resume x' "$WRAPPER"
 }
@@ -228,6 +277,9 @@ assert_launch 'T5 [case 1]'
 
 # T6 [case 2] CC_NO_GATEWAY=1 bypasses the per-host file; headers unaffected.
 # Also `elif [ -n "$_hdrs" ]` — the M5/M7 branch.
+# NOTE: this launches from a shell with NO inherited ANTHROPIC_BASE_URL, which
+# is the ONE shape the hatch worked in before dotfiles-20rx. T9/T10/T11 cover
+# the shape production actually has. Keep both.
 run "$SH" MOCK_HOST=testbox TMUX_PANE=%1 MOCK_SESS=work MOCK_WIN=pulse CC_NO_GATEWAY=1
 check 'T6 [case 2] CC_NO_GATEWAY=1 -> no base URL' '<UNSET>' "$(got_base)"
 check 'T6b [case 2] CC_NO_GATEWAY=1 -> headers still sent' "$BOTH" "$(got_hdrs)"
@@ -249,6 +301,70 @@ leak=$(env -i HOME="$FAKEHOME" PATH="$MOCKDIR:/usr/bin:/bin" DUMPDIR="$DUMPDIR" 
 check 'T8 per-host exports do not leak into the caller' '<none>' "$leak"
 check 'T8b per-host exports do not leak into the CHILD either' '<UNSET>' \
   "$([ -f "$DUMPDIR/leak" ] && cat "$DUMPDIR/leak" || printf '<UNSET>')"
+
+# --- R5: the escape hatch in a shell that ALREADY exported the base URL ------
+# dotfiles-20rx. Everything below runs out of $STARTHOME (see the fixture), so
+# the shell the wrapper is sourced into starts with ANTHROPIC_BASE_URL already
+# in its environment — the fleet's actual condition, and the one under which
+# the hatch used to be unreachable.
+RUN_HOME="$STARTHOME"
+
+# T9pre — FIXTURE SANITY, and not optional: if the startup file ever stopped
+# firing, T9 would pass for the wrong reason (nothing to override) and would
+# guard nothing. Assert the precondition the way the bead reproduces it, from
+# the shell's own environment, before asserting anything about the wrapper.
+fresh=$(env -i HOME="$STARTHOME" PATH="$MOCKDIR:/usr/bin:/bin" \
+        BASH_ENV="$STARTHOME/.zshenv" CC_NO_GATEWAY=1 \
+        "$SH" -c 'printf "%s" "${ANTHROPIC_BASE_URL:-<unset>}"')
+check 'T9pre fixture: a fresh shell exports ANTHROPIC_BASE_URL before the wrapper runs' \
+  'http://start.example/v1' "$fresh"
+
+# T9 [case 2u] THE REGRESSION. Fresh shell (base URL already exported) + armed
+# hatch -> the gateway MUST be bypassed. Before the fix the inherited value was
+# honored first and the hatch never ran: `_base` stayed set and every claude
+# launched from any zsh on the fleet still went through the gateway, including
+# the 503-on-compaction recovery the hatch exists for.
+run "$SH" MOCK_HOST=testbox TMUX_PANE=%1 MOCK_SESS=work MOCK_WIN=pulse \
+    CC_NO_GATEWAY=1 BASH_ENV="$STARTHOME/.zshenv"
+check 'T9 [case 2u] armed hatch beats a shell-startup ANTHROPIC_BASE_URL (R5)' \
+  '<UNSET>' "$(got_base)"
+# Bypassing the gateway must not cost attribution: the headers are how a
+# hatched request is still accounted for once it stops passing through pico.
+check 'T9b [case 2u] hatched launch still sends both headers' "$BOTH" "$(got_hdrs)"
+assert_launch 'T9 [case 2u]'
+
+# T10 [case 1] THE OTHER HALF, and the reason the fix is an ordering change and
+# not a deletion: with the hatch NOT armed, the inherited value still wins over
+# the per-host file. $STARTHOME holds BOTH — .zshenv exports start.example and
+# .testbox.zshenv exports 127.0.0.1:17017 — so the value proves which path ran.
+run "$SH" MOCK_HOST=testbox TMUX_PANE=%1 MOCK_SESS=work MOCK_WIN=pulse \
+    BASH_ENV="$STARTHOME/.zshenv"
+check 'T10 [case 1] hatch NOT armed -> inherited value still beats the per-host file' \
+  'http://start.example/v1' "$(got_base)"
+assert_launch 'T10 [case 1]'
+
+RUN_HOME="$FAKEHOME"
+
+# T11 [case 2u] the same regression in its shell-independent form: the value is
+# handed in explicitly rather than by a startup file. Worth having separately —
+# it fails under bash too, so it does not depend on zsh being installed, and it
+# pins the precedence rule itself rather than one shell's way of triggering it.
+run "$SH" MOCK_HOST=testbox TMUX_PANE=%1 MOCK_SESS=work MOCK_WIN=pulse \
+    CC_NO_GATEWAY=1 ANTHROPIC_BASE_URL=http://inherited.example/v1
+check 'T11 [case 2u] armed hatch beats an explicitly inherited base URL (R5)' \
+  '<UNSET>' "$(got_base)"
+check 'T11b [case 2u] headers still sent' "$BOTH" "$(got_hdrs)"
+assert_launch 'T11 [case 2u]'
+
+# T12 [case 4u] the headerless half of the strip path — hostname fails AND no
+# tmux AND an inherited base URL AND an armed hatch. Nothing else reaches the
+# bare `env -u ... claude` branch, and an untested launch branch is exactly how
+# M5/M7 survived once already (R4).
+run "$SH" CC_NO_GATEWAY=1 ANTHROPIC_BASE_URL=http://inherited.example/v1
+check 'T12 [case 4u] armed hatch strips inherited base URL with no headers at all' \
+  '<UNSET>' "$(got_base)"
+check 'T12b [case 4u] still no header var' '<UNSET>' "$(got_hdrs)"
+assert_launch 'T12 [case 4u]'
 
 echo
 if [ "$FAILS" -eq 0 ]; then echo "ALL PASS ($SH)"; else echo "$FAILS FAILURE(S) ($SH)"; fi

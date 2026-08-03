@@ -45,14 +45,39 @@
 # shell-age-independent the way the identity header already is.
 #
 # Precedence (first match wins):
-#   1. ANTHROPIC_BASE_URL already in the environment — an explicit per-call override,
-#      and what a freshly-started shell supplies anyway. Never second-guessed.
-#   2. CC_NO_GATEWAY=1 — the escape hatch, for when the gateway's o11y body-size limit
-#      503s a huge request (context compaction is the usual victim). This REPLACES the
-#      old `unset ANTHROPIC_BASE_URL && claude` hatch, which no longer suffices now
-#      that step 3 re-derives the value.
+#   1. CC_NO_GATEWAY (any non-empty value) — the escape hatch, for when the gateway's
+#      o11y body-size limit 503s a huge request (context compaction is the usual
+#      victim, i.e. exactly when a session is long, expensive and least able to absorb
+#      a failure). Clears the base URL UNCONDITIONALLY, including over an inherited
+#      one. It supersedes the old `unset ANTHROPIC_BASE_URL && claude` hatch, which
+#      step 3 defeats by re-deriving the value.
+#   2. ANTHROPIC_BASE_URL already in the environment — an explicit per-call override,
+#      and what a freshly-started shell supplies anyway. Honored as-is.
 #   3. the per-host ~/.<host>.zshenv, read in a SUBSHELL (its exports never leak into
-#      the caller). A host without that file — the VPS — gets nothing, unchanged.
+#      the caller). A host without that file gets nothing, unchanged.
+#
+# WHY THE HATCH IS FIRST AND NOT SECOND (dotfiles-20rx, fixed 2026-08-03). It was
+# written second, on the reasoning that an inherited value is a deliberate per-call
+# override and should never be second-guessed. That reasoning does not survive zsh:
+# zsh sources ~/.zshenv on EVERY invocation, ~/.zshenv sources ~/.<host>.zshenv, and
+# that file EXPORTS ANTHROPIC_BASE_URL — so in every fresh zsh on the fleet rule 1 had
+# already matched and rule 2 was unreachable:
+#
+#   env -u ANTHROPIC_BASE_URL CC_NO_GATEWAY=1 zsh  -c 'echo ${ANTHROPIC_BASE_URL:-unset}'
+#     -> http://100.72.47.4:17017/claude   (hatch defeated)
+#   env -u ANTHROPIC_BASE_URL CC_NO_GATEWAY=1 bash -c 'echo ${ANTHROPIC_BASE_URL:-unset}'
+#     -> unset                             (hatch works)
+#
+# The hatch fired only where the variable happened to be unset — bash — which is the
+# opposite of where it is needed: the interactive fleet is zsh. Worse, since
+# dotfiles-ucl4 marketing-vps routes through the gateway FAIL-HARD, so a box whose
+# tunnel is down had neither a working `claude` nor a hatch that could fire in its own
+# login shell.
+#
+# An ambient inherited value is not evidence of intent — it is the default state of
+# every shell. `CC_NO_GATEWAY=1` typed at a prompt is. The more specific intent wins.
+# Rule 2 still beats rule 3, so a deliberate override with the hatch unarmed behaves
+# exactly as before. Guarded by T9–T12 in test-claude-identity-wrapper.sh.
 
 # Source the harness window resolver once, at load, so the identity matches the rest of
 # the harness (glyph-stripped window name, bg-fork-aware). Harmless if absent.
@@ -80,9 +105,13 @@ claude() {
   # the per-host env path below still uses the raw `hostname -s` output verbatim.
   _mhost=$(printf '%s' "$_host" | tr -s '[:space:]' '-' | tr -cd '[:alnum:]._-')
   [ -n "$_mhost" ] && _mhdr="X-Machine-Origin: ${_mhost}"
-  # Per-host gateway routing, resolved at LAUNCH (see the header note). Skipped
-  # entirely when the var is already set or the escape hatch is armed.
-  if [ -z "$_base" ] && [ -z "${CC_NO_GATEWAY:-}" ]; then
+  # Per-host gateway routing, resolved at LAUNCH (see the header note).
+  # THE HATCH IS CHECKED FIRST — the ordering is the whole fix for dotfiles-20rx
+  # and it is not cosmetic; see the precedence note above for why an inherited
+  # value cannot be treated as evidence of intent.
+  if [ -n "${CC_NO_GATEWAY:-}" ]; then
+    _base=""
+  elif [ -z "$_base" ]; then
     _hostenv="$HOME/.${_host}.zshenv"
     if [ -n "$_host" ] && [ -f "$_hostenv" ]; then
       # Subshell: the file's exports must NOT leak into the caller — this reads one
@@ -121,7 +150,29 @@ claude() {
   # Build the per-invocation env prefix. Written as explicit cases rather than an
   # array: this file is sourced by BOTH bash and zsh, and empty-array expansion is
   # exactly the kind of thing that differs between them.
-  if [ -n "$_hdrs" ] && [ -n "$_base" ]; then
+  #
+  # CASES 2u/4u — "we resolved to NO base URL, but the environment carries one."
+  # Clearing `_base` is NOT enough to bypass the gateway: ANTHROPIC_BASE_URL is
+  # EXPORTED in the calling shell (that export is the bug), so an unset-in-here
+  # variable is still inherited by the child and the request still routes. It has
+  # to be removed from the LAUNCHED environment.
+  #   `env -u` and not `unset`: this function runs in the caller's shell, and that
+  #   shell is a durable tmux pane that lives for days — `unset` would silently
+  #   de-gateway every later claude in the pane, turning a per-call hatch into a
+  #   sticky one. `env` execs the binary, so claude stays a direct child and the
+  #   NOT-exec invariant (the pane's shell survives claude exiting) is unaffected.
+  #   `env` cannot see shell functions, so naming `claude` here cannot recurse,
+  #   exactly as `command claude` cannot.
+  # Reached only via CC_NO_GATEWAY today (nothing else empties an inherited value),
+  # but written as the state it actually is rather than as a second hatch check.
+  if [ -z "$_base" ] && [ -n "${ANTHROPIC_BASE_URL+x}" ]; then
+    if [ -n "$_hdrs" ]; then
+      ANTHROPIC_CUSTOM_HEADERS="$_hdrs" \
+        env -u ANTHROPIC_BASE_URL claude --dangerously-skip-permissions "$@"
+    else
+      env -u ANTHROPIC_BASE_URL claude --dangerously-skip-permissions "$@"
+    fi
+  elif [ -n "$_hdrs" ] && [ -n "$_base" ]; then
     ANTHROPIC_CUSTOM_HEADERS="$_hdrs" ANTHROPIC_BASE_URL="$_base" \
       command claude --dangerously-skip-permissions "$@"
   elif [ -n "$_hdrs" ]; then
