@@ -1583,7 +1583,8 @@ fi
 # rather than on zig-computer. di-wednesday needs this: its Fable positioning vet
 # normally fires onto marketing-vps with /vps, which would be a
 # self-hop when the tick already runs there. Inferring from hostname was the
-# alternative and it is worse — the box's hostname is vps-8a9eb245 while the ssh
+# alternative and it is worse — the box's hostname was vps-8a9eb245 (renamed to
+# marketing-vps 2026-08-03, dotfiles-v1uh) while the ssh
 # ALIAS is marketing-vps, so the obvious check is wrong in a way that fails
 # silently. An explicit signal from the dispatcher cannot drift.
 rsh "tmux setenv -t '$REMOTE_SESSION' PULSE_DISPATCH_REMOTE 1" >/dev/null 2>>"$LOCAL_STATE/remote.err" \

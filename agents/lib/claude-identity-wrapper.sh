@@ -35,7 +35,7 @@
 # reason. ANTHROPIC_BASE_URL used to live in the fleet-wide claude/settings.json `env`
 # block, which EVERY claude process read at launch. On 2026-07-27 it moved to the
 # per-host shell tier (~/.<host>.zshenv, commits 2b8d22a + 5c9ff80). The scoping is
-# right — vps-8a9eb245 has no route to the gateway — but it turned a LAUNCH-time
+# right — marketing-vps had no route to the gateway then — but it turned a LAUNCH-time
 # setting into a SHELL-START-time one, and the harness's durable tmux panes hold zsh
 # processes that are days old. Those shells never sourced the new file, so every claude
 # launched from them (i.e. every pulse tick in every long-lived window) silently

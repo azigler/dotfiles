@@ -18,7 +18,7 @@ Last full re-derivation: **2026-08-01** (runtimes, vhosts, ports, timers).
 |---|---|---|---|
 | **zig-computer** | public IP + tailnet | Linux VPS | the **harness host** — Claude Code, skills, beads, `/pulse` systemd timers, nginx edge |
 | **pico** | tailnet only | macOS, **no systemd** (launchd) | **where most user-facing production runs**; home, behind NAT |
-| **marketing-vps** (`vps-8a9eb245`) | **plain SSH, NOT on the tailnet** | Linux VPS | LinearB marketing work; a second writer on shared repos |
+| **marketing-vps** (was `vps-8a9eb245` until 2026-08-03) | **plain SSH, NOT on the tailnet** | Linux VPS | LinearB marketing work; a second writer on shared repos; Claude Code routes through pico's agentgateway over a chained `ssh -L` |
 | metis | tailnet | macOS | — |
 | iphone-15-pro | tailnet | iOS | Termius client |
 | homeassistant | tailnet, **tag:server** | HAOS rpi5 | "948 Palm" install (`ssh hassio@homeassistant`, key `~/.ssh/id_ha`); managed from `~/picod` |
@@ -157,11 +157,30 @@ to `/`), so a probe that omits the prefix reads as broken when it is fine.
 - The tailscale "can't reach the configured DNS servers" health warning is **zig-computer's**,
   not pico's. pico reports no health warnings.
 
-## marketing-vps (`vps-8a9eb245`) — the LinearB company seat
+## marketing-vps — the LinearB company seat
 
 **NOT on the tailnet.** Plain SSH only, by the `marketing-vps` host alias.
 `tailscale status` lists zig-computer, homeassistant, iphone-15-pro, metis, pico
 — this box is not a mesh peer.
+
+⚠️ **Renamed `vps-8a9eb245` → `marketing-vps` on 2026-08-03** (`dotfiles-v1uh`) so
+agentgateway's `group` column reads the name the box is actually called. The OVH FQDN
+`vps-8a9eb245.vps.ovh.us` and the bare old name are kept as `/etc/hosts` aliases, and
+`/etc/cloud/cloud.cfg` now sets `preserve_hostname: true` — it was `false` with
+`set_hostname`/`update_hostname` active, so cloud-init would have silently reverted the
+rename at the next reboot. Per-host dotfiles are keyed on `hostname -s`
+(`zsh/.zshrc:10`, `zsh/.zshenv:14`, `sync.sh:52,233,237`), so the three
+`zsh/.marketing-vps.*` / `bash/.marketing-vps.bashrc` files were added as COPIES and the
+old names deleted only after the rename was verified — moving them first would have
+stripped PATH and the gateway routing from every new shell in between.
+
+**Claude Code routes through pico's agentgateway** (since 2026-08-03, `dotfiles-ogkz`)
+via `ANTHROPIC_BASE_URL=http://127.0.0.1:17017/claude` in `zsh/.marketing-vps.zshenv` —
+a **loopback** address, because this box is not a tailnet peer. `claude-gateway-tunnel.timer`
+is the ONLY thing that opens that forward (`ssh -L 127.0.0.1:17017:100.72.47.4:17017
+zig-computer`; ssh resolves a `-L` destination on the FAR end, so zig-computer does the
+tailnet leg). Routing fails HARD with no fallback (`dotfiles-ucl4`). ⚠️ `CC_NO_GATEWAY=1`
+does NOT bypass it in any fresh zsh (`dotfiles-20rx`); comment out the export instead.
 
 | | |
 |---|---|
