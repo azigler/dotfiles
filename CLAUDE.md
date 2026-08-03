@@ -59,6 +59,19 @@ Consequences that bite:
    (`dotfiles-8aj5`, `dotfiles-jm1c`). **A green suite is not evidence that a
    guard bites**; only a mutant that dies is.
 
+   Two clauses on what counts as *dies*, both burned in during the
+   `dotfiles-ogkz` arc. **Assert the mutation actually applied** before the
+   suite's exit code is allowed to mean anything — in `dotfiles-47nf` an
+   over-escaped sed pattern matched nothing, the suite went red anyway, and by
+   exit code alone that is indistinguishable from a proper kill; an unapplied
+   mutation is a HARNESS ERROR, not a kill. And **a killed mutant must fail the
+   case(s) it NAMES** — red-somewhere says nothing about the guard under test and
+   is frequently evidence the mutant broke something else, as when
+   `dotfiles-77s4`'s first ownership mutant broke the script globally and
+   unrelated preflights failed with verdict `<none>`. Both are implemented
+   mechanically in `agents/scheduler/mutate-tunnel-ownership.sh`; model a new
+   mutation harness on it rather than re-deriving the checks here.
+
 2. **A documented EXAMPLE is executable in a prompt-driven harness.** Agents copy
    examples verbatim, so a wrong example is a defect that replicates itself —
    invisible to code review, invisible to tests, and it *scales with adoption*.
