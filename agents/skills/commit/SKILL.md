@@ -128,6 +128,67 @@ Recovery when it has already happened: `git reflog` still holds the stranded
 commits. Find the last one, `git checkout <branch>`, `git merge --ff-only <sha>`
 if it descends from the branch, and `git cherry-pick` any siblings.
 
+⚠️ **A push guard behind a pipe can NEVER fire.** Measured 2026-08-03
+(`dotfiles-xugk`) — a session used this idiom for every push across a long run:
+
+```bash
+if ! git push origin main 2>&1 | tail -1; then     # BROKEN: absorb path unreachable
+  git fetch origin && git merge --no-edit origin/main && git push origin main
+fi
+```
+
+`if !` tests the exit status of the **pipeline**, which is its LAST command's —
+`tail`, which always succeeds. The fetch+merge therefore cannot run, ever. The
+idiom was written specifically to satisfy AGENTS.md's "two writers" rule and
+satisfied nothing; the pipe was never load-bearing, it only trimmed output.
+
+This is the `rev-parse` trap one level down — **a guard whose signal is swallowed
+before anything reads it** — and it shares the tell that let it survive a whole
+session: *the failure mode is silence.* Nothing errors, nothing logs, and while
+pushes succeed it is indistinguishable from a working guard. It surfaced only on
+the first real rejection (another writer had landed four commits): the push
+failed, the fallback silently did not run, and the divergence was caught **only**
+by the `ls-remote` comparison above. So that check is not redundant with the
+`||` fallback — it is what catches the fallback itself being broken. Keep it
+mandatory. Real output, throwaway repo, local 1 ahead / 4 behind:
+
+```
+local=97a5859  remote=d44ad65
+hint: See the 'Note about fast-forwards' in 'git push --help' for details.
+(the fallback's echo never printed)
+local=97a5859  remote=d44ad65
+ls-remote proof: FAIL -- remote did not receive it
+```
+
+**The fix is to drop the pipe and read `$?`.** The `git push … || { … }` block
+above is already correct; when you want the status explicitly:
+
+```bash
+git push origin "$BRANCH"; rc=$?
+if [ "$rc" -ne 0 ]; then
+  git fetch origin && git merge --no-edit "origin/$BRANCH" || {
+    echo "ABORT: merge refused — the remote touches another writer's files. Stop and wait."; exit 1; }
+  git push origin "$BRANCH"
+fi
+```
+
+🚫 **Do NOT "fix" it with `${PIPESTATUS[0]}` — that is bash-only, and this
+fleet's shell is zsh** (Bash-tool commands run `/bin/zsh` 5.9). In zsh the
+uppercase array does not exist, so it expands to the **empty string** and the
+guard fails open in exactly the way it was added to prevent. zsh's own array is
+lowercase AND 1-indexed (`${pipestatus[1]}` is the first command), and either
+array is clobbered by the very next command, so nothing may intervene. Measured
+after `false | true`:
+
+```
+zsh    ${PIPESTATUS[0]} = []      ${pipestatus[1]} = [1]
+bash   ${PIPESTATUS[0]} = [1]
+zsh, one echo later:               ${pipestatus[1]} = [0]   <- clobbered
+```
+
+Two silent-failure traps stacked is one too many. **Keep the pipe out of the
+guard** — pipe afterwards if you want quiet output.
+
 ⚠️ **Assume another machine has already committed.** As of 2026-07-28 this is no
 longer a single-writer fleet: `marketing-vps` runs full dispatched pulse ticks
 against its own checkouts of `~/dotfiles` and `~/linearb`, and a parallel
