@@ -1,144 +1,104 @@
-# Session handoff — 2026-08-02 a2e33a21 (metis)
+# Session handoff — 2026-08-03 188ce668 (zig-computer)
 
-Machine: **metis** (personal Mac). Two arcs in one session: a 515-commit pull +
-binary upgrade, then a **macOS Tahoe** upgrade mid-session that invalidated the
-result and had to be redone.
+Machine: **zig-computer**. One long arc: route `marketing-vps` Claude Code through
+pico's agentgateway with machine-of-origin attribution — then nine follow-on defects
+the arc exposed.
 
 ## State at offboard
 
-- Current branch: `main`, pushed and clean (`0 0` vs origin)
-- Last commit: `33f84bd` (merge of `9286bec` :wrench: borders: blacklist iPhone Mirroring)
-- Open beads: 55; in-progress: 0 (as of this offboard — run `br ready` for live state).
-  Created this session: `dotfiles-v26x` (closed), `dotfiles-66k6` (open)
-- In-flight subagents: none — one worktree merged, branch deleted, worktree removed
-- Dirty files: `sketchybar/sketchybarrc` (modified) + `sketchybar/hooks/` (untracked),
-  **deliberately uncommitted** — metis-local, Zig's call, matches the prior note
-- Markers: stale `.offboard-pending` (from 2026-06-05) cleared
+- Current branch: `main`, pushed, `local == remote` proven via `git ls-remote`
+- Last commit: `6535cd3` (merge absorbing another writer's 4 commits)
+- Open beads: 65; in-progress: 0
+- In-flight subagents: none — 8 dispatched, all merged, all worktrees removed
+- Dirty files: `.beads/issues.jsonl` only (the two Step-2.6 beads, committed below)
+- `~/explore` also touched and pushed: `0e6152a`
+- Markers: `.offboard-pending` cleared
 
 ## What happened this session
 
-### 1. The pull — 515 commits, zero real conflicts
+### The ask (delivered, verified end to end)
 
-metis was pinned at `3c1ab2f` (2026-06-05), **515 behind, 0 ahead** — a pure
-fast-forward. Five tracked files were dirty; **four were byte-identical to what zig
-had already committed** (the `~/.local/bin` PATH line ×3, a two-key reorder in
-`claude/settings.json`). Verified against `git show origin/main:<file>` before
-discarding. The only genuine local change was the sketchybar pair, which upstream has
-**0 commits** touching, so it survived untouched.
+`marketing-vps` is not on the tailnet and never will be; pico's agentgateway is
+tailnet-only. **One hop, not two** — `ssh -L` resolves its destination on the FAR end,
+so zig-computer does the tailnet leg itself:
 
-### 2. First upgrade — and a real defect (`dotfiles-v26x`, fixed)
+    ssh -L 127.0.0.1:17017:100.72.47.4:17017 zig-computer
 
-`mac.upgrade.sh --trust-taps --casks`: 66 formulae + 3 casks.
+Measured from the VPS: `000` with no tunnel → `401` through it. **401 IS health** — the
+`/claude` route is a keyless passthrough, so 401 means the request reached Anthropic.
 
-The script printed `✓ no untrusted taps blocking upgrades` and then, in the SAME run,
-brew printed `Skipping sketchybar / bv / yabai / borders: tap formula is not trusted`.
-`--trust-taps` found nothing to trust and silently no-opped. **Root cause:** the probe
-ran *before* `brew update`, reading stale tap metadata. Proof either side of the refresh:
+**Machine attribution: squatted the unused `agentgateway_group` column** — Zig's call,
+better than the three options offered. `user` keeps meaning `<tmux session>:<window>`;
+all 84k historical rows untouched. Live proof: `group=marketing-vps` and
+`group=zig-computer` both recorded; filterability confirmed via `/api/logs/search` with
+a positive AND a negative control.
 
-    at probe time : brew outdated --verbose dicklesworthstone/tap/bv -> (empty)
-    after update  : ...                                              -> 0.16.4 < 0.18.0
+⚠️ **`agentgateway_user` was NEVER a machine label** — its first field is the tmux
+SESSION. Both boxes run a session called `work` and metis shares the namespace, so ≥3
+machines were already colliding. The request caught a pre-existing defect.
 
-Fixed by reorder (update → migrate → probe → trust → upgrade), verified independently on
-merged main: `update`(26) → `probe`(47) → `trust`(61) → `upgrade`(80), suite 20/20.
+### The defects the arc exposed — every one behind green mechanical gates
 
-The subagent also found **`tools/githooks/pre-commit` had no arm reaching
-`mac.upgrade.sh`** — the guard would have had no caller (the `dotfiles-dijt` failure
-mode). It added a `mapped_suites_for` entry. The new suite
-(`agents/hooks/test/test-mac-upgrade-brew-order.sh`, 20 cases) has a static layer, a
-runtime layer driving the script against a **stub `brew`**, and a mutant-dies check; it
-was **observed failing 9/20** against a reintroduced bug before being trusted.
+- `dotfiles-v93v` — two mutants SURVIVED on the exact branch the VPS now uses: a dropped
+  `--dangerously-skip-permissions` (hangs unattended ticks) and an injected
+  `ANTHROPIC_AUTH_TOKEN` (moves billing off the subscription). Zero credential coverage.
+- `dotfiles-47nf` — `re_escape` entirely untested; neutering it passed 26/26 while an
+  unescaped pattern provably matched a *different* forward.
+- `dotfiles-xp57` — `Type=oneshot` + default `KillMode` **kills the `ssh -f -N` the
+  script just opened**, then logs "Finished". Both configs report `Result=success`; only
+  the tunnel's fate differs. Reproduced independently with paired transient units.
+- `dotfiles-77s4` — `--dry-run` created a persistent tmux window on a shared production
+  box, typed into it, and made a paid `claude -p` call. Zig spotted it as a Monday tab
+  open on a Friday. Now removes only the window it created, guarding two ownership doors
+  (`new-session -n <row>` creates the window too).
+- `dotfiles-20rx` (P1) — `CC_NO_GATEWAY=1` fired in no fresh zsh. The fix had TWO halves;
+  the obvious one alone does nothing, because the var is *exported* by the caller.
+- `dotfiles-x1fn` — the guarded merge sequence had NO owner (AGENTS.md and `/orchestrator`
+  each named the other). Fixed in parallel by Zig's `dc99ec8`.
+- Also closed: `9gyw` `ahrd` `qepg` `u9kw` `dajp` `wpu2` `ogkz` `xp57` `47nf` `v1uh`.
 
-Cleanups: `brew untap homebrew/cask-fonts` (dead tap that was failing `brew update`),
-`brew uninstall bv` (brew's frozen 0.16.4; curl-installed 0.18.0 already won on PATH).
+### Hostname rename
 
-### 3. `core.hooksPath` was UNSET on metis too
-
-The prior handoff said to check it on any other machine. Checked — **unset here**, so
-`tools/githooks/pre-commit` had never gated a commit on this clone. Now set. Proven to
-fire, not assumed: staging an *unmodified* file exits 0 **silently** (nothing staged →
-nothing checked), which is not evidence. With a real staged diff it runs the suite.
-
-### 4. Then Zig upgraded to macOS Tahoe — which invalidated all of the above
-
-Every Homebrew bottle is per-OS, but versions are identical, so **`brew outdated` sees
-nothing**. Post-Tahoe measurement: 154 kegs built on macOS 14.x or older, **0 on macOS
-26**. Filed as **`dotfiles-66k6`**.
-
-Remediation, in the order that actually works:
-
-1. **CLT first.** `brew doctor` flagged CLT 16.2 as too outdated (Tahoe wants Xcode 26.3).
-   Zig reinstalled → **CLT 26.6.0.0, clang 21.0.0**, and `xcode-select` auto-switched to
-   `/Library/Developer/CommandLineTools`.
-2. **A reinstall attempted while CLT was absent poured 0 bottles** and aborted on
-   `python@3.11: the bottle needs the Xcode Command Line Tools`. It looked like it ran.
-3. After CLT landed: **147 formulae, 147 `arm64_tahoe`, 0 sonoma, 0 errors.** Kegs on
-   macOS 26 went 0 → 148. `ruby` now reports `arm64-darwin25`.
-
-Deliberately excluded: `yabai`/`skhd`/`sketchybar`/`borders` (third-party taps, already
-current, working WM stack), `icu4c@75` (disabled upstream — aborts the batch if included),
-`openssl@1.1` (no formula), `ranger`/`ca-certificates` (noarch).
-
-### 5. borders vs. the new "iPhone Mirroring" app
-
-Zig blacklisted it in `bordersrc` but wasn't sure the service restarted. It hadn't:
-
-    borders PID 4011 started  09:43:33
-    bordersrc edited          10:39:48
-
-The daemon predated the edit by 56 minutes and only reads the config **at startup**.
-Restarted with `launchctl kickstart -k gui/$(id -u)/homebrew.mxcl.borders` → new PID at
-10:46:49. Zig confirmed visually. The config string was correct all along —
-`CFBundleName` is exactly `iPhone Mirroring`. Committed as `9286bec`.
+`vps-8a9eb245` → `marketing-vps` (`dotfiles-v1uh`). Per-host dotfiles are keyed on
+`hostname -s`, so a naive `git mv` would have stripped PATH **and** gateway routing from
+every new shell — with `claude` dead by policy — exactly where the pulse rows run. Done
+as a dual-name transition: copy → relink → rename → delete old. `cloud.cfg` pinned
+`preserve_hostname: true` (it was `false` with `set_hostname` active, so a reboot would
+have silently reverted it). Existing rows relabelled on pico after a `.backup`.
 
 ## Decisions made this session (autonomous decide-and-proceed calls)
 
-None filed as `-t decision` beads — harvest receipt: `0 … (19 scanned, open+closed)`, a
-genuine zero. Two judgment calls worth noting narratively:
-
-- **Scoped the Tahoe reinstall to core formulae**, excluding the four third-party-tap
-  formulae. They were already at current versions, sit behind untrusted taps, and are the
-  live window-manager stack — churn with no bottle benefit. Recorded in `dotfiles-66k6`.
-- **Used `git checkout` on four dirty files** to take upstream. CLAUDE.md warns against
-  that verb for unblocking pulls; the rule guards shared trees with a second writer. Here
-  they were metis-local edits, on a personal box with no second writer, each verified
-  byte-identical to upstream *first*. Called out to Zig at the time rather than done quietly.
+- `dotfiles-ucl4` — a VPS gateway tunnel failure fails **HARD**, no silent fallback to
+  `api.anthropic.com`. Silent fallback is precisely `dotfiles-t6to`, which blinded pico's
+  log for days with nothing alarming. Reversible in one branch.
 
 ## Proposed practices — where each one landed (Step 2.6)
 
-- Post-macOS-major-upgrade bottle staleness + the CLT-first ordering →
-  **filed as `dotfiles-66k6`** (with acceptance criteria and a regression guard).
-- `/offboard`'s GNU-only `stat -c %Y` / `date -d` decision-harvest snippet →
-  **already owned by `dotfiles-2ap6`**, which names `{offboard,pulse,desk}/SKILL.md` and
-  quotes this exact line. Hit live again here; confirming evidence, no new bead.
-- `core.hooksPath` per-clone check → **already CLAUDE.md rule 1**; applied to metis, no
-  doc change needed.
+- "A mutant must die of the BUG IT NAMES, not merely make the suite red" (+ assert the
+  mutation applied first) → **filed as `dotfiles-3afr`**, tier left as an open question
+  for Zig (CLAUDE.md rule 1 vs `/scrutinize`).
+- "`if ! git push … | tail` can never fire its fallback — the pipe masks the exit code"
+  → **filed as `dotfiles-xugk`** against `/commit`.
 
 ## What's next
 
-1. **`dotfiles-66k6`** — teach `mac.upgrade.sh` to detect an OS-major/bottle mismatch and
-   to gate on CLT before any reinstall. This session had to do all of it by hand.
-2. **`tmux kill-server`** whenever convenient — binary 3.7b, server still 3.6b. Also
-   clears the stale `PNPM_HOME=/home/ubuntu/...` that this server's env carries.
-3. **Xcode 16.2** at `/Applications/Xcode.app` is pre-Tahoe and is now `brew doctor`'s only
-   substantive complaint. Harmless while `xcode-select` points at the CLT; update via App
-   Store or delete the app if unused.
+1. **`dotfiles-3afr`** — decide the tier, land the mutation-discipline clauses once.
+2. **`dotfiles-xugk`** — `/commit` anti-pattern; a three-line doc fix.
+3. Nothing from the gateway arc is open. `br ready` for the rest.
 
 ## Warnings / watch-outs
 
-- **A clean brew report is not evidence of currency — three distinct ways now.**
-  `dotfiles-0fdc` (untapped taps invisible), `dotfiles-v26x` (probe before `brew update`),
-  `dotfiles-66k6` (OS-major bottle staleness, versions identical). Always cross-check by
-  full formula name and by `built_on.os_version`.
-- **`env -i` when probing whether a dotfile fix took.** A plain `zsh -l` inherits the
-  caller's exported environment; it confirmed a "bug" that did not exist. That is how the
-  pnpm failure was nearly mis-filed as a dotfile defect (it is a stale tmux-server env).
-- **A gate that exits 0 with no output has not run.** Staging an unmodified file gives a
-  clean, silent, meaningless pass.
-- **`ps` is aliased to `ps auxf` in this shell**, so `ps -o pid,lstart -p N` dies with
-  `illegal option -- f`. Use `/bin/ps` for scripted process queries.
-- **`brew services` was NOT used to restart borders** — `launchctl kickstart -k` was, on
-  the theory that `brew services` is blinded by the untrusted tap. That theory is
-  **unverified**; kickstart was simply the robust path. Do not cite it as measured.
-- `brew update` still emits `gh auth git-credential get: gh: command not found` on a
-  private-tap credential fetch (brew sanitizes PATH, so the bare `gh` helper from `3c1ab2f`
-  is not found). Harmless for public taps; unresolved, not filed.
+- **A bare `claude` on marketing-vps works because `claude` is the shell FUNCTION.**
+  `command claude` or the full path bypasses the gateway silently. All four `work` panes
+  were re-sourced and carry the machine header.
+- **The pre-commit gate is now slower** — it also runs a 63s mutation harness on
+  `ensure-fleet-tunnel.sh` and its suite. Measured ~71s commit on those paths. Expected,
+  not a hang.
+- **`marketing-vps` claude is fail-hard.** If `claude-gateway-tunnel.timer` is not firing,
+  `claude` there is dead by design. `CC_NO_GATEWAY=1` now genuinely works (fixed this
+  session); commenting out the export in `zsh/.marketing-vps.zshenv` is the lasting bypass.
+- **`.claude/last-offboard-session` was 6 days stale** (Jul 28), so the Step 2.5 harvest
+  window spanned other machines' sessions and reported 7 decisions where 1 was this
+  session's. Re-run against a real session start when the receipt looks too large.
+- This box runs **uutils coreutils 0.2.2**, not GNU — but `stat -c` and `date -d` both
+  work. Don't assume the `dotfiles-2ap6` trap explains a failure here without checking.
