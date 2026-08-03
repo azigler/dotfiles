@@ -1,0 +1,104 @@
+# claude-gateway-tunnel (dotfiles-xp57, spec dotfiles-ogkz) — keep
+# 127.0.0.1:17017 on marketing-vps answering as pico's agentgateway.
+#
+# THIS UNIT IS THE ONLY THING THAT OPENS THAT FORWARD. It is NOT the 7100
+# fleet-proxy tunnel (which zig-computer opens as a reverse `-R` during dispatch,
+# with ensure-fleet-tunnel.sh as a manual self-heal). Nothing else on this box
+# creates the 17017 forward — no dispatch, no login hook. If this timer is not
+# enabled and firing, `claude` on marketing-vps is DEAD, by policy: the routing
+# fails HARD with no fallback to api.anthropic.com (dotfiles-ucl4), because a
+# silent fallback is indistinguishable from being idle (the dotfiles-t6to bug).
+#
+# The transport is one hop: `ssh -L 127.0.0.1:17017:100.72.47.4:17017
+# zig-computer`. ssh resolves a `-L` destination on the FAR end, so zig-computer
+# does the tailnet leg; this box is not a tailnet peer and cannot dial pico.
+#
+# ⚠️ 401 IS HEALTH here, not an error. The `/claude` route is a transparent
+# passthrough to api.anthropic.com with no key attached, so an unauthenticated
+# GET /claude/v1/models returns 401 the moment the path works end to end.
+# Measured from marketing-vps 2026-08-02: 000 with no tunnel, 401 through it.
+# Do not "fix" --expect to 200; 200 would mean something else is answering.
+#
+# Inspect:
+#   systemctl --user list-timers claude-gateway-tunnel.timer
+#   journalctl --user -u claude-gateway-tunnel.service -n 20
+#   journalctl --user -t claude-gateway-tunnel -p err      # only unhealthy runs
+#   ~/dotfiles/agents/scheduler/ensure-fleet-tunnel.sh status --port 17017 \
+#       --target 100.72.47.4:17017 --probe-path /claude/v1/models --expect 401
+#
+# Teardown is NOT `systemctl --user stop` — that leaves the forward up (see
+# KillMode below). Disable the timer, then:
+#   ensure-fleet-tunnel.sh down --port 17017 --target 100.72.47.4:17017
+# The same --port/--target must be passed to `down`; they select the pidfile.
+
+[Unit]
+Description=Keep 127.0.0.1:17017 tunnelled to pico agentgateway (via zig-computer)
+# No `Documentation=file:///home/ubuntu/...` like restart-loop-check.service has:
+# that unit is zig-computer-only, and marketing-vps runs as `andrew`, so an
+# absolute home path baked into a shipped template would be wrong on the box it
+# ships to. The script path is %h/dotfiles/agents/scheduler/ensure-fleet-tunnel.sh.
+
+[Service]
+Type=oneshot
+ExecStart=%h/dotfiles/agents/scheduler/ensure-fleet-tunnel.sh ensure --port 17017 --target 100.72.47.4:17017 --probe-path /claude/v1/models --expect 401
+
+# ⚠️ KillMode=process IS LOAD-BEARING, and its absence is a SILENT SUCCESS.
+# The script opens the tunnel with `ssh -f -N`, which daemonizes but cannot leave
+# this unit's cgroup. With the default KillMode=control-group, systemd SIGTERMs
+# whatever is left in the cgroup as soon as the oneshot ExecStart exits — i.e. it
+# kills the forward the script just opened and verified, and then logs "Finished"
+# and reports the unit GREEN. Measured on zig-computer 2026-08-03 with a pair of
+# transient units differing only in this setting:
+#   default KillMode  -> forked daemon alive: 0   (journal still says "Finished")
+#   KillMode=process  -> forked daemon alive: 1
+# The corollary is the teardown note above: stopping this unit does not stop the
+# tunnel. That is the correct trade — the tunnel outliving its opener is the
+# whole point of a self-heal timer.
+#
+# It does mean re-activation must not stack forwards, and systemd will not stop
+# it doing so: a file-backed oneshot with leftovers in its cgroup starts again
+# happily (measured — three consecutive `systemctl --user start` calls all rc=0,
+# leaving 3 daemons, unit still ActiveState=inactive Result=success). What keeps
+# exactly one ssh alive here is the SCRIPT: it no-ops when the port already
+# answers, and the only process it will ever kill is one it owns by pidfile or
+# by a target-qualified pgrep. Do not point this unit at a command lacking that.
+KillMode=process
+
+# Worst case: probe timeout (curl -m 10) + recycle sleep + ssh ConnectTimeout 15
+# + five 1s re-probes with their own 10s timeouts. ~80s; 120 leaves headroom
+# without letting a wedged ssh occupy the slot past the next tick.
+TimeoutStartSec=120
+
+# NO ProtectSystem / ProtectHome / PrivateTmp — measured 2026-07-26 on
+# restart-loop-check.service, which documents it in full. Any of the three puts a
+# systemd USER unit in a user namespace where root-owned files map to `nobody`,
+# and OpenSSH then refuses to start ("Bad owner or permissions on
+# /etc/ssh/ssh_config.d/..."). This unit exists to run ssh. Hardening it would
+# turn the box's only path to a working `claude` into a permanent false alarm.
+NoNewPrivileges=true
+
+# NOTE THE ABSENCE, same as restart-loop-check.service and claude-vault-sync:
+# there is deliberately no `SuccessExitStatus=`. Every nonzero exit must redden
+# the unit in `systemctl --user --failed`, a surface the fleet already reads.
+#
+# But "failed" is not one thing here, and collapsing the three-valued contract is
+# how a permanent fault gets read as a blip. ExecStopPost re-states the verdict
+# under its own journal tag and priority, so the two are separable:
+#   1  DOWN, could not heal      -> -p err   transient-shaped; the next tick retries
+#   2  BLOCKED                   -> -p crit  the gateway is UP and REFUSING. Retrying
+#                                            cannot fix it; the script deliberately
+#                                            refuses to churn the socket on a 2.
+#   64 usage error               -> -p crit  the UNIT is wrong (an unset variable
+#                                            expanding to `--expect ""` exits 64 by
+#                                            design rather than silently inheriting
+#                                            fleet-proxy semantics)
+# `$$EXIT_STATUS` is systemd's literal-`$` escape, so bash reads the variable from
+# its own environment. Verified 2026-08-03 on a transient unit exiting 2: systemd's
+# own substitution and the `$$` form both yield 2, so this is correct either way.
+ExecStopPost=/usr/bin/env bash -c 'case "$$EXIT_STATUS" in 0) ;; 2) echo "BLOCKED: 127.0.0.1:17017/claude/v1/models answered, but not 401. The gateway is UP AND REFUSING. This is a real answer, NOT no-data, and the 2-minute retry cannot fix it - reopening the tunnel never will. Look at pico: launchctl print gui/501/com.zig.agentgateway" | systemd-cat -t claude-gateway-tunnel -p crit ;; 64) echo "MISCONFIGURED UNIT (exit 64): ensure-fleet-tunnel.sh rejected its arguments. An empty --port/--target/--probe-path/--expect is refused on purpose. Fix the unit, not the tunnel." | systemd-cat -t claude-gateway-tunnel -p crit ;; *) echo "DOWN and not healed (exit $$EXIT_STATUS): claude on this box is dead until a later tick heals it - there is no fallback by policy (dotfiles-ucl4). Check: ssh -o BatchMode=yes zig-computer true" | systemd-cat -t claude-gateway-tunnel -p err ;; esac'
+
+# stdout/stderr stay on the journal rather than an append: log file. This unit
+# writes one line per tick (~720/day) and journald rotates; a plain file would
+# not. The script splits the streams usefully on its own — every healthy or
+# healed line on stdout, every failure path on stderr - so the verbose history is
+# `journalctl -u`, and the low-noise surface is the tag above.
