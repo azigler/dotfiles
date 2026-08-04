@@ -125,6 +125,22 @@ session called `work`, and metis shares the namespace, so ≥3 machines collide 
 is why `group` exists. `src.addr` cannot substitute: tunnelled traffic arrives as
 zig-computer's tailnet IP.
 
+⚠️ **Querying that DB — two traps, both paid for on 2026-08-04 (`dotfiles-9o46`).** The
+table is **`request_logs`** (not `requests`) and the time column is **`started_at`** (not
+`start_time`/`timestamp`). `started_at` is **ISO8601 with a `T` and an offset** —
+`2026-08-04T14:21:22.688368+00:00` — so a bare string comparison against SQLite's
+`datetime('now',…)` (`2026-08-04 14:01:27`) compares `'T'` > `' '` at position 10 and
+silently matches **every row with today's date**, not the window you asked for. Measured
+side by side: `started_at > datetime('now','-20 minutes')` returned **2903** rows where
+`datetime(started_at) > datetime('now','-20 minutes')` returned **18**. Always wrap the
+column in `datetime()`. `date(started_at)` and `strftime(…, started_at)` parse it fine.
+
+⚠️ **Verifying gateway routing from a session started with `CC_NO_GATEWAY=1` is
+worthless** — the hatch is exported, so every shell and every `claude -p` you spawn
+inherits it and goes direct while looking like a successful gateway test. The request
+answers normally and simply never appears in `request_logs`. Strip it explicitly:
+`env -u CC_NO_GATEWAY …`. The log is the only honest check.
+
 ⚠️ **The identity is NOT in `attributes_json`** — 0 of 78,848 rows ever matched
 `%session-identity%`. It is a COLUMN, via the CEL expression. Query
 `agentgateway_user` / `agentgateway_group`, and filter the admin API through
