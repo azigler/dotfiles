@@ -161,6 +161,39 @@ transparent passthrough with no key attached, so 401 means the request reached A
 `/claude/` and `/v1/models` both 404 (the route matches `pathPrefix: /claude` and rewrites
 to `/`), so a probe that omits the prefix reads as broken when it is fine.
 
+### The kill switch — `gateway-switch.sh` (when pico is the outage)
+
+Routing is deliberately **fail-hard with no fallback** (`dotfiles-ucl4`), so when the
+gateway HOST goes away every box loses `claude`. On 2026-08-04 pico was off the internet
+for ~6.5h and flipping the fleet off by hand took ~15 steps across two hosts plus a
+per-pane fix (`dotfiles-9o46`). `agents/scheduler/gateway-switch.sh` is those steps,
+idempotent and symmetric:
+
+```bash
+~/dotfiles/agents/scheduler/gateway-switch.sh status   # read-only; no LLM call
+~/dotfiles/agents/scheduler/gateway-switch.sh off      # bypass: go direct to api.anthropic.com
+~/dotfiles/agents/scheduler/gateway-switch.sh on       # restore, then verify with the 401 probe
+```
+
+**Run it ON each host — there is no fleet-wide driver**, deliberately: driving the other
+box needs `ssh` FROM here, the least reliable thing during the outage it exists for.
+
+Three things hold the routing and all three must move, which is what the script does:
+the per-host `~/.$(hostname -s).zshenv` export; `claude-gateway-tunnel.timer` **if this
+host has one** (marketing-vps does, zig-computer does not — the script keys on unit
+existence, never on a hostname); and the environment of **already-running shells**, since
+the durable tmux panes hold zsh processes that are days old, exported the old value at
+start, and will never re-read the file.
+
+⚠️ **A running `claude` cannot be re-routed.** Its routing was fixed at exec time
+(`/proc/<pid>/environ`, which is what `status` reads). Panes holding a live claude are
+REPORTED, never typed into — `send-keys` there submits a prompt. Restarting them is a
+human's call.
+
+`status` deliberately spends no LLM call; `--check-request` adds one real end-to-end
+request under `env -u CC_NO_GATEWAY` (see the false-pass warning above — without the
+`-u` that check passes while going direct).
+
 ### Gotchas
 - **pico cannot run Claude Code** — no `claude` CLI. `~/.claude/*` symlinks into `~/dotfiles`
   exist but are inert, and that clone is pinned at **2026-06-05** with 8 staged modifications and
@@ -198,8 +231,11 @@ via `ANTHROPIC_BASE_URL=http://127.0.0.1:17017/claude` in `zsh/.marketing-vps.zs
 a **loopback** address, because this box is not a tailnet peer. `claude-gateway-tunnel.timer`
 is the ONLY thing that opens that forward (`ssh -L 127.0.0.1:17017:100.72.47.4:17017
 zig-computer`; ssh resolves a `-L` destination on the FAR end, so zig-computer does the
-tailnet leg). Routing fails HARD with no fallback (`dotfiles-ucl4`). ⚠️ `CC_NO_GATEWAY=1`
-does NOT bypass it in any fresh zsh (`dotfiles-20rx`); comment out the export instead.
+tailnet leg). Routing fails HARD with no fallback (`dotfiles-ucl4`). `CC_NO_GATEWAY=1`
+bypasses it for one session (fixed 2026-08-03, `dotfiles-20rx`); to bypass the box
+lastingly use `agents/scheduler/gateway-switch.sh off` rather than editing the export by
+hand — `sed -i` on `~/.marketing-vps.zshenv` replaces the symlink and detaches the host
+from the repo. See "The kill switch" under pico, above.
 
 | | |
 |---|---|
