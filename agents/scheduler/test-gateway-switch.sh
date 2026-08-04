@@ -16,14 +16,19 @@
 #      script exists to avoid, executable, so "we write through the symlink"
 #      can never decay into an untested claim. Case 19 is the same fixture with
 #      gateway-switch.sh instead, asserting the link survives AND that the
-#      REPO-SIDE file is the thing that changed.
-#   B. NEVER TYPE INTO A NON-SHELL PANE. Cases 26-31. `send-keys` to a live
+#      REPO-SIDE file is the thing that changed. Cases 51-52 are the other half:
+#      `cat tmp > link` TRUNCATES before it rewrites, so a failure in between
+#      empties a file every shell sources — 51 covers a write that never starts,
+#      52 a write that lands and then fails its invariant and must ROLL BACK.
+#   B. NEVER TYPE INTO A NON-SHELL PANE. Cases 27-32. `send-keys` to a live
 #      claude submits a prompt; the pane-table fixture deliberately mixes
-#      zsh/bash with claude/bwrap/vim, and case 30 covers the script's OWN pane
+#      zsh/bash with claude/bwrap/vim, and case 31 covers the script's OWN pane
 #      (an `exec zsh` there would kill the script mid-run).
-#   C. IDEMPOTENCY, BOTH DIRECTIONS, TWICE. Cases 20-25. The specific defect is
-#      a second `off` producing `## export`, which `on` could not reverse — so
-#      the assertion is BYTE IDENTITY (`cksum`), not "it looks commented".
+#   C. IDEMPOTENCY, BOTH DIRECTIONS, TWICE. Cases 20-26, plus 44-46. The
+#      assertion is BYTE IDENTITY (`cksum`), not "it looks commented". `on`
+#      reverses ONLY the marker line this script wrote: 24-26 pin the refusal to
+#      touch a hand-commented line, and 44-46 pin the reason (a commented-out
+#      example and prose containing `=`).
 #   D. NO HARDCODED HOSTNAMES for the tunnel step. Cases 17 and 36: with no unit
 #      present the script must make NO systemctl state-changing call at all,
 #      because zig-computer legitimately has no such unit.
@@ -35,30 +40,51 @@
 #      request then goes direct while looking like a passing gateway test. That
 #      exact false pass happened on 2026-08-04, so the fake `claude` records
 #      whether it inherited the hatch and the suite exports it on purpose.
+#   +  --dry-run. Cases 47-50. A fixture $HOME does NOT isolate this script (only
+#      the zshenv path comes from $HOME; the timer and the panes are REAL), so
+#      --dry-run is how you exercise it on a live box. 47 asserts nothing
+#      changed; 48 asserts it NAMED all three actions.
 #
-# MEASURED mutant -> failing cases (2026-08-04, ad-hoc sweep; RE-MEASURE rather
-# than editing this map from memory — every list below was WRONG on the first
-# guess, and one mutant SURVIVED, which is why case 23 exists):
+# MEASURED mutant -> failing cases (2026-08-04; RE-MEASURE rather than editing
+# this map from memory. Every list here was WRONG on the first guess; one mutant
+# SURVIVED (case 23 exists because of it) and a second survived until case 52
+# was added; and two entries were HARNESS ERRORS — a pattern that matched nothing
+# and a pattern left behind by a variable rename — both of which look exactly
+# like a kill if you only read the exit code):
 #
-#   A1  write with `mv` (does not follow the symlink)  -> 19 20 23 24 25 26 28
-#       29 31 32 33 34 35 36 37 38. The FATAL guard fires and aborts every write
-#       path, so that cascade says nothing about the guard under test; A2 is the
-#       one to read.
-#   A2  A1 with the post-write assertion ALSO removed  -> 19  (ONLY 19 — the
-#       symlink is then destroyed SILENTLY, which is the real 2026-08-04 shape)
-#   C1  `off`'s "nothing to comment" no-op guard gone  -> 20
+#   A1  write with `mv` (does not follow the symlink)  -> 19 20 23 27 29 30 32 33
+#       34 35 36 37 38 39 44 52. The FATAL guard fires and rolls back on every
+#       write path, so that cascade says nothing about the guard under test; A2
+#       is the one to read.
+#   A2  A1 with the post-write assertion ALSO removed  -> 19 51 (the symlink is
+#       then destroyed SILENTLY, which is the real 2026-08-04 shape; 51 goes too
+#       because `mv` succeeds where `cat >` is refused by a read-only target)
+#   C1  `off`'s "nothing to comment" no-op guard gone  -> 20 26
 #   C3  `off` matching /ANTHROPIC_BASE_URL/ instead of
-#       the anchored ACTIVE_RE                         -> 23  (it SURVIVED 41/41
-#       before case 23 existed — see the note on that case)
-#   C2  `on` loses the marker-strip awk rule           -> 21 22 31 35 37 38
-#   B1  the pane_current_command gate replaced by true -> 27 28
-#   B2  the "skip my own pane" guard removed           -> 30
+#       the anchored ACTIVE_RE                         -> 21 22 23 40 44
+#   C2  `on`'s reverse rule deleted entirely           -> 21 22 32 36 38 39 44 46
+#   B1  SHELL_RE widened to match every command        -> 28 29 49
+#   B2  the "skip my own pane" guard removed           -> 31
 #   G1  `env -u CC_NO_GATEWAY` dropped from the
 #       end-to-end check                               -> 12 13
 #   G2  --check-request runs unconditionally           -> 10
 #   D1  timer_exists keyed on `hostname` instead of
-#       unit existence                                 -> 16 33 34 35
+#       unit existence                                 -> 16 34 35 36 48 50
 #   E1  the missing-file refusal removed               -> 4
+#   R1  `on`'s MINE_RE widened back to the reviewed
+#       wildcard (the defect this bead's second pass
+#       fixed)                                         -> 24 25 26 44 46
+#   R2  `on` strips a leading run of '#' instead of the
+#       exact marker                                   -> 21 22 32 36 38 39 44 46
+#   R3  the rollback call after a failed post-write
+#       invariant deleted                              -> 52  (ONLY 52, and it
+#       SURVIVED 51/51 before that case existed)
+#   R4  --dry-run still writes the file and sends keys  -> 47 48 50
+#   R6  --dry-run still toggles the timer              -> 47 48 50
+#
+#   ⚠ R4 and R6 die on the SAME cases: 47/48/50 assert "nothing changed" and
+#     "every action named" as wholes, so they prove the dry-run guard exists but
+#     do NOT localise which of the three sites lost it.
 #
 # Convention matches the other agents/scheduler suites: executable bash,
 # non-zero exit = failure, PASS/FAIL summary on the last line.
@@ -205,12 +231,33 @@ export ANTHROPIC_BASE_URL="http://127.0.0.1:17017/claude"
 EOF
 }
 
-make_fixture() { # gateway | bypassed | hand | double | noexport
+# THE FIXTURE THE REVIEW WAS FILED OVER. Two lines a human really does write in
+# this file, both of which the first version of `on` destroyed:
+#   * a commented-out EXAMPLE — CLAUDE.md rule 2 says a documented example is
+#     executable, so docs get pasted into config commented out. Activating it
+#     leaves TWO active exports, and the second one wins in a later position.
+#   * PROSE CONTAINING `=`. Case 40's decoy deliberately omits the `=`, so the
+#     suite was blind to exactly this. Uncommented, this line becomes
+#     `values are set with export ANTHROPIC_BASE_URL=<url> here` — measured:
+#     `zsh -n` ACCEPTS it, but sourcing prints `no such file or directory: url`
+#     and returns 1, in a file every `ssh host cmd` sources.
+example_content() {
+  cat <<'EOF'
+# gwtest — per-host NON-interactive env FIXTURE (never a real host).
+# Example, copied from the docs and left commented out on purpose:
+#     export ANTHROPIC_BASE_URL="http://example.invalid:17017/claude"
+# values are set with export ANTHROPIC_BASE_URL=<url> here
+export ANTHROPIC_BASE_URL="http://127.0.0.1:17017/claude"
+EOF
+}
+
+make_fixture() { # gateway | bypassed | hand | double | noexport | example
   rm -rf "$ROOT/repo" "$HOMEDIR"
   mkdir -p "$ROOT/repo/zsh" "$HOMEDIR"
   orig_content > "$REPOFILE"
   case "$1" in
     gateway)  ;;
+    example)  example_content > "$REPOFILE" ;;
     bypassed) sed -i 's|^export ANTHROPIC_BASE_URL=|#gateway-switch:off# export ANTHROPIC_BASE_URL=|' "$REPOFILE" ;;
     hand)     sed -i 's|^export ANTHROPIC_BASE_URL=|# export ANTHROPIC_BASE_URL=|' "$REPOFILE" ;;
     double)   sed -i 's|^export ANTHROPIC_BASE_URL=|## export ANTHROPIC_BASE_URL=|' "$REPOFILE" ;;
@@ -458,20 +505,41 @@ if [ "$RC" -eq 0 ] && [ "$DIFFLINES" -eq 2 ] \
   ok "23 \`off\` changes EXACTLY ONE LINE — the export — leaving every comment byte-intact (a /ANTHROPIC_BASE_URL/-wide transform survived every cycle test; only this kills it)"
 else bad "23 off changes exactly one line" "rc=$RC changed=$DIFFLINES body=$DIFFBODY"; fi
 
+# 24/25 USED TO ASSERT THE OPPOSITE. `on` reversed any comment line containing
+# `export ANTHROPIC_BASE_URL=`, which review showed activates a commented-out
+# EXAMPLE and rewrites PROSE into syntax garbage (see case 43). A plainly
+# commented export is indistinguishable from a commented-out example, so the
+# script now refuses it by exit code and leaves the file alone.
 reset_case
 make_fixture hand
+BEFORE=$(sum_of)
 run on --host "$FIXT_HOST"
-if [ "$RC" -eq 0 ] && grep -qx 'export ANTHROPIC_BASE_URL="http://127.0.0.1:17017/claude"' "$LINKFILE"; then
-  ok "24 \`on\` reverses a HAND-commented line (\`# export …\`) — the manual bypass the zshenv itself documents"
-else bad "24 on reverses a hand-comment" "rc=$RC line=$(grep -n 'ANTHROPIC_BASE_URL=' "$LINKFILE")"; fi
+if [ "$RC" -eq 67 ] && [ "$(sum_of)" = "$BEFORE" ] \
+   && printf '%s' "$OUT" | grep -q 'bypassed, but by a line this script did not write' \
+   && printf '%s' "$OUT" | grep -qE '^ +[0-9]+:# export ANTHROPIC_BASE_URL='; then
+  ok "24 \`on\` REFUSES a HAND-commented line with exit 67, names the line+number, and leaves the file byte-identical"
+else bad "24 on refuses a hand-comment" "rc=$RC changed=$( [ "$(sum_of)" = "$BEFORE" ] && echo no || echo YES) out=$OUT"; fi
 
 reset_case
 make_fixture double
+BEFORE=$(sum_of)
 run on --host "$FIXT_HOST"
-N=$(grep -cE '^[[:space:]]*export[[:space:]]+ANTHROPIC_BASE_URL' "$LINKFILE") || N=0
-if [ "$RC" -eq 0 ] && [ "$N" -eq 1 ] && ! grep -q '^#.*export ANTHROPIC_BASE_URL=' "$LINKFILE"; then
-  ok "25 \`on\` recovers even a DOUBLE-commented \`## export\` line, to exactly ONE active line"
-else bad "25 on recovers ## export" "rc=$RC active=$N out=$OUT"; fi
+if [ "$RC" -eq 67 ] && [ "$(sum_of)" = "$BEFORE" ]; then
+  ok "25 same for a DOUBLE-commented \`## export\` line — refused, not guessed at"
+else bad "25 on refuses ## export" "rc=$RC changed=$( [ "$(sum_of)" = "$BEFORE" ] && echo no || echo YES) out=$OUT"; fi
+
+# The refusal must be an escape hatch, not a dead end: `off` claims the line, and
+# then `on` owns it. (`off` sees no ACTIVE line, so it is a no-op — the hand
+# comment stays hand-commented and `on` still refuses. That is the honest
+# outcome, and this case pins it so nobody "fixes" it into a silent rewrite.)
+reset_case
+make_fixture hand
+run off --host "$FIXT_HOST"
+OFF_RC=$RC; OFF_OUT=$OUT
+run on --host "$FIXT_HOST"
+if [ "$OFF_RC" -eq 0 ] && printf '%s' "$OFF_OUT" | grep -q 'already bypassed' && [ "$RC" -eq 67 ]; then
+  ok "26 a hand-bypassed file: \`off\` is a no-op and \`on\` still refuses — the script never adopts a line by accident"
+else bad "26 hand-bypassed stays refused" "off_rc=$OFF_RC on_rc=$RC off_out=$OFF_OUT"; fi
 
 echo "== requirement B: never type into a pane that is not at a prompt =="
 
@@ -480,22 +548,22 @@ make_fixture gateway
 run off --host "$FIXT_HOST"
 if grep -q -- '-t %1 C-u unset ANTHROPIC_BASE_URL Enter' "$FAKE/tmux-keys" \
    && grep -q -- '-t %3 C-u unset ANTHROPIC_BASE_URL Enter' "$FAKE/tmux-keys"; then
-  ok "26 \`off\` sends \`unset ANTHROPIC_BASE_URL\` to the zsh and bash panes"
-else bad "26 off updates shell panes" "keys=$(keys_of)"; fi
+  ok "27 \`off\` sends \`unset ANTHROPIC_BASE_URL\` to the zsh and bash panes"
+else bad "27 off updates shell panes" "keys=$(keys_of)"; fi
 
 if ! grep -q -- '-t %2 ' "$FAKE/tmux-keys" && ! grep -q -- '-t %4 ' "$FAKE/tmux-keys" \
    && ! grep -q -- '-t %5 ' "$FAKE/tmux-keys"; then
-  ok "27 NOTHING is sent to the claude (%2), bwrap (%4) or vim (%5) panes — send-keys there SUBMITS A PROMPT"
-else bad "27 no keys to non-shell panes" "keys=$(keys_of)"; fi
+  ok "28 NOTHING is sent to the claude (%2), bwrap (%4) or vim (%5) panes — send-keys there SUBMITS A PROMPT"
+else bad "28 no keys to non-shell panes" "keys=$(keys_of)"; fi
 
 if printf '%s' "$OUT" | grep -q "MANUAL work:di-monday.0 (%2) is running 'claude'" \
    && printf '%s' "$OUT" | grep -q "MANUAL work:jail.0 (%4) is running 'bwrap'"; then
-  ok "28 those panes are REPORTED as needing a manual restart, by label and by command"
-else bad "28 non-shell panes reported" "out=$OUT"; fi
+  ok "29 those panes are REPORTED as needing a manual restart, by label and by command"
+else bad "29 non-shell panes reported" "out=$OUT"; fi
 
 if grep -q -- '-t %1 C-u ' "$FAKE/tmux-keys"; then
-  ok "29 a C-u precedes the command, so half-typed text in a shell pane is discarded rather than executed"
-else bad "29 C-u precedes the command" "keys=$(keys_of)"; fi
+  ok "30 a C-u precedes the command, so half-typed text in a shell pane is discarded rather than executed"
+else bad "30 C-u precedes the command" "keys=$(keys_of)"; fi
 
 reset_case
 make_fixture gateway
@@ -505,16 +573,16 @@ unset TMUX_PANE
 if ! grep -q -- '-t %1 ' "$FAKE/tmux-keys" \
    && grep -q -- '-t %3 C-u exec bash Enter' "$FAKE/tmux-keys" \
    && printf '%s' "$OUT" | grep -q 'MY OWN pane'; then
-  ok "30 the script SKIPS its own pane (\$TMUX_PANE) — an \`exec\` there would kill the run mid-flight"
-else bad "30 skips its own pane" "keys=$(keys_of) out=$OUT"; fi
+  ok "31 the script SKIPS its own pane (\$TMUX_PANE) — an \`exec\` there would kill the run mid-flight"
+else bad "31 skips its own pane" "keys=$(keys_of) out=$OUT"; fi
 
 reset_case
 make_fixture bypassed
 run on --host "$FIXT_HOST"
 if grep -q -- '-t %1 C-u exec zsh Enter' "$FAKE/tmux-keys" \
    && grep -q -- '-t %3 C-u exec bash Enter' "$FAKE/tmux-keys"; then
-  ok "31 \`on\` re-execs each shell pane with ITS OWN shell (exec zsh / exec bash), not a hardcoded zsh"
-else bad "31 on execs the pane's own shell" "keys=$(keys_of)"; fi
+  ok "32 \`on\` re-execs each shell pane with ITS OWN shell (exec zsh / exec bash), not a hardcoded zsh"
+else bad "32 on execs the pane's own shell" "keys=$(keys_of)"; fi
 
 reset_case
 make_fixture gateway
@@ -522,8 +590,8 @@ make_fixture gateway
 run off --host "$FIXT_HOST"
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'none reachable' \
    && grep -qE '^#gateway-switch:off# export' "$LINKFILE"; then
-  ok "32 no tmux server: the file step still lands and the run still succeeds"
-else bad "32 no tmux server is survivable" "rc=$RC out=$OUT"; fi
+  ok "33 no tmux server: the file step still lands and the run still succeeds"
+else bad "33 no tmux server is survivable" "rc=$RC out=$OUT"; fi
 
 echo "== the timer verbs, and never calling them when there is no unit =="
 
@@ -534,13 +602,13 @@ echo enabled > "$FAKE/unit-enabled"
 run off --host "$FIXT_HOST"
 if grep -q 'disable --now claude-gateway-tunnel.timer' "$FAKE/systemctl-calls" \
    && printf '%s' "$OUT" | grep -q 'disabled --now'; then
-  ok "33 \`off\` disables --now the tunnel timer when the unit exists"
-else bad "33 off disables the timer" "calls=$(cat "$FAKE/systemctl-calls") out=$OUT"; fi
+  ok "34 \`off\` disables --now the tunnel timer when the unit exists"
+else bad "34 off disables the timer" "calls=$(cat "$FAKE/systemctl-calls") out=$OUT"; fi
 
 run off --host "$FIXT_HOST"
 if printf '%s' "$OUT" | grep -q 'already disabled — no change'; then
-  ok "34 a second \`off\` reports the timer as already disabled instead of re-issuing the verb"
-else bad "34 timer step is idempotent" "out=$OUT"; fi
+  ok "35 a second \`off\` reports the timer as already disabled instead of re-issuing the verb"
+else bad "35 timer step is idempotent" "out=$OUT"; fi
 
 reset_case
 make_fixture bypassed
@@ -548,16 +616,16 @@ make_fixture bypassed
 echo disabled > "$FAKE/unit-enabled"
 run on --host "$FIXT_HOST"
 if grep -q 'enable --now claude-gateway-tunnel.timer' "$FAKE/systemctl-calls"; then
-  ok "35 \`on\` enables --now the tunnel timer when the unit exists"
-else bad "35 on enables the timer" "calls=$(cat "$FAKE/systemctl-calls")"; fi
+  ok "36 \`on\` enables --now the tunnel timer when the unit exists"
+else bad "36 on enables the timer" "calls=$(cat "$FAKE/systemctl-calls")"; fi
 
 reset_case
 make_fixture gateway
 run off --host "$FIXT_HOST"
 if [ "$RC" -eq 0 ] && ! grep -qE '(^| )(enable|disable)( |$)' "$FAKE/systemctl-calls" \
    && printf '%s' "$OUT" | grep -q 'skipping the tunnel step'; then
-  ok "36 with NO unit on the host, \`off\` issues no enable/disable at all (requirement D — zig-computer)"
-else bad "36 no unit -> no systemctl verb" "rc=$RC calls=$(cat "$FAKE/systemctl-calls") out=$OUT"; fi
+  ok "37 with NO unit on the host, \`off\` issues no enable/disable at all (requirement D — zig-computer)"
+else bad "37 no unit -> no systemctl verb" "rc=$RC calls=$(cat "$FAKE/systemctl-calls") out=$OUT"; fi
 
 echo "== post-change verification, and the decoys =="
 
@@ -567,16 +635,16 @@ echo REFUSED > "$FAKE/code"
 run on --host "$FIXT_HOST"
 if [ "$RC" -eq 3 ] && printf '%s' "$OUT" | grep -q 'ROUTING RESTORED, BUT THE GATEWAY DOES NOT ANSWER' \
    && grep -qE '^export ANTHROPIC_BASE_URL=' "$LINKFILE"; then
-  ok "37 \`on\` against a DEAD gateway exits 3 and says the box now has no claude — the change still landed"
-else bad "37 on with a dead gateway exits 3" "rc=$RC out=$OUT"; fi
+  ok "38 \`on\` against a DEAD gateway exits 3 and says the box now has no claude — the change still landed"
+else bad "38 on with a dead gateway exits 3" "rc=$RC out=$OUT"; fi
 
 reset_case
 make_fixture bypassed
 echo 401 > "$FAKE/code"
 run on --host "$FIXT_HOST"
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'DONE — routing restored'; then
-  ok "38 \`on\` against a healthy gateway verifies with the probe and exits 0"
-else bad "38 on verifies and exits 0" "rc=$RC out=$OUT"; fi
+  ok "39 \`on\` against a healthy gateway verifies with the probe and exits 0"
+else bad "39 on verifies and exits 0" "rc=$RC out=$OUT"; fi
 
 reset_case
 make_fixture gateway
@@ -586,8 +654,8 @@ run on --host "$FIXT_HOST"
 if [ "$(grep -c 'ANTHROPIC_BASE_URL' "$LINKFILE")" = "$DECOY_BEFORE" ] \
    && grep -qx '#   - lastingly:    comment out the export ANTHROPIC_BASE_URL line below' "$LINKFILE" \
    && grep -qx '#   - one session:  CC_NO_GATEWAY=1 claude' "$LINKFILE"; then
-  ok "39 comment PROSE that merely mentions ANTHROPIC_BASE_URL (even 'the export ANTHROPIC_BASE_URL line') survives a full cycle"
-else bad "39 decoy prose untouched" "before=$DECOY_BEFORE now=$(grep -c 'ANTHROPIC_BASE_URL' "$LINKFILE") file=$(cat "$LINKFILE")"; fi
+  ok "40 comment PROSE that merely mentions ANTHROPIC_BASE_URL (even 'the export ANTHROPIC_BASE_URL line') survives a full cycle"
+else bad "40 decoy prose untouched" "before=$DECOY_BEFORE now=$(grep -c 'ANTHROPIC_BASE_URL' "$LINKFILE") file=$(cat "$LINKFILE")"; fi
 
 echo "== host derivation + the /proc routing report =="
 
@@ -596,8 +664,8 @@ make_fixture gateway
 echo "$FIXT_HOST" > "$FAKE/hostname"
 run status                       # no --host: must derive it from `hostname -s`
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "host key:   $FIXT_HOST"; then
-  ok "40 with no --host the host key comes from \`hostname -s\`"
-else bad "40 host derived from hostname -s" "rc=$RC out=$OUT"; fi
+  ok "41 with no --host the host key comes from \`hostname -s\`"
+else bad "41 host derived from hostname -s" "rc=$RC out=$OUT"; fi
 
 reset_case
 make_fixture gateway
@@ -611,8 +679,8 @@ run status --host "$FIXT_HOST"
 if printf '%s' "$OUT" | grep -q "pid $HOLD_PID" \
    && printf '%s' "$OUT" | grep -q 'via http://fixture.invalid:17017/claude' \
    && printf '%s' "$OUT" | grep -q 'CC_NO_GATEWAY=1'; then
-  ok "41 the process report reads routing out of a REAL /proc/<pid>/environ, hatch included"
-else bad "41 /proc routing report" "pid=$HOLD_PID out=$OUT"; fi
+  ok "42 the process report reads routing out of a REAL /proc/<pid>/environ, hatch included"
+else bad "42 /proc routing report" "pid=$HOLD_PID out=$OUT"; fi
 
 kill "$HOLD_PID" 2>/dev/null   # allow-suppress: liveness only
 HOLD_PID=""
@@ -620,8 +688,119 @@ reset_case
 make_fixture gateway
 run status --host "$FIXT_HOST"
 if printf '%s' "$OUT" | grep -q 'processes: no running claude/bwrap'; then
-  ok "42 no running claude -> a plain 'none', not an error"
-else bad "42 no claude processes" "out=$OUT"; fi
+  ok "43 no running claude -> a plain 'none', not an error"
+else bad "43 no claude processes" "out=$OUT"; fi
+
+echo "== a commented-out EXAMPLE and prose containing '=' are NOT ours to activate =="
+
+reset_case
+make_fixture example
+BEFORE=$(sum_of)
+run off --host "$FIXT_HOST"
+OFF_RC=$RC
+run on --host "$FIXT_HOST"
+N=$(grep -cE '^[[:space:]]*export[[:space:]]+ANTHROPIC_BASE_URL[[:space:]]*=' "$LINKFILE") || N=0
+if [ "$OFF_RC" -eq 0 ] && [ "$RC" -eq 0 ] && [ "$(sum_of)" = "$BEFORE" ] && [ "$N" -eq 1 ]; then
+  ok "44 off/on over a file holding a commented-out EXAMPLE + prose with '=' is byte-identical, and leaves exactly ONE active export"
+else bad "44 example/prose survive off+on" "off_rc=$OFF_RC on_rc=$RC changed=$( [ "$(sum_of)" = "$BEFORE" ] && echo no || echo YES) active=$N file=$(cat "$LINKFILE")"; fi
+
+# The file must still be SOURCEABLE, which is the damage `zsh -n` cannot see:
+# the broken form parses fine and fails at runtime, on every non-interactive shell.
+if zsh -c "source '$LINKFILE'" && [ "$(zsh -c "source '$LINKFILE'; printf '%s' \"\$ANTHROPIC_BASE_URL\"")" = 'http://127.0.0.1:17017/claude' ]; then
+  ok "45 and the file still SOURCES cleanly, exporting the real URL (not the example's)"
+else bad "45 file still sources to the real URL" "src_rc=$? got=$(zsh -c "source '$LINKFILE'; printf '%s' \"\$ANTHROPIC_BASE_URL\"" 2>&1)"; fi
+
+# base_url_value's precedence: ACTIVE beats a commented example. Grepping all
+# forms at once would take whichever came FIRST in the file — here, the example.
+if printf '%s' "$OUT" | grep -q 'ANTHROPIC_BASE_URL=http://127.0.0.1:17017/claude' \
+   || { run status --host "$FIXT_HOST"; printf '%s' "$OUT" | grep -q 'active export line(s): ANTHROPIC_BASE_URL=http://127.0.0.1:17017/claude'; }; then
+  ok "46 the value is read off the ACTIVE line, not the commented-out example that precedes it"
+else bad "46 value precedence prefers ACTIVE" "out=$OUT"; fi
+
+echo "== --dry-run: says everything, does nothing =="
+
+reset_case
+make_fixture gateway
+: > "$FAKE/unit-exists"
+echo enabled > "$FAKE/unit-enabled"
+BEFORE=$(sum_of)
+run off --dry-run --host "$FIXT_HOST"
+if [ "$RC" -eq 0 ] && [ "$(sum_of)" = "$BEFORE" ] \
+   && ! grep -qE '(^| )(enable|disable)( |$)' "$FAKE/systemctl-calls" \
+   && [ ! -s "$FAKE/tmux-keys" ] && [ "$(cat "$FAKE/unit-enabled")" = enabled ]; then
+  ok "47 \`off --dry-run\` changes NOTHING: file byte-identical, no enable/disable verb, no send-keys"
+else bad "47 off --dry-run changes nothing" "rc=$RC changed=$( [ "$(sum_of)" = "$BEFORE" ] && echo no || echo YES) sysctl=$(cat "$FAKE/systemctl-calls") keys=$(keys_of)"; fi
+
+if printf '%s' "$OUT" | grep -q 'WOULD rewrite .*(through the symlink)' \
+   && printf '%s' "$OUT" | grep -q '+#gateway-switch:off# export ANTHROPIC_BASE_URL=' \
+   && printf '%s' "$OUT" | grep -q "WOULD systemctl --user disable --now claude-gateway-tunnel.timer" \
+   && printf '%s' "$OUT" | grep -q "WOULD send-keys -t %1 C-u 'unset ANTHROPIC_BASE_URL' Enter" \
+   && printf '%s' "$OUT" | grep -q "WOULD send-keys -t %3 " \
+   && printf '%s' "$OUT" | grep -q 'DRY RUN — nothing above was performed'; then
+  ok "48 and it NAMES all three: the pending file diff, the timer verb, and every per-pane send"
+else bad "48 dry-run names every action" "out=$OUT"; fi
+
+if printf '%s' "$OUT" | grep -q "MANUAL work:di-monday.0 (%2) is running 'claude'"; then
+  ok "49 --dry-run still reports the panes a human has to restart (that report is the read-only half)"
+else bad "49 dry-run still reports manual panes" "out=$OUT"; fi
+
+reset_case
+make_fixture bypassed
+: > "$FAKE/unit-exists"
+echo disabled > "$FAKE/unit-enabled"
+BEFORE=$(sum_of)
+run on --dry-run --host "$FIXT_HOST"
+if [ "$RC" -eq 0 ] && [ "$(sum_of)" = "$BEFORE" ] \
+   && ! grep -qE '(^| )(enable|disable)( |$)' "$FAKE/systemctl-calls" \
+   && [ ! -s "$FAKE/tmux-keys" ] \
+   && printf '%s' "$OUT" | grep -q 'WOULD systemctl --user enable --now' \
+   && printf '%s' "$OUT" | grep -q "WOULD send-keys -t %1 C-u 'exec zsh' Enter"; then
+  ok "50 \`on --dry-run\` is symmetric: nothing changed, and the enable verb + exec sends are named"
+else bad "50 on --dry-run changes nothing" "rc=$RC changed=$( [ "$(sum_of)" = "$BEFORE" ] && echo no || echo YES) sysctl=$(cat "$FAKE/systemctl-calls") keys=$(keys_of) out=$OUT"; fi
+
+echo "== a failed write must not leave a half-edited file =="
+
+# The reachable failure: the write target is not writable, so the `cat >`
+# REDIRECTION fails before cat runs. Asserted here because the message used to
+# claim "nothing else was changed" on a path where a truncation had already
+# happened; now the claim is a rollback, and this is the cheap half of it.
+reset_case
+make_fixture gateway
+BEFORE=$(sum_of)
+chmod 0444 "$REPOFILE"
+run off --host "$FIXT_HOST"
+chmod 0644 "$REPOFILE"
+if [ "$RC" -eq 1 ] && [ "$(sum_of)" = "$BEFORE" ] && [ -L "$LINKFILE" ] \
+   && printf '%s' "$OUT" | grep -q "$LINKFILE"; then
+  ok "51 an unwritable target: exit 1, the file is byte-identical, the symlink survives, and the path is named"
+else bad "51 unwritable target leaves the file intact" "rc=$RC changed=$( [ "$(sum_of)" = "$BEFORE" ] && echo no || echo YES) out=$OUT"; fi
+
+# THE ROLLBACK, ACTUALLY EXERCISED. `cat tmp > "$ZSHENV"` TRUNCATES before it
+# rewrites — that is the price of following the symlink — so a failure in between
+# empties a file every shell on the box sources. The post-write invariant catches
+# it, and this case proves the invariant then puts the file BACK.
+#
+# Reached by faking `awk` (the same PATH-fake idiom as the rest of this suite) so
+# the transform yields NOTHING: the script writes an empty file through the
+# symlink, counts 0 marked lines where it wanted 1, and must roll back. Without
+# a fault injection this path is unreachable — a mutant that deleted the rollback
+# call SURVIVED 51/51 before this case existed.
+reset_case
+make_fixture gateway
+BEFORE=$(sum_of)
+cat > "$BIN/awk" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+chmod +x "$BIN/awk"
+run off --host "$FIXT_HOST"
+rm -f "$BIN/awk"
+if [ "$RC" -eq 1 ] && [ "$(sum_of)" = "$BEFORE" ] && [ -L "$LINKFILE" ] \
+   && [ -s "$LINKFILE" ] \
+   && printf '%s' "$OUT" | grep -q 'POST-WRITE CHECK FAILED' \
+   && printf '%s' "$OUT" | grep -q 'ROLLED BACK'; then
+  ok "52 a write that lands but fails the post-write invariant is ROLLED BACK: file byte-identical, non-empty, symlink intact, exit 1"
+else bad "52 rollback restores the file" "rc=$RC changed=$( [ "$(sum_of)" = "$BEFORE" ] && echo no || echo YES) size=$(wc -c < "$LINKFILE") out=$OUT"; fi
 
 echo
 if [ "$FAIL" -eq 0 ]; then

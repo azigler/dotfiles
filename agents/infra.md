@@ -170,13 +170,20 @@ per-pane fix (`dotfiles-9o46`). `agents/scheduler/gateway-switch.sh` is those st
 idempotent and symmetric:
 
 ```bash
-~/dotfiles/agents/scheduler/gateway-switch.sh status   # read-only; no LLM call
-~/dotfiles/agents/scheduler/gateway-switch.sh off      # bypass: go direct to api.anthropic.com
-~/dotfiles/agents/scheduler/gateway-switch.sh on       # restore, then verify with the 401 probe
+~/dotfiles/agents/scheduler/gateway-switch.sh status         # read-only; no LLM call
+~/dotfiles/agents/scheduler/gateway-switch.sh off --dry-run  # print every action, perform none
+~/dotfiles/agents/scheduler/gateway-switch.sh off            # bypass: go direct to api.anthropic.com
+~/dotfiles/agents/scheduler/gateway-switch.sh on             # restore, then verify with the 401 probe
 ```
 
 **Run it ON each host — there is no fleet-wide driver**, deliberately: driving the other
 box needs `ssh` FROM here, the least reliable thing during the outage it exists for.
+
+⚠️ **A fixture `HOME` does NOT make it safe to try.** Only the zshenv path comes from
+`$HOME`; the timer step talks to the real `systemctl --user` and the pane step enumerates
+the real tmux server. `HOME=/tmp/x gateway-switch.sh off` on a live box disables the live
+tunnel timer and types into live panes — measured in review. Use `--dry-run` instead. (The
+test suite is hermetic because it puts fakes on `PATH`, not because of `$HOME`.)
 
 Three things hold the routing and all three must move, which is what the script does:
 the per-host `~/.$(hostname -s).zshenv` export; `claude-gateway-tunnel.timer` **if this
@@ -189,6 +196,14 @@ start, and will never re-read the file.
 (`/proc/<pid>/environ`, which is what `status` reads). Panes holding a live claude are
 REPORTED, never typed into — `send-keys` there submits a prompt. Restarting them is a
 human's call.
+
+⚠️ **`on` reverses only the line `off` wrote** (marked `#gateway-switch:off#`). A
+hand-commented export is refused with exit 67 and named for you, because a plain
+`# export ANTHROPIC_BASE_URL=…` is indistinguishable from a commented-out **example** —
+and this file, per CLAUDE.md rule 2, is exactly where examples get pasted in commented
+out. Activating one leaves two conflicting exports; rewriting prose that merely contains
+`export ANTHROPIC_BASE_URL=` yields a line that `zsh -n` accepts and every `ssh host cmd`
+then fails on.
 
 `status` deliberately spends no LLM call; `--check-request` adds one real end-to-end
 request under `env -u CC_NO_GATEWAY` (see the false-pass warning above — without the
