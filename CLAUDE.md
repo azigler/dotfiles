@@ -79,7 +79,13 @@ Consequences that bite:
    ledger example that produced 23 bad rows across 3 projects; an `AGENTS.md`
    cleanup snippet that violates this repo's own rule and is blocked by its own
    hook; a mandated markdown link form that doesn't resolve; a commit template
-   hardcoding a stale model name. **Before committing an example, run it.**
+   hardcoding a stale model name. **Before committing an example, run it** — and run it
+   **as committed**, extracting the block from the file by regex or line range
+   (`git show HEAD:<path> | awk …`) and executing *those bytes*, never a retyped copy,
+   because the detail that breaks an example is usually a quoting or substitution one
+   that retyping silently repairs (rule 7 is exactly that failure); done twice on
+   2026-08-03 — `dotfiles-xugk`, `dotfiles-3afr` — and neither found a divergence, which
+   is what a guard looks like when it holds, not evidence it is unnecessary.
 
 3. **Don't blanket-suppress stderr** (`2>/dev/null`) on anything state-changing
    or output-bearing — `pre-bash-stderr-guard.sh` enforces it, and the hooks
