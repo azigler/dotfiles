@@ -62,10 +62,34 @@ export PATH
 # `/claude/v1/models` -> 401 (reached Anthropic, no key attached = healthy),
 # `/v1/models` -> 404. Dropping the suffix 404s every call.
 #
-# BYPASS: comment out the export below and start a new shell. That is the only
-# thing that works today. `CC_NO_GATEWAY=1 claude` does NOT bypass in any fresh
-# zsh — this file re-exports ANTHROPIC_BASE_URL on every zsh invocation and the
-# wrapper's inherited-wins rule is checked BEFORE the hatch, so the hatch is
-# unreachable exactly where it is needed (bug dotfiles-20rx, independently
-# reproduced). It still works from bash.
-export ANTHROPIC_BASE_URL="http://127.0.0.1:17017/claude"
+# BYPASS, two ways, both working as of 2026-08-03:
+#   - one session:  CC_NO_GATEWAY=1 claude
+#   - lastingly:    comment out the export below, start a new shell
+# The hatch used to be unreachable in a fresh zsh (dotfiles-20rx: this file
+# re-exports on every zsh invocation, and the wrapper checked inherited-wins
+# FIRST). That is FIXED — the hatch is now rule 1 and clears an inherited value
+# unconditionally, guarded by T9–T12 in test-claude-identity-wrapper.sh. Note
+# `command claude` still routes to the gateway: it bypasses the wrapper function
+# entirely, so no hatch and no re-derivation. Use plain `claude`.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# ⚠️ KILL SWITCH ACTIVE — 2026-08-04, Zig's instruction (bead dotfiles-9o46).
+# GATEWAY BYPASSED: Claude Code on this box talks to api.anthropic.com DIRECTLY.
+#
+# pico — which HOSTS the agentgateway — is offline (temporary home outage), so
+# 127.0.0.1:17017 has no far end. The `ssh -L` listener OUTLIVES the far end
+# dying, so requests were accepted and then hung (curl exit 28, NOT refused) —
+# a hang is indistinguishable from a slow model. With fail-hard routing and no
+# fallback (dotfiles-ucl4), every claude here was simply dead.
+#
+# REVERT when Zig says pico is back — uncomment the export below, then:
+#     systemctl --user enable --now claude-gateway-tunnel.timer
+# (this switch also stopped that timer; it was failing every 2 min into
+# journal crit). A pane where ANTHROPIC_BASE_URL was unset by hand self-heals,
+# because the wrapper re-derives from THIS FILE at every launch.
+#
+# COST while active, accepted: no request o11y — pico's requests.db records
+# nothing from this box, and that blindness looks exactly like idleness
+# (dotfiles-t6to). Nothing alarms on it. Time-boxed to the outage.
+# ─────────────────────────────────────────────────────────────────────────────
+# export ANTHROPIC_BASE_URL="http://127.0.0.1:17017/claude"
