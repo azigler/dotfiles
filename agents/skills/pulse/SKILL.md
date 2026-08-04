@@ -421,14 +421,46 @@ the daily cap.)
    ```bash
    LOOP_ID=pulse-<project>          # the systemd timer stem
    ROW=<the row this tick just wrote>
+   # The ts of the row THIS loop just appended. Scope it to $ROW — several loops share one
+   # ledger (`dive` and `desk` both write refs/pulse-ledger.jsonl), so a bare `tail -1`
+   # hands you a SIBLING's row and fails the assert with a spurious EXPECT_TS_BEHIND.
+   TS=$(python3 -c 'import json,sys;r=[json.loads(l) for l in open(sys.argv[1]) if l.strip()];print(next((x["ts"] for x in reversed(r) if x.get("row")==sys.argv[2]),""))' \
+        "$PULSE_DIR/refs/pulse-ledger.jsonl" "$ROW")
 
-   ~/harnessd/bin/harness-assert-registration "$LOOP_ID" "$ROW"
-   # exit 0 registered · 1 registration gap · 2 published state not trustworthy yet · 3 usage
+   if [ -n "${REGISTRATION_BROKER_URL:-}" ]; then
+     # JAILED TICK — see the box below. Broker D runs the SAME script the else-branch
+     # runs, on the host, and projects four fields for the ONE loop you name.
+     curl -sS -X POST "$REGISTRATION_BROKER_URL/registration" \
+       -H "X-QMSY-Caller: $QMSY_BROKER_TOKEN" -H 'Content-Type: application/json' \
+       -d "{\"timer\":\"$LOOP_ID\",\"row\":\"$ROW\"${TS:+,\"expect_ts\":\"$TS\"}}"
+     # -> {"registered":true,"row_checked":true,"ledger_row":"dive","last_ledger_ts":…}
+     # A GAP is `registered:false` OR **any** non-200: 200+false is a measured gap, 404
+     # NOT_IN_MANIFEST, 503 cannot-be-determined-yet (stale snapshot / harnessd down),
+     # 502 the broker itself failed. NONE of them is a pass; each names a `kind`.
+   else
+     ~/harnessd/bin/harness-assert-registration "$LOOP_ID" "$ROW" ${TS:+--expect-ts="$TS"}
+     # exit 0 registered · 1 registration gap · 2 published state not trustworthy yet · 3 usage
+   fi
    ```
+
+   🔒 **If your tick is JAILED, the `else` branch cannot run and you must not pretend it
+   did.** Under `tools/tick-jail/tick-jailed.sh` *both* halves of it are outside the bind
+   set — `~/harnessd/bin/` and `~/.local/state/harness/` do not exist in there, so the
+   command exits **127** and this guard silently does nothing. That is not hypothetical:
+   `pulse-dive` skipped this step on four consecutive ticks (#134–#137) while every other
+   gate passed green, and the broker's own log shows `pulse-dive` had **never** called it
+   (`explore-mgwt`). The jail always exports `REGISTRATION_BROKER_URL`, so take the `if`
+   branch — do **not** silently skip, and do not log `done` on the strength of a step you
+   could not perform. **Always send `row`**: without it the broker falls back to the
+   manifest's own pin, which makes the row-mismatch check self-referential, and it tells
+   you so with `row_checked:false`.
 
    **A failure here is NOT a reason to rewrite the row** — the row is fine. Fix the
    manifest (it lives in a *different repo*, which is why the `/pulse` relocation checklist
-   already calls it "the piece most easily forgotten"), then re-assert.
+   already calls it "the piece most easily forgotten"), then re-assert. **A jailed tick
+   cannot do that** — `~/harnessd` is outside its bind set — so for a jailed loop a gap is
+   a **blocked** tick: file the P1 `human:` bead and push, per the blocked-on-Zig protocol
+   below, quoting the `kind`. Escalating is the action; the tick is not expected to fix it.
 
    ⚠️ **Do NOT hand-run `harness_state.py` first — that is the FALSE GREEN this script
    exists to remove** (`explore-vuro`, fixed 2026-07-31). `harnessd` publishes `state.json`
