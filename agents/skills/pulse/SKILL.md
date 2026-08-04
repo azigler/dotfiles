@@ -291,8 +291,10 @@ the daily cap.)
    `--digest`, `--dream`, `--elevate`, and no plain one), so a tick following
    the literal finds nothing and concludes there is no prior handoff — or, in a
    project mid-transition, reads *another window's* session. The reader helper
-   prefers the scoped file and falls back to the legacy path, which is exactly
-   what /onboard uses:
+   resolves the scoped file, and when a per-window project has no note for this
+   window it says so LOUDLY on stderr instead of quietly serving the legacy file
+   (bd-msi5); only a non-opted-in project resolves to the legacy path. Same helper
+   /onboard uses:
 
    ```bash
    _HP="$HOME/dotfiles/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"

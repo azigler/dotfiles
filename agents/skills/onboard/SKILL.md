@@ -95,14 +95,23 @@ continuing:
    from where we left off. Resolve the path through `handoff-path.sh`
    (window-scoped in a multi-session project, else `refs/session-handoff.md`;
    legacy `.claude/plans/session-handoff.md` migrates via `git mv` on first
-   touch). `handoff_read_path` prefers this session's window-scoped note and
-   falls back to the legacy single file:
+   touch). `handoff_read_path` returns this session's window-scoped note; in a
+   per-window project whose scoped note is MISSING it returns that (nonexistent)
+   scoped path and prints a `⚠️ handoff: NO note for this window` diagnostic on
+   stderr rather than serving the legacy file. Only a project that is not opted
+   in resolves to the legacy single file:
 
    ```bash
    _HP="$HOME/dotfiles/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
    type handoff_read_path >/dev/null 2>&1 || handoff_read_path() { printf '%s/refs/session-handoff.md' "${1:-.}"; }
    HANDOFF=$(handoff_read_path .); echo "handoff <- $HANDOFF"; [ -f "$HANDOFF" ] && cat "$HANDOFF"
    ```
+
+   **If that warning fires, act on it — do not onboard from nothing.** It lists
+   the scoped notes that do exist. The usual cause is a renamed tmux window: this
+   session is carrying the old name while its note moved to the new one (bd-msi5 —
+   a session in `di` onboarded from a month-old legacy note after `work:di` became
+   `work:pulse`). Read the right scoped note by hand, or rename the window.
 
 ## Step 2: Load the toolkit digest — in the main session
 

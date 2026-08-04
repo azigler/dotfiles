@@ -61,7 +61,17 @@ _HP="$HOME/dotfiles/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
 type last_offboard_path >/dev/null 2>&1 || last_offboard_path() { printf '%s/.claude/last-offboard-session' "${1:-.}"; }
 # Pass data via env vars — NOT `br … | python3 - <<HEREDOC` (the pipe and the
 # heredoc both claim stdin, so python reads the JSON as its program). Verified.
-export SINCE_EPOCH=$(stat -c %Y "$(last_offboard_path .)" 2>/dev/null || date -d 'today 00:00' +%s)
+#
+# The CUTOFF comes from the SESSION, never the calendar. `date -d 'today 00:00'`
+# was the old fallback and it silently dropped every decision a session filed on
+# its own first day whenever the session ran past midnight (`bd-y12t`, measured
+# live 2026-08-04: 0 hits over 14 scanned while bd-hsym / bd-v69y / bd-ge34 sat
+# right there). Do NOT set SINCE_EPOCH here — the python block derives it and
+# PRINTS it. (Set it only to deliberately override the window; the block then
+# warns if your override postdates the session.)
+PROJECT_SLUG=$(pwd | sed 's|/|-|g')
+export SESSION_JSONL=$(ls -t "$HOME/.claude/projects/${PROJECT_SLUG}/"*.jsonl 2>/dev/null | head -1)
+export MARKER_EPOCH=$(stat -c %Y "$(last_offboard_path .)" 2>/dev/null || true)
 # `-a` is LOAD-BEARING: `br list` excludes closed by default, so a decision
 # created AND closed inside this session — the cleanly-resolved kind, the most
 # worth recording — is invisible without it (`explore-7ogz`). And it fails
@@ -78,7 +88,67 @@ export DECISIONS_JSON=$(br list --type decision -a --json 2>/dev/null \
 [ -n "$DECISIONS_JSON" ] || export DECISIONS_JSON=$(br list --type decision -a --json 2>/dev/null)
 python3 <<'PY'
 import os, json, datetime as dt
-cut = int(os.environ["SINCE_EPOCH"])
+
+def _session_start(path, max_lines=500):
+    """Earliest record timestamp in the session transcript, or None.
+
+    NOT `stat`: %Y is the last APPEND and %W/btime is the last ROTATION, not the
+    session's start — measured 2026-08-04, btime said 17:15 for a transcript
+    whose first record was 17:06 the PREVIOUS day. NOT line 1 either: the
+    opening records are untimestamped metadata (`last-prompt`, `mode`,
+    `permission-mode`, `file-history-snapshot`), so the first record carrying a
+    `timestamp` is typically line 3-5. Bounded prefix scan; min, not first, so
+    an out-of-order transcript can't narrow the window."""
+    if not path or not os.path.exists(path):
+        return None
+    best = None
+    with open(path, errors="replace") as fh:
+        for i, line in enumerate(fh):
+            if i >= max_lines:
+                break
+            try:
+                ts = json.loads(line).get("timestamp")
+            except Exception:
+                continue
+            if not ts:
+                continue
+            try:
+                t = dt.datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                continue
+            if best is None or t < best:
+                best = t
+    return best
+
+def _int(name):
+    v = (os.environ.get(name) or "").strip()
+    return int(v) if v.lstrip("-").isdigit() else None
+
+sess, marker = _session_start(os.environ.get("SESSION_JSONL")), _int("MARKER_EPOCH")
+override, warn = _int("SINCE_EPOCH"), []
+if override is not None:
+    cut, src = override, "explicit SINCE_EPOCH override"
+elif sess is not None and marker is not None:
+    # EARLIER of the two, never the later. An over-wide window shows you a bead
+    # you can judge and discard; a too-narrow one shows you nothing and looks
+    # exactly like calm. Cost of the choice: re-offboarding the same session
+    # re-lists decisions already harvested. Duplicates are safe, silence is not.
+    cut, src = min(sess, marker), "earlier of session start and last-offboard marker"
+elif sess is not None:
+    cut, src = sess, "session JSONL first record"
+elif marker is not None:
+    cut, src = marker, "last-offboard marker (no session JSONL found)"
+    warn.append("no session JSONL found — the cutoff could not be checked against session start.")
+else:
+    cut = dt.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp() - 86400
+    src = "FALLBACK: yesterday 00:00 (no session JSONL, no marker)"
+    warn.append("cutoff is a GUESS (no JSONL, no marker). Anything filed before it is "
+                "INVISIBLE — widen it with SINCE_EPOCH before believing a zero.")
+if sess is not None and cut > sess:
+    warn.append("cutoff POSTDATES the session's first record ({}) — this is exactly the "
+                "bd-y12t false-zero condition. Do NOT trust a zero here.".format(
+                    dt.datetime.fromtimestamp(sess).astimezone().isoformat(timespec="seconds")))
+
 try:
     rows = json.loads(os.environ.get("DECISIONS_JSON") or "[]")
 except Exception:
@@ -94,14 +164,31 @@ for r in rows:
             hits += 1
     except ValueError:
         pass
-print(f"# {hits} decision bead(s) since the last offboard "
-      f"({len(rows)} scanned, open+closed)")
+
+def _iso(e):
+    return dt.datetime.fromtimestamp(e).astimezone().isoformat(timespec="seconds") if e else "unknown"
+print(f"# {hits} decision bead(s) since {_iso(cut)} ({len(rows)} scanned, open+closed)")
+print(f"# cutoff source: {src} | session start: {_iso(sess)}")
+for w in warn:
+    print(f"# WARNING: {w}")
 PY
 ```
 
-The trailing `# N decision bead(s) …` line is the receipt: `0 … (0 scanned)`
-means the query itself came back empty and should be re-run before you believe
-it, while `0 … (37 scanned)` genuinely means no decisions this session.
+The receipt is now **two lines, and you must read both.** The count line alone
+is not a verdict:
+
+| Receipt | Means |
+|---|---|
+| `0 … (0 scanned)` | the QUERY came back empty — re-run before believing it |
+| `0 … (37 scanned) ` + cutoff ≈ session start | genuinely no decisions this session |
+| `0 … (37 scanned) ` + cutoff **after** session start | **the false zero.** The query worked and the window was wrong |
+
+That third row is the whole reason the second line exists. The old receipt
+printed only "0 … (14 scanned)" and its own documented rule certified that as a
+genuine zero — the guard against a silent empty *confirmed* the wrong answer,
+because it checked the query and never the cutoff. A receipt that cannot see the
+input it filtered on is not a receipt. Any `WARNING:` line means the harvest is
+not trustworthy: fix the window and re-run rather than writing the note.
 
 Put each result under the handoff's **Decisions made this session** section
 (Step 3). If none, the section says "none this session." These are a durable
