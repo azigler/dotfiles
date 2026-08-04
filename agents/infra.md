@@ -306,8 +306,12 @@ All `0600`. Nothing pasted into a doc, bead, or memory file.
 - ⚠️ **Its GitHub PAT 404s on every `lb-marketing/*` repo**, so `agent-factory`,
   `weekly-reporting` and six other submodules cannot be initialized from here
   (`explore-lc15`).
-- ⚠️ **`core.hooksPath` is unset** on both `~/dotfiles` and `~/linearb` —
-  `tools/githooks/pre-commit` exists but does not fire.
+- **`core.hooksPath`**: SET on `~/dotfiles` (`tools/githooks` — the gate fires here;
+  observed live 2026-08-04, `verdict: CLEAN` on a doc commit), still **unset on
+  `~/linearb`**. This file previously said unset on both. It is a per-clone local
+  setting, so it stays easy to get wrong — check it rather than assuming, in either
+  direction: believing the gate is off invites hand-running suites that already ran,
+  and believing it is on invites shipping ungated.
 - ⚠️ **`~/bin/vps-repo-refresh.sh` is a 49-line stub, not the tracked 604-line
   script** (`dotfiles-qcfx`, still open 2026-08-01). The hourly timer runs the
   stub, which writes no receipt; `vps-preflight` invokes the tracked path
