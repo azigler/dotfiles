@@ -213,6 +213,48 @@ housekeeping runs in `~/explore`:
 - Regenerate by re-reading `*/FINDINGS.md` essences; verify relative links
   resolve (`grep -oE '\]\([^)]+\)' INDEX.md` then test each path).
 
+#### Budget exceptions — the weekly read of the grant ledger
+
+`CHILDREN.md` / `INDEX.md` are derived views, so the drift check is mechanical:
+
+```bash
+cd ~/explore
+python3 bin/gen-index.py --check          # indexes + dead links + exception COUNT
+python3 bin/gen-index.py --budget-report  # the grant set: path, field, bead, pinned size
+```
+
+An exploration may declare an accepted overage of the `what:` / `index_bullet`
+budgets (`budget_exceptions:` in its own metadata; schema in
+`~/explore/.exploration-meta/README.md`). Each grant cites a bead, a reason, and
+`accepted:` — **the size it was granted for**. This pass is that mechanism's
+consumer, and its cadence is **weekly, here**.
+
+**`--check` fails closed on the count.** The number of declared grants is
+asserted against `EXPECTED_BUDGET_EXCEPTIONS` in `bin/gen-index.py`, so a new
+exception makes `--check` exit 1 until a human reviews it and bumps that integer.
+Do not bump it to make the check pass: run `--budget-report`, read the grant's
+bead and reason, decide it is still right, and bump in the same commit as the
+grant. A grant that no longer earns its keep gets deleted instead (and the
+integer goes down).
+
+**Read the report even when the check is green** — the count can be right while a
+grant has rotted. Per row, ask: does the bead still exist and still say what the
+`reason:` claims, and is `current` still equal to `accepted`? (`gen-index.py`
+WARNs on both a field that grew past its pin and a pin with unused headroom, so
+the arithmetic is done for you; this pass is where someone actually reads it.)
+
+⚠️ **The honest limit — it asserts the COUNT, not the SET.** One grant deleted
+and a different one added in the same pass keeps the count at 1 and passes
+silently. The controls there are the mandatory bead + reason, the pin, and this
+weekly read of `--budget-report`; nothing detects a swap mechanically. Same class
+as `check-corrections-propagated`'s UNDECLARED HINT — say so rather than letting
+a green check imply more coverage than it has.
+
+(The assertion rides *inside* `--check`, which the `~/explore` `/dive` tick
+already runs in its per-tick done-proof — so a new grant surfaces within a tick
+even if this weekly pass is skipped. That is defence in depth, not a reason to
+skip the read: the tick sees a failing gate, this pass is what reads the ledger.)
+
 Audit each, fix what's stale, and commit as a final `:memo:` commit in the pass.
 
 ## 9. Fleet-Wide Hygiene Pass
@@ -565,6 +607,12 @@ A housekeeping pass is done when:
 - [ ] `MEMORY.md` index matches actual memory files
 - [ ] `doc-example-lint` run and its error count reported (non-blocking —
       a non-zero count is a work queue to file, not a reason to stop)
+- [ ] **`~/explore` only:** `python3 bin/gen-index.py --check` exits 0 (indexes
+      current, no dead links, budget-exception count acknowledged) AND
+      `python3 bin/gen-index.py --budget-report` was run and every row read —
+      report the grant count in the tally so the TREND is visible. A count that
+      climbs is the signal; a swap at a constant count is this gate's blind spot
+      and the report is the only thing that catches it.
 
 Report the tally when done. Incomplete items should be filed as follow-up
 beads, not left open in the exit report.
