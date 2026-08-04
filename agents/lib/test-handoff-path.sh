@@ -50,10 +50,35 @@ if [ -x "$TMUX_BIN" ]; then
   if [ "$(offboard_pending_path "$DIR")" = "$DIR/.offboard-pending--wintest" ]; then ok; else bad "scoped pending"; fi
   if [ "$(last_offboard_path "$DIR")" = "$DIR/.claude/last-offboard-session--wintest" ]; then ok; else bad "scoped last-offboard"; fi
 
-  # 4. handoff_read_path: scoped file absent -> legacy; present -> scoped.
-  if [ "$(handoff_read_path "$DIR")" = "$DIR/refs/session-handoff.md" ]; then ok; else bad "read falls back to legacy when scoped absent"; fi
+  # 4. handoff_read_path in a PER-WINDOW project with the scoped note ABSENT:
+  # must NOT serve the legacy file (bd-msi5 — that silently onboarded a session
+  # in the `di` window from a month-old note after work:di became work:pulse).
+  # It returns the scoped path (which does not exist, so the caller's `[ -f ]`
+  # guard reads nothing) and warns on STDERR.
+  echo "stale legacy" > "$DIR/refs/session-handoff.md"
+  echo "another window's note" > "$DIR/refs/session-handoff--pulse.md"
+  if [ "$(handoff_read_path "$DIR" 2>/dev/null)" = "$DIR/refs/session-handoff--wintest.md" ]; then ok; else bad "missing scoped note must NOT resolve to legacy"; fi
+  WARN=$(handoff_read_path "$DIR" 2>&1 >/dev/null)
+  case "$WARN" in
+    *"NO note for this window"*wintest*) ok ;;
+    *) bad "missing scoped note must warn on stderr (got: $WARN)" ;;
+  esac
+  case "$WARN" in *session-handoff--pulse.md*) ok ;; *) bad "warning must list the scoped notes that DO exist" ;; esac
+  # ...and the scoped note present -> scoped, silently.
   touch "$DIR/refs/session-handoff--wintest.md"
   if [ "$(handoff_read_path "$DIR")" = "$DIR/refs/session-handoff--wintest.md" ]; then ok; else bad "read prefers scoped when present"; fi
+  if [ -z "$(handoff_read_path "$DIR" 2>&1 >/dev/null)" ]; then ok; else bad "present scoped note must not warn"; fi
+
+  # 4b. A project NOT opted in is untouched: legacy path, no warning, whether or
+  # not the file exists. This is a shared lib — single-session projects must not
+  # start seeing diagnostics.
+  OUT=$(mktemp -d); mkdir -p "$OUT/refs"
+  if [ "$(handoff_read_path "$OUT")" = "$OUT/refs/session-handoff.md" ]; then ok; else bad "opted-out: legacy path when note absent"; fi
+  if [ -z "$(handoff_read_path "$OUT" 2>&1 >/dev/null)" ]; then ok; else bad "opted-out: must stay silent"; fi
+  echo "single-file note" > "$OUT/refs/session-handoff.md"
+  if [ "$(handoff_read_path "$OUT")" = "$OUT/refs/session-handoff.md" ]; then ok; else bad "opted-out: legacy path when note present"; fi
+  if [ -z "$(handoff_read_path "$OUT" 2>&1 >/dev/null)" ]; then ok; else bad "opted-out: must stay silent with note present"; fi
+  rm -rf "$OUT"
 
   # 5. A different window name -> a different key (no cross-session collision).
   "$TMUX_BIN" rename-window -t "$PANE" "✅ elevate" 2>/dev/null

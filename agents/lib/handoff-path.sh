@@ -97,10 +97,57 @@ handoff_path()          { local d="${1:-.}"; printf '%s/refs/session-handoff%s.m
 offboard_pending_path() { local d="${1:-.}"; printf '%s/.offboard-pending%s'        "$d" "$(_handoff_suffix "$d")"; }
 last_offboard_path()    { local d="${1:-.}"; printf '%s/.claude/last-offboard-session%s' "$d" "$(_handoff_suffix "$d")"; }
 
-# Reader — prefer the window-scoped handoff, fall back to the legacy single
-# file (covers the transition before this session has written its scoped file,
-# and non-opted-in projects). /onboard reads THIS.
+# Reader — the note THIS session should read. /onboard reads THIS.
+#
+# Three cases, and the middle one is a bug fix (bd-msi5):
+#   1. scoped note exists                  -> the scoped note.
+#   2. per-window project, scoped note MISSING -> still the scoped path (which
+#      does not exist), plus a LOUD stderr diagnostic. NOT the legacy file.
+#   3. not opted in (or window unresolvable, so no suffix) -> the legacy file,
+#      exactly as before.
+#
+# Why case 2 changed: the legacy fallback made a missing scoped note read as
+# "this window has no history" and then silently served a DIFFERENT window's
+# file. Measured 2026-08-03 — the work:di -> work:pulse rename (bd-j8di) moved
+# session-handoff--di.md to --pulse.md while a session was still live in a window
+# named `di`; /onboard fell through to refs/session-handoff.md, last written
+# 2026-07-06, and onboarded a month stale. Zig caught it; nothing in the tooling
+# did. In a per-window project the legacy file belongs to NO window, so serving
+# it to a window that asked for its own note is always a guess.
+#
+# The contract: STDOUT stays a single path with no decoration (callers capture
+# it — /onboard Step 1 does `HANDOFF=$(handoff_read_path .)` then `[ -f "$HANDOFF" ]
+# && cat`), and the diagnostic goes to STDERR. Returning the nonexistent scoped
+# path rather than empty means that caller degrades to the honest "no note for
+# this window" — it prints the path it wanted, cats nothing, and the human sees
+# which scoped notes DO exist. Returning empty would work too but tells the human
+# less; returning the legacy path is the bug.
 handoff_read_path() {
-  local d="${1:-.}" p; p=$(handoff_path "$d")
-  if [ -f "$p" ]; then printf '%s' "$p"; else printf '%s/refs/session-handoff.md' "$d"; fi
+  local d="${1:-.}" p legacy win others
+  p=$(handoff_path "$d")
+  legacy="$d/refs/session-handoff.md"
+  if [ -f "$p" ]; then printf '%s' "$p"; return 0; fi
+
+  # Scoped iff handoff_path did NOT hand back the legacy name — i.e. the suffix
+  # was non-empty. Compare paths rather than calling _handoff_key a second time:
+  # one resolution per call, and no second copy of the filename format to drift.
+  if [ "$p" != "$legacy" ]; then
+    win=${p##*/session-handoff--}; win=${win%.md}
+    # List the dir and FILTER — never `ls "$d"/refs/session-handoff--*.md`. An
+    # unmatched glob is a hard error in zsh (`no matches found`, printed before
+    # ls runs, and 2>/dev/null on ls cannot suppress it), and Claude Code's Bash
+    # tool runs zsh. Caught by exactly that, 2026-08-04.
+    others=$(ls -1 "$d/refs" 2>/dev/null | grep '^session-handoff--.*\.md$' | tr '\n' ' ')
+    {
+      printf '⚠️  handoff: NO note for this window (%s).\n' "$win"
+      printf '    missing: %s\n' "$p"
+      printf '    scoped notes that DO exist: %s\n' "${others:-(none)}"
+      [ -f "$legacy" ] && printf '    %s exists but was NOT read — in a per-window project it belongs to no window (bd-msi5).\n' "$legacy"
+      printf '    If a window was renamed, this window is carrying the OLD name. Read the right scoped note by hand, or rename the window.\n'
+    } >&2
+    printf '%s' "$p"
+    return 0
+  fi
+
+  printf '%s/refs/session-handoff.md' "$d"
 }
