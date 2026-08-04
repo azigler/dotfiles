@@ -55,6 +55,15 @@ if [ -n "$SESSION_ID" ]; then
     fi
   fi
 
+  # CAPTURE the sticky session->window cache BEFORE deleting it. The offboard
+  # markers at the bottom of this hook are WINDOW-SCOPED (handoff-path.sh), and
+  # for a background-forked / childed session at teardown ($TMUX_PANE absent and
+  # process ancestry no longer reaching the display pane) this cache is the ONLY
+  # remaining way to key the window. Deleting it here and then asking for the
+  # marker path 400ms later made the hook destroy its own input — see the
+  # HANDOFF_WINDOW fallback below (explore-y7z5).
+  _LEX_CACHED_WIN=$(cat "$LEX_DIR/$SESSION_ID.window" 2>/dev/null)
+
   rm -f "$LEX_DIR/$SESSION_ID" "$LEX_DIR/$SESSION_ID.reason" "$LEX_DIR/$SESSION_ID.window" 2>/dev/null
 fi
 
@@ -67,6 +76,27 @@ _HP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/handoff-path.sh"
 [ -f "$_HP" ] && . "$_HP"
 type last_offboard_path    >/dev/null 2>&1 || last_offboard_path()    { printf '%s/.claude/last-offboard-session' "${1:-.}"; }
 type offboard_pending_path >/dev/null 2>&1 || offboard_pending_path() { printf '%s/.offboard-pending' "${1:-.}"; }
+
+# Window-key recovery for a childed/forked session (explore-y7z5). If the key
+# can't be resolved LIVE, feed the window captured above through handoff-path's
+# existing HANDOFF_WINDOW override seam. Live resolution still wins — this only
+# fires when _handoff_key comes back empty, and the cache is itself seeded only
+# from a successful live resolution, so it can never name a different window.
+#
+# Why this matters, and why the bare path is NOT a harmless fallback here:
+# without it the helpers degrade to the LEGACY bare names in a project that has
+# opted in to per-window scoping — and /onboard Step 0 and /pulse Step 0 both
+# check the bare path IN ADDITION to the scoped one. So one bare
+# `.offboard-pending` is a false "prior session ended without /offboard" for
+# EVERY window in the project, which is exactly the collision per-window scoping
+# exists to prevent. Measured 2026-08-01 in ~/explore: session 822129db (window
+# `elevate`, per ~/.claude/lexicon-log) ended, the rm above landed, tmux-status
+# logged `"window":""` 78ms later, and this hook wrote a bare marker 416ms after
+# that — one deletion, two window-keyed surfaces broken in the same hook run.
+if [ -z "${HANDOFF_WINDOW:-}" ] && [ -n "${_LEX_CACHED_WIN:-}" ] \
+   && type _handoff_key >/dev/null 2>&1 && [ -z "$(_handoff_key 2>/dev/null)" ]; then
+  export HANDOFF_WINDOW="$_LEX_CACHED_WIN"
+fi
 
 if command -v br &>/dev/null; then
   br sync --flush-only 2>/dev/null

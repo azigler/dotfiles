@@ -23,10 +23,20 @@ if [ "$(handoff_path "$DIR")" = "$DIR/refs/session-handoff.md" ]; then ok; else 
 if [ "$(offboard_pending_path "$DIR")" = "$DIR/.offboard-pending" ]; then ok; else bad "no-marker pending legacy"; fi
 if [ "$(last_offboard_path "$DIR")" = "$DIR/.claude/last-offboard-session" ]; then ok; else bad "no-marker last-offboard legacy"; fi
 
-# --- 2. Marker present but NOT in tmux (no pane) -> still legacy (safe fallback). ---
+# --- 2. Marker present but the window key is UNRESOLVABLE -> still legacy
+# (safe fallback). Unsetting $TMUX_PANE is no longer sufficient to simulate that:
+# since the ancestry resolver (2026-07-13) and the sticky session->window cache
+# (2026-07-14), a process that merely lacks the env var still resolves its window
+# via its parent-PID chain or a cached entry. Run from inside tmux this case
+# resolved to the RUNNER's own window and failed; run from a systemd/CI shell it
+# passed — an environment-dependent test, green by luck. Force the documented
+# degrade explicitly and isolate the cache dir. ---
 touch "$DIR/refs/.handoff-per-window"
 unset TMUX_PANE
-if [ "$(handoff_path "$DIR")" = "$DIR/refs/session-handoff.md" ]; then ok; else bad "marker-no-tmux falls back to legacy"; fi
+LEXDIR=$(mktemp -d)
+if [ "$(CLAUDE_LEXICON_STATE_DIR="$LEXDIR" CLAUDE_CODE_SESSION_ID= TPR_TEST_FORKED=1 TPR_TEST_BG_COUNT=2 \
+        handoff_path "$DIR")" = "$DIR/refs/session-handoff.md" ]; then ok; else bad "unresolvable key falls back to legacy"; fi
+rm -rf "$LEXDIR"
 
 # --- 3. Marker + a real tmux window named "🧠 wintest" -> scoped, glyph stripped. ---
 if [ -x "$TMUX_BIN" ]; then

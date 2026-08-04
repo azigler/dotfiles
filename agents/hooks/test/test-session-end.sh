@@ -113,6 +113,45 @@ run_lexicon_case "resolve-on-close emits blocked->ready when session ended block
 run_lexicon_case "no resolve event when session ended working"                      working myproj no
 run_lexicon_case "no crash / no event when blocked but window uncached"             blocked ""     no
 
+# --- Window-scoped marker in a per-window project (explore-y7z5). The hook
+# CLEARS the sticky session->window cache during lexicon teardown and then needs
+# that same window ~400ms later to scope .offboard-pending. It used to destroy
+# its own input, so a childed/forked session (no $TMUX_PANE, ancestry degraded)
+# wrote the BARE legacy marker into a project that had opted in to per-window
+# scoping — and /onboard + /pulse Step 0 both check the bare path IN ADDITION to
+# the scoped one, so that one file is a false "prior session ended without
+# /offboard" for EVERY window. Live resolution is forced to degrade here via
+# TPR_TEST_FORKED/TPR_TEST_BG_COUNT so the cache path is what's under test.
+#   $1 name  $2 seed_window ("" = no cache)  $3 expected marker basename
+run_scoped_marker_case() {
+  local name=$1 win=$2 want=$3
+  local repo="$TMPROOT/perwin-$RANDOM" sdir="$LEXROOT/mstate-$RANDOM" sess="msess-$RANDOM"
+  mkdir -p "$repo/refs" "$repo/.claude" "$sdir"
+  make_repo "$repo" "foo.txt"
+  touch "$repo/refs/.handoff-per-window"
+  printf 'idle' > "$sdir/$sess"
+  [ -n "$win" ] && printf '%s' "$win" > "$sdir/$sess.window"
+  ( cd "$repo" && printf '{"session_id":"%s"}' "$sess" | \
+      env -u TMUX_PANE -u TMUX -u HANDOFF_WINDOW \
+        CLAUDE_CODE_SESSION_ID="$sess" \
+        CLAUDE_LEXICON_STATE_DIR="$sdir" CLAUDE_LEXICON_LOG_DIR="$sdir/log" \
+        TPR_TEST_FORKED=1 TPR_TEST_BG_COUNT=2 \
+        "$HOOK" >/dev/null 2>&1 )
+  local got
+  got=$(cd "$repo" && ls -a | grep '^\.offboard-pending' | tr '\n' ' ' | sed 's/ $//')
+  if [ "$got" = "$want" ]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    FAILED_NAMES+=("$name (marker: want '$want', got '$got')")
+  fi
+}
+
+run_scoped_marker_case "cached window scopes the marker (never the bare legacy name)" \
+  elevate ".offboard-pending--elevate"
+run_scoped_marker_case "no cache + unresolvable key still leaves the legacy safety net" \
+  "" ".offboard-pending"
+
 # --- Summary ---
 
 TOTAL=$((PASS + FAIL))
