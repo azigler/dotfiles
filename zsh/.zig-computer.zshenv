@@ -21,21 +21,11 @@
 # file and blinded pico's request log. CC_NO_GATEWAY is checked before that
 # re-derivation.) For a lasting bypass, comment out the export below.
 #
-# ─────────────────────────────────────────────────────────────────────────────
-# ⚠️ KILL SWITCH ACTIVE — 2026-08-04, Zig's instruction (bead dotfiles-9o46).
-# GATEWAY BYPASSED: Claude Code on this box talks to api.anthropic.com DIRECTLY.
-#
-# pico — which HOSTS the agentgateway — is offline (temporary home outage), so
-# 100.72.47.4:17017 is unreachable and every request timed out. Routing is
-# deliberate fail-hard with no fallback (dotfiles-ucl4), so claude here was
-# simply dead until this switch.
-#
-# REVERT when Zig says pico is back: uncomment the export below and pull. A pane
-# where ANTHROPIC_BASE_URL was unset by hand self-heals on its next launch,
-# because the wrapper re-derives from THIS FILE every time.
-#
-# COST while active, accepted: no request o11y — pico's requests.db records
-# nothing from this box, and that blindness looks exactly like idleness
-# (dotfiles-t6to). Nothing alarms on it. Time-boxed to the outage.
-# ─────────────────────────────────────────────────────────────────────────────
-# export ANTHROPIC_BASE_URL="http://100.72.47.4:17017/claude"
+# HISTORY: bypassed for ~1h on 2026-08-04 while pico (the gateway HOST) was off
+# the internet, then reverted the same day once `tailscale ping pico` answered and
+# 17017/claude/v1/models was back to 401. See bead dotfiles-9o46. One lesson from
+# that hour is worth keeping: commenting this export out does NOT de-gateway an
+# ALREADY-RUNNING shell or claude — the value is read once at launch and an
+# `exec zsh` INHERITS it. Per-pane recovery is an explicit `unset
+# ANTHROPIC_BASE_URL`, then relaunch.
+export ANTHROPIC_BASE_URL="http://100.72.47.4:17017/claude"
