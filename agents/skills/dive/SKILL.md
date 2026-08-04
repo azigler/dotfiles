@@ -157,6 +157,39 @@ When the task is to bring an intriguing topic into this compendium (recent examp
      - the **ADVISORY** tier (`what:` and `index_bullet` disagreeing *with each other* about the same claim) is measured at roughly **1 in 2 — 6 true of 11 flags, firing on 11 of 135 entries** (`explore-3r9p`, 2026-07-27). **Read every one of these.** It has a much better prior because it compares two short fields covering the same ground, rather than scanning a whole body. Its residual false positives are one shape — a hedge attaching to a different noun phrase inside a well-matched pair — so check *which* claim the hedge modifies before dismissing it.
      Both tiers stay silent on the large majority of entries; that silence is the checker's main virtue, not a sign it is asleep.
 
+   **4b-ii. If this dive CORRECTED an upstream record, the correction must reach that record — and you DECLARE it, machine-readably. GATED (`explore-sc4n`).** A dive catching a citation error in its own upstream and writing the fix only into FINDINGS prose is this umbrella's own named failure — a producer with no consumer. Measured live on dive #137: `agent-authored-harness/FINDINGS.md` diagnosed the wrong byline, **named the upstream file**, and stopped; `digests/2026-08-03.md` still read `Kapoor et al. … filed 07-31 … six unattended days`. It gets worse on a timer — `explore-8w9s` would index the digest tier, at which point every uncorrected bullet becomes semantically retrievable and is served as an answer, while the correction sits in a chunk with no edge to it.
+
+   **The mechanism is an INLINE erratum at the claim**, in the upstream file itself, appended under the offending bullet — never a silent in-place edit (which destroys the only evidence the error happened) and never a separate `digests/ERRATA.md` (a second copy of a fact whose home is the bullet, and a separate chunk with no edge to the wrong claim):
+
+   ```markdown
+   > **Erratum (2026-08-04, `explore-sc4n`).** As first published this bullet read
+   > "Kapoor et al. … filed 07-31". Kirgis is first author; the capture's stamp is
+   > `arXiv:2607.27191v1 [cs.AI] 29 Jul 2026`.
+   ```
+
+   Then declare it in a `## Corrections` section of `FINDINGS.md` — `upstream:` a repo-relative path, `was:` the erroneous span, `is:` the corrected span, `bead:` optional. Each `upstream:` line opens a block; values are single-line, because a span short enough to sit on one line is a span that survives re-wrapping:
+
+   ```markdown
+   ## Corrections
+
+   - upstream: digests/2026-08-03.md
+   - was: Kapoor et al. (2607.27191, filed 07-31)
+   - is: Kirgis et al. (2607.27191, filed 07-29)
+   - bead: explore-sc4n
+   ```
+
+   ```bash
+   python3 bin/check-corrections-propagated.py <topic>   # 0 = nothing declared, or all propagated · 1 = did not land · 2 = malformed
+   ```
+
+   It asserts four things: the `upstream:` file exists; it carries a **dated** erratum naming this entry or the declared bead; the `was:` string is **no longer present outside the erratum blocks**; and the `is:` string **is**. The third is the clause that makes this more than a checkbox, and it is not hypothetical — the live erratum for this very bead was wrong **twice** (v1 deleted a TRUE fact, "six days and real compute", along with the false one; v2 attached a wrong section cite). *An erratum exists* is artifact-shaped; *the wrong string is gone, the right one is there, and a dated erratum names the entry* is a real check. Errata are excluded from that haystack on purpose: a good erratum **quotes** the wording it replaces, so searching the whole file would make an honest correction fail forever. It does **not** read the erratum's prose for truth — no semantic verifier is built here, and none should be.
+
+   **Why a declaration and not a prose sniff.** The tempting gate — grep FINDINGS for correction-shaped language — is the exact defect this repo has now found three times (`explore-zx0x` and two siblings): a gate whose contract is prose. Measured 2026-08-04 across 144 FINDINGS files: a correction-language regex returns **16 candidates of which 7 are real corrections** and 9 are scrutiny boilerplate asserting the *absence* of misattribution. That regex survives, report-only, as the `UNDECLARED HINT` line of `--corpus`.
+
+   **Its known hole, stated plainly** (same shape as the card clause's `ls` guard): a dive that corrects an upstream and declares nothing skips the gate entirely, because the checker exits 0 on an entry with no `## Corrections`. The consumer that notices is `/desk` §5's `### EVIDENCE LAYER`, which runs `python3 bin/check-corrections-propagated.py --corpus` weekly and prints both the unpropagated count and that UNDECLARED HINT list. Drop the `--corpus` line from `/desk` and nothing in the fleet reads this surface.
+
+   **Two things are deliberately out of scope.** Corrections to the **Asana Vibes card** do not go back to Asana (Zig's call, 2026-07-31) — the card has no propagatable record here, so those stay in `refs/card-claims-audit.md` and FINDINGS prose. And **historical** entries are measured, never backfilled (`explore-gi0p`): if you find an old uncorrected record, file a bead saying so; do not rewrite the digest.
+
    **4c. Run the mandatory `/scrutinize` pass** — a fresh, read-only adversarial reviewer on the corpus / method / interpretation (the explore CLAUDE.md scrutiny gate). **Three clauses are STANDING in that dispatch — include them every time, not when you happen to think of it:**
    - **"Verify the frontmatter is as careful as the body."** Give the reviewer the `what:` / `index_bullet` fields explicitly and tell it these propagate verbatim into `CHILDREN.md` / `INDEX.md` with no hedge following, so a hedge present in the body but stripped from the metadata is a **real finding**, not a nitpick. Both 2026-07-27 catches happened *only* because the dispatch said this; it was ad-hoc both times.
    - **"Check every characterisation of another exploration."** The `Related explorations` section makes claims about sibling entries the reviewer can open and check. A mischaracterised sibling corrupts the crawl graph, and it is invisible to `verify-quotes.py` (which only greps this topic's `refs/`).

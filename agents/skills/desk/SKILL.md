@@ -539,7 +539,22 @@ explorations. Not a list. Lists are how the rot started.
   but it must be *measured*, not assumed, because every failure this section exists
   to catch logged `done` at the time.
 - **evidence layer** — under the MANDATORY literal heading `### EVIDENCE LAYER`
-  (the proof greps it too). **Two** lines, both run rather than estimated.
+  (the proof greps it too). **Three** lines, all run rather than estimated.
+
+  The third is `python3 bin/check-corrections-propagated.py --corpus`
+  (`explore-sc4n`, 2026-08-04): how many entries declare a `## Corrections`
+  block, how many of those corrections **did not reach the record they
+  correct**, and the `UNDECLARED HINT` list — entries whose FINDINGS carries
+  correction-shaped prose while declaring nothing. **This is the CONSUMER that
+  makes the `/dive` corrections clause more than opt-in**: that gate exits 0 on
+  an entry with no `## Corrections` section (as ~all 144 entries have), so a
+  dive that corrects its upstream and declares nothing skips it entirely and
+  nothing else in the fleet would notice. The hint line is a place to LOOK, never
+  a verdict — measured at 16 candidates / 7 real corrections across 144 files,
+  which is exactly why the GATE reads a declaration instead of the prose. A
+  rising unpropagated count is a LOOP HEALTH item; a hint entry is a
+  five-second read, and if it is real the answer is usually a bead (historical
+  records are measured, not backfilled — `explore-gi0p`).
 
   The second is `python3 bin/check-card-claims.py --corpus` (`explore-xjn4`,
   2026-07-31): how many explorations hold a Vibes-card capture at all, and how many
