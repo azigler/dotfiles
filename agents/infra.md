@@ -282,9 +282,17 @@ nginx, no other listener.
 
 **Repos.** `~/dotfiles` (main, read-only consumer) · `~/linearb` umbrella with
 `dashboard-dev-interrupted` + `weekly-reporting` + `agent-factory` as submodules
-(detached HEADs are normal for submodules) · `~/marketing-vps` (the team's shared
-`lb-marketing/marketing-vps` setup repo, deliberately agent-free) · `~/work/`
+(detached HEADs are normal for submodules) · `~/marketing-vps` · `~/work/`
 (pulse-dispatch run dirs, fable-*, vet drafts).
+
+⚠️ **`~/marketing-vps` is NOT a git repo** (measured 2026-08-04). This file called it
+"the team's shared `lb-marketing/marketing-vps` setup repo" — there is no `.git` there
+at all, which is consistent with the PAT gotcha below: the clone could never have
+succeeded. It is a plain directory (`setup.sh`, `sync.sh`, `upgrade.sh`, `config`,
+`.backup/`) **plus its own `.beads/` store** — 6 rows in `issues.jsonl` and a
+`beads.db`, last touched 2026-07-20. Those beads are replicated NOWHERE: they are not
+in the `dotfiles` store and there is no remote to push them to. Anything that wipes
+that directory destroys them (see `~/.in-case-of-retreat.txt` on zig-computer).
 
 **Secrets, by pointer.** `~/.secrets/google-service-account.json` (0600) ·
 `~/.config/gh/hosts.yml` — `oauth_token` for `azigler` ·
