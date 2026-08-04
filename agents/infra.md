@@ -71,7 +71,10 @@ intercepts :22 on the tailnet IP and Tailscale SSH has no grammar for tag-src �
 - **hostname `pico`** — macOS 14.4 (23E214), arm64 (T6000), user `pico` (uid 501, admin).
   Uptime 64 d. Disk 175 GiB used / 724 GiB free.
 - Tailscale **`100.72.47.4`** (`pico.tailfb4637.ts.net`), tailscale 1.98.3. Home LAN behind
-  `192.168.1.1`; WAN egress `172.116.51.187`. Path to zig-computer is **direct**, not relay.
+  `192.168.1.1`; WAN egress `172.88.172.160` as of 2026-08-04 (was `172.116.51.187`;
+  it moved across that day's outage, so treat this one as **volatile** — derive it from
+  `tailscale ping pico` rather than trusting the value here). Path to zig-computer is
+  **direct**, not relay.
 - **Role:** where most user-facing production runs — Vacation Station 14 (game server, web,
   admin, CDN, maps, keycloak, grafana/loki/prometheus, nightly builds), the **agentgateway**
   LLM/MCP proxy the whole fleet's Claude Code traffic flows through, ollama, the ha-portal LAN
