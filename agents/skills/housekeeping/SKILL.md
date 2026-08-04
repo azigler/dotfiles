@@ -203,24 +203,44 @@ Every housekeeping pass should end with a documentation and memory audit:
 
 ### `~/explore/INDEX.md` (explore umbrella only)
 The theme-clustered concept-map of the compendium (the connective tissue
-the flat `CHILDREN.md` children table lacks; audit `explore-doj`). When
-housekeeping runs in `~/explore`:
-- **New explorations** -- is every folder/submodule in INDEX.md, in the
-  right cluster? (cross-check against the `CHILDREN.md` children table.)
-- **Cross-cluster connections** -- still accurate after new additions?
-- **Biggest-unconnected-opportunities** -- regenerate; these seed the
-  next `/elevate` sweep. Stale-but-still-valid clusters are fine to keep.
-- Regenerate by re-reading `*/FINDINGS.md` essences; verify relative links
-  resolve (`grep -oE '\]\([^)]+\)' INDEX.md` then test each path).
+the flat `CHILDREN.md` children table lacks; audit `explore-doj`).
 
-#### Budget exceptions — the weekly read of the grant ledger
-
-`CHILDREN.md` / `INDEX.md` are derived views, so the drift check is mechanical:
+⚠️ **`CHILDREN.md` / `INDEX.md` / `LINKMAP.md` are DERIVED views, and
+`python3 bin/gen-index.py` is their only writer.** Never hand-edit a generated
+region, and never "regenerate by re-reading `*/FINDINGS.md` essences" — that
+produces a hand-made third copy that diverges from the per-exploration metadata
+the generator actually reads. To change what the indexes say, edit the metadata
+(the `FINDINGS.md` frontmatter, or `.exploration-meta/<name>.yml`) and re-run
+the generator. Two of the old manual chores are already hard gates inside it: an
+exploration discovered with no metadata is an ERROR (nothing drops out
+silently), and every `](…FINDINGS.md)` link must resolve — the dead-link ERROR
+that hid 83% of the graph until `explore-b2j8`. So no manual link sweep.
 
 ```bash
 cd ~/explore
-python3 bin/gen-index.py --check          # indexes + dead links + exception COUNT
-python3 bin/gen-index.py --budget-report  # the grant set: path, field, bead, pinned size
+python3 bin/gen-index.py --check   # indexes current? dead links? grant set?
+python3 bin/gen-index.py           # regenerate, when --check reports STALE
+```
+
+What the generator does **not** decide — the editorial calls this pass owns,
+each made by editing metadata and re-running, never by editing the output:
+- **Cluster placement** -- is every new exploration in the right cluster
+  (`cluster:` / `cluster_order:`)? Cross-check against the `CHILDREN.md`
+  children table.
+- **Cross-cluster connections** -- still accurate after new additions?
+- **Biggest-unconnected-opportunities** -- `LINKMAP.md`'s unconnected list is
+  the standing work queue; these seed the next `/elevate` sweep.
+  Stale-but-still-valid clusters are fine to keep.
+
+#### Budget exceptions — the weekly read of the grant ledger
+
+The same `--check` above carries the grant-ledger assertion; the report is a
+second, read-only mode:
+
+```bash
+cd ~/explore
+python3 bin/gen-index.py --check          # indexes + dead links + the grant SET
+python3 bin/gen-index.py --budget-report  # the grants: path, field, bead, pinned size
 ```
 
 An exploration may declare an accepted overage of the `what:` / `index_bullet`
@@ -229,13 +249,14 @@ budgets (`budget_exceptions:` in its own metadata; schema in
 `accepted:` — **the size it was granted for**. This pass is that mechanism's
 consumer, and its cadence is **weekly, here**.
 
-**`--check` fails closed on the count.** The number of declared grants is
-asserted against `EXPECTED_BUDGET_EXCEPTIONS` in `bin/gen-index.py`, so a new
-exception makes `--check` exit 1 until a human reviews it and bumps that integer.
-Do not bump it to make the check pass: run `--budget-report`, read the grant's
-bead and reason, decide it is still right, and bump in the same commit as the
-grant. A grant that no longer earns its keep gets deleted instead (and the
-integer goes down).
+**`--check` fails closed on the SET.** The declared grants are asserted against
+`EXPECTED_BUDGET_EXCEPTIONS` in `bin/gen-index.py` — a sorted literal of
+`(exploration, field, bead)` rows — so an addition, a removal, **or a swap at
+constant count** makes `--check` exit 1 until a human reviews it and updates that
+literal. The failure names which grants went out and which came in. Do not edit
+the literal to make the check pass: run `--budget-report`, read the grant's bead
+and reason, decide it is still right, and update in the same commit as the grant.
+A grant that no longer earns its keep gets deleted instead (and its row goes).
 
 **Read the report even when the check is green** — the count can be right while a
 grant has rotted. Per row, ask: does the bead still exist and still say what the
@@ -243,12 +264,16 @@ grant has rotted. Per row, ask: does the bead still exist and still say what the
 WARNs on both a field that grew past its pin and a pin with unused headroom, so
 the arithmetic is done for you; this pass is where someone actually reads it.)
 
-⚠️ **The honest limit — it asserts the COUNT, not the SET.** One grant deleted
-and a different one added in the same pass keeps the count at 1 and passes
-silently. The controls there are the mandatory bead + reason, the pin, and this
-weekly read of `--budget-report`; nothing detects a swap mechanically. Same class
-as `check-corrections-propagated`'s UNDECLARED HINT — say so rather than letting
-a green check imply more coverage than it has.
+⚠️ **The honest limit — it asserts grant IDENTITY, not grant SIZE.** The swap
+hole is closed (`explore-vlrl`), but `accepted:` is deliberately outside the
+asserted literal: it moves at editing frequency, and duplicating it here would be
+a copy that rots faster than this weekly pass runs. So a commit that grows a
+field *and* raises its pin together re-approves that growth with only the
+metadata diff and the `reason:` as the record — `--check` stays green. That is
+what the `accepted` vs `current` columns in `--budget-report` are for, and it is
+why the read above is not optional. Same class as
+`check-corrections-propagated`'s UNDECLARED HINT — say so rather than letting a
+green check imply more coverage than it has.
 
 (The assertion rides *inside* `--check`, which the `~/explore` `/dive` tick
 already runs in its per-tick done-proof — so a new grant surfaces within a tick
@@ -608,11 +633,12 @@ A housekeeping pass is done when:
 - [ ] `doc-example-lint` run and its error count reported (non-blocking —
       a non-zero count is a work queue to file, not a reason to stop)
 - [ ] **`~/explore` only:** `python3 bin/gen-index.py --check` exits 0 (indexes
-      current, no dead links, budget-exception count acknowledged) AND
+      current, no dead links, budget-exception grant SET acknowledged) AND
       `python3 bin/gen-index.py --budget-report` was run and every row read —
-      report the grant count in the tally so the TREND is visible. A count that
-      climbs is the signal; a swap at a constant count is this gate's blind spot
-      and the report is the only thing that catches it.
+      report the grant count in the tally so the TREND is visible. `--check` now
+      catches an addition, a removal and a swap; what it does NOT catch is a
+      grant whose `accepted:` pin was raised alongside the field it covers, and
+      the report's `accepted` / `current` columns are the only thing that does.
 
 Report the tally when done. Incomplete items should be filed as follow-up
 beads, not left open in the exit report.
