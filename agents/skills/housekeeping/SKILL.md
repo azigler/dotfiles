@@ -250,13 +250,24 @@ budgets (`budget_exceptions:` in its own metadata; schema in
 consumer, and its cadence is **weekly, here**.
 
 **`--check` fails closed on the SET.** The declared grants are asserted against
-`EXPECTED_BUDGET_EXCEPTIONS` in `bin/gen-index.py` — a sorted literal of
-`(exploration, field, bead)` rows — so an addition, a removal, **or a swap at
-constant count** makes `--check` exit 1 until a human reviews it and updates that
-literal. The failure names which grants went out and which came in. Do not edit
-the literal to make the check pass: run `--budget-report`, read the grant's bead
-and reason, decide it is still right, and update in the same commit as the grant.
-A grant that no longer earns its keep gets deleted instead (and its row goes).
+the ledger `~/explore/.exploration-meta/budget-exceptions.tsv` — a sorted literal
+of `exploration<TAB>field<TAB>bead` rows — so an addition, a removal, **or a swap
+at constant count** makes `--check` exit 1 until a human reviews it and updates
+that ledger. The failure names which grants went out and which came in. Do not
+edit the ledger to make the check pass: run `--budget-report`, read the grant's
+bead and reason, decide it is still right, and update in the same commit as the
+grant. A grant that no longer earns its keep gets deleted instead (and its row
+goes). A missing ledger is a hard error, never an empty set — "the file vanished"
+must not read as "there are no grants".
+
+The ledger is a **data file outside `bin/`** for a reason worth knowing before
+you move it back (`explore-h7r6`): it was a Python literal inside
+`bin/gen-index.py`, and `bin/**` is on the tick-jail push broker's refusal list —
+so the two-edits-in-one-commit grant was, by construction, unpushable from a
+jailed `/dive` tick, which is the mechanism's only real consumer. The tick did
+the work and only found out at push time; the fallback under time pressure was to
+compress the bullet instead, i.e. exactly the failure the exception exists to
+prevent. Data where a tick may edit it, checking logic where it may not.
 
 **Read the report even when the check is green** — the count can be right while a
 grant has rotted. Per row, ask: does the bead still exist and still say what the
