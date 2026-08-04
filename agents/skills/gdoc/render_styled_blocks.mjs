@@ -62,6 +62,7 @@
 // Note: Docs indices are UTF-16 code units; JS string .length matches for BMP text.
 // Avoid astral chars (emoji) inside styled runs or offsets drift.
 import { readFileSync } from 'fs';
+import { contentOfDoc } from './lib/doc_content.mjs';
 
 // ---------------------------------------------------------------------------
 // Config + loudness
@@ -282,12 +283,10 @@ async function makeDirectTransport() {
   const getDoc = async (docId) =>
     (await docs.documents.get({ documentId: docId, includeTabsContent: true })).data;
 
-  const contentOf = (doc, scope) => {
-    if (!scope.tabId) return doc.body?.content ?? [];
-    const tab = (doc.tabs ?? []).find((x) => x.tabProperties?.tabId === scope.tabId);
-    return tab?.documentTab?.body?.content ?? [];
-  };
-
+  // Segment content resolution is `contentOfDoc` in ./lib/doc_content.mjs — pure and
+  // unit-tested there (tests/doc_content.test.mjs), because the body path's
+  // "doc.body is unpopulated under includeTabsContent" trap is exactly the kind
+  // of thing that needs a test rather than a network round trip (dotfiles-aoyz).
   return {
     name: 'direct',
 
@@ -308,7 +307,7 @@ async function makeDirectTransport() {
     },
 
     async segmentEnd(docId, scope) {
-      const content = contentOf(await getDoc(docId), scope);
+      const content = contentOfDoc(await getDoc(docId), scope);
       return content.reduce((m, e) => Math.max(m, e.endIndex ?? 0), 1);
     },
 
@@ -318,7 +317,7 @@ async function makeDirectTransport() {
     },
 
     async readBackChars(docId, scope) {
-      const content = contentOf(await getDoc(docId), scope);
+      const content = contentOfDoc(await getDoc(docId), scope);
       let n = 0;
       for (const el of content) {
         for (const e of el.paragraph?.elements ?? []) n += (e.textRun?.content ?? '').length;
