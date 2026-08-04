@@ -120,7 +120,20 @@ function resolveBlock(blk) {
 //   addTab(title)       -> tabId
 //   segmentEnd(scope)   -> the end index of the target segment (body or tab)
 //   batch(requests)     -> post raw Docs requests
-//   readBackChars(scope)-> chars currently in the target (post-write proof)
+//   readBack(scope)     -> { n, unit } post-write proof: how much is in the
+//                          target now, AND what was actually counted
+//
+// `readBack` returns a unit label rather than a bare number because the two
+// transports cannot measure the same thing. Direct reads the segment's own text
+// runs, so its `n` is exactly comparable to the inserted length. The proxy has
+// no route that returns a segment character count: it reports the length of a
+// MARKDOWN RENDERING, which is inflated by emphasis markers and heading hashes.
+// Measured 2026-08-04 on a 21,843-char insert: markdown length 22,832, and the
+// response's own `chars` field 22,945 — so `chars` is not the segment length
+// either and swapping it in would only trade one incomparable number for
+// another (dotfiles-0l9z). Both are fine for the zero/non-zero liveness check
+// that is all this proof needs; the label stops a reader diffing the two and
+// hunting a truncation that was never there.
 // ---------------------------------------------------------------------------
 
 async function probeProxy() {
@@ -253,10 +266,13 @@ function makeProxyTransport() {
       await call(`/api/gdoc/docs/${docId}/batch`, { method: 'POST', body: { requests } });
     },
 
-    async readBackChars(docId, scope) {
+    async readBack(docId, scope) {
       const q = scope.tabId ? `?tabId=${encodeURIComponent(scope.tabId)}` : '';
       const data = await call(`/api/gdoc/docs/${docId}${q}`);
-      return (data?.markdown ?? '').length;
+      // Deliberately NOT `data.chars`: measured larger than both the markdown
+      // length and the segment length, so it is no more comparable to the
+      // inserted count than this is. See the transport note above.
+      return { n: (data?.markdown ?? '').length, unit: 'chars of markdown' };
     },
   };
 }
@@ -316,13 +332,15 @@ async function makeDirectTransport() {
       await docs.documents.batchUpdate({ documentId: docId, requestBody: { requests } });
     },
 
-    async readBackChars(docId, scope) {
+    async readBack(docId, scope) {
       const content = contentOfDoc(await getDoc(docId), scope);
       let n = 0;
       for (const el of content) {
         for (const e of el.paragraph?.elements ?? []) n += (e.textRun?.content ?? '').length;
       }
-      return n;
+      // Exactly comparable to the inserted length, modulo the implicit trailing
+      // newline Docs keeps at the end of every segment (so M === N + 1).
+      return { n, unit: 'chars' };
     },
   };
 }
@@ -390,9 +408,9 @@ await T.batch(docId, [...paraReqs, ...textReqs, ...bulletReqs]);
 // Proof, not trust: a write that Google accepts but that leaves the target
 // empty is the failure mode this whole path exists to avoid.
 if (text.trim()) {
-  const back = await T.readBackChars(docId, scope);
-  if (!back) fail('the write was accepted but the target is EMPTY on re-read — nothing landed', 4);
-  warn(`verified: sent ${text.length} chars, read back ${back}`);
+  const { n, unit } = await T.readBack(docId, scope);
+  if (!n) fail('the write was accepted but the target is EMPTY on re-read — nothing landed', 4);
+  warn(`verified: sent ${text.length} chars, read back ${n} ${unit}`);
 }
 
 console.log('STYLED_TAB=https://docs.google.com/document/d/' + docId + (tabId ? '/edit?tab=' + tabId : '/edit'));

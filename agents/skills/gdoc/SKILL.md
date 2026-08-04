@@ -188,11 +188,29 @@ Google, so the `.docx`/PDF half already works anywhere.
 what lets a credential-less worker such as `marketing-vps` render a themed tab:
 `localhost:7100` is a valid address there too, over the reverse SSH tunnel.
 
-One wrinkle worth knowing: the proxy exposes no raw `documents.get`, so the
-segment end index that `clear` needs is recovered from the Docs API's own
-out-of-bounds error (which names it). The probe cannot apply — `batchUpdate` is
-atomic and the rejected request is an insert past the end — and if the message
-shape ever drifts the renderer fails loudly instead of guessing an index.
+Two wrinkles worth knowing about the proxy path.
+
+**The segment end index comes from a real read.** `GET /api/gdoc/docs/:docId/raw`
+returns the document's structural content (optionally `?tabId=`), and it resolves
+the first tab server-side, so the body path works without special handling.
+*History, because the shape it replaced is a trap worth naming:* the proxy
+originally exposed no raw `documents.get`, so the index was recovered by firing a
+deliberately out-of-bounds `insertText` and parsing Google's rejection message,
+which names the real end. That was non-destructive and failed loudly, but it
+depended on an **error string** staying stable, and nothing would have warned us
+when it drifted except a render deleting the wrong range. `bd-2ntm` added `/raw`
+and removed the need. Do not reintroduce the error-parsing trick.
+
+**The `verified:` line reports its unit, and on the proxy that unit is not
+comparable to what you sent.** `readBack` returns `{ n, unit }`. Direct counts
+the segment's own text runs, so `n` equals the inserted length plus the implicit
+trailing newline. The proxy has no route returning a segment character count, so
+it reports the length of a **markdown rendering**, inflated by emphasis markers
+and heading hashes. Measured on a 21,843-char insert: markdown 22,832, and the
+response's own `chars` field 22,945, so neither matches and `chars` is no better.
+Both are sound for the zero/non-zero liveness check that is all this proof needs.
+The label exists so nobody diffs the two numbers and goes hunting a truncation
+that was never there (`dotfiles-0l9z`).
 
 **Spec schema** (`spec.json`):
 ```jsonc
