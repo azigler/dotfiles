@@ -10,8 +10,9 @@ including the follow-ups and the follow-ups' follow-ups. **Nothing from it is op
 - Last commit: `c19083c`
 - Open beads: 66; in-progress: 0
 - In-flight subagents: none — 12 dispatched, all merged, all worktrees removed
-- Dirty files: none
-- `~/explore` also touched and pushed: `0e6152a`
+- Dirty files: none **of mine** — but see the second-writer warning below
+- `~/explore` also touched and pushed: `0e6152a` (explore main has since moved on
+  under another writer)
 - Markers: `.offboard-pending` cleared; `last-offboard-session` refreshed (it was
   6 days stale at the first offboard this session — see watch-outs)
 
@@ -101,6 +102,14 @@ it was `false` with `set_hostname` active, so a reboot would have silently rever
   start whenever it looks too large.
 - This box runs **uutils coreutils 0.2.2**, not GNU — but `stat -c` and `date -d` both
   work. Don't blame `dotfiles-2ap6` for a failure here without checking.
+- ⚠️ **A SECOND WRITER WAS LIVE AT OFFBOARD — do not clean up after it.** At the moment
+  this note was committed, `agents/skills/pulse/SKILL.md` was dirty in this tree and
+  `~/explore` held five locked `agent-*` worktrees at `8762e13` (a `dive` tick #137 that
+  had just committed). **None of that is this session's** — my worktrees were all removed
+  and my trees were clean. Per AGENTS.md "two writers, one working tree": leave it alone,
+  never `stash`/`reset`/`checkout .` to tidy it, and if a push is rejected, `git fetch &&
+  git merge` rather than rebase. It will most likely be committed and gone by the time
+  anyone reads this.
 - **The recurring shape, worth carrying forward:** every defect this session had green
   mechanical gates. A test fixture using `env -i` (a shell shape that exists nowhere in
   production), a guard with no coverage at all, a unit reporting success while killing
