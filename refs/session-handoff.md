@@ -1,118 +1,105 @@
-# Session handoff — 2026-08-03 188ce668 (zig-computer)
+# Session handoff — 2026-08-04 899c6004 (marketing-vps)
 
-Machine: **zig-computer**. One arc: route `marketing-vps` Claude Code through pico's
-agentgateway with machine-of-origin attribution — then every defect that arc exposed,
-including the follow-ups and the follow-ups' follow-ups. **Nothing from it is open.**
+**This session ran ON marketing-vps**, not zig-computer. Worth stating up front because
+most of the work targeted both hosts and the reflex is to assume the harness host.
+zig-computer was reached throughout as `ssh zig-computer`.
 
 ## State at offboard
 
 - Current branch: `main`, pushed, `local == remote` proven via `git ls-remote`
-- Last commit: `c19083c`
-- Open beads: 66; in-progress: 0
-- In-flight subagents: none — 12 dispatched, all merged, all worktrees removed
-- Dirty files: none **of mine** — but see the second-writer warning below
-- `~/explore` also touched and pushed: `0e6152a` (explore main has since moved on
-  under another writer)
-- Markers: `.offboard-pending` cleared; `last-offboard-session` refreshed (it was
-  6 days stale at the first offboard this session — see watch-outs)
+- Last commit: `e5d3494` — `:white_check_mark: beads: close dotfiles-odq0 — gateway-switch.sh shipped`
+- Open beads: 73; 7 created this session, 3 of those closed
+- In-flight subagents: none — 2 dispatched (1 impl, 1 read-only reviewer); the impl
+  worktree `agent-ab1ee00e64a99a4e9` merged and removed, `git worktree list` shows only
+  the main tree
+- Dirty files: none
+- Markers: `.offboard-pending` cleared; `last-offboard-session` refreshed (it was a
+  **week** stale — see the harvest note below)
 
 ## What happened this session
 
-### The ask (delivered, verified end to end)
+pico lost its internet for ~6.5h — last gateway request `07:23:49Z`, first after
+`14:00:07Z`, **zero rows in between**. Routing is fail-hard with no fallback by policy
+(`dotfiles-ucl4`), so claude died fleet-wide. Zig asked for a bypass; pico came back
+mid-session so he then asked for the revert; and finally for a real kill switch.
 
-`marketing-vps` is not on the tailnet and never will be; pico's agentgateway is
-tailnet-only. **One hop, not two** — `ssh -L` resolves its destination on the FAR end,
-so zig-computer does the tailnet leg:
-
-    ssh -L 127.0.0.1:17017:100.72.47.4:17017 zig-computer
-
-`000` with no tunnel → `401` through it. **401 IS health** — `/claude` is a keyless
-passthrough, so 401 means the request reached Anthropic.
-
-**Machine attribution: squatted the unused `agentgateway_group` column** (Zig's call,
-better than the three options offered). `user` keeps meaning `<tmux session>:<window>`;
-84k historical rows untouched. `group=marketing-vps` and `group=zig-computer` both
-recorded live; filterability confirmed via `/api/logs/search` with positive AND negative
-controls.
-
-⚠️ **`agentgateway_user` was NEVER a machine label** — its first field is the tmux
-SESSION. Both boxes run a session called `work`, metis shares the namespace, so ≥3
-machines were already colliding. The request caught a pre-existing defect.
-
-Host renamed `vps-8a9eb245` → `marketing-vps` via a dual-name transition (per-host
-dotfiles are keyed on `hostname -s`; a naive `git mv` would have stripped PATH **and**
-gateway routing from every new shell). `cloud.cfg` pinned `preserve_hostname: true` —
-it was `false` with `set_hostname` active, so a reboot would have silently reverted it.
-
-### Every defect the arc exposed — all closed
-
-| Bead | What it was |
-|---|---|
-| `v93v` | two mutants SURVIVED on the branch the VPS now uses — dropped permissions flag, injected auth token. Zero credential coverage. |
-| `47nf` | `re_escape` untested; neutering it passed 26/26 while an unescaped pattern matched a *different* forward |
-| `xp57` | `Type=oneshot` + default `KillMode` **kills the tunnel it just opened**, logs "Finished", reports success |
-| `77s4` | `--dry-run` created a tmux window on a production box, typed into it, made a paid call. Spotted as a Monday tab on a Friday. |
-| `20rx` | `CC_NO_GATEWAY=1` fired in no fresh zsh. Fix had TWO halves — the obvious one alone does nothing. |
-| `x1fn` | the guarded merge sequence had NO owner; fixed in parallel by Zig's `dc99ec8` |
-| `qepg` `u9kw` `ahrd` `dajp` `wpu2` `9gyw` `v1uh` `ogkz` | see closed beads |
-| `3afr` `xugk` | the two standing practices, landed |
+- **Bypassed then reverted both hosts**, each direction verified end-to-end rather than by
+  reading config: `DIRECT-OK`/`WRAPPER-OK` while bypassed, `GATEWAY-BACK` after, and rows
+  actually landing in pico's `request_logs` for both machines. Arc: `dotfiles-9o46`.
+- **Shipped `agents/scheduler/gateway-switch.sh`** (`off|on|status`, `--dry-run`) with a
+  52-case suite and an `agents/infra.md` runbook. One command per host; it detects
+  marketing-vps's extra tunnel-timer step itself, so the two hosts are symmetric to the
+  user. Scrutiny returned FIX-FIRST on a real blocker (see below) → fixed → SHIP.
+- **Wrote `~/.break-glass.txt`** on both boxes (`/home/andrew`, `/home/ubuntu`), host-aware,
+  every command in them executed before being written.
+- **Reran today's `pulse-digest`** — the 14:00 tick had been injected into an API-dead
+  session and was lost. The rerun completed in 25m11s and filed `explore-87d3`,
+  `explore-nktt`, `explore-o2gy`.
+- **Corrected two of my own claims to Zig**, both of which had already been stated as
+  evidence: a "2876 requests in 20 minutes" figure that was really every row dated today
+  (bare string compare against an ISO8601 `started_at` — measured 2903 vs 18 side by side),
+  and a "marketing-vps verified on the gateway" that had actually gone direct, because this
+  session runs with `CC_NO_GATEWAY=1` and every spawned shell inherits the hatch.
 
 ## Decisions made this session (autonomous decide-and-proceed calls)
 
-- `dotfiles-ucl4` — a VPS gateway tunnel failure fails **HARD**, no silent fallback.
-  Silent fallback is precisely `dotfiles-t6to`, which blinded pico's log for days.
-- `dotfiles-dkmc` — the mutation-discipline clauses land in **CLAUDE.md rule 1**, not
-  `/scrutinize`. Zig delegated the tier back rather than answering it.
+- `dotfiles-9o46` — kill switch: zig-computer + marketing-vps bypass pico's agentgateway,
+  direct to api.anthropic.com _(closed this session — installed AND reverted the same day)_
 
-## Proposed practices — where each one landed (Step 2.6)
+⚠️ The Step 2.5 harvest window was a **week** wide (`last-offboard-session` stamped
+2026-07-28), so it also surfaced `dotfiles-7awu`, `dkmc`, `ucl4`, `28jw`, `bzax`, `5q7c`,
+`tant`, `hi81`. **Those are prior sessions', not this one's.** Only `9o46` is mine. Re-check
+the window before treating that harvest as a session list.
 
-- Mutation discipline (assert applied; die on the case it NAMES) → **shipped**, CLAUDE.md
-  rule 1 (`ecbe235`), pointing at `mutate-tunnel-ownership.sh` rather than restating it.
-- Pipe-masked push guard + `PIPESTATUS` is bash-only → **shipped**, `/commit` SKILL.md
-  (`781aef5`) + one TOOLKIT line.
-- "Run the example VERBATIM — extract from the committed file, don't retype" →
-  **filed as `dotfiles-g2vg`** (rule 1 already took an addition today; a second rules
-  change to the same always-loaded file deserves Zig's eye).
+## Proposed practices — where each one landed
+
+- Gateway kill-switch procedure → **`agents/infra.md` "The kill switch"** (tracked), plus
+  its executable form in **`agents/scheduler/gateway-switch.sh`**
+- `request_logs` query traps — table is `request_logs`, time column `started_at`, and it is
+  ISO8601 with a `T` and an offset so it MUST be wrapped in `datetime()` → **`agents/infra.md`**
+- "Never verify gateway routing from a `CC_NO_GATEWAY=1` session" → **`agents/infra.md`**
+- "Commenting the export out cannot de-gateway a running shell; `exec zsh` INHERITS the
+  environment, so only an explicit `unset` works — and only in that direction" →
+  **`zsh/.zig-computer.zshenv`**, both break-glass cards, and the script's own output
+- pico's WAN egress moved and will move again → **`agents/infra.md`**, corrected to
+  `172.88.172.160` and marked volatile with the command to derive it
+- Break-glass cards are untracked `$HOME` copies that can rot → **`dotfiles-2p51`**
 
 ## What's next
 
-1. **`dotfiles-3137`** — `mutate-scrutiny-guards.sh` does not meet the rule now governing
-   it: 0 named-case assertions vs the reference harness's 4. It is wired into pre-commit.
-2. **`dotfiles-g2vg`** — the rule 2 refinement above, if Zig wants it.
-3. **`dotfiles-aq6d`** (P3) — the isolation guard forces rule-2 verification into script
-   files. Decide: relax, narrow, or just improve the block message.
-4. `br ready` for the other 63.
+1. **`dotfiles-dt5q`** — sessions launched before their host had a per-host zshenv route
+   DIRECT and log nothing. One live offender at offboard: marketing-vps pane
+   `work:✅ di-tuesday` (pid 1623429). The fix is just restarting the pane, but it needs
+   Zig's say-so because a restart destroys context. `gateway-switch.sh status` lists these
+   and marks hatch-direct separately from unexplained-direct.
+2. **Open question awaiting Zig** — whether to put `gateway-switch` on `$PATH` as an alias,
+   so the break-glass command is one word rather than a path. Offered, not answered.
+3. The three gateway-switch follow-ups: `dotfiles-nrrp` (warn that `off` dirties a
+   repo-tracked file), `dotfiles-ncsn` (heredoc bodies), `dotfiles-it8l` (mutation harness
+   + pre-commit trigger arm).
 
 ## Warnings / watch-outs
 
-- **A bare `claude` on marketing-vps works because `claude` is the shell FUNCTION.**
-  `command claude` or the full path bypasses the gateway silently. All four `work` panes
-  were re-sourced and carry the machine header.
-- **`${PIPESTATUS[0]}` is bash-only and expands EMPTY in this fleet's zsh 5.9** — a guard
-  using it fails open. zsh's is lowercase `$pipestatus`, 1-indexed, and **clobbered by
-  the very next command**. Now documented in `/commit`.
-- **The pre-commit gate is slower** — a 63s mutation harness runs on
-  `ensure-fleet-tunnel.sh` / its suite. ~71s commit on those paths. Expected, not a hang.
-- **`marketing-vps` claude is fail-hard.** If `claude-gateway-tunnel.timer` is not firing,
-  `claude` there is dead by design. `CC_NO_GATEWAY=1` now genuinely works (fixed this
-  session); commenting out the export in `zsh/.marketing-vps.zshenv` is the lasting bypass.
-- **`.claude/last-offboard-session` was 6 days stale** at the first offboard, so the
-  Step 2.5 harvest spanned other machines' sessions and reported 7 decisions where 1 was
-  this session's. It is refreshed now — but re-check the receipt against a real session
-  start whenever it looks too large.
-- This box runs **uutils coreutils 0.2.2**, not GNU — but `stat -c` and `date -d` both
-  work. Don't blame `dotfiles-2ap6` for a failure here without checking.
-- ⚠️ **A SECOND WRITER WAS LIVE AT OFFBOARD — do not clean up after it.** At the moment
-  this note was committed, `agents/skills/pulse/SKILL.md` was dirty in this tree and
-  `~/explore` held five locked `agent-*` worktrees at `8762e13` (a `dive` tick #137 that
-  had just committed). **None of that is this session's** — my worktrees were all removed
-  and my trees were clean. Per AGENTS.md "two writers, one working tree": leave it alone,
-  never `stash`/`reset`/`checkout .` to tidy it, and if a push is rejected, `git fetch &&
-  git merge` rather than rebase. It will most likely be committed and gone by the time
-  anyone reads this.
-- **The recurring shape, worth carrying forward:** every defect this session had green
-  mechanical gates. A test fixture using `env -i` (a shell shape that exists nowhere in
-  production), a guard with no coverage at all, a unit reporting success while killing
-  its own child, a dry-run documenting its side effects in source but never in output,
-  and — twice — the orchestrator's own verification wrong before it was right. The
-  common tell in every case was **silence**, not error.
+- **This window's own claude still runs with `CC_NO_GATEWAY=1`** — direct, unlogged, and
+  invisible in `request_logs`. Restarting this pane puts it back on the gateway. Anything
+  spawned from it inherits the hatch; that is what produced the false "verified" above, so
+  strip it with `env -u CC_NO_GATEWAY` before trusting any routing check.
+- **A fixture `HOME` does NOT isolate `gateway-switch.sh`.** Its hermeticity comes from the
+  PATH fakes. Testing it with only `HOME` overridden disabled the LIVE tunnel timer twice
+  today — once by me, once by the reviewer. Use `--dry-run`.
+- `dotfiles-jfqq` was closed earlier this session as "disconfirmed, no reproduction" — then
+  `dotfiles-dt5q` reproduced the same shape with a better-supported cause. If this comes up
+  again, read `dt5q`, not `jfqq`.
+- **The pre-close gate on `-t impl` beads blocks the ENTIRE compound Bash command**, so a
+  `br update --notes … && br close …` one-liner fails with "no recorded scrutiny verdict"
+  because the update never ran. Split them into separate tool calls. The verdict must also
+  match its documented grammar (`Verdict: FIX-FIRST -> addressed -> SHIP` on its own line).
+- `claude` and `curl` are not on `PATH` in a non-interactive `ssh zig-computer '…'` shell —
+  use `~/.local/bin/claude` and `/usr/bin/curl` there. This produced a false "not installed"
+  reading mid-session.
+- The scrutiny blocker is worth remembering as a class: `on` would have un-commented ANY
+  comment containing `export ANTHROPIC_BASE_URL=`, turning a commented-out example into a
+  second live export and a prose mention into syntax garbage — in a file every
+  non-interactive shell sources, i.e. it would have broken remote pulse dispatch silently.
+  `zsh -n` **accepts** that garbage line; only sourcing it fails. Same hazard as this repo's
+  "a documented example is executable" rule, pointed the other way.
