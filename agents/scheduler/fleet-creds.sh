@@ -102,6 +102,23 @@ CMD=status
 EXPORT=0
 VARS=(FLEET_API_TOKEN SLACK_BOT_TOKEN SLACK_NEWS_PLANNING_CHANNEL_ID SITE_PASSWORD)
 
+# Secondary upstream sources, consulted IN ORDER only for vars ~/.secrets left empty.
+#
+# Why this exists (2026-08-05, di-wednesday tick, bd-su3u): three of these four vars
+# — SITE_PASSWORD, SLACK_BOT_TOKEN, SLACK_NEWS_PLANNING_CHANNEL_ID — do not live in
+# ~/.secrets at all. Their canonical home is the dashboard's .env.local, which is
+# where both DI skills say to set them ("both must be set in .env.local"), and which
+# pulse-dispatch-remote.sh deliberately rsync-EXCLUDES from marketing-vps. So a
+# remote tick had no path to them: this script reported "MISSING upstream" and exited
+# 2, and the tick's whole second unit (the research digest) could not run, because
+# every research route answers 401 without the password.
+#
+# The fix is deliberately a SECOND SOURCE and not a copy. Adding the three vars to
+# ~/.secrets would put the same secret in two files that nothing keeps in sync — the
+# two-copies defect, with a rotation clock on it. ~/.secrets still WINS wherever it
+# has a value; these only fill gaps, so nothing that works today changes.
+SECONDARY_SOURCES=("\$HOME/linearb/dashboard-dev-interrupted/.env.local")
+
 while [ $# -gt 0 ]; do
   case "$1" in
     status|ensure|clear) CMD=$1; shift ;;
@@ -199,7 +216,24 @@ else
   # nothing, and every proxy call kept 401ing while the script claimed success —
   # the same class of silent-wrong-answer the dispatch's own `rsh` uses bash -lc to
   # avoid. Verified 2026-07-28.
-  REMOTE_SNIPPET="set -a; . \$HOME/.secrets 2>/dev/null; set +a; for v in ${NEED[*]}; do printf '%s\t%s\n' \"\$v\" \"\${!v:-}\"; done"
+  # Each candidate file is sourced in its OWN SUBSHELL and emits
+  # NAME<TAB>VALUE<TAB>ORIGIN for every var still needed. Subshells matter: without
+  # them a later file's values would leak into an earlier file's report and the
+  # ORIGIN column would lie. The local side takes the FIRST non-empty value per var,
+  # so declaration order IS precedence — ~/.secrets first, secondaries only filling
+  # gaps (see SECONDARY_SOURCES above for why the second source exists at all).
+  # ⚠️ __emit SKIPS vars that are empty in that file, and it must keep doing so.
+  # TAB is an IFS *whitespace* character, so bash `read` COLLAPSES a run of them:
+  # a line "NAME<TAB><TAB>/path" (empty value) parses as value=/path, origin="" —
+  # the reader then reports the FILE PATH as the credential and exits 0. Measured
+  # 2026-08-05 while adding the second source: three vars came back "loaded (len=21)"
+  # because /home/ubuntu/.secrets is 21 characters. Emitting only populated vars
+  # keeps every line at exactly three non-empty fields. Do not "simplify" this by
+  # emitting empties and filtering locally.
+  REMOTE_SNIPPET="__emit() { s=\"\$1\"; shift; ( set -a; . \"\$s\" 2>/dev/null; set +a; for v in \"\$@\"; do [ -n \"\${!v:-}\" ] || continue; printf '%s\t%s\t%s\n' \"\$v\" \"\${!v}\" \"\$s\"; done ); }; __emit \"\$HOME/.secrets\" ${NEED[*]}"
+  for _sec in "${SECONDARY_SOURCES[@]}"; do
+    REMOTE_SNIPPET="$REMOTE_SNIPPET; __emit \"$_sec\" ${NEED[*]}"
+  done
   FETCHED=$(ssh -o BatchMode=yes -o ConnectTimeout=15 "$PEER" \
     "bash -lc $(printf '%q' "$REMOTE_SNIPPET")" 2>&1)
   RC=$?
@@ -213,20 +247,30 @@ else
   else
     # Refuse to report success over an unparseable answer. A remote shell that
     # errored still exits 0 through some paths, and "loaded nothing, said fine" is
-    # exactly how the 401 above survived a green run. The sentinel is the first var
-    # we actually ASKED for — hardcoding FLEET_API_TOKEN here would skip the guard
-    # entirely on the (now normal) runs where that one came from the brokered env.
-    SENTINEL=${NEED[0]}
-    if ! printf '%s' "$FETCHED" | grep -q "^$SENTINEL$(printf '\t')"; then
-      say "FAILED: $PEER returned no $SENTINEL line. Raw answer:"
-      printf '%s\n' "$FETCHED" | sed 's/^/    /' >&2
+    # exactly how the 401 above survived a green run.
+    #
+    # This is a SHAPE check, not a sentinel check. The old guard grepped for the
+    # first requested var's line, which worked only because the emitter printed a
+    # line for every var including empty ones. Now that empty vars are skipped (see
+    # the __emit note above), a var legitimately absent from every source produces
+    # no line at all, and a sentinel guard would turn that ordinary MISSING into a
+    # hard "returned no X line" failure. So instead: every non-blank line must be
+    # exactly NAME<TAB>VALUE<TAB>ORIGIN with all three populated. Remote error text
+    # ("bash: line 1: ...", a login-shell banner) has no such shape and is caught,
+    # while an honest all-missing answer is allowed through to the MISSING report.
+    if MALFORMED=$(printf '%s' "$FETCHED" | grep -vE "^[A-Z_][A-Z0-9_]*$(printf '\t')[^$(printf '\t')]+$(printf '\t')[^$(printf '\t')]+$" | grep -v '^[[:space:]]*$'); then
+      say "FAILED: $PEER returned lines that are not NAME<TAB>VALUE<TAB>ORIGIN:"
+      printf '%s\n' "$MALFORMED" | sed 's/^/    /' >&2
       exit 2
     fi
-    while IFS=$'\t' read -r name value; do
+    while IFS=$'\t' read -r name value origin; do
       [ -z "$name" ] && continue
       [ -z "$value" ] && continue          # reported as MISSING by the emit loop
+      [ -n "${VALUE[$name]:-}" ] && continue   # FIRST non-empty wins == source precedence
       VALUE[$name]=$value
-      SOURCE[$name]=$PEER
+      # Name the actual file, not just the host: "which of the two files on
+      # zig-computer" is the question that cost a whole tick's second unit.
+      SOURCE[$name]="$PEER:${origin:-~/.secrets}"
     done <<< "$FETCHED"
   fi
 fi
@@ -240,7 +284,7 @@ for v in "${VARS[@]}"; do
     if [ "$UNREACHABLE" = 1 ]; then
       say "  $v: UNRESOLVED — not in the brokered tmux env, and $PEER was unreachable"
     else
-      say "  $v: MISSING — not in the brokered tmux env, and not set in $PEER:~/.secrets"
+      say "  $v: MISSING — not in the brokered tmux env, and not set in any source on $PEER (~/.secrets${SECONDARY_SOURCES[*]:+, ${SECONDARY_SOURCES[*]}})"
     fi
     MISSING=1
     continue

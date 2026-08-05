@@ -105,12 +105,16 @@ else ok "no ssh round-trip"; fi
 echo
 echo "-- 3. mixed source: one var absent locally is fetched, and only that one"
 rm -f "$TMPDIR_T/ssh-calls"
-stub_ssh "$(printf 'SLACK_BOT_TOKEN\tupstream_dummy')" 0
+# Wire format is NAME<TAB>VALUE<TAB>ORIGIN (3 fields). The origin field was added
+# when ~/.secrets stopped being the only upstream source, so that each var reports
+# the exact FILE it came from and not merely the host.
+stub_ssh "$(printf 'SLACK_BOT_TOKEN\tupstream_dummy\t/home/ubuntu/.secrets')" 0
 fresh "FLEET_API_TOKEN SLACK_NEWS_PLANNING_CHANNEL_ID SITE_PASSWORD"
 "${TM[@]}" setenv -u -t "$SESS" SLACK_BOT_TOKEN     # the "-NAME" form: ABSENT, not a value
 out=$(pane_run mixed "PATH=$TMPDIR_T/bin:\$PATH $SCRIPT ensure --host fakepeer; echo EXIT=\$?")
 check "asks the peer for only the missing var" "$out" "fetching SLACK_BOT_TOKEN from fakepeer"
 check "missing var attributed to the peer"     "$out" "SLACK_BOT_TOKEN: loaded from fakepeer"
+check "names the FILE the value came from"     "$out" "fakepeer:/home/ubuntu/.secrets"
 check "present var attributed to the broker"   "$out" "SITE_PASSWORD: loaded from brokered tmux env"
 check "exit 0"                                 "$out" "EXIT=0"
 "${TM[@]}" kill-session -t "$SESS"
@@ -118,10 +122,15 @@ check "exit 0"                                 "$out" "EXIT=0"
 # --- 4. exit 2: missing everywhere -------------------------------------------
 echo
 echo "-- 4. empty upstream AND unbrokered -> exit 2, honest message"
-stub_ssh "$(printf 'SLACK_BOT_TOKEN\t')" 0
+# A var that is empty in every upstream file is NOT emitted at all, so the honest
+# all-missing answer is an EMPTY response. (It used to be emitted as "NAME<TAB>" —
+# that form is now a hard error, see test 6b: tab is IFS whitespace, so the empty
+# field collapsed and the ORIGIN was read as the credential.)
+stub_ssh "" 0
 fresh "FLEET_API_TOKEN SLACK_NEWS_PLANNING_CHANNEL_ID SITE_PASSWORD"
 out=$(pane_run miss "PATH=$TMPDIR_T/bin:\$PATH $SCRIPT ensure --host fakepeer; echo EXIT=\$?")
-check "names both places it looked" "$out" "MISSING — not in the brokered tmux env, and not set in fakepeer"
+check "names every place it looked" "$out" "not set in any source on fakepeer"
+check "an empty answer is not a false failure" "$out" "MISSING"
 check "exit 2"                      "$out" "EXIT=2"
 "${TM[@]}" kill-session -t "$SESS"
 
@@ -146,9 +155,33 @@ echo "-- 6. garbage from the peer -> exit 2, no false success"
 stub_ssh "zsh: bad substitution" 0
 fresh "FLEET_API_TOKEN SLACK_NEWS_PLANNING_CHANNEL_ID SITE_PASSWORD"
 out=$(pane_run garbage "PATH=$TMPDIR_T/bin:\$PATH $SCRIPT ensure --host fakepeer; echo EXIT=\$?")
-# the sentinel must be the var actually REQUESTED, not a hardcoded FLEET_API_TOKEN
-check "guard keys off the requested var" "$out" "returned no SLACK_BOT_TOKEN line"
+# The guard is a line-SHAPE check, not a sentinel grep. A sentinel keyed off the
+# requested var could not tell "the peer errored" from "that var is legitimately
+# unset everywhere" once empty vars stopped being emitted -- and it let remote error
+# text through whenever the sentinel line happened to appear.
+check "shape guard rejects the answer"   "$out" "not NAME<TAB>VALUE<TAB>ORIGIN"
+check "shows the offending line"         "$out" "zsh: bad substitution"
 check "exit 2"                           "$out" "EXIT=2"
+"${TM[@]}" kill-session -t "$SESS"
+
+# --- 6b. THE FIELD-SHIFT TRAP: an empty value must never become the credential ---
+# Regression guard for a real bug (2026-08-05). TAB is an IFS *whitespace*
+# character, so bash `read` COLLAPSES a run of them: the line
+# "NAME<TAB><TAB>/home/ubuntu/.secrets" parsed as value=/home/ubuntu/.secrets,
+# origin="". The script then reported the FILE PATH as a loaded credential --
+# "loaded (len=21)" for three vars, because that path is 21 characters -- and
+# exited 0. A caller would have authenticated with a filesystem path.
+# The emitter must skip empty vars; the shape guard is the backstop if it ever
+# stops doing so. Either way this answer must NOT produce a success.
+echo
+echo "-- 6b. empty value + populated origin -> never reported as loaded"
+stub_ssh "$(printf 'SLACK_BOT_TOKEN\t\t/home/ubuntu/.secrets')" 0
+fresh "FLEET_API_TOKEN SLACK_NEWS_PLANNING_CHANNEL_ID SITE_PASSWORD"
+out=$(pane_run shift "PATH=$TMPDIR_T/bin:\$PATH $SCRIPT ensure --host fakepeer; echo EXIT=\$?")
+if printf '%s' "$out" | grep -q 'SLACK_BOT_TOKEN: loaded'; then
+  bad "the file path was accepted as a credential (field-shift bug is back)"
+else ok "empty value never reported as loaded"; fi
+check "does not exit 0" "$out" "EXIT=2"
 "${TM[@]}" kill-session -t "$SESS"
 
 # --- 7. no value ever reaches stdout/stderr outside --export ------------------
