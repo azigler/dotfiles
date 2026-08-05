@@ -72,8 +72,26 @@ fi
 
 COST_FMT=$(printf '$%.2f' "$COST")
 
+# Which Claude SEAT is this session on? (Zig, 2026-08-05)
+# Since the LinearB pulse rows moved to zig-computer they run under a separate
+# OAuth lineage via CLAUDE_CONFIG_DIR=~/.claude-work, while everything else uses
+# the personal ~/.claude. Both look identical on screen, and the difference is
+# which account is billed and attributed — so it gets a permanent indicator
+# rather than a thing you have to remember to check.
+#
+# The seat is NOT in the JSON on stdin; it comes from the environment this
+# script inherits from its parent `claude`. Verified live on a work-seat pane
+# via /proc/<pid>/environ. Unset => the personal seat, which is the default and
+# the common case.
+SEAT_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+case "${SEAT_DIR%/}" in
+    */.claude-work) SEAT=" | ${YELLOW}(lb)${RESET}" ;;
+    */.claude)      SEAT=" | (me)" ;;
+    *)              SEAT=" | (${SEAT_DIR##*/.claude-})" ;;   # e.g. ~/.claude-tick -> (tick)
+esac
+
 # Line 1: Lexicon state, model, directory, git branch, repo link
 printf '%b' "${LEXICON}${CYAN}[$MODEL]${RESET} 📁 ${DIR##*/}${GIT_INFO}${REPO_LINK}\n"
 
-# Line 2: Context bar, cost, duration
-printf '%b' "${BAR_COLOR}${BAR}${RESET} ${PCT}% | ${YELLOW}${COST_FMT}${RESET} | 🕰️  ${MINS}m ${SECS}s\n"
+# Line 2: Context bar, cost, duration, seat
+printf '%b' "${BAR_COLOR}${BAR}${RESET} ${PCT}% | ${YELLOW}${COST_FMT}${RESET} | 🕰️  ${MINS}m ${SECS}s${SEAT}\n"
