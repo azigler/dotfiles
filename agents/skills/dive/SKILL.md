@@ -132,8 +132,9 @@ When the task is to bring an intriguing topic into this compendium (recent examp
    **4b. Run the two local checks, and fix what they find BEFORE the scrutiny gate and the commit.**
 
    ```bash
-   python3 bin/check-frontmatter.py <topic>   # advisory — absolutes the body qualifies (4a)
-   python3 bin/verify-quotes.py <topic>       # FAIL = a quoted span matching no refs/ capture AND no cited bead
+   python3 bin/check-frontmatter.py <topic>       # advisory — absolutes the body qualifies (4a)
+   python3 bin/verify-quotes.py <topic>           # FAIL = a quoted span matching no refs/ capture AND no cited bead
+   python3 bin/check-source-enumerated.py <topic> # FAIL = a partial mirror of a repo with no listing (Step 2)
    ```
 
    These are cheap and local, and that is the point: they let the mandatory `/scrutinize` pass spend its effort on interpretation and premise instead of re-fetching sources to string-match quotes.
@@ -297,6 +298,64 @@ architecture, license, benchmarks, quotes, target deployment, novel claims
 vs marketing. The richer the per-source extraction, the easier the
 synthesis.
 
+### HTTP 200 is not evidence the fetch got the right thing — GATED
+
+**This rung fires on SUCCESS.** It used to live only under "A failed fetch is a
+fact about the TOOL" below, and that placement is what let it miss: on dive #136
+every fetch returned **200**, so the section a tick would consult did not apply.
+Two 2026-08 defects, one root:
+
+- **`explore-gfkz`** — the tick captured `xrchz/CollatzLean` by curling three
+  **guessed** paths. All 200. It never listed the repo. The repo has 17 files;
+  the one it missed, `.github/workflows/ci.yml`, is the one pinning the
+  independent checker by SHA — and FINDINGS built its whole spine on "not one
+  artifact in this story pins the checker." That **false universal negative
+  reached `CHILDREN.md` and `INDEX.md`** before a reviewer listed the tree in
+  one API call.
+- **`explore-fzt5`** — `qwen.ai/blog?id=<anything>` renders a plausible page
+  instead of 404ing, so a **guessed slug looks like it worked**.
+
+So, two obligations, and neither is satisfied by a status code:
+
+1. **Enumerate the source's own index BEFORE choosing what to mirror, and
+   record the listing in the capture.** For a git host it is one call:
+   ```bash
+   curl -sS "https://api.github.com/repos/<owner>/<repo>/git/trees/HEAD?recursive=1"
+   ```
+   Write it into the capture as `## Complete file listing (N blobs,
+   git/trees?recursive=1, YYYY-MM-DD)` + one bullet per path. If the source
+   genuinely has no listing you can get, say so: `listing: unavailable —
+   <reason>`.
+2. **Derive the omission claim from that listing; never author it from
+   memory.** A `capture: extract` scope line is a CLAIM about what was left
+   out, and on the file above it said the only omission was "the Lean sources
+   under `Collatz/`" while **four other files** were missing. Declare it
+   machine-readably in the capture header, as comma-separated **globs**:
+   ```
+   omitted: Collatz/*.lean, scripts/check-trust.lean, .gitignore
+   ```
+   Globs, not a name list, because a name list would be a second copy of the
+   listing. Keep writing the human `scope:` prose too — the globs are what
+   gets checked.
+
+**The enforcer is `bin/check-source-enumerated.py`** (`explore-gfkz`), run in
+Step 4b and the enumeration clause of the `dive` done-proof in `refs/pulse.md`
+(which is why a tick cannot log `done` without it). It triggers on
+a `capture: extract` whose `source:` is a git-host repo root, and asserts: a
+listing exists; its declared count equals the bullets under it; and the
+`omitted:` globs plus the mirrored files account for **every** listed path, with
+no stale pattern. Captures fetched before its cutoff only get a printed
+derivation, so the historical corpus is measured, not backfilled
+(`explore-gi0p`); `--corpus` reports the count.
+
+**Verify by CONTENT, not status, on any constructed URL.** Where you built the
+URL from a convention rather than following a link, check the *rendered* title
+and word count. Measured on Qwen 2026-08-04: a valid slug renders
+`article.post-single` with a real title and `5068 words`; a bogus one renders
+the site shell with **no title**, `undefined minute · 0 words`, and **today's
+date** — a date field that is always today is never a publication date. The
+per-lab traps live in `~/explore/refs/sources/ai-research-labs.json`.
+
 If a fetch fails (403, 401, 404, partial body):
 
 - **Try a related URL** — the canonical model card on Hugging Face, the
@@ -331,7 +390,11 @@ isn't.
   the way that *invents* structural defects.
 - **Enumerate the source's own index before declaring a gap.** Fetching 1 of
   7 posts listed on the site's own index and then writing about what is
-  "unknown" is a coverage failure wearing the costume of a finding.
+  "unknown" is a coverage failure wearing the costume of a finding. ⚠️ **This
+  rung is NOT conditional on a failed fetch** — it lived only here until
+  2026-08-05, and dive #136 walked straight past it with three HTTP 200s. Its
+  gated form is the success-path section above; this bullet is the same rule
+  stated for the recovery path.
 
 **Why this is a rule and not a nicety:** skepticism has a false-positive
 rate and nobody reports it. In the 2026-07-25 odyssey-ml tick the scrutiny
