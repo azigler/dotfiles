@@ -45,6 +45,36 @@ export PULSE_READY_TIMEOUT=2
 ok() { PASS=$((PASS + 1)); }
 bad() { FAIL=$((FAIL + 1)); FAILED_NAMES+=("$1"); }
 
+# --- the outcome-contract assertion helper (used by case 16 and the seat cases)
+# Defined HERE rather than beside case 16 because the seat cases at the bottom
+# need it too and PULSE_TEST_ONLY=seat skips everything in between.
+verdict_last() { printf '%s\n' "$1" | tail -n 1; }
+verdict_count() { printf '%s\n' "$1" | grep -c '^PULSE_INJECT_RESULT='; }
+# assert_verdict <label> <expected-verdict> <expected-rc> <actual-rc> <stdout>
+assert_verdict() {
+  local label=$1 want=$2 want_rc=$3 got_rc=$4 out=$5
+  local last count
+  last=$(verdict_last "$out")
+  count=$(verdict_count "$out")
+  if [ "$last" = "PULSE_INJECT_RESULT=$want" ]; then ok; else bad "$label: marker is the LAST stdout line and reads '$want' (got '$last')"; fi
+  if [ "$count" -eq 1 ]; then ok; else bad "$label: exactly ONE marker line (got $count)"; fi
+  if [ "$got_rc" -eq "$want_rc" ]; then ok; else bad "$label: exit code UNCHANGED at $want_rc (got $got_rc)"; fi
+}
+
+# PULSE_TEST_ONLY=seat runs ONLY the --config-dir / seat cases (18-22) at the
+# bottom of this file. It exists for ONE caller: mutate-pulse-seat.sh, which
+# runs this suite once per mutant and would otherwise pay ~60s of unrelated
+# cases each time. It is a SUBSET, never a substitute — tools/githooks/pre-commit
+# runs the full suite on every staged edit to the injector, and the mutation
+# harness asserts an exact case count so a filter that silently matched nothing
+# is a harness error rather than a green run.
+RUN_LEGACY=1
+[ "${PULSE_TEST_ONLY:-}" = "seat" ] && RUN_LEGACY=0
+
+if [ "$RUN_LEGACY" = 1 ]; then
+# ↓↓↓ cases 1-17 are deliberately NOT re-indented: keeping them byte-identical
+#     under this guard is what makes "no regression" reviewable as a diff.
+
 # 1. Cold start: no session at all → injector creates session + window,
 #    launches `cat`, injects text.
 "$INJECT" --session "$SESSION" --window pulse --dir "$DIR" --launch cat --cmd "hello-tick-1" >/dev/null 2>&1
@@ -422,18 +452,8 @@ rm -rf "$NR_BOUNCE" "$NR_BOUNCE2"
 #     for the value but not the position is one a consumer still has to guess at.
 #     Every run captures stdout ONLY (stderr to /dev/null) — that is the stream
 #     the header promises, so if a marker ever moved to stderr these go red.
-verdict_last() { printf '%s\n' "$1" | tail -n 1; }
-verdict_count() { printf '%s\n' "$1" | grep -c '^PULSE_INJECT_RESULT='; }
-# assert_verdict <label> <expected-verdict> <expected-rc> <actual-rc> <stdout>
-assert_verdict() {
-  local label=$1 want=$2 want_rc=$3 got_rc=$4 out=$5
-  local last count
-  last=$(verdict_last "$out")
-  count=$(verdict_count "$out")
-  if [ "$last" = "PULSE_INJECT_RESULT=$want" ]; then ok; else bad "$label: marker is the LAST stdout line and reads '$want' (got '$last')"; fi
-  if [ "$count" -eq 1 ]; then ok; else bad "$label: exactly ONE marker line (got $count)"; fi
-  if [ "$got_rc" -eq "$want_rc" ]; then ok; else bad "$label: exit code UNCHANGED at $want_rc (got $got_rc)"; fi
-}
+#     (verdict_last / verdict_count / assert_verdict are defined at the top of
+#     this file — the seat cases below need them too.)
 
 # a. success path -> injected, exit 0 (cold start into its own throwaway session)
 V_OUT=$("$INJECT" --session "$SESSION7" --window pulse --dir "$DIR" --launch cat --cmd "verdict-tick-16a" 2>/dev/null)
@@ -516,6 +536,298 @@ if printf '%s\n' "$V_ERR" | grep -q '^PULSE_INJECT_RESULT='; then
 else
   ok
 fi
+
+fi   # ↑↑↑ end of cases 1-17 (skipped by PULSE_TEST_ONLY=seat)
+
+# ===========================================================================
+# 18-22. --config-dir: RUNNING A TICK ON A NAMED CLAUDE SEAT (dotfiles-nnmm).
+# ===========================================================================
+#
+# Why these exist. The seven LinearB pulse rows are moving from marketing-vps
+# back onto zig-computer. The cutover to marketing-vps existed TO PUT THAT WORK
+# ON THE COMPANY SEAT, so migrating them back without pinning a seat would run
+# LinearB drafting on Zig's PERSONAL Claude subscription — and would do it
+# silently: nothing errors, the ticks just bill and attribute to the wrong
+# account. Every case below is about making one of those silent paths loud.
+#
+# EVERY case here runs on a PRIVATE tmux server (-L). The cases above share the
+# machine's default server with Zig's live `work` session; these ones create
+# panes, read their process trees, and kill sessions, so they get their own
+# server and cannot touch anything real.
+#
+# Case tags (S18a, S19b, …) are load-bearing: mutate-pulse-seat.sh asserts that
+# a mutant kills the case it NAMES by matching those tags in the FAIL list.
+
+# The suite's own environment must not decide the answer to case 22 — unset it
+# BEFORE the private server starts, so the server (and therefore every pane
+# shell under it) is provably seat-less.
+unset CLAUDE_CONFIG_DIR
+
+PRIV="pulseseat-$$"
+PRIV2="pulseseatleak-$$"
+PTMUX() { "$TMUX_BIN" -L "$PRIV" "$@"; }
+trap '"$TMUX_BIN" -L "$PRIV" kill-server 2>/dev/null; "$TMUX_BIN" -L "$PRIV2" kill-server 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION2" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION3" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION4" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION5" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION6" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION7" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION8" 2>/dev/null; rm -rf "$DIR"' EXIT
+
+# The injector must drive the SAME private server, and PULSE_TMUX_BIN is the
+# existing test seam for that.
+PRIV_TMUX="$DIR/tmux-private.sh"
+printf '#!/bin/bash\nexec %s -L %s "$@"\n' "$TMUX_BIN" "$PRIV" > "$PRIV_TMUX"
+chmod +x "$PRIV_TMUX"
+PRIV_TMUX2="$DIR/tmux-private2.sh"
+printf '#!/bin/bash\nexec %s -L %s "$@"\n' "$TMUX_BIN" "$PRIV2" > "$PRIV_TMUX2"
+chmod +x "$PRIV_TMUX2"
+
+# Start the private server NOW, from this (seat-less) environment. Ordering is
+# the whole point of case 22: a tmux server inherits the environment of whoever
+# cold-started it, so a server started later by a polluted caller would answer
+# case 22a the other way. Production matches THIS shape — the server is Zig's,
+# started at login, long before any unit fires.
+PTMUX new-session -d -s seatserver -n idle -c "$DIR"
+sleep 0.5
+
+# Fake seats. `.credentials.json` here is a placeholder string, never a real
+# credential — the injector only checks that the file exists and is non-empty.
+SEAT_A="$DIR/seat-a"; mkdir -p "$SEAT_A"; printf 'placeholder-not-a-credential\n' > "$SEAT_A/.credentials.json"
+SEAT_B="$DIR/seat-b"; mkdir -p "$SEAT_B"; printf 'placeholder-not-a-credential\n' > "$SEAT_B/.credentials.json"
+SEAT_EMPTY="$DIR/seat-empty"; mkdir -p "$SEAT_EMPTY"       # exists, no credential
+SEAT_A_ABS=$(cd "$SEAT_A" && pwd -P)
+SEAT_B_ABS=$(cd "$SEAT_B" && pwd -P)
+
+# The launcher that RECORDS ITS OWN ENVIRONMENT. This is the only way to answer
+# the question that matters — not "did the flag parse", not "does tmux report
+# the variable", but "does the process that starts in the pane have it". It then
+# holds the pane like a TUI so the warm/reuse path has something to find.
+# $1 = the file to record into.
+SEATREC="$DIR/seatrec.sh"
+cat > "$SEATREC" <<'EOS'
+printf '%s\n' "${CLAUDE_CONFIG_DIR-<unset>}" > "$1"
+while IFS= read -r line; do printf '%s\n' "$line"; done
+EOS
+
+seat_pane() {   # <session> <window> -> pane id on the private server
+  PTMUX list-panes -a -F '#{session_name} #{window_name} #{pane_id}' 2>/dev/null \
+    | awk -v s="$1" -v w="$2" '$1==s && $2==w {print $3; exit}'
+}
+
+# --- 18. PREFLIGHT AT DISPATCH, before a window is burned -------------------
+#     Claude Code does not fail on a credential-less config dir: it starts,
+#     prints "Not logged in · Please run /login", and sits there. That tick
+#     produces nothing and writes no ledger row — the "fired but no ledger row"
+#     shape. So a bad seat must be rejected before tmux is touched at all.
+S18SESSION="seat18-$$"
+
+V_OUT=$(PULSE_TMUX_BIN="$PRIV_TMUX" "$INJECT" --session "$S18SESSION" --window w18 \
+  --dir "$DIR" --launch cat --config-dir "$DIR/no-such-seat" --cmd "must-not-appear-18a" 2>/dev/null); V_RC=$?
+assert_verdict "S18a" failed-no-config-dir 78 "$V_RC" "$V_OUT"
+if PTMUX has-session -t "=$S18SESSION" 2>/dev/null; then
+  bad "S18a a missing --config-dir is refused BEFORE any tmux session is created"
+else
+  ok
+fi
+
+V_OUT=$(PULSE_TMUX_BIN="$PRIV_TMUX" "$INJECT" --session "$S18SESSION" --window w18 \
+  --dir "$DIR" --launch cat --config-dir "$SEAT_EMPTY" --cmd "must-not-appear-18b" 2>/dev/null); V_RC=$?
+assert_verdict "S18b" failed-no-config-dir 78 "$V_RC" "$V_OUT"
+if PTMUX has-session -t "=$S18SESSION" 2>/dev/null; then
+  bad "S18b a credential-less --config-dir is refused BEFORE any tmux session is created"
+else
+  ok
+fi
+
+# The message has to be actionable: the operator gets the path AND the command
+# that fixes it. A verdict alone sends someone reading source at 03:00.
+V_ERR=$(PULSE_TMUX_BIN="$PRIV_TMUX" "$INJECT" --session "$S18SESSION" --window w18 \
+  --dir "$DIR" --launch cat --config-dir "$SEAT_EMPTY" --cmd "x" 2>&1 >/dev/null)
+if printf '%s\n' "$V_ERR" | grep -qF "$SEAT_EMPTY" \
+   && printf '%s\n' "$V_ERR" | grep -qF 'CLAUDE_CONFIG_DIR=' \
+   && printf '%s\n' "$V_ERR" | grep -q '/login'; then
+  ok
+else
+  bad "S18c the credential-less message names the seat AND the login command (got: $V_ERR)"
+fi
+
+# The escape hatch: PULSE_CONFIG_CRED_FILE='' disables the credential check, for
+# a Claude Code that moves its credential store (macOS already uses the
+# Keychain). Same "empty disables" idiom as PULSE_READY_MARKER. Without it a
+# storage change would bounce every LinearB row instead of degrading to an
+# unverified seat.
+REC18D="$DIR/rec18d"
+V_OUT=$(PULSE_TMUX_BIN="$PRIV_TMUX" PULSE_READY_MARKER='' PULSE_CONFIG_CRED_FILE='' \
+  "$INJECT" --session "$S18SESSION" --window w18d --dir "$DIR" \
+  --launch "bash $SEATREC $REC18D" --config-dir "$SEAT_EMPTY" --cmd "hatch-tick-18d" 2>/dev/null); V_RC=$?
+assert_verdict "S18d" injected 0 "$V_RC" "$V_OUT"
+
+# --- 19. THE LAUNCHED PROCESS ACTUALLY SEES THE SEAT ------------------------
+#     The assertion this whole bead turns on. Not the flag parsing, not tmux's
+#     opinion (`show-environment` reported `unknown variable` for a pane that
+#     demonstrably had the variable) — the recorded environment of the process
+#     that started in the pane.
+S19SESSION="seat19-$$"
+REC19="$DIR/rec19"
+V_OUT=$(PULSE_TMUX_BIN="$PRIV_TMUX" PULSE_READY_MARKER='' \
+  "$INJECT" --session "$S19SESSION" --window di-monday --dir "$DIR" \
+  --launch "bash $SEATREC $REC19" --config-dir "$SEAT_A" --cmd "seat-tick-19" 2>/dev/null); V_RC=$?
+assert_verdict "S19a" injected 0 "$V_RC" "$V_OUT"
+if [ "$(cat "$REC19" 2>/dev/null)" = "$SEAT_A_ABS" ]; then
+  ok
+else
+  bad "S19b the LAUNCHED process has CLAUDE_CONFIG_DIR=$SEAT_A_ABS (recorded: '$(cat "$REC19" 2>/dev/null)')"
+fi
+PANE19=$(seat_pane "$S19SESSION" di-monday)
+sleep 1
+if PTMUX capture-pane -p -t "$PANE19" 2>/dev/null | grep -q "seat-tick-19"; then
+  ok
+else
+  bad "S19c the seated tick is still injected"
+fi
+
+# --- 20. THE REUSE PATH REFUSES A PANE ON THE WRONG SEAT --------------------
+#     pulse-inject reuses a live launcher instead of launching — that is what a
+#     durable per-row window is for, and it means the launch-time export never
+#     runs. A di-monday window already holding a personal-seat claude would be
+#     reused with no launch and no error. Setting the env at launch is necessary
+#     and NOT sufficient.
+#     The pane from case 19 is warm and on seat A. Ask for seat B.
+V_OUT=$(PULSE_TMUX_BIN="$PRIV_TMUX" PULSE_READY_MARKER='' \
+  "$INJECT" --session "$S19SESSION" --window di-monday --dir "$DIR" \
+  --launch "bash $SEATREC $REC19" --config-dir "$SEAT_B" --cmd "must-not-appear-20a" 2>/dev/null); V_RC=$?
+assert_verdict "S20a" failed-wrong-seat 77 "$V_RC" "$V_OUT"
+sleep 1
+if PTMUX capture-pane -p -t "$PANE19" 2>/dev/null | grep -q "must-not-appear-20a"; then
+  bad "S20b a wrong-seat reuse types NOTHING into the pane"
+else
+  ok
+fi
+# …and the refusal names both seats, or the operator cannot act on it.
+V_ERR=$(PULSE_TMUX_BIN="$PRIV_TMUX" PULSE_READY_MARKER='' \
+  "$INJECT" --session "$S19SESSION" --window di-monday --dir "$DIR" \
+  --launch "bash $SEATREC $REC19" --config-dir "$SEAT_B" --cmd "x" 2>&1 >/dev/null)
+if printf '%s\n' "$V_ERR" | grep -qF "$SEAT_A_ABS" && printf '%s\n' "$V_ERR" | grep -qF "$SEAT_B_ABS"; then
+  ok
+else
+  bad "S20c the wrong-seat message names the seat that IS running and the one asked for (got: $V_ERR)"
+fi
+
+# The guard must not cry wolf: the SAME seat on the same warm pane still injects.
+V_OUT=$(PULSE_TMUX_BIN="$PRIV_TMUX" PULSE_READY_MARKER='' \
+  "$INJECT" --session "$S19SESSION" --window di-monday --dir "$DIR" \
+  --launch "bash $SEATREC $REC19" --config-dir "$SEAT_A" --cmd "warm-right-seat-20d" 2>/dev/null); V_RC=$?
+assert_verdict "S20d" injected 0 "$V_RC" "$V_OUT"
+sleep 1
+if PTMUX capture-pane -p -t "$PANE19" 2>/dev/null | grep -q "warm-right-seat-20d"; then ok; else bad "S20d the warm right-seat tick lands"; fi
+
+# THE PRODUCTION HAZARD, exactly: a durable window that came up on the PERSONAL
+# seat (no --config-dir on tick #1, e.g. a window Zig started by hand) and is
+# then asked to run a seated row. Unset is not "unknown", it IS the personal
+# seat, so this must be refused like any other mismatch.
+S20SESSION="seat20-$$"
+REC20="$DIR/rec20"
+PULSE_TMUX_BIN="$PRIV_TMUX" PULSE_READY_MARKER='' \
+  "$INJECT" --session "$S20SESSION" --window di-monday --dir "$DIR" \
+  --launch "bash $SEATREC $REC20" --cmd "personal-seat-window-20e" >/dev/null 2>&1
+if [ "$(cat "$REC20" 2>/dev/null)" = "<unset>" ]; then
+  ok
+else
+  bad "S20e the fixture window really is seat-less (recorded: '$(cat "$REC20" 2>/dev/null)')"
+fi
+V_OUT=$(PULSE_TMUX_BIN="$PRIV_TMUX" PULSE_READY_MARKER='' \
+  "$INJECT" --session "$S20SESSION" --window di-monday --dir "$DIR" \
+  --launch "bash $SEATREC $REC20" --config-dir "$SEAT_A" --cmd "must-not-appear-20f" 2>/dev/null); V_RC=$?
+assert_verdict "S20f" failed-wrong-seat 77 "$V_RC" "$V_OUT"
+PANE20=$(seat_pane "$S20SESSION" di-monday)
+sleep 1
+if PTMUX capture-pane -p -t "$PANE20" 2>/dev/null | grep -q "must-not-appear-20f"; then
+  bad "S20g a personal-seat window is refused, not silently reused"
+else
+  ok
+fi
+
+# "Warm" but with no launcher to read: --launch-detect makes the idle SHELL look
+# like the launcher, so pane_current_command matches and the reuse path runs
+# with nothing to verify. Unverifiable must be its own loud verdict — conflating
+# "provably wrong seat" with "could not check" is how a guard starts guessing.
+V_OUT=$(PULSE_TMUX_BIN="$PRIV_TMUX" PULSE_READY_MARKER='' \
+  "$INJECT" --session seatserver --window idle --dir "$DIR" \
+  --launch cat --launch-detect "$(PTMUX display-message -p -t seatserver:idle '#{pane_current_command}')" \
+  --config-dir "$SEAT_A" --cmd "must-not-appear-20h" 2>/dev/null); V_RC=$?
+assert_verdict "S20h" failed-seat-unverifiable 77 "$V_RC" "$V_OUT"
+
+# --- 21. NO --config-dir => NOT ONE BYTE OF SEAT MACHINERY ------------------
+#     dive / desk / dream / digest pass no seat, and dive additionally launches
+#     through tick-jailed.sh, which sets CLAUDE_CONFIG_DIR itself via bwrap
+#     --setenv. If this injector typed an export or asserted a seat on the
+#     unflagged path it would be fighting that jail. Cases 1-17 above are the
+#     rest of this proof; these two are the direct ones.
+S21SESSION="seat21-$$"
+REC21="$DIR/rec21"
+V_OUT=$(PULSE_TMUX_BIN="$PRIV_TMUX" PULSE_READY_MARKER='' \
+  "$INJECT" --session "$S21SESSION" --window pulse --dir "$DIR" \
+  --launch "bash $SEATREC $REC21" --cmd "unseated-tick-21" 2>/dev/null); V_RC=$?
+assert_verdict "S21a" injected 0 "$V_RC" "$V_OUT"
+if [ "$(cat "$REC21" 2>/dev/null)" = "<unset>" ]; then
+  ok
+else
+  bad "S21b no --config-dir => the launched process gets NO CLAUDE_CONFIG_DIR (recorded: '$(cat "$REC21" 2>/dev/null)')"
+fi
+PANE21=$(seat_pane "$S21SESSION" pulse)
+if PTMUX capture-pane -p -t "$PANE21" 2>/dev/null | grep -q 'CLAUDE_CONFIG_DIR'; then
+  bad "S21c no --config-dir => no export is ever typed into the pane"
+else
+  ok
+fi
+# …and the seat guard is OPT-IN, not ambient: a pane that IS on a seat still
+# injects when no seat was asked for. (This is also the non-vacuity check for
+# the guard — see mutant M4 in mutate-pulse-seat.sh, which removes the
+# `[ -n "$CONFIG_DIR" ]` condition and must redden exactly this case.)
+V_OUT=$(PULSE_TMUX_BIN="$PRIV_TMUX" PULSE_READY_MARKER='' \
+  "$INJECT" --session "$S19SESSION" --window di-monday --dir "$DIR" \
+  --launch "bash $SEATREC $REC19" --cmd "unflagged-on-seated-pane-21d" 2>/dev/null); V_RC=$?
+assert_verdict "S21d" injected 0 "$V_RC" "$V_OUT"
+
+# --- 22. WHY THIS IS A FLAG AND NOT `Environment=` IN THE UNIT --------------
+#     OQ1's lean was a unit-level Environment=CLAUDE_CONFIG_DIR=. These cases
+#     are the measurement that killed it, kept executable so nobody re-derives
+#     the wrong answer from `systemctl cat` looking self-documenting.
+S22SESSION="seat22-$$"
+REC22="$DIR/rec22"
+env CLAUDE_CONFIG_DIR="$SEAT_A_ABS" PULSE_TMUX_BIN="$PRIV_TMUX" PULSE_READY_MARKER='' \
+  "$INJECT" --session "$S22SESSION" --window pulse --dir "$DIR" \
+  --launch "bash $SEATREC $REC22" --cmd "ambient-env-tick-22a" >/dev/null 2>&1
+if [ "$(cat "$REC22" 2>/dev/null)" = "<unset>" ]; then
+  ok
+else
+  bad "S22a the CALLER's CLAUDE_CONFIG_DIR does not reach the pane (recorded: '$(cat "$REC22" 2>/dev/null)') — this is the measurement that rules out a unit-level Environment="
+fi
+
+#     …and it is not merely absent, it is NONDETERMINISTIC: a tmux server
+#     COLD-STARTED by the polluted caller DOES inherit it, so whether the seat
+#     arrives depends on who happened to start the tmux server. That is the real
+#     argument — an env that is right or wrong depending on server age is not a
+#     mechanism. Second private server, deliberately never pre-started.
+REC22B="$DIR/rec22b"
+env CLAUDE_CONFIG_DIR="$SEAT_A_ABS" PULSE_TMUX_BIN="$PRIV_TMUX2" PULSE_READY_MARKER='' \
+  "$INJECT" --session "seat22b-$$" --window pulse --dir "$DIR" \
+  --launch "bash $SEATREC $REC22B" --cmd "cold-server-tick-22b" >/dev/null 2>&1
+if [ "$(cat "$REC22B" 2>/dev/null)" = "$SEAT_A_ABS" ]; then
+  ok
+else
+  bad "S22b a tmux server cold-started by the caller DOES leak its env into the pane (recorded: '$(cat "$REC22B" 2>/dev/null)') — if this flips, re-read the ambient-env reasoning in pulse-inject.sh's header"
+fi
+
+#     And the explicit flag WINS over an ambient value that disagrees.
+REC22C="$DIR/rec22c"
+V_OUT=$(env CLAUDE_CONFIG_DIR="$SEAT_A_ABS" PULSE_TMUX_BIN="$PRIV_TMUX" PULSE_READY_MARKER='' \
+  "$INJECT" --session "$S22SESSION" --window seated --dir "$DIR" \
+  --launch "bash $SEATREC $REC22C" --config-dir "$SEAT_B" --cmd "explicit-beats-ambient-22c" 2>/dev/null); V_RC=$?
+assert_verdict "S22c" injected 0 "$V_RC" "$V_OUT"
+if [ "$(cat "$REC22C" 2>/dev/null)" = "$SEAT_B_ABS" ]; then
+  ok
+else
+  bad "S22d --config-dir wins over an ambient CLAUDE_CONFIG_DIR (recorded: '$(cat "$REC22C" 2>/dev/null)')"
+fi
+
+"$TMUX_BIN" -L "$PRIV" kill-server 2>/dev/null
+"$TMUX_BIN" -L "$PRIV2" kill-server 2>/dev/null
 
 # --- Summary ---
 TOTAL=$((PASS + FAIL))
