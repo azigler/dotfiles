@@ -293,6 +293,33 @@ if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(ensure-fleet-tunnel\.s
   fi
 fi
 
+# --- the CLAUDE-SEAT logic in pulse-inject.sh -> prove IT still bites ------
+# Third instance of the same argument, on a script whose decision is WHICH
+# ANTHROPIC ACCOUNT a tick bills and attributes to (dotfiles-nnmm). Every
+# failure mode there is silent: an env that never reaches the launched process,
+# a durable window REUSED on the wrong seat with no launch and no error, a
+# credential-less seat that just says "Not logged in" in a pane nobody reads.
+# None of them turn a timer red, which is exactly why suite-green is not
+# evidence here. Measured on a 12-core box:
+#
+#     test-pulse-inject.sh (full, 113 cases)             107s
+#     mutate-pulse-seat.sh (5 mutants + baseline)        252s
+#
+# The harness runs the suite with PULSE_TEST_ONLY=seat (48 cases, ~45s a run)
+# rather than the full 107s, and asserts that exact count so a filter matching
+# nothing cannot read as a green baseline. The test file is a trigger on purpose
+# — S21d is the SOLE detector for the guard being opt-in, so deleting one case
+# loses the bite while the suite stays green.
+if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(pulse-inject\.sh|test-pulse-inject\.sh|mutate-pulse-seat\.sh)$'; then
+  echo "pre-commit: staged changes touch the pulse-inject seat logic -> running mutation harness (~4.5 min)"
+  if [ -f "$ROOT/agents/scheduler/mutate-pulse-seat.sh" ]; then
+    bash "$ROOT/agents/scheduler/mutate-pulse-seat.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/scheduler/mutate-pulse-seat.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
 # --- the banned git verbs, in EXECUTABLE examples (dotfiles-mjln) ----------
 # AGENTS.md is always-loaded and its "Two writers, one working tree" table is
 # measured; /commit's SKILL.md nonetheless shipped `git pull --rebase origin

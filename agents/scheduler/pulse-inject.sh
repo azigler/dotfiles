@@ -15,7 +15,8 @@
 #
 # Usage:
 #   pulse-inject.sh --dir <project-path> --cmd "<prompt or /skill>" \
-#                   [--session work] [--window pulse] [--launch claude] [--loop <id>]
+#                   [--session work] [--window pulse] [--launch claude] [--loop <id>] \
+#                   [--config-dir <claude-seat>]
 #
 #   --dir      project directory the Claude session anchors in (required)
 #   --cmd      the text typed into the session, submitted with Enter (required)
@@ -35,6 +36,48 @@
 #              behaves exactly as before (logs, no bounce record). That log is
 #              RETENTION-BOUNDED — see BOUNCE_MAX_LINES / PULSE_BOUNCE_MAX_LINES
 #              below for the cap and exactly what it discards (explore-foda).
+#   --config-dir  OPT-IN (default OFF): run this tick on a NAMED CLAUDE SEAT by
+#              pinning CLAUDE_CONFIG_DIR to <path> (dotfiles-nnmm). Claude Code
+#              relocates its ENTIRE config tree — credentials, projects,
+#              sessions — under that dir, so a second OAuth lineage on one box
+#              is a seat. ~/.claude-tick already does this for the jailed `dive`
+#              loop; the seven LinearB rows use ~/.claude-work so company work
+#              bills and attributes to the company seat, not to Zig's personal
+#              subscription. Omit it and NOTHING changes: no env is set, no
+#              seat is asserted, and every existing loop (dive/desk/dream/
+#              digest) behaves byte-for-byte as before.
+#              PULSE_CONFIG_CRED_FILE (default .credentials.json) = the file
+#              inside <path> that must be non-empty for the seat to be usable.
+#              Empty DISABLES that check (same "empty disables" idiom as
+#              PULSE_READY_MARKER) — the escape hatch for a Claude Code that
+#              moves its credential store.
+#
+#              ⚠️ WHY A FLAG AND NOT `Environment=CLAUDE_CONFIG_DIR=` IN THE
+#              UNIT. Measured on zig-computer 2026-08-05 (tmux 3.5a, re-measured
+#              under 3.6): this injector does NOT spawn claude — it `send-keys`
+#              the launch string into a shell that ALREADY LIVES in the pane, so
+#              the launched process inherits the TMUX SERVER's environment,
+#              fixed whenever that server started (Zig's login), not this
+#              process's. A unit-level Environment= would sit in pulse-inject's
+#              own env, never reach the pane, and the tick would run on the
+#              PERSONAL seat with nothing erroring. Worse, it is not even
+#              consistently absent: a tmux server COLD-STARTED by the unit does
+#              inherit it (measured — the pane shell then holds the value while
+#              `show-environment` still reports `unknown variable`). An env that
+#              reaches the tick or not depending on who happened to start the
+#              tmux server is not a mechanism. So the seat is passed EXPLICITLY,
+#              as an `export` typed into the pane immediately before the launch,
+#              and then VERIFIED against the launched process's /proc environ.
+#
+#              ⚠️ AND THE REUSE PATH IS THE NASTIER HALF. Section 3 reuses a
+#              live launcher instead of launching (that is the whole point of a
+#              durable window). A `di-monday` window already holding a
+#              PERSONAL-seat claude would be reused with no launch, no export,
+#              and no error. So setting the env at launch time is necessary and
+#              NOT sufficient: with --config-dir, a warm pane's launcher has its
+#              seat read out of /proc and a mismatch is a HARD FAILURE
+#              (failed-wrong-seat, exit 77) — never a silent proceed. Same class
+#              as dotfiles-ucl4: no silent fallback.
 #   --fresh    OPT-IN (default OFF): warm process, COLD CONTEXT. When the pane
 #              already runs the launcher, send `/clear` + Enter and settle before
 #              typing the tick command, so the tick starts near the onboard floor
@@ -66,6 +109,10 @@
 #   8. --fresh never runs on a 🔔-deferred tick (the guard wins).
 #   9. Readiness gate times out -> BOUNCE (record + exit 0), never a blind
 #      inject into a composer that isn't there (dotfiles-mrta).
+#  10. --config-dir absent -> not one byte of seat machinery runs.
+#  11. --config-dir present -> the LAUNCHED process has CLAUDE_CONFIG_DIR set to
+#      it (asserted from /proc, not from tmux's opinion), and a warm pane on any
+#      other seat is REFUSED rather than reused.
 #
 # OUTCOME CONTRACT — PULSE_INJECT_RESULT (dotfiles-q0qi).
 #
@@ -89,6 +136,14 @@
 #     PULSE_INJECT_RESULT=failed-no-dir               --dir does not exist (exit 66)
 #     PULSE_INJECT_RESULT=failed-no-tmux              tmux binary not found (exit 69)
 #     PULSE_INJECT_RESULT=failed-no-session           could not create the tmux session (exit 70)
+#     PULSE_INJECT_RESULT=failed-no-config-dir        --config-dir missing, or holds no credential
+#                                                     — a tick there would say "Not logged in" and
+#                                                     burn the window (exit 78)
+#     PULSE_INJECT_RESULT=failed-wrong-seat           the live launcher in the pane runs on a
+#                                                     DIFFERENT CLAUDE_CONFIG_DIR than --config-dir
+#                                                     asked for; typed NOTHING (exit 77)
+#     PULSE_INJECT_RESULT=failed-seat-unverifiable    --config-dir was asked for and the launcher's
+#                                                     seat could not be READ; typed NOTHING (exit 77)
 #     PULSE_INJECT_RESULT=failed                      any other non-zero exit (crash/EXIT trap)
 #
 #   STREAM: STDOUT, always. note() writes only to $LOG (/tmp/pulse-inject.log) and
@@ -144,6 +199,11 @@ DIR=""
 CMD=""
 LOOP=""
 FRESH=0
+# The Claude seat this tick must run on (--config-dir). Empty => OFF, and every
+# seat code path below is behind `[ -n "$CONFIG_DIR" ]` so the loops that do not
+# ask for a seat execute exactly the instructions they executed before.
+CONFIG_DIR=""
+CONFIG_DIR_ABS=""
 # Retention bound for the bounce log (explore-foda). It was append-only and read IN FULL
 # on every harnessd state generation, so a loop bouncing on every tick while Andrew is
 # away grew it without limit. Same idiom + same trim shape as the vault-sync ledger's
@@ -197,6 +257,7 @@ while [ $# -gt 0 ]; do
     --launch-detect) LAUNCH_DETECT=$2; shift 2 ;;
     --loop)    LOOP=$2; shift 2 ;;
     --fresh)   FRESH=1; shift ;;
+    --config-dir) CONFIG_DIR=$2; shift 2 ;;
     *) echo "pulse-inject: unknown arg $1" >&2; emit_result failed-usage; exit 64 ;;
   esac
 done
@@ -267,6 +328,86 @@ record_bounce() {
   fi
 }
 
+# --------------------------------------------------------------------------
+# SEAT VERIFICATION (--config-dir). Only ever called when --config-dir was
+# passed; see the header for why the env cannot be trusted to arrive on its own.
+# --------------------------------------------------------------------------
+#
+# _pane_launcher_pid — the pid of the process tmux is reporting as
+# #{pane_current_command}, i.e. the pane's FOREGROUND process-group leader.
+#
+# Three tempting-but-wrong alternatives, all measured on this box (tmux 3.6):
+#
+#   * #{pane_pid} is the pane's SHELL, not the launcher — and /proc/<pid>/environ
+#     is a snapshot taken at exec, so the `export` we type into that shell is
+#     INVISIBLE there. Reading the shell's environ would report "unset" for a
+#     correctly-seated pane: a guard that fails on the good case.
+#   * matching on /proc/<pid>/comm diverges from tmux: a shebang script run
+#     directly has comm `stub.sh` while pane_current_command says `bash`.
+#   * `tmux show-environment` answers about the SESSION environment, which is a
+#     filtered copy and reported `unknown variable` for a pane that demonstrably
+#     had the variable. It is not the process's environment.
+#
+# The `+` in ps's stat field marks the foreground process group, and the leader
+# is the member whose pid == pgid — exactly the process tmux names. When the
+# pane is IDLE that leader is the shell itself (pid == pane_pid), which is the
+# correct "no launcher is running here" answer, so it is rejected explicitly.
+_pane_launcher_pid() {
+  local tty ppid fg
+  tty=$("$TMUX_BIN" display-message -p -t "$PANE" '#{pane_tty}' 2>/dev/null)
+  ppid=$("$TMUX_BIN" display-message -p -t "$PANE" '#{pane_pid}' 2>/dev/null)
+  [ -n "$tty" ] || return 1
+  # Pure read; an absent tty yields empty output, which is handled below.
+  fg=$(ps -o pid=,pgid=,stat= -t "${tty#/dev/}" 2>/dev/null \
+       | awk '$3 ~ /\+/ && $1 == $2 { print $1 }' | tail -n1)
+  case "$fg" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$fg" = "$ppid" ] && return 1     # the shell is in the foreground: no launcher
+  printf '%s\n' "$fg"
+}
+
+# _proc_config_dir <pid> — that process's CLAUDE_CONFIG_DIR, from its own
+# environment. Empty output + rc 0 means "the variable is not set" (which IS the
+# personal seat, and is a mismatch, not an error). rc 1 means "could not read",
+# which is a different outcome and gets a different verdict.
+_proc_config_dir() {
+  [ -r "/proc/$1/environ" ] || return 1
+  tr '\0' '\n' < "/proc/$1/environ" | sed -n 's/^CLAUDE_CONFIG_DIR=//p' | head -n1
+  return 0
+}
+
+# assert_seat <context> — REFUSE to proceed unless the launcher live in $PANE is
+# provably running on $CONFIG_DIR_ABS. Never returns on a mismatch: it emits the
+# verdict and exits non-zero, because the alternative — proceeding — is the
+# silent wrong-seat tick this flag exists to prevent (dotfiles-nnmm), and a
+# LinearB row billing Zig's personal subscription is exactly the thing that
+# would never show up as an error anywhere.
+assert_seat() {
+  local ctx=$1 pid seen canon
+  if ! pid=$(_pane_launcher_pid); then
+    echo "pulse-inject: --config-dir $CONFIG_DIR_ABS asked for, but no launcher process could be found in $PANE to verify its seat ($ctx)" >&2
+    note "FAIL: seat unverifiable ($ctx): no foreground launcher in pane $PANE"
+    emit_result failed-seat-unverifiable
+    exit 77
+  fi
+  if ! seen=$(_proc_config_dir "$pid"); then
+    echo "pulse-inject: --config-dir $CONFIG_DIR_ABS asked for, but /proc/$pid/environ is unreadable — cannot prove which Claude seat is running ($ctx)" >&2
+    note "FAIL: seat unverifiable ($ctx): /proc/$pid/environ unreadable"
+    emit_result failed-seat-unverifiable
+    exit 77
+  fi
+  canon=""
+  if [ -n "$seen" ]; then
+    canon=$(cd "$seen" 2>/dev/null && pwd -P) || canon="$seen"
+  fi
+  if [ "$canon" != "$CONFIG_DIR_ABS" ]; then
+    echo "pulse-inject: WRONG SEAT ($ctx). Pane $PANE runs pid $pid on CLAUDE_CONFIG_DIR=${seen:-<unset — the DEFAULT/personal seat>}, but --config-dir asked for $CONFIG_DIR_ABS. Refusing to inject: this tick would bill and attribute to the wrong Claude account. Kill that window's session (or exit the launcher) and let the next tick launch it on the right seat." >&2
+    note "FAIL: wrong seat ($ctx): pane $PANE pid $pid has '${seen:-<unset>}', wanted '$CONFIG_DIR_ABS'"
+    emit_result failed-wrong-seat
+    exit 77
+  fi
+  note "seat verified ($ctx): pane $PANE pid $pid on CLAUDE_CONFIG_DIR=$canon"
+}
+
 if [ -z "$DIR" ] || [ -z "$CMD" ]; then
   echo "pulse-inject: --dir and --cmd are required" >&2
   emit_result failed-usage
@@ -274,6 +415,35 @@ if [ -z "$DIR" ] || [ -z "$CMD" ]; then
 fi
 [ -d "$DIR" ] || { echo "pulse-inject: --dir $DIR does not exist" >&2; note "FAIL: dir missing: $DIR"; emit_result failed-no-dir; exit 66; }
 [ -x "$TMUX_BIN" ] || { echo "pulse-inject: tmux not found" >&2; emit_result failed-no-tmux; exit 69; }
+
+# Seat preflight — AT DISPATCH, before any tmux window is touched. A config dir
+# that is absent or holds no credential does not fail: Claude Code cheerfully
+# starts there and reports "Not logged in · Please run /login" (measured
+# 2026-07-28 during the tick-jail work, which is how ~/.claude-tick was built).
+# That is a tick that burns its window, produces nothing, and writes no ledger
+# row — the "fired but no ledger row" shape again. Catching it here costs one
+# stat and turns a mystery into a sentence with the login command in it.
+if [ -n "$CONFIG_DIR" ]; then
+  if [ ! -d "$CONFIG_DIR" ]; then
+    echo "pulse-inject: --config-dir $CONFIG_DIR does not exist. Create the seat and log in first:  mkdir -p -m 700 $CONFIG_DIR && CLAUDE_CONFIG_DIR=$CONFIG_DIR claude   (then /login)" >&2
+    note "FAIL: config-dir missing: $CONFIG_DIR"
+    emit_result failed-no-config-dir
+    exit 78
+  fi
+  CONFIG_DIR_ABS=$(cd "$CONFIG_DIR" 2>/dev/null && pwd -P) || CONFIG_DIR_ABS="$CONFIG_DIR"
+  # Empty DISABLES the check, same idiom as PULSE_READY_MARKER. It is the escape
+  # hatch for a Claude Code that moves its credential store (macOS already uses
+  # the Keychain), so a storage change degrades to "unverified seat" rather than
+  # to "every LinearB row bounces".
+  CRED_FILE=${PULSE_CONFIG_CRED_FILE-.credentials.json}
+  if [ -n "$CRED_FILE" ] && [ ! -s "$CONFIG_DIR_ABS/$CRED_FILE" ]; then
+    echo "pulse-inject: --config-dir $CONFIG_DIR_ABS holds no credential ($CRED_FILE). A tick there would run 'Not logged in' and burn the window. Log in on that seat first:  CLAUDE_CONFIG_DIR=$CONFIG_DIR_ABS claude   (then /login)" >&2
+    note "FAIL: config-dir has no credential: $CONFIG_DIR_ABS/$CRED_FILE"
+    emit_result failed-no-config-dir
+    exit 78
+  fi
+  note "seat requested: CLAUDE_CONFIG_DIR=$CONFIG_DIR_ABS"
+fi
 
 # Hand the tick an ABSOLUTE project anchor. A long-lived pulse session's
 # shell cwd can drift (a stray `cd` in one tick persists), so a bare
@@ -336,10 +506,50 @@ CURRENT_CMD=$("$TMUX_BIN" display-message -p -t "$PANE" '#{pane_current_command}
 WAS_WARM=0
 [ "$CURRENT_CMD" = "$EXPECT" ] && WAS_WARM=1
 
+# 3.25 THE REUSE PATH, WHICH IS THE SILENT ONE (dotfiles-nnmm).
+#
+#   Reuse is the whole point of a durable per-row window — and it means the
+#   branch below, where the seat gets set, DOES NOT RUN. A `di-monday` window
+#   already holding a personal-seat claude would be reused with no launch, no
+#   export, and no error: the LinearB tick would draft on Zig's personal
+#   subscription and every mechanical signal would stay green. So when a seat is
+#   named, a warm pane has to PROVE it is that seat before it is allowed to
+#   receive anything.
+#
+#   Ordered BEFORE the 🔔 modal guard on purpose. Both paths type nothing, so
+#   there is no harm either way — but a 🔔 defer is a normal, self-resolving
+#   condition and a wrong seat is a misconfiguration that resolves only when a
+#   human sees it. Reporting the self-resolving one first would hide it behind a
+#   verdict that looks routine.
+if [ -n "$CONFIG_DIR_ABS" ] && [ "$WAS_WARM" = 1 ]; then
+  assert_seat "reuse"
+fi
+
 if [ "$CURRENT_CMD" != "$EXPECT" ]; then
   # cd first so a recycled shell pane anchors in the right project.
   "$TMUX_BIN" send-keys -t "$PANE" "cd $(printf '%q' "$DIR")" Enter
   sleep 0.5
+  # Pin the seat for everything this pane's shell starts from here on. An
+  # `export` typed into the pane, NOT `new-session -e` / `new-window -e` and not
+  # an `env` prefix, for three measured reasons:
+  #   * -e on new-session writes the SESSION environment, so every window
+  #     created in `zig-computer` later would inherit this row's seat. Seven rows
+  #     on one session is precisely where that leaks.
+  #   * -e on new-window is pane-scoped and fine — but it only fires when the
+  #     window is CREATED, so it does nothing for the durable window that
+  #     already exists, which is the normal case after tick #1.
+  #   * `env CLAUDE_CONFIG_DIR=… claude` would bypass the `claude` SHELL
+  #     FUNCTION from claude-identity-wrapper.sh (env only resolves binaries),
+  #     silently dropping the gateway base URL — the exact regression
+  #     dotfiles-t6to was filed for. A prefix assignment is no better: in zsh
+  #     (this box's shell) an assignment preceding a FUNCTION call is not
+  #     exported to it the way bash exports it.
+  # `export` is shell-agnostic, survives the wrapper, and reaches the launched
+  # process — which the post-launch assert_seat below then proves from /proc.
+  if [ -n "$CONFIG_DIR_ABS" ]; then
+    "$TMUX_BIN" send-keys -t "$PANE" "export CLAUDE_CONFIG_DIR=$(printf '%q' "$CONFIG_DIR_ABS")" Enter
+    sleep 0.3
+  fi
   # Re-source the claude() wrapper before a COLD launch (2026-07-29, dotfiles-t6to).
   # A durable pane's shell is days old and holds the function body it read at shell
   # START — so a fix shipped to claude-identity-wrapper.sh reaches Zig's fresh shells
@@ -368,6 +578,18 @@ if [ "$CURRENT_CMD" != "$EXPECT" ]; then
   NOW=$("$TMUX_BIN" display-message -p -t "$PANE" '#{pane_current_command}' 2>/dev/null)
   [ "$NOW" = "$EXPECT" ] \
     || note "WARN: '$EXPECT' not detected after 30s (pane runs '$NOW')"
+
+  # The export above is a keystroke sequence typed into somebody else's shell —
+  # it can be eaten by a shell that was mid-prompt, by a wrapper that resets the
+  # environment, or by a launcher that re-execs through something that scrubs
+  # it. Asserting the RESULT rather than trusting the ACT is the difference
+  # between this flag and the unit-level Environment= it replaces, and it means
+  # the production path carries the same proof the suite does: the thing that
+  # started in the pane has the seat. A cold launch that still lands on the
+  # wrong seat is a hard failure, not a warning — there is nothing to retry into.
+  if [ -n "$CONFIG_DIR_ABS" ]; then
+    assert_seat "launched"
+  fi
 
   # Liveness (the process exists) is NOT readiness (the TUI can accept typed
   # input). pane_current_command flips to 'claude' within ~1-4s of exec, but the
