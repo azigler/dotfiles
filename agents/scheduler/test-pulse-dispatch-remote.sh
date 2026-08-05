@@ -1554,6 +1554,330 @@ else
 fi
 
 echo
+echo "== --resume-auto: the MACHINE-authorized cap waiver (bd-szc4) =="
+# The property under test is DISTINGUISHABILITY plus BOUNDEDNESS. `--resume` means
+# "a human decided"; a watcher that borrows it destroys the only signal that tells
+# a deliberate re-run from a loop re-running itself. So the second flag must (a)
+# never be mistakable for the first, in either direction, (b) refuse to waive on
+# assertion alone, and (c) be unable to fire twice for the same bead in a period.
+# Every case below breaks exactly one of those on purpose.
+#
+# NOTE ON STATE: the claim store is $STATE/.waivers (dot-prefixed) and the audit is
+# $STATE/machine-waiver-audit.jsonl (a FILE). Both shapes are deliberate — the
+# RUNDIR lookups throughout this suite are `ls -dt "$STATE"/*/`, which matches
+# visible DIRECTORIES, so either an undotted dir or a directory-shaped audit here
+# would silently become "the newest run" and make unrelated assertions read the
+# wrong DISPATCH.md.
+WAIVER_AUDIT="$STATE/machine-waiver-audit.jsonl"
+EVDIR="$ROOT/evidence"; mkdir -p "$EVDIR"
+EVN=0
+
+# mkev <jq-filter-applied-to-the-good-object> -> prints the path of a fresh file.
+# Built by MUTATING one known-good object rather than by writing each variant out
+# longhand: a hand-written "bad" file can accidentally be bad in a second way, and
+# then the case proves the wrong refusal.
+mkev() { # <jq filter> [bead] [row] [clearedAt]
+  EVN=$((EVN+1))
+  local f="$EVDIR/ev$EVN.json"
+  jq -n --arg bead "${2:-bd-xg2w}" --arg row "${3:-di-friday}" \
+        --arg cleared "${4:-$(date -u +%FT%TZ)}" \
+    '{version:1, authority:"di-doc-block-watch", bead:$bead, row:$row, status:"cleared",
+      probe:{kind:"asana-field", target:"Pod Weekly on card 1216039889621372",
+             detail:"Pod Weekly = https://docs.google.com/document/d/EXAMPLE"},
+      clearedAt:$cleared}' \
+  | jq "${1:-.}" > "$f"
+  printf '%s' "$f"
+}
+
+# Fresh state for this section so the bound cases start from a known-empty store.
+rm -rf "$STATE/.waivers" "$WAIVER_AUDIT"
+
+# --- (a) THE TWO FLAGS NEVER MIX, AND EVIDENCE NEVER FLOATS FREE ---------------
+EV=$(mkev)
+OUT=$(PULSE_DISPATCH_SSH="$STUB/ssh" "$DISPATCH" --row di-friday --dir "$PROJ" \
+        --resume bd-icwd --resume-auto bd-xg2w --waiver-evidence "$EV" 2>&1)
+check_verdict "--resume + --resume-auto together is failed-usage" "$OUT" failed-usage
+case "$OUT" in *"mutually exclusive"*) ok "the usage error says the two waiver kinds are mutually exclusive" ;;
+  *) bad "mutual-exclusion message" "no 'mutually exclusive' text: $(printf '%.160s' "$OUT")" ;; esac
+OUT=$(PULSE_DISPATCH_SSH="$STUB/ssh" "$DISPATCH" --row di-friday --dir "$PROJ" \
+        --waiver-evidence "$EV" 2>&1)
+check_verdict "--waiver-evidence without --resume-auto is failed-usage" "$OUT" failed-usage
+OUT=$(PULSE_DISPATCH_SSH="$STUB/ssh" "$DISPATCH" --row di-friday --dir "$PROJ" --resume-auto 2>&1)
+check_verdict "--resume-auto with no value is failed-usage" "$OUT" failed-usage
+OUT=$(PULSE_DISPATCH_SSH="$STUB/ssh" "$DISPATCH" --row di-friday --dir "$PROJ" --resume-auto --dry-run 2>&1)
+check_verdict "--resume-auto followed by another flag is failed-usage" "$OUT" failed-usage
+
+# --- (b) EVIDENCE IS REQUIRED, AND EVERY DEFECT FAILS CLOSED ------------------
+# `wcase <name> <evidence-path-or-empty> <expected-substring>` — asserts the
+# verdict is failed-waiver, the exit code is 66, the message names the reason, and
+# CRUCIALLY that nothing was dispatched: no DISPATCH.md, no ledger row, no ssh.
+LEDGER_BEFORE_ALL=$(wc -l < "$PROJ/refs/pulse-ledger.jsonl" 2>/dev/null || printf 0)
+wcase() { # <name> <ev-path|""> <expect-substring> [bead]
+  local name=$1 ev=$2 want=$3 bead=${4:-bd-xg2w} out rc before after
+  before=$(wc -l < "$PROJ/refs/pulse-ledger.jsonl" 2>/dev/null || printf 0)
+  : > "$ROOT/ssh.log"
+  write_knobs 'PANE_CMD=claude' "REMOTE_MEM_SHA=$MEMSHA" "REMOTE_BEAD_JSON=$BEADJSON" "RESULT_JSON=$RJ"
+  out=$(SSH_LOG="$ROOT/ssh.log" \
+        PULSE_DISPATCH_SSH="$STUB/ssh" PULSE_DISPATCH_PREFLIGHT="$STUB/preflight" \
+        PULSE_DISPATCH_INJECT="$STUB/inject" PULSE_DISPATCH_MANIFEST=/nonexistent-manifest \
+        PULSE_DISPATCH_VAULT=/nonexistent-local-vault PULSE_DISPATCH_LINT=/nonexistent-lint \
+        PULSE_DISPATCH_STATE="$STATE" HOME="$ROOT/home" \
+        "$DISPATCH" --row di-friday --dir "$PROJ" --poll 1 --timeout 3 \
+                    --resume-auto "$bead" ${ev:+--waiver-evidence "$ev"} 2>&1); rc=$?
+  check_verdict "$name -> failed-waiver" "$out" failed-waiver
+  [ "$rc" = 66 ] && ok "$name exits 66" || bad "$name exit code" "expected 66, got $rc"
+  case "$out" in *"$want"*) ok "$name says why: '$want'" ;;
+    *) bad "$name reason" "message lacks '$want': $(printf '%.220s' "$out")" ;; esac
+  after=$(wc -l < "$PROJ/refs/pulse-ledger.jsonl" 2>/dev/null || printf 0)
+  [ "$before" = "$after" ] && ok "$name wrote NO ledger row" \
+    || bad "$name dispatched anyway" "the ledger grew from $before to $after lines"
+  if [ -s "$ROOT/ssh.log" ]
+  then bad "$name reached the box" "a refused waiver made ssh calls: $(head -1 "$ROOT/ssh.log")"
+  else ok "$name made NO ssh call (refused before the tunnel, so it costs nothing)"; fi
+}
+
+wcase "no --waiver-evidence at all"     ""                                  "assertion alone"
+wcase "a nonexistent evidence file"     "$EVDIR/does-not-exist.json"         "does not exist"
+wcase "an empty evidence file"          "$(: > "$EVDIR/empty.json"; printf '%s' "$EVDIR/empty.json")" "is empty"
+wcase "evidence that is not JSON"       "$(printf 'not json at all\n' > "$EVDIR/bad.json"; printf '%s' "$EVDIR/bad.json")" "not a JSON object"
+wcase "evidence that is a JSON ARRAY"   "$(printf '[]\n' > "$EVDIR/arr.json"; printf '%s' "$EVDIR/arr.json")" "not a JSON object"
+wcase "an unknown schema version"       "$(mkev '.version = 99')"            "expected 1"
+wcase "evidence with no .authority"     "$(mkev 'del(.authority)')"          "must name what authorized it"
+wcase "evidence for a DIFFERENT bead"   "$(mkev '.bead = "bd-other"')"       "may not authorize another"
+wcase "evidence for a DIFFERENT row"    "$(mkev '.row = "di-monday"')"       "may not authorize another"
+wcase "a probe that did NOT clear"      "$(mkev '.status = "still blocked"')" "not 'cleared'"
+wcase "no .probe.kind"                  "$(mkev 'del(.probe.kind)')"         "is an assertion, not evidence"
+wcase "no .probe.target"                "$(mkev 'del(.probe.target)')"       "cannot be re-checked by a human"
+wcase "no .probe.detail"                "$(mkev 'del(.probe.detail)')"       "IS the evidence"
+wcase "a RELATIVE clearedAt ('now')"    "$(mkev '.clearedAt = "now"')"       "not an absolute ISO-8601"
+wcase "an unparseable clearedAt"        "$(mkev '.clearedAt = "2026-13-45T99:99:99Z"')" "not a parseable timestamp"
+wcase "STALE evidence (2 days old)"     "$(mkev '.' bd-xg2w di-friday "$(date -u -d '2 days ago' +%FT%TZ)")" "describes a world that has moved"
+wcase "evidence dated in the FUTURE"    "$(mkev '.' bd-xg2w di-friday "$(date -u -d '2 hours' +%FT%TZ)")"   "in the FUTURE"
+
+# Not one of those wrote a ledger row, collectively.
+LEDGER_AFTER_ALL=$(wc -l < "$PROJ/refs/pulse-ledger.jsonl" 2>/dev/null || printf 0)
+[ "$LEDGER_BEFORE_ALL" = "$LEDGER_AFTER_ALL" ] \
+  && ok "seventeen malformed-evidence cases produced ZERO ledger rows between them" \
+  || bad "fail-closed in aggregate" "the ledger grew from $LEDGER_BEFORE_ALL to $LEDGER_AFTER_ALL"
+
+# ...and no refusal may leave a claim behind. A refusal that spent the bound would
+# make one bad evidence file permanently poison a bead.
+if [ -d "$STATE/.waivers" ] && find "$STATE/.waivers" -mindepth 2 -maxdepth 2 -type d | grep -q .
+then bad "a refusal spent the bound" "a refused waiver left a claim in $STATE/.waivers"
+else ok "no refused waiver left a claim behind (a bad file cannot poison a bead)"; fi
+
+# --- (c) THE DRY RUN VALIDATES BUT DOES NOT CLAIM -----------------------------
+EV=$(mkev)
+OUT=$(run_dry_args --resume-auto bd-xg2w --waiver-evidence "$EV")
+check_verdict "a machine-waiver dry run reaches dry-run-ok" "$OUT" dry-run-ok
+case "$OUT" in *"MACHINE-authorized (NO HUMAN)"*) ok "the dry run says out loud that no human authorized it" ;;
+  *) bad "dry-run machine banner" "no MACHINE-authorized line: $(printf '%.200s' "$OUT")" ;; esac
+case "$OUT" in *"A DRY RUN DOES NOT CLAIM"*) ok "the dry run states that it did not spend the bound" ;;
+  *) bad "dry-run claim statement" "the banner does not say the claim was untouched" ;; esac
+case "$OUT" in *"di-doc-block-watch"*) ok "the dry run names the authorizing watcher" ;;
+  *) bad "dry-run authority" "the authority is absent from the banner" ;; esac
+if [ -d "$STATE/.waivers/$(date -u +%G-W%V)/bd-xg2w" ]
+then bad "dry run spent the claim" "inspecting a pending waiver destroyed it"
+else ok "the dry run took NO claim (inspection does not destroy the thing inspected)"; fi
+
+# --- (d) THE GRANT: it waives, and it renders the MACHINE block ---------------
+EV=$(mkev)
+: > "$ROOT/inject.log"
+OUT=$(run_live_args --resume-auto bd-xg2w --waiver-evidence "$EV")
+check_verdict "a machine-waiver dispatch completes" "$OUT" completed
+case "$OUT" in *"MACHINE-AUTHORIZED cap waiver GRANTED"*) ok "the run announces the grant" ;;
+  *) bad "grant announcement" "no GRANTED line in the output" ;; esac
+RUNDIR=$(ls -dt "$STATE"/*/ 2>/dev/null | head -1)
+DM_MACHINE="${RUNDIR}DISPATCH.md"
+if [ -s "$DM_MACHINE" ]; then
+  grep -q 'MACHINE-AUTHORIZED RESUME' "$DM_MACHINE" \
+    && ok "DISPATCH.md carries the MACHINE-labelled authorization block" \
+    || bad "machine block heading" "the machine heading is absent"
+  grep -q 'NO HUMAN AUTHORIZED THIS RUN' "$DM_MACHINE" \
+    && ok "the machine block states plainly that no human authorized the run" \
+    || bad "machine block disclaimer" "the no-human statement is missing"
+  # THE DECISIVE PROPERTY, and it is asserted on the TOKEN rather than the heading
+  # line. A tick under load greps; if the machine block explains itself by quoting
+  # the human kind's token — even to disclaim it — a substring search returns a
+  # false positive and the whole distinction is decorative. Caught by this very
+  # assertion on the first run: the machine block said "can never appear under the
+  # heading \`HUMAN-AUTHORIZED RESUME\`", which is true prose and a broken grep. The
+  # block was rewritten; the test was not relaxed.
+  grep -q 'HUMAN-AUTHORIZED' "$DM_MACHINE" \
+    && bad "machine block leaked the human token" "a naive grep for HUMAN-AUTHORIZED returns a false positive on a machine run" \
+    || ok "the machine block contains the token HUMAN-AUTHORIZED nowhere at all (a plain grep is decisive)"
+  grep -q 'di-doc-block-watch' "$DM_MACHINE" \
+    && ok "the block NAMES what authorized it" \
+    || bad "machine block authority" "the authorizing watcher is not named"
+  grep -q 'bd-xg2w' "$DM_MACHINE" \
+    && ok "the block NAMES the authorizing bead" \
+    || bad "machine block bead" "the bead is absent"
+  grep -q 'asana-field' "$DM_MACHINE" && grep -q 'Pod Weekly on card' "$DM_MACHINE" \
+    && ok "the block carries the EVIDENCE: which probe, and against what" \
+    || bad "machine block evidence" "the probe kind/target are missing"
+  grep -q 'Pod Weekly = https://docs.google.com' "$DM_MACHINE" \
+    && ok "the block carries what the probe actually READ BACK" \
+    || bad "machine block probe detail" "the probe result is missing"
+  grep -qE 'cleared at    [0-9]{4}-[0-9]{2}-[0-9]{2}T' "$DM_MACHINE" \
+    && ok "the block carries WHEN the probe cleared" \
+    || bad "machine block timestamp" "no cleared-at timestamp"
+  grep -q 'THE BOUND' "$DM_MACHINE" && grep -q "$(date -u +%G-W%V)" "$DM_MACHINE" \
+    && ok "the block names the period-bounded claim it spent" \
+    || bad "machine block bound" "the bound/period is not stated"
+  # The five shared invariants must survive into the machine block verbatim — a
+  # waiver kind that quietly relaxes them is a wider hole than the flag it replaced.
+  grep -q 'rc `2` STILL BLOCKS' "$DM_MACHINE" \
+    && ok "machine block: rc 2 (undetermined) still BLOCKS" \
+    || bad "machine block rc2" "the undetermined-still-blocks invariant is missing"
+  grep -q 'NEVER authorize this yourself' "$DM_MACHINE" \
+    && ok "machine block: the tick still may not self-authorize" \
+    || bad "machine block self-auth" "the no-self-authorize invariant is missing"
+  grep -q 'RE-DELIVERED' "$DM_MACHINE" \
+    && ok "machine block: nothing already landed may be re-delivered" \
+    || bad "machine block double-delivery" "no anti-double-delivery rule"
+else
+  bad "DISPATCH.md staged locally (resume-auto)" "no DISPATCH.md at $DM_MACHINE"
+fi
+LINE=$(tail -1 "$PROJ/refs/pulse-ledger.jsonl")
+if printf '%s' "$LINE" | jq -e '.dispatch.resume.kind == "machine" and .dispatch.resume.ref == "bd-xg2w" and .dispatch.resume.authority == "di-doc-block-watch"' >/dev/null 2>&1
+then ok "the ledger row records kind=machine, the ref and the authority"
+else bad "ledger machine waiver" "got: $(printf '%.240s' "$LINE")"; fi
+if printf '%s' "$LINE" | jq -e '.dispatch.resume.evidence.probe_kind == "asana-field" and (.dispatch.resume.evidence.cleared_at | length > 0) and (.dispatch.resume.period | length > 0)' >/dev/null 2>&1
+then ok "the ledger row carries the EVIDENCE and the period (durable, off-box)"
+else bad "ledger machine evidence" "got: $(printf '%.240s' "$LINE")"; fi
+
+# --- (e) THE BOUND HOLDS. Same bead, same period, fresh valid evidence -------
+# This is the property that stops a bad probe turning into a re-dispatch loop, so
+# it is asserted against a SECOND run that is otherwise entirely legitimate.
+EV2=$(mkev)
+LB=$(wc -l < "$PROJ/refs/pulse-ledger.jsonl")
+: > "$ROOT/ssh.log"
+OUT=$(run_live_args --resume-auto bd-xg2w --waiver-evidence "$EV2")
+check_verdict "a SECOND machine waiver for the same bead in the same period is refused" "$OUT" failed-waiver
+case "$OUT" in *"already SPENT"*) ok "the refusal says the bound is already spent" ;;
+  *) bad "bound refusal message" "no 'already SPENT' text: $(printf '%.240s' "$OUT")" ;; esac
+case "$OUT" in *"a human authorizes it with --resume"*) ok "the refusal points at the human path as the remedy" ;;
+  *) bad "bound refusal remedy" "the refusal does not name --resume as the way through" ;; esac
+LA=$(wc -l < "$PROJ/refs/pulse-ledger.jsonl")
+[ "$LB" = "$LA" ] && ok "the refused second waiver wrote no ledger row" \
+  || bad "second waiver dispatched" "the ledger grew from $LB to $LA"
+# A DIFFERENT bead in the same period is NOT bounded — the bound is per bead, and a
+# bound that stopped every bead after the first would be an outage, not a guard.
+EV3=$(mkev '.' bd-other2 di-friday)
+OUT=$(run_live_args --resume-auto bd-other2 --waiver-evidence "$EV3")
+check_verdict "a DIFFERENT bead in the same period still waives (the bound is per bead)" "$OUT" completed
+
+# --- (f) THE AUDIT TRAIL ------------------------------------------------------
+if [ -s "$WAIVER_AUDIT" ]; then
+  ok "the machine-waiver audit exists at $WAIVER_AUDIT"
+  if jq -e 'select(.decision=="granted" and .bead=="bd-xg2w" and .authority=="di-doc-block-watch" and .evidence.probe_kind=="asana-field")' "$WAIVER_AUDIT" >/dev/null 2>&1
+  then ok "the audit records the GRANT with its bead, authority and evidence"
+  else bad "audit grant line" "no granted line with the expected fields"; fi
+  if jq -e 'select(.decision=="refused")' "$WAIVER_AUDIT" >/dev/null 2>&1
+  then ok "the audit records REFUSALS too (the half that explains a deliverable nobody collected)"
+  else bad "audit refusal lines" "refusals were not audited"; fi
+  if jq -e 'select(.decision=="refused" and (.detail | test("already SPENT")))' "$WAIVER_AUDIT" >/dev/null 2>&1
+  then ok "the audit names the BOUND refusal specifically"
+  else bad "audit bound refusal" "the spent-bound refusal is not in the audit"; fi
+  if jq -e 'select(.decision=="dry-run")' "$WAIVER_AUDIT" >/dev/null 2>&1
+  then ok "the audit distinguishes a dry-run validation from a real grant"
+  else bad "audit dry-run line" "the dry run left no audit line"; fi
+  # Every line must be valid JSON — an audit that cannot be parsed is a log.
+  if jq -e . "$WAIVER_AUDIT" >/dev/null 2>&1
+  then ok "every audit line is valid JSON"
+  else bad "audit is JSONL" "at least one line does not parse"; fi
+else
+  bad "machine-waiver audit" "nothing at $WAIVER_AUDIT after grants and refusals"
+fi
+
+# --- (g) THE HUMAN PATH IS UNCHANGED, AND ITS GUARANTEE IS STILL TRUE ---------
+# This is the case bd-szc4 exists to protect. `--resume` must still produce the
+# HUMAN block, that block's sentence about timers must still be accurate, and the
+# machine heading must be nowhere near it.
+: > "$ROOT/inject.log"
+OUT=$(run_live_args --resume bd-icwd)
+check_verdict "--resume still completes after the machine path was added" "$OUT" completed
+RUNDIR=$(ls -dt "$STATE"/*/ 2>/dev/null | head -1)
+DM_HUMAN="${RUNDIR}DISPATCH.md"
+if [ -s "$DM_HUMAN" ]; then
+  grep -q 'HUMAN-AUTHORIZED RESUME' "$DM_HUMAN" \
+    && ok "--resume still renders the HUMAN-labelled block" \
+    || bad "human heading" "the human heading is gone"
+  # The mirror of the machine-side assertion, and it must hold in BOTH directions or
+  # the "grep is decisive" claim only works one way.
+  grep -q 'MACHINE-AUTHORIZED' "$DM_HUMAN" \
+    && bad "human block leaked the machine token" "a naive grep for MACHINE-AUTHORIZED returns a false positive on a human run" \
+    || ok "the human block contains the token MACHINE-AUTHORIZED nowhere at all"
+  grep -q 'no timer can produce this block' "$DM_HUMAN" \
+    && ok "the human guarantee sentence is still present, word for word" \
+    || bad "human guarantee sentence" "the load-bearing sentence was weakened or deleted"
+  grep -q 'THERE ARE EXACTLY TWO KINDS OF CAP WAIVER' "$DM_HUMAN" \
+    && ok "the human block TELLS the tick there are two authorization kinds" \
+    || bad "two-kinds notice" "the tick is not told the other kind exists"
+  grep -q 'Read the heading; never guess' "$DM_HUMAN" \
+    && ok "the human block tells the tick HOW to tell them apart (the heading)" \
+    || bad "how-to-distinguish" "the block does not say which field is authoritative"
+else
+  bad "DISPATCH.md staged locally (human, post-change)" "no DISPATCH.md at $DM_HUMAN"
+fi
+LINE=$(tail -1 "$PROJ/refs/pulse-ledger.jsonl")
+if printf '%s' "$LINE" | jq -e '.dispatch.resume.kind == "human" and .dispatch.resume.ref == "bd-icwd"' >/dev/null 2>&1
+then ok "the ledger row records kind=human for the human path"
+else bad "ledger human kind" "got: $(printf '%.240s' "$LINE")"; fi
+if printf '%s' "$LINE" | jq -e '.dispatch.resume | has("authority") or has("evidence")' >/dev/null 2>&1
+then bad "human row carries machine fields" "the human waiver row has authority/evidence: $(printf '%.240s' "$LINE")"
+else ok "a human waiver row carries NO authority/evidence fields (nothing to confuse a reader)"; fi
+
+# THE GUARANTEE, ASSERTED MECHANICALLY RATHER THAN READ. The sentence claims no
+# timer can produce the human block. Two things make that true and both are checked:
+# no shipped unit passes --resume (case (f) above), and the ONLY assignment to the
+# RESUME variable comes from the `--resume` arm — so --resume-auto cannot slide into
+# the human path however the parser is later edited.
+SRC=$(grep -vE '^\s*#' "$DISPATCH")
+N=$(printf '%s\n' "$SRC" | grep -cE '^\s*RESUME=\$2')
+if [ "$N" = 1 ]
+then ok "source: RESUME is assigned from exactly one place (the --resume arm)"
+else bad "RESUME single-sited" "found $N assignments of RESUME=\$2 — the human signal has another producer"; fi
+if printf '%s\n' "$SRC" | grep -qE '^\s*RESUME_AUTO=\$2'
+then ok "source: --resume-auto assigns its OWN variable, never RESUME"
+else bad "RESUME_AUTO separate" "the machine flag does not assign RESUME_AUTO"; fi
+# And no shipped unit may pass the machine flag either. A watcher may — it can
+# produce evidence; a systemd unit fires on a clock and has none to give.
+if ls "$HERE"/../units/*.service >/dev/null 2>&1 || ls "$HERE"/*.service >/dev/null 2>&1; then
+  if grep -rl -- '--resume-auto' "$HERE"/../units/*.service "$HERE"/*.service 2>/dev/null | grep -q .
+  then bad "no unit passes --resume-auto" "a unit fires on a clock and has no evidence to supply"
+  else ok "no shipped systemd unit passes --resume-auto"; fi
+else
+  ok "no shipped systemd unit passes --resume-auto (none in-tree to check)"
+fi
+
+# --- (h) THE CONTROL. No flag, no machine block, no machine ledger field ------
+OUT=$(run_live_args)
+check_verdict "a dispatch with NEITHER waiver flag completes as before" "$OUT" completed
+RUNDIR=$(ls -dt "$STATE"/*/ 2>/dev/null | head -1)
+if grep -qi 'MACHINE-AUTHORIZED RESUME' "${RUNDIR}DISPATCH.md" 2>/dev/null
+then bad "no machine block without the flag" "DISPATCH.md carries a machine authorization nobody asked for"
+else ok "no --resume-auto -> DISPATCH.md carries NO machine block"; fi
+LINE=$(tail -1 "$PROJ/refs/pulse-ledger.jsonl")
+if printf '%s' "$LINE" | jq -e '.dispatch | has("resume")' >/dev/null 2>&1
+then bad "no resume field without a flag" "got: $(printf '%.240s' "$LINE")"
+else ok "no waiver flag -> the ledger row carries NO resume field at all"; fi
+
+# --- (i) THE TWO BLOCKS, SIDE BY SIDE, AS A TICK ACTUALLY RECEIVES THEM -------
+# Printed rather than only asserted: the whole requirement is that a human (and a
+# tick) can tell them apart at a glance, and an assertion that greps for a string
+# does not demonstrate that. This is evidence, in the output, for a reader.
+echo "  ---- rendered heading + authorization paragraph, HUMAN block ----"
+sed -n '/^## 0\./,/^\*\*1\./p' "$DM_HUMAN" | sed '$d' | sed 's/^/  | /'
+echo "  ---- rendered heading + authorization paragraph, MACHINE block ----"
+sed -n '/^## 0\./,/^\*\*THE BOUND/p' "$DM_MACHINE" | sed '$d' | sed 's/^/  | /'
+H_HEAD=$(grep -m1 '^## 0\.' "$DM_HUMAN")
+M_HEAD=$(grep -m1 '^## 0\.' "$DM_MACHINE")
+if [ -n "$H_HEAD" ] && [ -n "$M_HEAD" ] && [ "$H_HEAD" != "$M_HEAD" ]
+then ok "the two blocks' §0 headings are DIFFERENT strings (a tick can branch on one line)"
+else bad "headings distinguishable" "human='$H_HEAD' machine='$M_HEAD'"; fi
+
+echo
 echo "== --dry-run LEAVES NO WINDOW IT CREATED — and never touches one it didn't (dotfiles-77s4) =="
 # THE INCIDENT, 2026-08-03. Zig found `di-monday` and `di-wednesday` windows on
 # marketing-vps on a FRIDAY, neither row due and neither timer fired since the
@@ -1759,7 +2083,7 @@ HELP_OUT=$("$DISPATCH" --help 2>&1)
 if [ "$(printf '%s\n' "$HELP_OUT" | grep -c .)" -ge 20 ]
 then ok "--help prints a substantial block (not a truncated preamble)"
 else bad "--help length" "only $(printf '%s\n' "$HELP_OUT" | grep -c .) non-empty lines"; fi
-for _f in --row --dir --resume --dry-run --window --host; do
+for _f in --row --dir --resume --resume-auto --waiver-evidence --dry-run --window --host; do
   if printf '%s\n' "$HELP_OUT" | grep -q -- "$_f"
   then ok "--help documents $_f"
   else bad "--help documents $_f" "flag absent from help output"; fi

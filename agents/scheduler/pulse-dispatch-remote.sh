@@ -279,6 +279,18 @@
 #                    bead id (or short reason) naming the PARKED deliverable being
 #                    collected. Requires a value; `--resume` bare, or followed by
 #                    another flag, is a usage error. See the section below.
+#   --resume-auto <bead>
+#                    MACHINE-AUTHORIZED CAP WAIVER — the SECOND, DISTINCT waiver
+#                    kind. For an automated watcher (e.g. di-doc-block-watch) that
+#                    has PROVED the blocking condition cleared. Requires
+#                    --waiver-evidence, and refuses to waive on assertion alone.
+#                    Bounded to ONE use per bead per ISO week. Mutually exclusive
+#                    with --resume. See the section below.
+#   --waiver-evidence <file>
+#                    REQUIRED with --resume-auto. A JSON file carrying the cleared
+#                    probe: authority, bead, row, status, probe.{kind,target,detail}
+#                    and clearedAt. Malformed, mismatched or stale evidence FAILS
+#                    CLOSED (verdict failed-waiver, exit 66) — nothing dispatches.
 #   --loop <id>      loop id, for bounce records (units pass --loop %p)
 #   --dry-run        run the tunnel, the full four-tier refresh, and ALL SIX
 #                    assertions for real, then stop. Dispatches nothing, writes no
@@ -327,7 +339,76 @@
 #   - it does not authorize re-delivering anything that already landed this
 #     period. The scope is the named deliverable and nothing else.
 #   - it cannot be self-authorized by a tick. It arrives only in a DISPATCH.md
-#     written by a human-run dispatcher.
+#     written by a dispatcher run with one of the two waiver flags.
+#
+# ---------------------------------------------------------------------------
+# --resume-auto: the SECOND waiver kind, and why it is not just `--resume`
+# ---------------------------------------------------------------------------
+# bd-szc4 / bd-aka9. The DI document-block watcher (di-doc-block-watch) can prove
+# that a blocked row's missing document has landed: it re-runs the same probe that
+# blocked the row, and the probe either clears or it does not. Once it clears, the
+# only thing standing between the fleet and the collected deliverable is a human
+# typing `--resume`, which costs up to one timer interval of latency.
+#
+# THE TEMPTING FIX IS THE WRONG ONE. Having the watcher pass `--resume` makes the
+# human block's guarantee sentence FALSE everywhere it is read — including by the
+# tick that is trusting it to tell a deliberate re-run from a loop re-running
+# itself. That sentence is the only mechanism the fleet has for that distinction,
+# and it would be lost silently, since the block would keep asserting a guarantee
+# it no longer had. `doc_block_runner.sh` refuses to do it for exactly this reason.
+#
+# So there are now TWO waiver flags, and they are kept apart at every layer:
+#
+#              --resume <ref>                --resume-auto <bead>
+#   authority  a human at a terminal          a named automated watcher
+#   evidence   the human's own judgment       a CLEARED PROBE, supplied as JSON and
+#                                             re-validated here before anything runs
+#   block      "HUMAN-AUTHORIZED RESUME"      "MACHINE-AUTHORIZED RESUME"
+#   bound      none needed (a human is not    ONE claim per bead per ISO week,
+#              a loop)                        enforced by an atomic mkdir
+#   units      NEVER in a systemd unit        a watcher MAY pass it; a systemd unit
+#                                             still must not (it has no evidence)
+#   ledger     .dispatch.resume.kind="human"  .dispatch.resume.kind="machine", plus
+#                                             authority + evidence + period
+#
+# The two flags are MUTUALLY EXCLUSIVE, and each renders its own block from its own
+# template. That is what lets a tick answer "was this a human or a machine?" from
+# the heading alone, with no inference: the headings are different strings, exactly
+# one appears, and neither path can produce the other's.
+#
+# THE THREE PROPERTIES THAT MAKE THE MACHINE PATH SAFE:
+#
+#   EVIDENCE, NOT ASSERTION. "The watcher said so" is not evidence. The waiver
+#   requires a JSON file naming the authority, the bead, the row, the probe (kind +
+#   target + the detail it read back) and the UTC timestamp at which it cleared —
+#   and every one of those is re-validated here, against the dispatched row and
+#   bead, before a single ssh call is made. Anything missing, mismatched, stale or
+#   unparseable is `failed-waiver` (66) and NOTHING dispatches. Fail closed.
+#
+#   FRESHNESS. Evidence is a claim about the world at a moment. A `clearedAt` older
+#   than PULSE_WAIVER_EVIDENCE_MAX_AGE (default 24h) is refused, and so is one in
+#   the future beyond a small skew allowance — a replayed or fabricated file must
+#   not be able to authorize anything.
+#
+#   A BOUND THAT CANNOT LOOP. This is the property that matters most: a bad probe
+#   that clears wrongly, on a 2-hour timer, is a re-dispatch loop burning tokens
+#   unattended. So a machine waiver is CLAIMED, atomically, at
+#   $STATE_ROOT/.waivers/<iso-week>/<bead> — `mkdir` succeeds exactly once — and a
+#   second claim for the same bead in the same week is REFUSED before dispatch.
+#   The claim is SPENT WHETHER OR NOT THE RUN SUCCEEDS. Releasing it on failure is
+#   precisely the door the loop walks through (fail, release, re-fire, fail...), so
+#   the failure path deliberately does not release. A genuinely needed retry after a
+#   spent claim is a human decision, and a human has `--resume`.
+#
+#   There is NO auto-prune of that store, on purpose. It grows by one directory per
+#   ISO week that saw a machine waiver — a rounding error on disk — and any code
+#   that deletes claims is code that can delete the bound. If it ever genuinely
+#   needs tidying, that is a human with `rm`, looking at what they are removing.
+#
+#   AUDIT. Every machine waiver — granted OR refused — appends one JSON line to
+#   $STATE_ROOT/machine-waiver-audit.jsonl saying what was waived, for which row and
+#   bead, on what evidence, when, and by whom. A human reading that file after the
+#   fact can reconstruct the decision without the ledger and without the box.
 #
 # ---------------------------------------------------------------------------
 # OUTCOME CONTRACT — PULSE_DISPATCH_RESULT (same discipline as pulse-inject.sh)
@@ -339,6 +420,10 @@
 #   PULSE_DISPATCH_RESULT=dry-run-ok       all six assertions passed; nothing dispatched
 #   PULSE_DISPATCH_RESULT=failed-usage     bad/missing args (64)
 #   PULSE_DISPATCH_RESULT=failed-row       --row is not in the project's pulse.md (65)
+#   PULSE_DISPATCH_RESULT=failed-waiver    --resume-auto refused: the evidence is
+#                                          missing/malformed/mismatched/stale, or the
+#                                          one-per-bead-per-week bound is already
+#                                          spent. Nothing was dispatched (66)
 #   PULSE_DISPATCH_RESULT=failed-tunnel    step 1: no usable path to the fleet proxy —
 #                                          the -R bind was refused AND the box has no
 #                                          healthy forward of its own AND reclaiming the
@@ -415,6 +500,26 @@ LOOP=""
 # path — no unit passes --resume — so a run without it is byte-for-byte the run it
 # was before this flag existed.
 RESUME=""
+# The MACHINE-authorized cap waiver (bd-szc4). A separate variable rather than a
+# mode flag on RESUME, deliberately: everything downstream — the DISPATCH.md
+# template, the ledger field, the dry-run banner — has to be able to tell the two
+# apart without consulting a second variable, and a shared slot is how they would
+# eventually get confused. Empty means "no machine waiver", always.
+RESUME_AUTO=""
+WAIVER_EVIDENCE=""
+# Filled in by validate_machine_waiver(); read by the DISPATCH.md template, the
+# ledger row and the audit line. Declared here so `set -u` cannot bite a path that
+# reads them without a waiver in play.
+W_AUTHORITY=""; W_PROBE_KIND=""; W_PROBE_TARGET=""; W_PROBE_DETAIL=""
+W_CLEARED_AT=""; W_PERIOD=""; W_EVIDENCE_SHA=""; W_AGE=""; W_CLAIM_DIR=""
+# How old a cleared-probe timestamp may be and still authorize a run. Evidence is a
+# claim about the world at a moment; a week-old file describes a world that has
+# moved on, and replaying one must not be a route to a waiver. 24h is comfortably
+# more than the watcher's 2h cadence and comfortably less than a row's weekly period.
+WAIVER_MAX_AGE="${PULSE_WAIVER_EVIDENCE_MAX_AGE:-86400}"
+# Clock skew allowance for a timestamp in the FUTURE. Small on purpose: a little
+# skew between two machines is normal, five minutes of it is not a fabrication.
+WAIVER_MAX_SKEW="${PULSE_WAIVER_EVIDENCE_MAX_SKEW:-300}"
 
 # --- outcome contract -------------------------------------------------------
 # Defined before argument parsing on purpose: `unknown arg` is the very first
@@ -471,8 +576,16 @@ fail() {
   # Guarded against recursion: surface_locally warns, it never calls fail. And
   # guarded against double-ringing: a path that already surfaced (the timeout
   # path does, before failing) sets SURFACED and is not surfaced twice.
+  # failed-waiver joins the two silent verdicts (bd-szc4), and the reason is the
+  # bound itself. A refused machine waiver DISPATCHED NOTHING — it is the anti-loop
+  # guard doing its job — and the caller is a watcher on a 2-hour timer. Ringing the
+  # bell on it would convert "the guard stopped a loop" into "the guard spams the
+  # loop's frequency at Zig", which is the same unattended-cost failure one layer up.
+  # The refusal is not lost: it is loud on stderr, it carries exit 66, and it appends
+  # a line to the machine-waiver audit that a human can read after the fact. The
+  # watcher's own runner is the right place to decide whether THAT is worth a bell.
   case "$verdict" in
-    failed-usage|failed-row) : ;;
+    failed-usage|failed-row|failed-waiver) : ;;
     *)
       if [ "${DRY_RUN:-0}" != 1 ] && [ "${SURFACED:-0}" != 1 ] \
          && [ -n "${LOCAL_STATE:-}" ] && declare -F surface_locally >/dev/null 2>&1; then
@@ -515,6 +628,22 @@ while [ $# -gt 0 ]; do
                emit_result failed-usage; exit 64 ;;
       esac
       RESUME=$2; shift 2 ;;
+    # The machine path. Same value discipline as --resume and for the same reason,
+    # plus one more: --resume-auto's value is not a free-text "short reason", it is
+    # the AUTHORIZING BEAD, because the bound (one claim per bead per week) needs a
+    # stable key and a prose string is not one.
+    --resume-auto)
+      case "${2:-}" in
+        ""|-*) echo "pulse-dispatch: --resume-auto requires a value — the bead id whose cleared probe authorizes this run, e.g. --resume-auto bd-xg2w" >&2
+               emit_result failed-usage; exit 64 ;;
+      esac
+      RESUME_AUTO=$2; shift 2 ;;
+    --waiver-evidence)
+      case "${2:-}" in
+        ""|-*) echo "pulse-dispatch: --waiver-evidence requires a value — the path to the JSON evidence file for --resume-auto" >&2
+               emit_result failed-usage; exit 64 ;;
+      esac
+      WAIVER_EVIDENCE=$2; shift 2 ;;
     --dry-run)         DRY_RUN=1; shift ;;
     # ANCHORED on the `# Usage` heading, not a line range. The previous form was
     # `sed -n '2,150p'`, which printed the architecture preamble and stopped ~100
@@ -642,6 +771,21 @@ DIR=$(cd "$DIR" && pwd -P)
 
 command -v jq >/dev/null 2>&1 || { echo "pulse-dispatch: jq required" >&2; emit_result failed-usage; exit 64; }
 
+# THE TWO WAIVER KINDS NEVER MIX (bd-szc4). Accepting both would produce a run
+# whose authorization kind is a matter of opinion — exactly the ambiguity the
+# second flag exists to remove — and whichever block won, the other's guarantee
+# sentence would be false for that run. So: usage error, before anything else.
+if [ -n "$RESUME" ] && [ -n "$RESUME_AUTO" ]; then
+  echo "pulse-dispatch: --resume and --resume-auto are mutually exclusive. A run is authorized by a human OR by a machine, never both — the tick has to be able to tell which from the block it receives. Pick one." >&2
+  emit_result failed-usage; exit 64
+fi
+# --waiver-evidence is meaningless without the flag it feeds, and silently ignoring
+# it is how a caller comes to believe it supplied evidence that was never read.
+if [ -n "$WAIVER_EVIDENCE" ] && [ -z "$RESUME_AUTO" ]; then
+  echo "pulse-dispatch: --waiver-evidence given without --resume-auto. Evidence authorizes nothing on its own; it is refused rather than ignored." >&2
+  emit_result failed-usage; exit 64
+fi
+
 TABLE="$DIR/refs/pulse.md"
 [ -f "$TABLE" ] || fail failed-row 65 "no routing table at $TABLE — this project is not pulse-enabled. Run /pulse setup first."
 
@@ -662,6 +806,166 @@ CTL="$LOCAL_STATE/ssh-ctl.sock"
 mkdir -p "$LOCAL_STATE" || fail failed 1 "cannot create state dir $LOCAL_STATE"
 
 note "=== dispatch run=$RUN_ID row=$ROW dir=$DIR remote=$HOST:$REMOTE_DIR dry_run=$DRY_RUN"
+
+# ---------------------------------------------------------------------------
+# Step 0 — THE MACHINE-AUTHORIZED WAIVER: validate the evidence, then claim the
+# bound. Runs BEFORE the tunnel on purpose: a refused waiver must cost zero ssh,
+# zero token, and zero mutation on the box. Fail closed at every branch.
+# ---------------------------------------------------------------------------
+# The audit trail. A FILE, not a directory, and deliberately so: the test harness
+# and one live case both resolve "the newest run dir" with `ls -dt "$STATE"/*/`,
+# whose trailing slash matches directories only — a new directory here would
+# quietly become "the newest run" and make an unrelated assertion read the wrong
+# DISPATCH.md. Same reason the claim store below is DOT-prefixed.
+WAIVER_AUDIT="$STATE_ROOT/machine-waiver-audit.jsonl"
+WAIVER_STORE="$STATE_ROOT/.waivers"
+
+# waiver_audit <decision> <detail>
+# One line per machine-waiver DECISION — granted and refused alike. Refusals are
+# the more valuable half: "the bound stopped a second fire" is the record that
+# explains a deliverable that never got collected, and without it that reads as the
+# dispatcher having done nothing at all.
+waiver_audit() {
+  local decision=$1 detail=$2 line
+  line=$(jq -cn \
+    --arg ts "$(date -u +%FT%TZ)" --arg run "$RUN_ID" --arg row "$ROW" \
+    --arg bead "$RESUME_AUTO" --arg decision "$decision" --arg detail "$detail" \
+    --arg authority "$W_AUTHORITY" --arg period "$W_PERIOD" \
+    --arg evfile "$WAIVER_EVIDENCE" --arg evsha "$W_EVIDENCE_SHA" \
+    --arg pkind "$W_PROBE_KIND" --arg ptarget "$W_PROBE_TARGET" \
+    --arg pdetail "$W_PROBE_DETAIL" --arg cleared "$W_CLEARED_AT" \
+    --arg dry "$DRY_RUN" \
+    '{ts:$ts, kind:"machine", decision:$decision, run_id:$run, row:$row, bead:$bead,
+      dry_run:($dry=="1"), authority:$authority, period:$period, detail:$detail,
+      evidence:{file:$evfile, sha256:$evsha, probe_kind:$pkind, probe_target:$ptarget,
+                probe_detail:$pdetail, cleared_at:$cleared}}' 2>/dev/null) || line=""
+  if [ -n "$line" ]; then
+    mkdir -p "$(dirname "$WAIVER_AUDIT")" 2>/dev/null
+    printf '%s\n' "$line" >> "$WAIVER_AUDIT" \
+      || warn "could not append to the machine-waiver audit at $WAIVER_AUDIT"
+  else
+    warn "could not BUILD the machine-waiver audit line (jq failed) — the decision is in $LOG only"
+  fi
+}
+
+# wfail <detail...> — refuse the waiver, audit the refusal, exit 66.
+# Every refusal path goes through here so none can forget the audit line.
+wfail() { waiver_audit refused "$*"; fail failed-waiver 66 "MACHINE WAIVER REFUSED — $*
+    Nothing was dispatched. Evidence file: ${WAIVER_EVIDENCE:-<none given>}
+    Audit: $WAIVER_AUDIT"; }
+
+if [ -n "$RESUME_AUTO" ]; then
+  # NOT failed-usage. A missing evidence file is not a typo, it is the "the watcher
+  # said so" case — an attempt to waive the cap on assertion alone — and it must be
+  # reported as the thing it is, with the same verdict as evidence that is present
+  # but worthless. A caller that cannot tell those two apart will "fix" the wrong one.
+  [ -n "$WAIVER_EVIDENCE" ] || wfail "--resume-auto $RESUME_AUTO was given with no --waiver-evidence. A machine may not waive the cap on assertion alone; it must supply the cleared probe."
+  [ -f "$WAIVER_EVIDENCE" ] || wfail "the evidence file does not exist: $WAIVER_EVIDENCE"
+  [ -s "$WAIVER_EVIDENCE" ] || wfail "the evidence file is empty: $WAIVER_EVIDENCE"
+  jq -e 'type == "object"' "$WAIVER_EVIDENCE" >/dev/null 2>&1 \
+    || wfail "the evidence file is not a JSON object (unparseable or the wrong shape): $WAIVER_EVIDENCE"
+
+  # Read every field ONCE, then assert. Reading through jq -r means a missing key
+  # arrives as the empty string, which every check below treats as absent — there is
+  # no path where a null silently satisfies an assertion.
+  W_AUTHORITY=$(jq -r '.authority   // "" | tostring' "$WAIVER_EVIDENCE")
+  W_PROBE_KIND=$(jq -r '.probe.kind   // "" | tostring' "$WAIVER_EVIDENCE")
+  W_PROBE_TARGET=$(jq -r '.probe.target // "" | tostring' "$WAIVER_EVIDENCE")
+  W_PROBE_DETAIL=$(jq -r '.probe.detail // "" | tostring' "$WAIVER_EVIDENCE")
+  W_CLEARED_AT=$(jq -r '.clearedAt   // "" | tostring' "$WAIVER_EVIDENCE")
+  W_EV_VERSION=$(jq -r '.version     // "" | tostring' "$WAIVER_EVIDENCE")
+  W_EV_BEAD=$(jq -r '.bead           // "" | tostring' "$WAIVER_EVIDENCE")
+  W_EV_ROW=$(jq -r '.row             // "" | tostring' "$WAIVER_EVIDENCE")
+  W_EV_STATUS=$(jq -r '.status       // "" | tostring' "$WAIVER_EVIDENCE")
+  W_EVIDENCE_SHA=$(sha256sum "$WAIVER_EVIDENCE" 2>/dev/null | cut -c1-16)
+
+  # A version field is cheap and it is what lets a future schema change be a REFUSAL
+  # rather than a silent misread of fields that moved.
+  [ "$W_EV_VERSION" = "1" ] || wfail "evidence .version is '${W_EV_VERSION:-<absent>}', expected 1. A schema this dispatcher does not understand cannot authorize anything."
+  # WHO. An anonymous machine waiver is indistinguishable from a forged one in the
+  # audit six weeks later, which is the moment the audit exists for.
+  [ -n "$W_AUTHORITY" ] || wfail "evidence carries no .authority — a machine waiver must name what authorized it."
+  # WHICH BEAD, and it must be THE bead. Evidence for bd-A cannot waive bd-B: the
+  # bound keys on the bead, so a mismatch would spend one bead's claim on another's
+  # work and leave both wrong.
+  [ "$W_EV_BEAD" = "$RESUME_AUTO" ] \
+    || wfail "evidence .bead is '${W_EV_BEAD:-<absent>}' but --resume-auto named '$RESUME_AUTO'. Evidence for one bead may not authorize another."
+  # WHICH ROW. Same argument one axis over: a cleared Pod Weekly authorizes the row
+  # that was blocked on it, not whichever row the caller typed.
+  [ "$W_EV_ROW" = "$ROW" ] \
+    || wfail "evidence .row is '${W_EV_ROW:-<absent>}' but this dispatch is for row '$ROW'. Evidence for one row may not authorize another."
+  # CLEARED, not merely observed. `still blocked` / `manual` / anything else is a
+  # probe that ran and did not clear, and it authorizes nothing.
+  [ "$W_EV_STATUS" = "cleared" ] \
+    || wfail "evidence .status is '${W_EV_STATUS:-<absent>}', not 'cleared'. Only a probe that CLEARED authorizes a waiver."
+  # THE PROBE ITSELF. "cleared: true" with no probe behind it is assertion wearing
+  # evidence's clothes — the exact thing this flag refuses. All three parts are
+  # required: what kind of probe, what it looked at, and what it read back.
+  [ -n "$W_PROBE_KIND" ]   || wfail "evidence carries no .probe.kind — 'it cleared' without naming the probe is an assertion, not evidence."
+  [ -n "$W_PROBE_TARGET" ] || wfail "evidence carries no .probe.target — a probe with no named target cannot be re-checked by a human."
+  [ -n "$W_PROBE_DETAIL" ] || wfail "evidence carries no .probe.detail — the value the probe actually read back IS the evidence."
+
+  # WHEN, and how long ago. Evidence is a claim about the world at a moment.
+  # The SHAPE is asserted before the parse, and that is not belt-and-braces: GNU
+  # `date -d` happily accepts relative expressions, so a bare `"now"` would parse,
+  # land at age 0, and sail through both bounds below. A timestamp is a fact; "now"
+  # is a function call, and a function call is not evidence.
+  case "$W_CLEARED_AT" in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]*) : ;;
+    *) wfail "evidence .clearedAt '${W_CLEARED_AT:-<absent>}' is not an absolute ISO-8601 timestamp (want YYYY-MM-DDTHH:MM:SSZ). A relative expression is not evidence." ;;
+  esac
+  # allow-suppress: an exit-code-only parse probe; the failure is reported below.
+  W_CLEARED_EPOCH=$(date -u -d "$W_CLEARED_AT" +%s 2>/dev/null) \
+    || wfail "evidence .clearedAt '${W_CLEARED_AT:-<absent>}' is not a parseable timestamp."
+  [ -n "$W_CLEARED_EPOCH" ] \
+    || wfail "evidence .clearedAt '${W_CLEARED_AT:-<absent>}' is not a parseable timestamp."
+  W_NOW=$(date -u +%s)
+  W_AGE=$(( W_NOW - W_CLEARED_EPOCH ))
+  if [ "$W_AGE" -lt "-$WAIVER_MAX_SKEW" ]; then
+    wfail "evidence .clearedAt '$W_CLEARED_AT' is $(( -W_AGE ))s in the FUTURE (skew allowance ${WAIVER_MAX_SKEW}s). A probe cannot have cleared at a time that has not happened."
+  fi
+  [ "$W_AGE" -lt 0 ] && W_AGE=0
+  if [ "$W_AGE" -gt "$WAIVER_MAX_AGE" ]; then
+    wfail "evidence .clearedAt '$W_CLEARED_AT' is ${W_AGE}s old (limit ${WAIVER_MAX_AGE}s). Stale evidence describes a world that has moved; re-run the probe rather than replaying its answer."
+  fi
+
+  # THE BOUND. One claim per bead per ISO week — at least as tight as the 1/week cap
+  # it is waiving, and keyed on the bead because the bead is what a machine waiver
+  # authorizes. `mkdir` is the whole mechanism: it is atomic on POSIX and it
+  # SUCCEEDS EXACTLY ONCE, so two watchers racing produce one grant and one refusal
+  # with no lock file to leak and no test-then-act window to lose.
+  W_PERIOD=$(date -u +%G-W%V)
+  W_CLAIM_DIR="$WAIVER_STORE/$W_PERIOD/$RESUME_AUTO"
+  mkdir -p "$WAIVER_STORE/$W_PERIOD" 2>/dev/null \
+    || wfail "cannot create the waiver claim store at $WAIVER_STORE/$W_PERIOD — refusing to waive without a place to record the bound."
+  if [ "$DRY_RUN" = 1 ]; then
+    # A DRY RUN VALIDATES BUT DOES NOT CLAIM. A dry run dispatches nothing, so it
+    # cannot be the loop the bound exists to stop — and burning the claim here would
+    # mean the only way to INSPECT a pending waiver is to destroy it. It does report
+    # whether the claim would be refused, which is the diagnostic a human wants.
+    if [ -d "$W_CLAIM_DIR" ]; then
+      W_CLAIM_STATE="ALREADY SPENT — a real run would be REFUSED"
+    else
+      W_CLAIM_STATE="available — a real run would claim it"
+    fi
+    waiver_audit dry-run "validated only; no claim taken ($W_CLAIM_STATE)"
+  elif mkdir "$W_CLAIM_DIR" 2>/dev/null; then
+    # SPENT ON CLAIM, NOT ON SUCCESS. Releasing the claim when the run fails is
+    # precisely the door a runaway walks through — fail, release, re-fire, fail — and
+    # it is unattended by construction, so nobody is watching it spin. A retry after a
+    # spent claim is a human decision, and a human has `--resume`.
+    printf '%s\n' "$(jq -cn --arg run "$RUN_ID" --arg row "$ROW" --arg ts "$(date -u +%FT%TZ)" \
+      --arg auth "$W_AUTHORITY" --arg ev "$WAIVER_EVIDENCE" --arg sha "$W_EVIDENCE_SHA" \
+      '{claimed_at:$ts, run_id:$run, row:$row, authority:$auth, evidence_file:$ev, evidence_sha256:$sha}')" \
+      > "$W_CLAIM_DIR/claim.json" 2>/dev/null || warn "claimed the waiver but could not write $W_CLAIM_DIR/claim.json"
+    waiver_audit granted "cap gate waived; claim taken for period $W_PERIOD"
+    say "waiver: MACHINE-AUTHORIZED cap waiver GRANTED — bead=$RESUME_AUTO authority=$W_AUTHORITY probe=$W_PROBE_KIND cleared=${W_CLEARED_AT} (age ${W_AGE}s)"
+    say "waiver: bound CLAIMED for period $W_PERIOD at $W_CLAIM_DIR — a second machine waiver for this bead this period will be refused"
+    say "waiver: audit line appended to $WAIVER_AUDIT"
+  else
+    wfail "the one-per-bead-per-period bound is already SPENT: bead '$RESUME_AUTO' was machine-waived in period $W_PERIOD (claim: $W_CLAIM_DIR/claim.json). A machine may waive a given bead once per period and no more — that bound is what stops a bad probe becoming a re-dispatch loop. If this genuinely needs another run, a human authorizes it with --resume."
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Teardown. Registered BEFORE the tunnel goes up so a failure between "ssh
@@ -1633,7 +1937,22 @@ if [ "$DRY_RUN" = 1 ]; then
     say "  RESUME:        CAP GATE WAIVED for this run only — human-authorized, ref=$RESUME"
     say "                 scope: ONLY the parked deliverable named by '$RESUME'; anything already"
     say "                 landed this period is NOT re-delivered. rc 2 (undetermined) still BLOCKS."
-    say "                 would record on the ledger row: .dispatch.resume.ref=$RESUME"
+    say "                 would record on the ledger row: .dispatch.resume.ref=$RESUME kind=human"
+  fi
+  # The machine path gets its own banner rather than sharing the one above, for the
+  # same reason it gets its own DISPATCH.md template: a human reading a dry run must
+  # not have to work out which kind of waiver is in play.
+  if [ -n "$RESUME_AUTO" ]; then
+    say "  RESUME-AUTO:   CAP GATE WAIVED for this run only — MACHINE-authorized (NO HUMAN), bead=$RESUME_AUTO"
+    say "                 authority:  $W_AUTHORITY"
+    say "                 evidence:   $W_PROBE_KIND on '$W_PROBE_TARGET' -> $W_PROBE_DETAIL"
+    say "                 cleared at: $W_CLEARED_AT (${W_AGE}s ago; limit ${WAIVER_MAX_AGE}s)"
+    say "                 bound:      period $W_PERIOD, claim $W_CLAIM_DIR"
+    say "                 claim state: ${W_CLAIM_STATE:-unknown} — A DRY RUN DOES NOT CLAIM"
+    say "                 scope: ONLY the parked deliverable named by '$RESUME_AUTO'; anything already"
+    say "                 landed this period is NOT re-delivered. rc 2 (undetermined) still BLOCKS."
+    say "                 would record on the ledger row: .dispatch.resume.ref=$RESUME_AUTO kind=machine"
+    say "                 audit: $WAIVER_AUDIT"
   fi
   # The checkout state is printed on the dry run for the same reason it is put in
   # the ledger row: since dotfiles-f4ub a dirty or non-advancing tree PROCEEDS, so
@@ -1763,7 +2082,52 @@ rsh "tmux setenv -t '$REMOTE_SESSION' PULSE_DISPATCH_REMOTE 1" >/dev/null 2>>"$L
 # ---------------------------------------------------------------------------
 # The cap waiver, as a block the tick cannot miss and cannot mistake for advice.
 # EMPTY on every automatic path, which is the point: a tick's ONLY route to a
-# waiver is a DISPATCH.md a human caused to be written. It can never mint one.
+# waiver is a DISPATCH.md the dispatcher was asked, by a human or by an evidenced
+# watcher, to write. It can never mint one.
+#
+# TWO KINDS, TWO TEMPLATES, ONE SHARED RULE SET (bd-szc4). The five invariants are
+# identical for both kinds and are emitted from ONE function, so they cannot drift
+# apart; what differs is the HEADING and the AUTHORIZATION PARAGRAPH above them.
+# That split is deliberate: the heading is the thing a tick reads to answer "human
+# or machine?", and it must be a different string in the two cases, while the rules
+# a waiver imposes must be the same string in both.
+#
+# waiver_rules <ref> — the five invariants, verbatim in both blocks.
+waiver_rules() {
+  local ref=$1
+  cat <<EOF
+**1. Skip the cap gate for this run.** Row \`$ROW\` has almost certainly already
+logged an \`outcome:"done"\` in the current period — that is exactly why you are
+being run again. Do NOT return \`quiet\` on cap grounds. The cap exists to stop a
+runaway loop, and the authorization named in the heading above is the dispatcher's
+statement that this run is not one.
+
+**2. rc \`2\` STILL BLOCKS.** If the cap helper (or your own count) cannot
+DETERMINE the state — a missing or unreadable ledger — that is still
+\`outcome:"blocked"\`, exactly as the /pulse skill says. This waiver waives *at
+cap*. It never waives *could not tell*.
+
+**3. Your scope is ONLY the parked deliverable named by \`$ref\`.** Read that
+bead (\`br show $ref\`) if it is one. Do that unit of work and nothing else.
+This is not a licence to re-run the row.
+
+**4. NOTHING THAT ALREADY LANDED THIS PERIOD MAY BE RE-DELIVERED.** The earlier
+tick's output is real and published. Do not re-post an Asana comment, do not
+re-post to Slack, do not re-create a subtask, do not write a second doc tab, do
+not re-raise a \`human:\` bead that already exists. If an existing artifact must
+change, **update it in place**. Double-delivery is the failure this waiver is
+narrow in order to avoid.
+
+**5. You may NEVER authorize this yourself.** A tick that finds itself at cap and
+decides to proceed anyway is the runaway loop. There are exactly two sanctioned
+paths and you are on neither of them: a human re-running the dispatcher with
+\`--resume\`, or an authorized watcher passing \`--resume-auto\` together with the
+cleared-probe evidence the dispatcher then re-validates. Both arrive as a block
+like this one, written by the dispatcher before you were injected. You cannot mint
+either.
+EOF
+}
+
 RESUME_BLOCK=""
 if [ -n "$RESUME" ]; then
   RESUME_BLOCK=$(cat <<EOF
@@ -1775,34 +2139,81 @@ systemd unit passes \`--resume\` and no timer can produce this block**, so its
 presence here is proof of a deliberate human authorization — and its absence is
 proof that there is none.
 
-**1. Skip the cap gate for this run.** Row \`$ROW\` has almost certainly already
-logged an \`outcome:"done"\` in the current period — that is exactly why you are
-being run again. Do NOT return \`quiet\` on cap grounds. The cap exists to stop a
-runaway loop; a human at a keyboard is not one.
+**THERE ARE EXACTLY TWO KINDS OF CAP WAIVER, AND THEY NEVER SHARE A BLOCK.** This
+one is the HUMAN kind, and this heading is its only form. The other kind is
+machine-authorized: it is produced by \`--resume-auto\` rather than \`--resume\`,
+it renders under its own \`## 0.\` heading, and it must name the watcher that
+authorized it, the probe that cleared, and the period-bounded claim it spent. The
+two flags are mutually exclusive and each block is written from its own template,
+so **exactly one §0 heading can appear and it answers "was this a human or a
+machine?" with no inference required. Read the heading; never guess from the rules
+below**, which are deliberately identical in both kinds.
 
-**2. rc \`2\` STILL BLOCKS.** If the cap helper (or your own count) cannot
-DETERMINE the state — a missing or unreadable ledger — that is still
-\`outcome:"blocked"\`, exactly as the /pulse skill says. This waiver waives *at
-cap*. It never waives *could not tell*.
+Mechanically: the token \`HUMAN-AUTHORIZED\` appears in this contract if and only
+if a person authorized this run, and the token for the machine kind appears if and
+only if a watcher did. Neither token is ever written into the other's block — not
+even to explain it — so a plain substring search for either one is decisive.
 
-**3. Your scope is ONLY the parked deliverable named by \`$RESUME\`.** Read that
-bead (\`br show $RESUME\`) if it is one. Do that unit of work and nothing else.
-This is not a licence to re-run the row.
-
-**4. NOTHING THAT ALREADY LANDED THIS PERIOD MAY BE RE-DELIVERED.** The earlier
-tick's output is real and published. Do not re-post an Asana comment, do not
-re-post to Slack, do not re-create a subtask, do not write a second doc tab, do
-not re-raise a \`human:\` bead that already exists. If an existing artifact must
-change, **update it in place**. Double-delivery is the failure this waiver is
-narrow in order to avoid.
-
-**5. You may NEVER authorize this yourself.** A tick that finds itself at cap and
-decides to proceed anyway is the runaway loop. The only sanctioned path is a
-human re-running the dispatcher with \`--resume\`.
+$(waiver_rules "$RESUME")
 
 Say in your \`note\` that this run was a human-authorized resume of \`$RESUME\`,
 and name what it collected. The dispatcher records the waiver on the ledger row
-as \`.dispatch.resume.ref\`.
+as \`.dispatch.resume.ref\`, with \`.dispatch.resume.kind = "human"\`.
+EOF
+)
+elif [ -n "$RESUME_AUTO" ]; then
+  # THE MACHINE BLOCK. Everything a tick needs to (a) know it is not holding a human
+  # authorization and (b) check the machine's work: who authorized, what probe, what
+  # it read back, when, and what bound was spent doing it.
+  RESUME_BLOCK=$(cat <<EOF
+
+## 0. ⚠️ CAP GATE WAIVED FOR THIS RUN — MACHINE-AUTHORIZED RESUME: \`$RESUME_AUTO\`
+
+**NO HUMAN AUTHORIZED THIS RUN.** It was produced by
+\`pulse-dispatch-remote.sh --resume-auto $RESUME_AUTO --waiver-evidence <file>\`,
+which is the flag an automated watcher may pass. \`--resume\` was NOT given, and
+this block can never carry the human kind's heading — that heading still means,
+and only means, that a person typed the command. **The two flags are mutually
+exclusive and each renders its own template, so the §0 heading above is a complete
+and unambiguous answer to "was this a human or a machine?".** Do not infer the
+authorization kind from anything else in this file.
+
+Mechanically: the human kind's token is never written into this block, not even to
+explain it, and this block's token is never written into the human one. A plain
+substring search for either is therefore decisive — which is the point, because a
+naive grep is exactly what a tick under load will actually do.
+
+**WHO AUTHORIZED IT:** \`$W_AUTHORITY\` (a named, automated watcher — not a person)
+**WHAT IT AUTHORIZES:** the ONE parked deliverable named by bead \`$RESUME_AUTO\`
+
+**THE EVIDENCE.** A machine may not waive this cap on assertion alone. It supplied
+a cleared probe, and the dispatcher RE-VALIDATED every field below against this
+dispatch before writing this block — bead, row, status, probe completeness and
+freshness. A mismatch on any one of them refuses the run outright:
+
+    probe kind    $W_PROBE_KIND
+    probe target  $W_PROBE_TARGET
+    probe result  $W_PROBE_DETAIL
+    cleared at    $W_CLEARED_AT   (${W_AGE}s before this dispatch)
+    evidence file $WAIVER_EVIDENCE  (sha256:$W_EVIDENCE_SHA…)
+
+**THE BOUND.** This waiver CLAIMED \`$RESUME_AUTO\` for period \`$W_PERIOD\`, and
+the claim is spent whether or not this run succeeds. A second machine waiver for
+this bead in this period is refused by the dispatcher before anything is
+dispatched, so a probe that clears wrongly cannot become a re-dispatch loop.
+Audit: \`$WAIVER_AUDIT\`.
+
+**IF THE EVIDENCE DOES NOT MATCH WHAT YOU FIND**, that is a real finding and it
+outranks this block: return \`outcome:"blocked"\` and say so in your \`note\`.
+A machine authorized this run; a machine can be wrong, and you are the last check.
+
+$(waiver_rules "$RESUME_AUTO")
+
+Say in your \`note\` that this run was a MACHINE-authorized resume of
+\`$RESUME_AUTO\` authorized by \`$W_AUTHORITY\`, and name what it collected. The
+dispatcher records the waiver on the ledger row as \`.dispatch.resume.ref\`, with
+\`.dispatch.resume.kind = "machine"\` plus the authority, the evidence and the
+period-bounded claim.
 EOF
 )
 fi
@@ -2144,11 +2555,28 @@ LINE=$(jq -cn \
   --arg run  "$RUN_ID" \
   --arg host "$HOST" \
   --arg resume "$RESUME" \
+  --arg resume_auto "$RESUME_AUTO" \
+  --arg w_authority "$W_AUTHORITY" --arg w_period "$W_PERIOD" \
+  --arg w_pkind "$W_PROBE_KIND" --arg w_ptarget "$W_PROBE_TARGET" \
+  --arg w_pdetail "$W_PROBE_DETAIL" --arg w_cleared "$W_CLEARED_AT" \
+  --arg w_file "$WAIVER_EVIDENCE" --arg w_sha "$W_EVIDENCE_SHA" \
   --argjson proof "$(jq -c '.proof // null' <<<"$PAYLOAD")" \
   --argjson checkout "${CHECKOUT_JSON:-null}" \
   '{ts:$ts, row:$row, outcome:$out, note:$note,
     dispatch:({remote:true, host:$host, run_id:$run, checkout:$checkout}
-              + (if $resume == "" then {} else {resume:{ref:$resume}} end))}
+              # .resume.ref keeps its meaning for both kinds so existing readers do
+              # not break; .kind is what a reader six weeks later needs in order to
+              # tell an authorized second fire apart from a machine one — and the
+              # machine case carries the evidence that justified it, in the row
+              # itself, because the audit file is machine-local and the ledger is not.
+              + (if $resume != "" then {resume:{ref:$resume, kind:"human"}}
+                 elif $resume_auto != "" then
+                   {resume:{ref:$resume_auto, kind:"machine", authority:$w_authority,
+                            period:$w_period,
+                            evidence:{probe_kind:$w_pkind, probe_target:$w_ptarget,
+                                      probe_detail:$w_pdetail, cleared_at:$w_cleared,
+                                      file:$w_file, sha256:$w_sha}}}
+                 else {} end))}
    + (if $proof == null then {} else {proof:$proof} end)') \
   || fail failed-ledger 78 "could not build the ledger line from the payload ($LOCAL_STATE/result.json)"
 
@@ -2158,7 +2586,7 @@ BACKUP="$LOCAL_STATE/pulse-ledger.jsonl.before"
 [ -f "$LEDGER" ] && cp -p "$LEDGER" "$BACKUP"
 mkdir -p "$(dirname "$LEDGER")"
 printf '%s\n' "$LINE" >> "$LEDGER"
-say "ledger: appended row=$P_ROW outcome=$P_OUT checkout_clean=${CHECKOUT_CLEAN:-unknown} auto_ff=$(jq -r '(.auto_ff // []) | length' <<<"${CHECKOUT_JSON:-{\}}")${RESUME:+ resume=$RESUME (cap gate waived, human-authorized)} to $LEDGER"
+say "ledger: appended row=$P_ROW outcome=$P_OUT checkout_clean=${CHECKOUT_CLEAN:-unknown} auto_ff=$(jq -r '(.auto_ff // []) | length' <<<"${CHECKOUT_JSON:-{\}}")${RESUME:+ resume=$RESUME (cap gate waived, human-authorized)}${RESUME_AUTO:+ resume-auto=$RESUME_AUTO (cap gate waived, MACHINE-authorized by $W_AUTHORITY, period $W_PERIOD)} to $LEDGER"
 
 if [ -x "$LEDGER_LINT" ] || [ -f "$LEDGER_LINT" ]; then
   if ! python3 "$LEDGER_LINT" --project "$DIR"; then
