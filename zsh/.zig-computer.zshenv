@@ -29,3 +29,28 @@
 # `exec zsh` INHERITS it. Per-pane recovery is an explicit `unset
 # ANTHROPIC_BASE_URL`, then relaunch.
 export ANTHROPIC_BASE_URL="http://100.72.47.4:17017/claude"
+
+# --- lb-claude — a Claude Code session on the LinearB WORK seat ------------------
+# Zig, 2026-08-05. The seven migrated pulse rows get the work seat via
+# pulse-inject's --config-dir; this is the on-demand equivalent for any window.
+#
+# Three implementations are wrong here, each silently:
+#   * a SCRIPT in ~/bin — `claude` is a shell FUNCTION (claude-identity-wrapper.sh),
+#     and functions are not inherited by scripts. A script would run the raw binary
+#     and lose the gateway re-derivation, i.e. dotfiles-t6to with no error.
+#   * `env CLAUDE_CONFIG_DIR=… claude` / a bare `VAR=val claude` prefix — both
+#     bypass or fail to export into the function (measured 2026-08-05, zsh 5.9).
+#   * a plain `export` in a non-subshell function — it LEAKS, so every later plain
+#     `claude` in that pane is quietly on the work seat too.
+# A subshell fixes all three: functions ARE inherited by subshells, and the export
+# dies with it. Verify with `type lb-claude`, not by reading this comment.
+lb-claude() {
+  local seat="${LB_CLAUDE_SEAT:-$HOME/.claude-work}"
+  if [ ! -s "$seat/.credentials.json" ]; then
+    print -u2 "lb-claude: no credential at $seat"
+    print -u2 "  mint it once:  CLAUDE_CONFIG_DIR=$seat claude   # then /login as the LinearB account"
+    print -u2 "  refusing to fall back to the personal seat — that failure would be invisible."
+    return 78
+  fi
+  ( export CLAUDE_CONFIG_DIR="$seat"; claude "$@" )
+}
