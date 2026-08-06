@@ -81,13 +81,32 @@ COST_FMT=$(printf '$%.2f' "$COST")
 #
 # The seat is NOT in the JSON on stdin; it comes from the environment this
 # script inherits from its parent `claude`. Verified live on a work-seat pane
-# via /proc/<pid>/environ. Unset => the personal seat, which is the default and
-# the common case.
-SEAT_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-case "${SEAT_DIR%/}" in
-    */.claude-work) SEAT=" | ${YELLOW}(lb)${RESET}" ;;
-    */.claude)      SEAT=" | (me)" ;;
-    *)              SEAT=" | (${SEAT_DIR##*/.claude-})" ;;   # e.g. ~/.claude-tick -> (tick)
+# via /proc/<pid>/environ.
+#
+# ⚠️ DERIVE FROM THE ACCOUNT, NOT THE PATH. The first version of this mapped
+# ~/.claude -> "(me)" and ~/.claude-work -> "(lb)". That is right on zig-computer
+# and WRONG on marketing-vps, whose DEFAULT ~/.claude is itself a company seat —
+# so it labelled a LinearB session "(me)". Measured 2026-08-05:
+#     marketing-vps ~/.claude       andrew.zigler@linearb.io  | LinearB Marketing
+#     zig-computer  ~/.claude       andrewzigler@gmail.com    | personal
+#     zig-computer  ~/.claude-work  andrew.zigler@linearb.io  | LinearB Marketing
+# The path is a proxy for the account and the proxy breaks across machines. The
+# account is the fact worth showing, since it decides what gets billed and who
+# appears to have done the work.
+#
+# `.claude.json` sits INSIDE an isolated config dir, but at $HOME for the default
+# seat. Pretty-printed, hence the whitespace-tolerant pattern. ~19ms on a 241K file.
+if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
+    SEAT_JSON="${CLAUDE_CONFIG_DIR%/}/.claude.json"
+else
+    SEAT_JSON="$HOME/.claude.json"
+fi
+SEAT_EMAIL=$(grep -m1 -oE '"emailAddress"[[:space:]]*:[[:space:]]*"[^"]*"' "$SEAT_JSON" 2>/dev/null \
+             | sed 's/.*"\([^"]*\)"$/\1/')
+case "$SEAT_EMAIL" in
+    *@linearb.io) SEAT=" | ${YELLOW}(lb)${RESET}" ;;
+    "")           SEAT=" | (?)" ;;          # unreadable — say so, do not guess "(me)"
+    *)            SEAT=" | (me)" ;;
 esac
 
 # Line 1: Lexicon state, model, directory, git branch, repo link
