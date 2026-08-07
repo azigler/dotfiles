@@ -115,8 +115,21 @@ exit 0
 DRAINEOF
   chmod +x "$PRT_FAKE/surface-drain"
   export PULSE_SURFACE_DRAIN="$PRT_FAKE/surface-drain"
+  # Same treatment for the LOCAL-loop ledger watcher (dotfiles-wqby): the real one
+  # would read the REAL harness manifest, the REAL ledgers, and stage into the REAL
+  # surface queue. A recorder stub keeps this suite hermetic and lets a case assert
+  # that the watcher is invoked at all — which is the whole point of the wiring.
+  cat > "$PRT_FAKE/ledger-watch" <<'LWEOF'
+#!/bin/bash
+printf '%s\n' "$*" >> "$PRT_FAKE/watch-calls"
+printf 'PULSE_LEDGER_WATCH_RESULT=%s\n' "${WATCH_VERDICT:-staged:0:seeded:0:errors:0}"
+exit 0
+LWEOF
+  chmod +x "$PRT_FAKE/ledger-watch"
+  export PULSE_LEDGER_WATCH="$PRT_FAKE/ledger-watch"
 }
 drain_calls() { [ -f "$PRT_FAKE/drain-calls" ] && wc -l < "$PRT_FAKE/drain-calls" | tr -d ' ' || echo 0; }
+watch_calls() { [ -f "$PRT_FAKE/watch-calls" ] && wc -l < "$PRT_FAKE/watch-calls" | tr -d ' ' || echo 0; }
 started_count() { [ -f "$PRT_FAKE/started" ] && wc -l < "$PRT_FAKE/started" | tr -d ' ' || echo 0; }
 state_acted_ts() { json_of "$HARNESS_STATE_DIR/pulse-retry-state.jsonl" "$1"; }
 # read acted_ts for a given loop out of the retry-state jsonl
@@ -349,6 +362,90 @@ if [ "$RC" = 0 ] && [ "$(started_count)" = "1" ]; then
   ok
 else
   bad "an absent drain script does not break the bounced-tick retry (rc=$RC starts=$(started_count))"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 14 (dotfiles-wqby): the watcher ALSO runs the local-loop ledger watch, and
+#   like the drain it runs BEFORE the no-bounces early exit — a local tick finishes
+#   whether or not anything bounced, so a watch below that exit would never fire on
+#   the common path.
+setup_case
+"$RETRY"                                             # no bounces file at all
+if [ "$(watch_calls)" = "1" ]; then
+  ok
+else
+  bad "no bounces → the ledger watch STILL runs (got $(watch_calls) calls)"
+fi
+if [ "$(started_count)" = "0" ]; then
+  ok
+else
+  bad "the ledger watch never re-fires a tick (a finished tick must not be re-run)"
+fi
+
+# Case 15 (dotfiles-wqby): the watch runs BEFORE the drain, so a surface it stages
+#   is delivered on THIS run rather than waiting another 2 minutes. Proven by
+#   ordering, not by inspection: both stubs append to one shared file.
+setup_case
+cat > "$PRT_FAKE/surface-drain" <<'DRAINEOF'
+#!/bin/bash
+printf 'drain\n' >> "$PRT_FAKE/order"
+printf 'PULSE_SURFACE_RESULT=empty\n'
+DRAINEOF
+cat > "$PRT_FAKE/ledger-watch" <<'LWEOF'
+#!/bin/bash
+printf 'watch\n' >> "$PRT_FAKE/order"
+printf 'PULSE_LEDGER_WATCH_RESULT=staged:1:seeded:0:errors:0\n'
+LWEOF
+chmod +x "$PRT_FAKE/surface-drain" "$PRT_FAKE/ledger-watch"
+"$RETRY"
+if [ "$(tr '\n' ',' < "$PRT_FAKE/order")" = "watch,drain," ]; then
+  ok
+else
+  bad "the ledger watch runs BEFORE the drain (got '$(tr '\n' ',' < "$PRT_FAKE/order")')"
+fi
+
+# Case 16 (dotfiles-wqby): a watch verdict carrying ERRORS logs the watcher's whole
+#   output, not just the verdict — the output is what names the drift, and a drift
+#   that only ever shows as a count is the silence this bead exists to end.
+setup_case
+cat > "$PRT_FAKE/ledger-watch" <<'LWEOF'
+#!/bin/bash
+echo "pulse-ledger-watch: ERROR pulse-foo/ledger-missing: ledger /nope is unreadable" >&2
+printf 'PULSE_LEDGER_WATCH_RESULT=staged:0:seeded:0:errors:1\n'
+LWEOF
+chmod +x "$PRT_FAKE/ledger-watch"
+"$RETRY"
+if grep -q 'ledger-watch: staged:0:seeded:0:errors:1' "$HARNESS_STATE_DIR/pulse-retry.log" \
+   && grep -q 'ledger-watch| .*ERROR pulse-foo/ledger-missing' "$HARNESS_STATE_DIR/pulse-retry.log"; then
+  ok
+else
+  bad "an ERROR verdict logs the watcher's full output, not only the count"
+fi
+
+# Case 17 (dotfiles-wqby): the all-quiet verdict is NOT logged (this runs every 2
+#   minutes; a line per run per verb would bury the lines that matter), and a
+#   missing watcher script is a skip rather than a failure — the bounced-tick
+#   retries must survive a half-installed harness, same contract as the drain.
+setup_case
+"$RETRY"
+if ! grep -q 'ledger-watch: staged:0:seeded:0:errors:0' "$HARNESS_STATE_DIR/pulse-retry.log"; then
+  ok
+else
+  bad "the all-quiet ledger-watch verdict is not logged"
+fi
+setup_case
+export PULSE_LEDGER_WATCH=/nonexistent/pulse-ledger-watch.sh
+printf '{"ts":"2026-07-09T05:00:00Z","loop":"pulse-vibe","reason":"blocked_on_andrew"}\n' \
+  > "$HARNESS_STATE_DIR/pulse-bounces.jsonl"
+printf '%s\n' "$FUTURE_US" > "$PRT_FAKE/nextfire/pulse-vibe.timer"
+printf 'ExecStart={ argv[]=x --session explore --window explore ; }\n' \
+  > "$PRT_FAKE/execstart/pulse-vibe.service"
+printf 'explore\n' > "$PRT_FAKE/windows/explore"
+"$RETRY"; RC=$?
+if [ "$RC" = 0 ] && [ "$(started_count)" = "1" ] && [ "$(drain_calls)" = "1" ]; then
+  ok
+else
+  bad "an absent ledger-watch script breaks neither the drain nor the retry (rc=$RC starts=$(started_count) drains=$(drain_calls))"
 fi
 
 # --- Summary ---

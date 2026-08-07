@@ -491,9 +491,10 @@ the daily cap.)
    wr-abc closed, pushed; next eligible rows: inbox").
    **If the project's `refs/pulse.md` declares `Surfacing: ATTENDED`, the state
    report is not the end** — raise the `AskUserQuestion` too, naming the
-   deliverable and any decision Zig owns. On an attended loop nothing else
-   surfaces the tick: `pulse-inject.sh` stages no surface, and a
-   `PushNotification` that answers *"Remote Control inactive"* did not deliver.
+   deliverable and any decision Zig owns. A `PushNotification` that answers
+   *"Remote Control inactive"* did not deliver, and the mechanical fallback
+   (`pulse-ledger-watch.sh`) announces your row generically, up to 2 minutes
+   late — your dialog is the one that can say what you actually did.
    See "ATTENDED loops" below.
 
 ## ATTENDED loops — the tick raises its OWN bell (added 2026-08-07)
@@ -507,13 +508,26 @@ and I know when they're ready so I can pick them up and publish them"*). It stag
 into the deferred-surface queue and **raises the AskUserQuestion itself** from the
 local session.
 
-**`pulse-inject.sh` — the LOCAL path — has NO surface handling at all.** So moving
-a loop from the remote dispatcher to a local timer silently drops the
-always-surface guarantee, and this skill's blanket prohibition then stops the tick
-from raising the bell in the dispatcher's place. Two rules, each correct in its own
-context, compose into *nothing ever notifies Zig*. Nothing errors: the window shows
-**✅** ("genuinely idle, nothing to ask") over a finished deliverable that is
-waiting on him.
+**`pulse-inject.sh` — the LOCAL path — surfaces nothing itself**, and cannot: it
+returns the instant it has typed the command, before the tick has run. So moving a
+loop from the remote dispatcher to a local timer used to drop the always-surface
+guarantee outright, while this skill's blanket prohibition stopped the tick from
+raising the bell in the dispatcher's place. Two rules, each correct in its own
+context, composed into *nothing ever notifies Zig*, and nothing errored: the window
+showed **✅** ("genuinely idle, nothing to ask") over a finished deliverable that
+was waiting on him.
+
+**LOCAL LOOPS NOW SURFACE MECHANICALLY (`dotfiles-wqby`).**
+`pulse-ledger-watch.sh`, riding `pulse-retry.timer`'s existing 2-minute clock,
+reads every local loop's newest LEDGER row and stages a surface for anything newer
+than that loop's marker — `done`/`quiet`/`blocked` alike, exactly the dispatcher's
+policy, through the same deferred-surface queue. **So `Surfacing: ATTENDED` is now
+belt-and-braces, not the only thing between a finished tick and Zig.** Still
+declare it and still raise the dialog: the watcher announces generically from the
+ledger row, up to 2 minutes later, while the tick itself can say what landed and
+what decision it wants. Where they overlap, nothing special happens — your open
+🔔 makes `pulse-inject` refuse, and the staged surface simply waits for the bell to
+clear.
 
 ⚠️ **Measured 2026-08-07 on `pulse-weekly-report`**, moved local by `dotfiles-1n50`
 five ticks earlier. The weekly report published clean, the tick logged `done` and
@@ -529,7 +543,8 @@ behalf.
 
 **An attended loop's tick MUST end with an `AskUserQuestion` when it produced
 something Zig has to act on, or when it is blocked.** That is not an escalation —
-it is this loop's only remaining implementation of the always-surface guarantee.
+it is this loop's own, immediate, specific implementation of the always-surface
+guarantee, ahead of the generic mechanical one.
 Still file the `human:` bead on a blocked tick; the bead is the durable record, the
 dialog is the delivery.
 

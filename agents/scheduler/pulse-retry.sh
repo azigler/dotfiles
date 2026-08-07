@@ -49,11 +49,29 @@
 # independent of whether any tick bounced, and would otherwise never be drained on
 # the common path where the bounce log is empty.
 #
+# ---------------------------------------------------------------------------
+# AND IT WATCHES LOCAL LOOPS' LEDGERS (dotfiles-wqby) — a THIRD verb.
+# ---------------------------------------------------------------------------
+# The drain above retries an announcement that was already STAGED. For a LOCAL
+# loop nothing ever stages one: pulse-inject.sh returns the instant it has typed
+# the command, so it never observes the tick's outcome, and a local tick therefore
+# finished in total silence (measured on pulse-weekly-report, 2026-08-07).
+#
+# pulse-ledger-watch.sh closes that: it reads each local loop's newest LEDGER row —
+# the tick's durable completion record — and stages a surface for anything newer
+# than that loop's marker. It runs BEFORE the drain, so a completion noticed on
+# this run is delivered on this run rather than waiting another 2 minutes.
+#
+# Same reuse argument as the drain, one step further: a third trigger condition
+# that fires on the same 2-minute clock is a third reason not to add a unit.
+#
 # Overrides (for the hermetic test-harness):
 #   HARNESS_STATE_DIR   — where pulse-bounces.jsonl / pulse-retry-state.jsonl live.
 #   PULSE_RETRY_LOG     — the note() log file (default <state-dir>/pulse-retry.log).
 #   PULSE_SURFACE_DRAIN — path to pulse-surface-queue.sh (a non-existent path
 #                         disables the drain; tests point it at a recorder stub).
+#   PULSE_LEDGER_WATCH  — path to pulse-ledger-watch.sh (a non-existent path
+#                         disables the watch; tests point it at a recorder stub).
 
 set -uo pipefail
 
@@ -113,6 +131,35 @@ next_fire_epoch() {
     *) printf '%s' $(( raw / 1000000 )) ;;               # all-digit → microseconds → seconds
   esac
 }
+
+# --- 0a. Watch LOCAL loops' ledgers and STAGE anything newly finished ---------
+#
+# Runs before the drain so this run delivers what this run notices. Best-effort in
+# both directions, exactly like the drain: the watcher's own errors are its own,
+# and they must not stop a bounced tick from being retried below. Its verdict is
+# always `staged:<n>:seeded:<m>:errors:<e>`; the all-zero form is the quiet normal
+# case and is not worth a log line, and a non-zero ERROR count carries the
+# watcher's full output into this log because that output names the drift.
+
+LEDGER_WATCH="${PULSE_LEDGER_WATCH:-$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/pulse-ledger-watch.sh}"
+if [ -x "$LEDGER_WATCH" ]; then
+  lw_out=$("$LEDGER_WATCH" 2>&1)
+  lw_verdict=$(printf '%s\n' "$lw_out" | grep -o 'PULSE_LEDGER_WATCH_RESULT=[a-z0-9:-]*' | tail -1 | cut -d= -f2-)
+  case "${lw_verdict:-}" in
+    ''|staged:0:seeded:0:errors:0) : ;;
+    *:errors:0)                    note "ledger-watch: $lw_verdict" ;;
+    *)
+      note "ledger-watch: $lw_verdict"
+      # Everything EXCEPT the result marker, which the line above already carries.
+      while IFS= read -r _l; do
+        case "$_l" in ''|PULSE_LEDGER_WATCH_RESULT=*) continue ;; esac
+        note "ledger-watch| $_l"
+      done <<< "$lw_out"
+      ;;
+  esac
+else
+  note "ledger-watch: skipped (no executable at $LEDGER_WATCH)"
+fi
 
 # --- 0. Drain deferred SURFACES (announcement-only retry; never re-fires a tick) --
 #
