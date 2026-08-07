@@ -141,25 +141,19 @@ next_fire_epoch() {
 # case and is not worth a log line, and a non-zero ERROR count carries the
 # watcher's full output into this log because that output names the drift.
 
-# ⚠️ DISABLED 2026-08-07, same day it shipped — adversarial review (dotfiles-wqby)
-# found this staging into a queue whose injected command is hardcoded for the REMOTE
-# dispatcher. The text typed into the pane says, verbatim, "...and land the ledger row
-# at <proj>/refs/pulse-ledger.jsonl". For a REMOTE tick that is correct: the box ran the
-# tick, the local session lands the row. For a LOCAL tick the row ALREADY EXISTS — the
-# tick wrote it at wrap — so the announcement instructs the session to write a SECOND
-# row. That row carries a fresh ts, the next 2-minute run reads it as new, stages again,
-# and types the same instruction. A self-sustaining announcement loop that also corrupts
-# the very ledger this mechanism reads, on the happy path.
-#
-# Kept wired-but-off rather than reverted: the watcher, its 42-case suite, and the
-# marker state are all sound in isolation (verified 42/42, 24/24, and case 14 does drive
-# the real queue). The defect is in the QUEUE's remote-only prose, which is dotfiles-sxsv
-# — filed as "cosmetic" and that assessment was WRONG. Re-enable only when sxsv makes the
-# injected command origin-aware; PULSE_LEDGER_WATCH_ENABLE=1 forces it on for testing.
-#
-# Anything relying on this for surfacing is back to the ATTENDED prose path until then.
+# HISTORY: this was gated OFF behind PULSE_LEDGER_WATCH_ENABLE for a few hours on
+# 2026-08-07, the day it shipped. Adversarial review found it staging into a queue
+# whose injected command was hardcoded for the REMOTE dispatcher — it told the
+# receiving session to "land the ledger row", which a LOCAL tick has ALREADY written,
+# so the session wrote a duplicate row with a fresh ts, which this watcher then read
+# as new two minutes later: a self-sustaining announcement loop that corrupted the
+# ledger the whole mechanism reads. dotfiles-sxsv made the injected command
+# ORIGIN-AWARE (pulse-surface-queue.sh `--origin local|remote`), the local wording no
+# longer instructs any ledger write, and the gate is gone. The kill switch is not
+# retained: a wiring that can be silently off is a second way to lose the bell, which
+# is the failure this whole mechanism exists to end.
 LEDGER_WATCH="${PULSE_LEDGER_WATCH:-$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/pulse-ledger-watch.sh}"
-if [ "${PULSE_LEDGER_WATCH_ENABLE:-0}" = 1 ] && [ -x "$LEDGER_WATCH" ]; then
+if [ -x "$LEDGER_WATCH" ]; then
   lw_out=$("$LEDGER_WATCH" 2>&1)
   lw_verdict=$(printf '%s\n' "$lw_out" | grep -o 'PULSE_LEDGER_WATCH_RESULT=[a-z0-9:-]*' | tail -1 | cut -d= -f2-)
   case "${lw_verdict:-}" in

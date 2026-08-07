@@ -126,6 +126,16 @@ mapped_suites_for() { # <staged path> -> newline-separated suite paths
         agents/hooks/test/test-stop-context-guard.sh \
         agents/hooks/test/test-pre-shared-tree-guard.sh \
         agents/hooks/test/test-always-loaded-staleness.sh ;;
+    # There is no test-pulse-surface-queue.sh — the queue is covered by its two
+    # CONSUMERS, which drive the real script rather than a stub. That is not an
+    # accident of naming: the queue's P1 (dotfiles-sxsv) was in the command its
+    # drain TYPES, which is only observable end to end, through a real stage and a
+    # real drain into a recording injector. test-pulse-ledger-watch.sh does that
+    # for the local origin, test-pulse-dispatch-remote.sh for the remote one.
+    agents/scheduler/pulse-surface-queue.sh)
+      printf '%s\n' \
+        agents/scheduler/test-pulse-ledger-watch.sh \
+        agents/scheduler/test-pulse-dispatch-remote.sh ;;
     # Not under agents/, so no convention arm below reaches it — and its bug was
     # an ORDERING bug (dotfiles-v26x), the kind an unrun suite is written for.
     mac.upgrade.sh)
