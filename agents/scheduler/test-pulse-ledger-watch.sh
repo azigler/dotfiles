@@ -44,7 +44,15 @@ while [ "$i" -le "$#" ]; do
   i=$((i + 1))
 done
 case "$sub" in
-  list) [ -f "$PLW_FAKE/units" ] && awk 'NF {print $1"  static  -"}' "$PLW_FAKE/units" ;;
+  list)
+    # $PLW_FAKE/systemctl-fail reproduces "no user bus": stderr + non-zero rc +
+    # NOTHING on stdout — indistinguishable from "zero units" to a caller that
+    # does not check the exit status, which is the whole point of the case.
+    if [ -f "$PLW_FAKE/systemctl-fail" ]; then
+      echo "Failed to connect to bus: No medium found" >&2
+      exit 1
+    fi
+    [ -f "$PLW_FAKE/units" ] && awk 'NF {print $1"  static  -"}' "$PLW_FAKE/units" ;;
   show) [ "$prop" = ExecStart ] && [ -f "$PLW_FAKE/execstart/$unit" ] && cat "$PLW_FAKE/execstart/$unit" ;;
 esac
 exit 0
@@ -375,6 +383,111 @@ else bad "the surface tells the reader the ledger row is written and the tick mu
 unset PULSE_SURFACE_STATE PULSE_SURFACE_LOG PULSE_DISPATCH_INJECT
 
 # ---------------------------------------------------------------------------
+# Cases 16-19 (dotfiles-sxsv) — WHAT THE DRAIN TYPES, not what the file contains.
+#
+#   Case 14 above asserts the surface FILE. The drain's injected command is a
+#   SEPARATE piece of prose, it is read and OBEYED by the receiving Claude session,
+#   and nothing asserted it — which is exactly where the P1 lived: the command was
+#   hardcoded for the remote dispatcher and told the session to "land the ledger
+#   row" that a LOCAL tick had already written. The session wrote a duplicate with a
+#   fresh ts, this watcher read that as new two minutes later, and the announcement
+#   re-typed itself forever while corrupting the ledger the mechanism reads.
+#
+#   So: assert the injected text, for BOTH origins, in BOTH the 1-pending and
+#   n-pending forms.
+
+# use_real_queue: point the watcher at the REAL queue with a recording injector.
+use_real_queue() {
+  export PULSE_SURFACE_QUEUE="$REAL_QUEUE"
+  export PULSE_SURFACE_STATE="$CASE/queue-root"
+  export PULSE_SURFACE_LOG="$CASE/queue.log"
+  cat > "$CASE/inject" <<'IEOF'
+#!/bin/bash
+printf '%s\n' "$*" >> "$PLW_FAKE/inject-calls"
+printf 'PULSE_INJECT_RESULT=injected\n'
+exit 0
+IEOF
+  chmod +x "$CASE/inject"
+  export PULSE_DISPATCH_INJECT="$CASE/inject"
+}
+typed() { cat "$PLW_FAKE/inject-calls" 2>/dev/null; }
+# has/hasnt <label> <needle> — assert the typed command does / does not carry it.
+has()   { case "$(typed)" in *"$2"*) ok ;; *) bad "$1" ;; esac; }
+hasnt() { case "$(typed)" in *"$2"*) bad "$1" ;; *) ok ;; esac; }
+
+# Case 16: a LOCAL surface, 1 pending. The two false clauses must be ABSENT.
+setup_case
+use_real_queue
+"$WATCH" > /dev/null 2>&1                       # seed
+row 2026-08-02T11:00:00Z done "the report published"
+"$WATCH" > /dev/null 2>&1                       # stage, --origin local
+"$REAL_QUEUE" drain > /dev/null 2>&1
+hasnt "a LOCAL surface never claims the tick ran on marketing-vps"     "marketing-vps"
+hasnt "a LOCAL surface never tells the session to land the ledger row" "land the ledger row"
+hasnt "a LOCAL surface never tells the session to land any ledger rows" "land any ledger rows"
+has   "a LOCAL surface says the ledger row is ALREADY WRITTEN"         "ALREADY WRITTEN"
+has   "a LOCAL surface still forbids re-running the tick"              "Do NOT re-run the tick"
+has   "a LOCAL surface labels itself LOCAL"                            "LOCAL PULSE SURFACE"
+unset PULSE_SURFACE_STATE PULSE_SURFACE_LOG PULSE_DISPATCH_INJECT
+
+# Case 17: a REMOTE surface, 1 pending — the dispatcher's wording, UNCHANGED. It
+#   stages without --origin, so this also pins the default.
+setup_case
+use_real_queue
+"$REAL_QUEUE" stage --row demo --run r1 --session work --window demo --dir "$CASE/proj" \
+  --file /tmp/nope.json --reason completed:done --summary "a remote tick" > /dev/null 2>&1
+"$REAL_QUEUE" drain > /dev/null 2>&1
+has   "a REMOTE surface still says the tick ran on marketing-vps"  "ran on marketing-vps"
+has   "a REMOTE surface still says to land the ledger row"         "land the ledger row at $CASE/proj/refs/pulse-ledger.jsonl"
+has   "a REMOTE surface still labels itself REMOTE"                "REMOTE PULSE SURFACE"
+hasnt "a REMOTE surface does not claim the row is already written" "ALREADY WRITTEN"
+unset PULSE_SURFACE_STATE PULSE_SURFACE_LOG PULSE_DISPATCH_INJECT
+
+# Case 18: the N-PENDING form carries the same clauses INDEPENDENTLY — it is a
+#   different sentence, not a truncation, so fixing only the single form fixes half
+#   the bug. Two local rows into one window.
+setup_case
+use_real_queue
+for r in alpha beta; do
+  "$REAL_QUEUE" stage --row "$r" --run "lw:$r" --session work --window demo --dir "$CASE/proj" \
+    --file "/tmp/$r.json" --origin local --reason completed:done --summary "$r landed" > /dev/null 2>&1
+done
+"$REAL_QUEUE" drain > /dev/null 2>&1
+hasnt "the n-pending LOCAL form never claims marketing-vps"          "marketing-vps"
+hasnt "the n-pending LOCAL form never says to land any ledger rows"  "land any ledger rows"
+has   "the n-pending LOCAL form says the rows are ALREADY WRITTEN"   "ALREADY WRITTEN"
+has   "the n-pending LOCAL form still forbids re-running any tick"   "Do NOT re-run any tick"
+has   "the n-pending LOCAL form labels itself LOCAL"                 "LOCAL PULSE SURFACE (2 PENDING"
+unset PULSE_SURFACE_STATE PULSE_SURFACE_LOG PULSE_DISPATCH_INJECT
+
+# Case 18b: the n-pending REMOTE form is unchanged (both stages omit --origin).
+setup_case
+use_real_queue
+for r in alpha beta; do
+  "$REAL_QUEUE" stage --row "$r" --run "d:$r" --session work --window demo --dir "$CASE/proj" \
+    --file "/tmp/$r.json" --reason completed:done --summary "$r landed" > /dev/null 2>&1
+done
+"$REAL_QUEUE" drain > /dev/null 2>&1
+has "the n-pending REMOTE form still says to land any ledger rows" "land any ledger rows at $CASE/proj/refs/pulse-ledger.jsonl"
+has "the n-pending REMOTE form still labels itself REMOTE"         "REMOTE PULSE SURFACE (2 PENDING"
+unset PULSE_SURFACE_STATE PULSE_SURFACE_LOG PULSE_DISPATCH_INJECT
+
+# Case 19: a MIXED group (one local, one remote waiting on the same window) claims
+#   neither origin globally, marks the local entry, and scopes the ledger
+#   instruction to the entries that are NOT marked local.
+setup_case
+use_real_queue
+"$REAL_QUEUE" stage --row remoterow --run d1 --session work --window demo --dir "$CASE/proj" \
+  --file /tmp/a.json --reason completed:done --summary "remote landed" > /dev/null 2>&1
+"$REAL_QUEUE" stage --row localrow --run lw1 --session work --window demo --dir "$CASE/proj" \
+  --file /tmp/b.json --origin local --reason completed:done --summary "local landed" > /dev/null 2>&1
+"$REAL_QUEUE" drain > /dev/null 2>&1
+has "a MIXED group labels itself MIXED"                              "MIXED PULSE SURFACE"
+has "a MIXED group marks the LOCAL entry in the per-row list"        "ran LOCALLY (its ledger row is ALREADY written)"
+has "a MIXED group scopes the ledger instruction to the non-LOCAL entries" "ONLY for the entries above that are NOT marked 'ran LOCALLY'"
+unset PULSE_SURFACE_STATE PULSE_SURFACE_LOG PULSE_DISPATCH_INJECT
+
+# ---------------------------------------------------------------------------
 # Case 15: --loop narrows the run to one loop (the manual/diagnostic path), and
 #   --dry-run stages nothing and writes no marker.
 setup_case
@@ -390,6 +503,137 @@ OUT=$("$WATCH" --dry-run 2>&1)
 if [ "$(verdict_of "$OUT")" = "staged:1:seeded:0:errors:0" ] && [ "$(stage_calls)" = 0 ] \
    && [ "$(marker)" = "2026-08-01T10:00:00Z" ]; then ok
 else bad "--dry-run reports the stage it would make and changes nothing (stages=$(stage_calls) marker=$(marker))"; fi
+
+# ---------------------------------------------------------------------------
+# Cases 20-25 — the four findings from the dotfiles-wqby adversarial review. Each
+# one was reproduced with a probe before it was fixed; each case is that probe.
+
+# Case 20 (finding 1): CONCURRENT RUNS STAGE ONCE. The queue's lock guards the
+#   queue FILE, not this script's read-marker → stage → write-marker window, so two
+#   runs used to both read the stale marker and both stage the same row —
+#   pending:1 with superseded:1, an announcement claiming a tick re-ran when it did
+#   not. The slow stage stub widens the window so the race is deterministic.
+setup_case
+cat > "$CASE/queue" <<'QEOF'
+#!/bin/bash
+printf '%s\n' "$*" >> "$PLW_FAKE/stage-calls"
+sleep 1
+printf 'PULSE_SURFACE_RESULT=staged\n'
+exit 0
+QEOF
+chmod +x "$CASE/queue"
+"$WATCH" > /dev/null 2>&1                       # seed
+row 2026-08-02T11:00:00Z done "published"
+"$WATCH" > /dev/null 2>&1 &
+"$WATCH" > /dev/null 2>&1 &
+wait
+if [ "$(stage_calls)" = 1 ] && [ "$(marker)" = "2026-08-02T11:00:00Z" ]; then ok
+else bad "two concurrent runs stage one new row exactly ONCE (stages=$(stage_calls) marker=$(marker))"; fi
+
+# Case 21 (finding 2): AN UNWRITABLE marks/ REFUSES TO STAGE, loudly, rather than
+#   staging the same row on every run forever. Reproduced with chmod 555: the stage
+#   succeeded, the marker write failed, and cumulative stage calls went 1 → 2 → 3
+#   with the queue's `superseded` climbing behind them.
+if [ "$(id -u)" = 0 ]; then
+  ok; ok; ok                                    # running as root defeats chmod; not a real skip path on this fleet
+else
+  setup_case
+  "$WATCH" > /dev/null 2>&1                     # seed
+  row 2026-08-02T11:00:00Z done "published"
+  chmod 555 "$PULSE_LEDGER_WATCH_STATE/marks"
+  OUT=$("$WATCH" 2>&1)
+  if [ "$(verdict_of "$OUT")" = "staged:0:seeded:0:errors:1" ] && [ "$(stage_calls)" = 0 ] \
+     && printf '%s' "$OUT" | grep -q 'ERROR pulse-demo/marker-unwritable'; then ok
+  else bad "an unwritable marks/ refuses to stage and says so (verdict=$(verdict_of "$OUT") stages=$(stage_calls))"; fi
+  "$WATCH" > /dev/null 2>&1
+  if [ "$(stage_calls)" = 0 ]; then ok
+  else bad "an unwritable marks/ never accumulates repeat stagings (stages=$(stage_calls))"; fi
+  chmod 755 "$PULSE_LEDGER_WATCH_STATE/marks"
+  "$WATCH" > /dev/null 2>&1
+  if [ "$(stage_calls)" = 1 ] && [ "$(marker)" = "2026-08-02T11:00:00Z" ]; then ok
+  else bad "the held row surfaces once marks/ is writable again (stages=$(stage_calls) marker=$(marker))"; fi
+fi
+
+# Case 22 (finding 3a): A FAILED systemctl ENUMERATION IS AN ERROR. With no user
+#   bus, systemctl prints nothing, writes to stderr and exits non-zero — and
+#   `mapfile < <(systemctl …)` reported that as zero units and a clean
+#   staged:0:seeded:0:errors:0 run. Total blindness dressed as normality.
+setup_case
+touch "$PLW_FAKE/systemctl-fail"
+OUT=$("$WATCH" 2>&1)
+if [ "$(verdict_of "$OUT")" = "staged:0:seeded:0:errors:1" ] \
+   && printf '%s' "$OUT" | grep -q 'ERROR systemctl'; then ok
+else bad "a failed unit enumeration is a loud error, not a clean run (verdict=$(verdict_of "$OUT"))"; fi
+# and a SUCCESSFUL enumeration that matches nothing is still anomalous: pulse-retry
+# .service alone should always match on a box that runs this watcher.
+setup_case
+: > "$PLW_FAKE/units"
+OUT=$("$WATCH" 2>&1)
+if [ "$(verdict_of "$OUT")" = "staged:0:seeded:0:errors:1" ] \
+   && printf '%s' "$OUT" | grep -q 'ERROR no-units'; then ok
+else bad "zero matching units is a loud error (verdict=$(verdict_of "$OUT"))"; fi
+
+# Case 23 (finding 3b): A TRUNCATED MARKER RECOVERS BY ANNOUNCING, loudly. The old
+#   code could not tell "no marker" from "empty marker", so it RE-SEEDED: the
+#   marker jumped past a finished tick and that announcement was lost permanently.
+#   One duplicate announcement (which the queue collapses) beats a silent loss.
+for junk in "" "garbage"; do
+  setup_case
+  "$WATCH" > /dev/null 2>&1                     # seed
+  row 2026-08-02T11:00:00Z done "published"
+  printf '%s' "$junk" > "$PULSE_LEDGER_WATCH_STATE/marks/pulse-demo"
+  OUT=$("$WATCH" 2>&1)
+  if [ "$(verdict_of "$OUT")" = "staged:1:seeded:0:errors:1" ] && [ "$(stage_calls)" = 1 ] \
+     && [ "$(marker)" = "2026-08-02T11:00:00Z" ] \
+     && printf '%s' "$OUT" | grep -q 'ERROR pulse-demo/marker-corrupt'; then ok
+  else bad "a corrupt marker ('$junk') announces rather than re-seeding, and says so (verdict=$(verdict_of "$OUT") stages=$(stage_calls))"; fi
+done
+
+# Case 24 (finding 3c): A MALFORMED ts IS AN ERROR. ts_key() strips non-digits, so
+#   "yesterday" became 0, which is <= any marker, which logged "no new row" and
+#   returned errors:0 — the quietest failure in the script. There was an explicit
+#   error for an ABSENT ts and none for an unusable one.
+setup_case
+"$WATCH" > /dev/null 2>&1                       # seed
+printf '{"ts":"yesterday","row":"demo","outcome":"done","note":"x"}\n' >> "$LEDGER"
+OUT=$("$WATCH" 2>&1)
+if [ "$(verdict_of "$OUT")" = "staged:0:seeded:0:errors:1" ] && [ "$(stage_calls)" = 0 ] \
+   && printf '%s' "$OUT" | grep -q 'ERROR pulse-demo/row-ts-unparsable'; then ok
+else bad "an unparsable ts is a loud error, not a silent skip (verdict=$(verdict_of "$OUT"))"; fi
+# A date-only ts is the subtler half: it PARSES as digits (8 of them) but compares
+# wrongly against a 14-digit key, so it would read as older than every real row.
+setup_case
+"$WATCH" > /dev/null 2>&1
+printf '{"ts":"2026-08-02","row":"demo","outcome":"done","note":"x"}\n' >> "$LEDGER"
+OUT=$("$WATCH" 2>&1)
+if [ "$(verdict_of "$OUT")" = "staged:0:seeded:0:errors:1" ] \
+   && printf '%s' "$OUT" | grep -q 'ERROR pulse-demo/row-ts-unparsable'; then ok
+else bad "a truncated (date-only) ts is a loud error (verdict=$(verdict_of "$OUT"))"; fi
+
+# Case 25 (finding 4): A NEWLY REGISTERED LOOP'S FIRST REAL TICK SURFACES. It used
+#   not to: with no matching row, run 1 errored (row-absent) and wrote no marker, so
+#   the run after the loop's FIRST REAL TICK was that row's "first sight" — it
+#   seeded and announced nothing, and only the SECOND tick ever surfaced. That is
+#   not a 2-minute install window; it is every new loop, always. The row-absent path
+#   now writes a floor marker on the way past.
+setup_case
+: > "$LEDGER"                                   # registered, never ticked
+OUT=$("$WATCH" 2>&1)
+if [ "$(verdict_of "$OUT")" = "staged:0:seeded:0:errors:1" ] \
+   && printf '%s' "$OUT" | grep -q 'ERROR pulse-demo/row-absent'; then ok
+else bad "a loop with no matching row is still a loud error (verdict=$(verdict_of "$OUT"))"; fi
+if [ "$(marker)" = "0000-00-00T00:00:00Z" ]; then ok
+else bad "the row-absent path leaves a FLOOR marker so the first real row is not swallowed (got '$(marker)')"; fi
+row 2026-08-02T11:00:00Z done "the very first tick"
+OUT=$("$WATCH" 2>&1)
+if [ "$(verdict_of "$OUT")" = "staged:1:seeded:0:errors:0" ] && [ "$(stage_calls)" = 1 ]; then ok
+else bad "the FIRST real tick of a newly registered loop SURFACES (verdict=$(verdict_of "$OUT") stages=$(stage_calls))"; fi
+# and the honest half of the header still holds: a loop whose ledger already has
+# history when the watcher first sees it seeds, and does not replay that backlog.
+setup_case
+OUT=$("$WATCH" 2>&1)
+if [ "$(verdict_of "$OUT")" = "staged:0:seeded:1:errors:0" ] && [ "$(stage_calls)" = 0 ]; then ok
+else bad "a pre-existing ledger still SEEDS on first sight (verdict=$(verdict_of "$OUT"))"; fi
 
 # --- Summary ---
 TOTAL=$((PASS + FAIL))

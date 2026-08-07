@@ -74,6 +74,31 @@
 #       --dir <project>     the LOCAL project dir (ledger lives at <dir>/refs/…)
 #       --reason <text>     why this surfaced (surface-request / completed:done / …)
 #       --summary <text>    one line: what landed
+#       --origin remote|local   WHERE the tick ran (default remote) — see below
+#
+# ---------------------------------------------------------------------------
+# ORIGIN — the injected command is an INSTRUCTION, not a caption (dotfiles-sxsv)
+# ---------------------------------------------------------------------------
+# The text the drain types is read and OBEYED by the receiving Claude session, so
+# it has to be true of the tick it announces. Two clauses differ by origin:
+#
+#   remote  the tick ran on marketing-vps, and the LOCAL session is the one that
+#           lands the ledger row (pulse-dispatch-remote.sh step 6). "…and land the
+#           ledger row at <dir>/refs/pulse-ledger.jsonl" is CORRECT there.
+#   local   the tick ran HERE, on a local timer, and wrote its OWN ledger row at
+#           wrap — that row is precisely what pulse-ledger-watch.sh READ in order to
+#           stage this surface. Repeating the remote wording makes the session write
+#           a DUPLICATE row with a fresh ts, which the watcher then reads as new,
+#           stages again, and types again: a self-sustaining announcement loop that
+#           corrupts the ledger the whole mechanism reads, on the happy path.
+#
+# `remote` is the DEFAULT so pulse-dispatch-remote.sh (which passes no --origin)
+# produces byte-identical text to what it always has.
+#
+# BOTH the 1-pending and the n-pending forms carry these clauses independently, so
+# both are origin-aware. A mixed group (a local and a remote surface waiting on the
+# same window) gets a third wording that claims neither origin globally and scopes
+# the ledger instruction to the entries not marked "ran LOCALLY".
 #
 #   pulse-surface-queue.sh drain [--session <n>] [--window <n>] [--loop <id>]
 #       Deliver every pending surface, oldest first, ONE injection per
@@ -156,6 +181,9 @@ CMD="${1:-}"
 shift || true
 
 ROW=""; RUN=""; SESSION=""; WINDOW=""; DIR=""; FILE=""; REASON=""; SUMMARY=""; LOOP=""
+# Default `remote`: the dispatcher stages without --origin and its wording must not
+# move. Only pulse-ledger-watch.sh passes `local`.
+ORIGIN="remote"
 F_SESSION=""; F_WINDOW=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -168,7 +196,10 @@ while [ $# -gt 0 ]; do
     --reason)  REASON=$2; shift 2 ;;
     --summary) SUMMARY=$2; shift 2 ;;
     --loop)    LOOP=$2; shift 2 ;;
-    -h|--help) sed -n '2,95p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --origin)  ORIGIN=${2:-}
+               case "$ORIGIN" in remote|local) : ;; *) usage_fail "--origin must be 'remote' or 'local' (got '$ORIGIN')" ;; esac
+               shift 2 ;;
+    -h|--help) sed -n '2,123p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) usage_fail "unknown arg $1" ;;
   esac
 done
@@ -209,10 +240,10 @@ if [ "$CMD" = stage ]; then
   if ! jq -n \
       --arg row "$ROW" --arg run "$RUN" --arg session "$SESSION" --arg window "$WINDOW" \
       --arg dir "$DIR" --arg file "$FILE" --arg reason "$REASON" --arg summary "$SUMMARY" \
-      --arg staged "$now" --arg first "$first" --argjson sup "$sup" \
+      --arg staged "$now" --arg first "$first" --argjson sup "$sup" --arg origin "$ORIGIN" \
       '{row:$row, run:$run, session:$session, window:$window, dir:$dir, file:$file,
         reason:$reason, summary:$summary, staged_at:$staged, first_staged_at:$first,
-        superseded:$sup}' > "$tmp" 2>/dev/null; then
+        superseded:$sup, origin:$origin}' > "$tmp" 2>/dev/null; then
     rm -f "$tmp"; flock -u 8
     warn "stage: could not write $tmp"
     emit_result failed; exit 1
@@ -304,7 +335,8 @@ for key in "${!BY_TARGET[@]}"; do
   # because the single-surface wording below is not a truncation of the multi one —
   # it is a different sentence, and it still has to carry the collapse note.
   files=""; rows=""; dir=""
-  one_row=""; one_run=""; one_rsn=""; one_sum=""; one_sf=""; one_sup=0
+  one_row=""; one_run=""; one_rsn=""; one_sum=""; one_sf=""; one_sup=0; one_org="remote"
+  n_local=0; n_remote=0
   i=0
   for f in "${GF[@]}"; do
     i=$((i+1))
@@ -316,24 +348,46 @@ for key in "${!BY_TARGET[@]}"; do
     _dir=$(jq -r '.dir // ""' "$f" 2>/dev/null)
     _sup=$(jq -r '.superseded // 0' "$f" 2>/dev/null)
     _at=$(jq -r '.first_staged_at // .staged_at // ""' "$f" 2>/dev/null)
+    # Absent origin => remote. Entries staged by an older copy of this script have no
+    # origin field, and every one of those came from the dispatcher.
+    _org=$(jq -r 'if (.origin // "") == "local" then "local" else "remote" end' "$f" 2>/dev/null)
+    if [ "$_org" = local ]; then n_local=$((n_local+1)); else n_remote=$((n_remote+1)); fi
     [ -n "$dir" ] || dir="$_dir"
     _extra=""
     [ "${_sup:-0}" != 0 ] && _extra=" [it re-ran ${_sup}x while held — this is the NEWEST]"
-    rows="${rows}${rows:+ | }($i) $_row · $_rsn · staged $_at${_sum:+ · $_sum}${_extra} · surface: $_sf${_dir:+ · ledger: $_dir/refs/pulse-ledger.jsonl}"
+    # Only LOCAL entries are annotated, so an all-remote group's text is byte-identical
+    # to what the dispatcher has always produced.
+    _lmark=""
+    [ "$_org" = local ] && _lmark=" · ran LOCALLY (its ledger row is ALREADY written)"
+    rows="${rows}${rows:+ | }($i) $_row · $_rsn · staged $_at${_sum:+ · $_sum}${_extra}${_lmark} · surface: $_sf${_dir:+ · ledger: $_dir/refs/pulse-ledger.jsonl}"
     files="${files}${files:+, }$_sf"
     if [ "$i" -eq 1 ]; then
-      one_row="$_row"; one_run="$_run"; one_rsn="$_rsn"; one_sum="$_sum"; one_sf="$_sf"; one_sup="${_sup:-0}"
+      one_row="$_row"; one_run="$_run"; one_rsn="$_rsn"; one_sum="$_sum"; one_sf="$_sf"; one_sup="${_sup:-0}"; one_org="$_org"
     fi
   done
 
   # ONE line. A newline inside send-keys -l submits the composer, so everything the
   # local session needs has to ride on a single line.
+  #
+  # The wording is ORIGIN-AWARE (dotfiles-sxsv). The remote branches are the original
+  # text, unchanged to the byte; the local branches drop the marketing-vps claim and
+  # replace "land the ledger row" with "the row is already written — do not write
+  # another", because for a local tick the second instruction is what makes the
+  # announcement duplicate a ledger row and re-stage itself forever.
   if [ "$n" -eq 1 ]; then
     _collapse=""
     [ "$one_sup" != 0 ] && _collapse=" This row re-ran ${one_sup}x while the announcement was held — what follows is the NEWEST run; the superseded ones are not announced."
-    cmd="REMOTE PULSE SURFACE (row=$one_row, run=$one_run, reason=$one_rsn): a pulse tick that ran on marketing-vps has FINISHED and Zig has to see it.${one_sum:+ What landed: $one_sum.}$_collapse Read $one_sf and raise the AskUserQuestion it describes (this is the 🔔 the remote box cannot ring) — say what landed, WHERE it is, and the obvious next step, even if nothing needs a decision. File any bead it names that the remote side did not already file and push, and land the ledger row at ${dir:-<project>}/refs/pulse-ledger.jsonl. Do NOT re-run the tick."
-  else
+    if [ "$one_org" = local ]; then
+      cmd="LOCAL PULSE SURFACE (row=$one_row, run=$one_run, reason=$one_rsn): a pulse tick that ran HERE, on this box, has FINISHED and Zig has to see it.${one_sum:+ What landed: $one_sum.}$_collapse Read $one_sf and raise the AskUserQuestion it describes (the tick itself is not allowed to ring it) — say what landed, WHERE it is, and the obvious next step, even if nothing needs a decision. File any bead it names that the tick did not already file, and push. Its ledger row at ${dir:-<project>}/refs/pulse-ledger.jsonl is ALREADY WRITTEN — do NOT write another one. Do NOT re-run the tick."
+    else
+      cmd="REMOTE PULSE SURFACE (row=$one_row, run=$one_run, reason=$one_rsn): a pulse tick that ran on marketing-vps has FINISHED and Zig has to see it.${one_sum:+ What landed: $one_sum.}$_collapse Read $one_sf and raise the AskUserQuestion it describes (this is the 🔔 the remote box cannot ring) — say what landed, WHERE it is, and the obvious next step, even if nothing needs a decision. File any bead it names that the remote side did not already file and push, and land the ledger row at ${dir:-<project>}/refs/pulse-ledger.jsonl. Do NOT re-run the tick."
+    fi
+  elif [ "$n_local" -eq 0 ]; then
     cmd="REMOTE PULSE SURFACE ($n PENDING, oldest first): $n pulse ticks finished while this window was blocked on you, and their announcements were HELD — none of them was re-run, only the announcement was retried. Oldest first: $rows. Read those surface files in that order and raise ONE AskUserQuestion covering all $n (this is the 🔔 the remote box cannot ring) — for each: what landed, WHERE it is, and the obvious next step, even where nothing needs a decision. File any bead they name that the remote side did not already file and push, and land any ledger rows at ${dir:-<project>}/refs/pulse-ledger.jsonl. Do NOT re-run any tick."
+  elif [ "$n_remote" -eq 0 ]; then
+    cmd="LOCAL PULSE SURFACE ($n PENDING, oldest first): $n pulse ticks finished HERE, on this box, while this window was blocked on you, and their announcements were HELD — none of them was re-run, only the announcement was retried. Oldest first: $rows. Read those surface files in that order and raise ONE AskUserQuestion covering all $n (the ticks themselves are not allowed to ring it) — for each: what landed, WHERE it is, and the obvious next step, even where nothing needs a decision. File any bead they name that the ticks did not already file, and push. Their ledger rows are ALREADY WRITTEN — do NOT write any more. Do NOT re-run any tick."
+  else
+    cmd="MIXED PULSE SURFACE ($n PENDING, oldest first — some ran here, some on marketing-vps): $n pulse ticks finished while this window was blocked on you, and their announcements were HELD — none of them was re-run, only the announcement was retried. Oldest first: $rows. Read those surface files in that order and raise ONE AskUserQuestion covering all $n — for each: what landed, WHERE it is, and the obvious next step, even where nothing needs a decision. File any bead they name that was not already filed, and push. Land the ledger row at ${dir:-<project>}/refs/pulse-ledger.jsonl ONLY for the entries above that are NOT marked 'ran LOCALLY' — the LOCAL ones already wrote their own and a second row would corrupt the ledger. Do NOT re-run any tick."
   fi
 
   if [ ! -x "$INJECT" ]; then
