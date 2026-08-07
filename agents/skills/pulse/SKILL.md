@@ -489,8 +489,68 @@ the daily cap.)
 
 6. **End with a one-line state report** ("tick: weekly-report fired,
    wr-abc closed, pushed; next eligible rows: inbox").
+   **If the project's `refs/pulse.md` declares `Surfacing: ATTENDED`, the state
+   report is not the end** — raise the `AskUserQuestion` too, naming the
+   deliverable and any decision Zig owns. On an attended loop nothing else
+   surfaces the tick: `pulse-inject.sh` stages no surface, and a
+   `PushNotification` that answers *"Remote Control inactive"* did not deliver.
+   See "ATTENDED loops" below.
+
+## ATTENDED loops — the tick raises its OWN bell (added 2026-08-07)
+
+The prohibition below assumes something that is not always true: that a
+**dispatcher wraps the tick and surfaces it**. `pulse-dispatch-remote.sh` does
+exactly that — its step 7, **ALWAYS**, for every finished tick, `done`/`quiet`/
+`blocked` (`dotfiles-5ts2`; Zig, 2026-07-31: *"I don't think there's such a thing
+as a low-value bell … you need to be in charge of making sure I see their actions
+and I know when they're ready so I can pick them up and publish them"*). It stages
+into the deferred-surface queue and **raises the AskUserQuestion itself** from the
+local session.
+
+**`pulse-inject.sh` — the LOCAL path — has NO surface handling at all.** So moving
+a loop from the remote dispatcher to a local timer silently drops the
+always-surface guarantee, and this skill's blanket prohibition then stops the tick
+from raising the bell in the dispatcher's place. Two rules, each correct in its own
+context, compose into *nothing ever notifies Zig*. Nothing errors: the window shows
+**✅** ("genuinely idle, nothing to ask") over a finished deliverable that is
+waiting on him.
+
+⚠️ **Measured 2026-08-07 on `pulse-weekly-report`**, moved local by `dotfiles-1n50`
+five ticks earlier. The weekly report published clean, the tick logged `done` and
+wrote a handoff — and Zig found out only because he came and asked. The
+`PushNotification` had returned *"Remote Control inactive"*, i.e. it **did not
+deliver**, which is precisely the case AGENTS.md says never to treat as seen.
+
+**A loop is ATTENDED when its `.service` injects into a tmux session Zig actually
+watches** (`pulse-inject.sh --session work …`), rather than a dedicated unattended
+window. For an attended loop the freeze argument inverts: the pane is his, the
+dialog IS the notification, and there is no dispatcher to surface on the tick's
+behalf.
+
+**An attended loop's tick MUST end with an `AskUserQuestion` when it produced
+something Zig has to act on, or when it is blocked.** That is not an escalation —
+it is this loop's only remaining implementation of the always-surface guarantee.
+Still file the `human:` bead on a blocked tick; the bead is the durable record, the
+dialog is the delivery.
+
+A project declares it in `refs/pulse.md` so no tick has to infer it:
+
+```markdown
+**Surfacing: ATTENDED** — `.service` injects into `work:<window>`, a session Zig
+watches. No dispatcher wraps this loop, so the TICK raises the AskUserQuestion
+itself at wrap. (Unattended default: `human:` bead + push, never a dialog.)
+```
+
+Absent that line, a loop is **unattended** and the protocol below applies unchanged.
+When a loop is relocated between the remote dispatcher and a local timer, its
+surfacing mode moves with it — add that to the four coupled pieces in "Relocating a
+pulse loop's home."
 
 ## Blocked-on-Zig protocol
+
+**This section is the UNATTENDED default.** If the project's `refs/pulse.md`
+declares `Surfacing: ATTENDED` (above), the tick raises an AskUserQuestion instead
+of relying on the push, and still files the bead.
 
 A tick **never** blocks on AskUserQuestion — there's nobody at the
 keyboard, and an open dialog would freeze the window until Zig
@@ -668,8 +728,14 @@ AskUserQuestion is the load-bearing summon.
 
 - ❌ **Two dispatches in one tick** — the backlog is the timer's
   problem, not this tick's. One row, stop.
-- ❌ **AskUserQuestion in a tick** — freezes the window for hours.
-  `human:` bead + push, end the tick. **ONE exception (Zig, 2026-07-22):
+- ❌ **AskUserQuestion in an UNATTENDED tick** — freezes the window for hours.
+  `human:` bead + push, end the tick. **This does NOT apply to a loop whose
+  `refs/pulse.md` declares `Surfacing: ATTENDED`** — that loop runs in a session
+  Zig watches with no dispatcher to surface for it, so its tick MUST end with an
+  AskUserQuestion when it produced something he has to act on. See "ATTENDED
+  loops" above; the inverse failure (a ✅ pane over a finished deliverable) is
+  what bit `pulse-weekly-report` on 2026-08-07. **ONE further exception (Zig,
+  2026-07-22):
   when the session is context-full at the 85% guard and needs Zig to
   manually `/clear` it, DO end with an AskUserQuestion to summon him —
   see "Session durability and context" above. The window is offboarded
