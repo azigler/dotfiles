@@ -11,6 +11,10 @@
 # The shim reads $PLW_FAKE:
 #   $PLW_FAKE/units             — one unit name per line, for `list-unit-files`
 #   $PLW_FAKE/execstart/<unit>  — value printed for `show <unit> -p ExecStart --value`
+#   $PLW_FAKE/enabled/<timer>   — state printed for `is-enabled <timer>`; a timer with
+#                                 no file answers `enabled`, so a case that does not
+#                                 care about the timer describes a LIVE loop (which is
+#                                 what every case written before dotfiles-eh21 meant)
 #
 # Convention matches the other test-*.sh here: executable bash, non-zero exit =
 # failure, PASS/FAIL summary on the last line.
@@ -30,16 +34,17 @@ BIN="$ROOT/bin"
 mkdir -p "$BIN"
 cat > "$BIN/systemctl" <<'EOSC'
 #!/bin/bash
-# Fake systemctl — only the two reads pulse-ledger-watch.sh makes.
+# Fake systemctl — only the three reads pulse-ledger-watch.sh makes.
 sub=""; unit=""; prop=""
 i=1
 while [ "$i" -le "$#" ]; do
   a="${!i}"
   case "$a" in
-    list-unit-files) sub=list ;;
-    show)            sub=show ;;
-    -p)              i=$((i + 1)); prop="${!i}" ;;
-    *.service)       unit="$a" ;;
+    list-unit-files)  sub=list ;;
+    show)             sub=show ;;
+    is-enabled)       sub=isenabled ;;
+    -p)               i=$((i + 1)); prop="${!i}" ;;
+    *.service|*.timer) unit="$a" ;;
   esac
   i=$((i + 1))
 done
@@ -54,6 +59,18 @@ case "$sub" in
     fi
     [ -f "$PLW_FAKE/units" ] && awk 'NF {print $1"  static  -"}' "$PLW_FAKE/units" ;;
   show) [ "$prop" = ExecStart ] && [ -f "$PLW_FAKE/execstart/$unit" ] && cat "$PLW_FAKE/execstart/$unit" ;;
+  isenabled)
+    # Real systemctl prints the state on STDOUT for every state (including
+    # `not-found`) and reflects it in the exit code. Default `enabled`: a case that
+    # says nothing about the timer means a live loop.
+    st=enabled
+    [ -f "$PLW_FAKE/enabled/$unit" ] && st=$(cat "$PLW_FAKE/enabled/$unit")
+    printf '%s\n' "$st"
+    case "$st" in
+      enabled|enabled-runtime|static|indirect|generated|transient|linked|linked-runtime) exit 0 ;;
+      not-found) exit 4 ;;
+      *) exit 1 ;;
+    esac ;;
 esac
 exit 0
 EOSC
@@ -70,7 +87,7 @@ INJECT_LOCAL='{ path=/x/pulse-inject.sh ; argv[]=/x/pulse-inject.sh --loop pulse
 setup_case() {
   CASE=$(mktemp -d)
   PLW_FAKE="$CASE/fake"
-  mkdir -p "$PLW_FAKE/execstart" "$CASE/proj/refs"
+  mkdir -p "$PLW_FAKE/execstart" "$PLW_FAKE/enabled" "$CASE/proj/refs"
   export PLW_FAKE
   export PULSE_LEDGER_WATCH_STATE="$CASE/state"
   export PULSE_LEDGER_WATCH_LOG="$CASE/watch.log"
@@ -634,6 +651,93 @@ setup_case
 OUT=$("$WATCH" 2>&1)
 if [ "$(verdict_of "$OUT")" = "staged:0:seeded:1:errors:0" ] && [ "$(stage_calls)" = 0 ]; then ok
 else bad "a pre-existing ledger still SEEDS on first sight (verdict=$(verdict_of "$OUT"))"; fi
+
+# ---------------------------------------------------------------------------
+# Cases 26-29 (dotfiles-eh21) — A DISABLED LOOP IS NOT DRIFT, but a LIVE one still is.
+#
+#   Measured on zig-computer: five dormant units (pulse-autonoveld-{conceive,mail,
+#   voice,write}, superseded by pulse-daily-ao3; pulse-picod) were reported as
+#   `unregistered` on every run — errors:5 every 2 minutes, forever, on a healthy box.
+#   A timer that never fires cannot finish a tick, so nothing is going unannounced.
+#
+#   The whole risk of this fix is over-correcting into silence, so the cases come in
+#   pairs: the false alarm goes quiet, and the TRUE alarm — an enabled timer with no
+#   manifest entry — stays exactly as loud as it was.
+
+# Case 26: a DISABLED timer + no manifest entry is NOT an error and stages nothing.
+#   The healthy loop beside it is unaffected.
+setup_case
+printf 'pulse-demo.service\npulse-orphan.service\n' > "$PLW_FAKE/units"
+printf '%s\n' "$INJECT_LOCAL" > "$PLW_FAKE/execstart/pulse-orphan.service"
+printf 'disabled\n' > "$PLW_FAKE/enabled/pulse-orphan.timer"
+OUT=$("$WATCH" 2>&1)
+if [ "$(verdict_of "$OUT")" = "staged:0:seeded:1:errors:0" ] && [ "$(stage_calls)" = 0 ]; then ok
+else bad "a disabled loop is not an error and does not disturb the healthy loop (verdict=$(verdict_of "$OUT") stages=$(stage_calls))"; fi
+if ! printf '%s' "$OUT" | grep -q 'pulse-orphan'; then ok
+else bad "a disabled loop says nothing on stdout/stderr (got: $OUT)"; fi
+# ...but it is NOT silent either: the skip is a note, so "why did this loop stop
+# surfacing?" has an answer in the log rather than looking like an uninstalled unit.
+if grep -q 'skip pulse-orphan: its timer pulse-orphan.timer is disabled' "$PULSE_LEDGER_WATCH_LOG"; then ok
+else bad "the disabled skip leaves a note in the log naming the timer and the reason"; fi
+
+# Case 27 — THE REGRESSION GUARD. An ENABLED timer with no manifest entry is STILL a
+#   loud error. This is the alarm the error channel exists for, and silencing it is
+#   the obvious wrong way to make case 26 pass.
+setup_case
+printf 'pulse-demo.service\npulse-orphan.service\n' > "$PLW_FAKE/units"
+printf '%s\n' "$INJECT_LOCAL" > "$PLW_FAKE/execstart/pulse-orphan.service"
+printf 'enabled\n' > "$PLW_FAKE/enabled/pulse-orphan.timer"
+OUT=$("$WATCH" 2>&1)
+if [ "$(verdict_of "$OUT")" = "staged:0:seeded:1:errors:1" ]; then ok
+else bad "an ENABLED unregistered loop is still an error (verdict=$(verdict_of "$OUT"))"; fi
+if printf '%s' "$OUT" | grep -q 'ERROR pulse-orphan/unregistered'; then ok
+else bad "an ENABLED unregistered loop is still named loudly on stderr (got: $OUT)"; fi
+
+# Case 28: an UNCLEAR answer fails toward LIVE. A timer that does not exist, or an
+#   is-enabled that returns nothing, must not be read as "disabled" — that reading
+#   would silence a running loop, the exact failure this whole script exists to end.
+#   `masked` is affirmative, so it skips like `disabled`.
+for st in not-found ""; do
+  setup_case
+  printf 'pulse-demo.service\npulse-orphan.service\n' > "$PLW_FAKE/units"
+  printf '%s\n' "$INJECT_LOCAL" > "$PLW_FAKE/execstart/pulse-orphan.service"
+  printf '%s' "$st" > "$PLW_FAKE/enabled/pulse-orphan.timer"
+  OUT=$("$WATCH" 2>&1)
+  if [ "$(verdict_of "$OUT")" = "staged:0:seeded:1:errors:1" ] \
+     && printf '%s' "$OUT" | grep -q 'ERROR pulse-orphan/unregistered'; then ok
+  else bad "timer state '${st:-<nothing>}' is treated as LIVE, so the unregistered error stays (verdict=$(verdict_of "$OUT"))"; fi
+done
+setup_case
+printf 'pulse-demo.service\npulse-orphan.service\n' > "$PLW_FAKE/units"
+printf '%s\n' "$INJECT_LOCAL" > "$PLW_FAKE/execstart/pulse-orphan.service"
+printf 'masked\n' > "$PLW_FAKE/enabled/pulse-orphan.timer"
+OUT=$("$WATCH" 2>&1)
+if [ "$(verdict_of "$OUT")" = "staged:0:seeded:1:errors:0" ]; then ok
+else bad "a masked timer skips like a disabled one (verdict=$(verdict_of "$OUT"))"; fi
+
+# Case 29: a loop that is DISABLED and later ENABLED behaves like any live loop from
+#   that moment on — the skip must not leave state that poisons it. While disabled it
+#   is invisible (no marker, no seed, no error); once enabled it seeds on first sight
+#   and its next row surfaces, exactly like a freshly installed loop.
+setup_case
+printf 'disabled\n' > "$PLW_FAKE/enabled/pulse-demo.timer"
+OUT=$("$WATCH" 2>&1)
+if [ "$(verdict_of "$OUT")" = "staged:0:seeded:0:errors:0" ] \
+   && [ ! -f "$PULSE_LEDGER_WATCH_STATE/marks/pulse-demo" ]; then ok
+else bad "a disabled loop is examined but leaves no state (verdict=$(verdict_of "$OUT") marker=$(marker))"; fi
+row 2026-08-02T11:00:00Z done "a row nobody could have written"
+"$WATCH" > /dev/null 2>&1
+if [ "$(stage_calls)" = 0 ]; then ok
+else bad "a disabled loop stages nothing even when its ledger grows (stages=$(stage_calls))"; fi
+printf 'enabled\n' > "$PLW_FAKE/enabled/pulse-demo.timer"   # Zig turns it back on
+OUT=$("$WATCH" 2>&1)
+if [ "$(verdict_of "$OUT")" = "staged:0:seeded:1:errors:0" ] && [ "$(marker)" = "2026-08-02T11:00:00Z" ]; then ok
+else bad "a re-enabled loop seeds on first sight like any new loop (verdict=$(verdict_of "$OUT") marker=$(marker))"; fi
+row 2026-08-03T09:00:00Z done "the first tick after re-enabling"
+OUT=$("$WATCH" 2>&1)
+if [ "$(verdict_of "$OUT")" = "staged:1:seeded:0:errors:0" ] && [ "$(stage_calls)" = 1 ] \
+   && [ "$(marker)" = "2026-08-03T09:00:00Z" ]; then ok
+else bad "a re-enabled loop's next row surfaces normally (verdict=$(verdict_of "$OUT") stages=$(stage_calls))"; fi
 
 # --- Summary ---
 TOTAL=$((PASS + FAIL))

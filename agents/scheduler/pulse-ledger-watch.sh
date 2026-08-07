@@ -33,9 +33,11 @@
 # the dispatcher surfaces. So:
 #
 #   1. Enumerate the pulse-*.service units installed HERE and keep the ones whose
-#      ExecStart calls pulse-inject.sh. Those are the LOCAL loops. A unit that
-#      calls pulse-dispatch-remote.sh is skipped: the dispatcher already surfaces
-#      it, and surfacing again would double-announce.
+#      ExecStart calls pulse-inject.sh AND whose TIMER is enabled. Those are the
+#      LOCAL loops. A unit that calls pulse-dispatch-remote.sh is skipped: the
+#      dispatcher already surfaces it, and surfacing again would double-announce.
+#      A unit whose timer is DISABLED is skipped too — see "A DISABLED LOOP IS NOT
+#      DRIFT" below.
 #   2. Resolve each one's project path + ledger + row from the harnessd manifest
 #      (~/harnessd/refs/harness-manifest.json). NOTHING is hardcoded here — the
 #      manifest already pins ledger/ledger_row per loop and is already asserted
@@ -113,6 +115,39 @@
 # The rule behind that list: any path that ends in "nothing to do" must be able to
 # prove it looked. `mapfile < <(systemctl …)` could not — it discarded the exit
 # status, so a dead user bus reported staged:0:seeded:0:errors:0.
+#
+# ---------------------------------------------------------------------------
+# A DISABLED LOOP IS NOT DRIFT — and a false alarm is not free (dotfiles-eh21)
+# ---------------------------------------------------------------------------
+# The list above is only worth its loudness if every entry is real. This script
+# enumerated pulse-*.service without asking whether the loop's TIMER was enabled, so
+# five dormant units on zig-computer (pulse-autonoveld-{conceive,mail,voice,write},
+# superseded by pulse-daily-ao3; pulse-picod, dormant) were reported as
+# `unregistered` — errors:5, every 2 minutes, forever, on a healthy box. A timer that
+# never fires cannot finish a tick, so there is no completion to lose and nothing to
+# announce: that is not a loop that "can never be surfaced", it is a loop with
+# nothing to surface. It is the explore-4x39 failure mode pointed the other way — a
+# standing false alarm trains the reader to discount the alarm that will matter.
+#
+# So a loop whose timer is disabled/masked is SKIPPED. Two things about how:
+#
+# ⚠️ Keyed on the TIMER's enabled state, NEVER on the service's active state. Every
+#    pulse-*.service is `Type=oneshot` and therefore `inactive` between runs BY
+#    DESIGN; keying on that would skip every healthy loop and silently switch the
+#    whole watcher off — the loudest possible bug wearing the quietest face.
+#
+# ⚠️ Only an AFFIRMATIVELY disabled timer skips. Anything else — enabled, static,
+#    indirect, a timer that does not exist, an is-enabled that failed — is treated as
+#    LIVE and takes the normal path, errors included. Assuming "disabled" from an
+#    unclear answer would silence a running loop, which is the failure this whole
+#    script exists to end; assuming "live" costs at worst one error on a unit that
+#    was never going to fire. The regression test pins the direction that matters:
+#    an ENABLED timer with no manifest entry still errors loudly.
+#
+# The skip is logged as a `note` (log only, not stderr, not counted). Silent would be
+# indistinguishable from "the unit isn't installed", which is exactly the question
+# someone asks when a loop stops surfacing; every other skip in this loop leaves the
+# same kind of trace.
 #
 # ---------------------------------------------------------------------------
 # Usage
@@ -197,7 +232,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --loop)    ONLY_LOOP=${2:-}; [ -n "$ONLY_LOOP" ] || usage_fail "--loop needs a value"; shift 2 ;;
     --dry-run) DRY=1; shift ;;
-    -h|--help) sed -n '2,136p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,171p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) usage_fail "unknown arg $1" ;;
   esac
 done
@@ -296,6 +331,26 @@ for unit in "${UNITS[@]}"; do
       # row to watch and no surface to lose.
       note "skip $loop: ExecStart is not a pulse injection"
       continue ;;
+  esac
+
+  # --- Is this loop LIVE? Ask the TIMER, not the service. ---------------------
+  # See "A DISABLED LOOP IS NOT DRIFT" in the header. is-enabled prints the state on
+  # STDOUT for every state including not-found (verified: `not-found` on stdout,
+  # rc=4), so stderr here would only ever carry a bus/permission complaint — captured
+  # rather than discarded, and reported on the treat-as-live path where it is the
+  # only clue about why the probe was unusable.
+  tmerr=$(mktemp) || tmerr=/dev/null
+  timer_state=$("$SYSTEMCTL_BIN" --user is-enabled "$loop.timer" 2>"$tmerr" | head -1)
+  tm_msg=""
+  [ -s "$tmerr" ] && tm_msg=$(tr '\n' ' ' < "$tmerr" | cut -c1-200)
+  [ "$tmerr" = /dev/null ] || rm -f "$tmerr"
+  case "$timer_state" in
+    disabled|masked|masked-runtime)
+      note "skip $loop: its timer $loop.timer is $timer_state — it cannot fire, so it cannot finish a tick, so there is nothing to surface. Not drift; enable the timer and this loop is watched again."
+      continue ;;
+    enabled|enabled-runtime|static|indirect|generated|transient|linked|linked-runtime) : ;;
+    *)
+      note "$loop: could not read its timer's enabled state ($loop.timer is-enabled said '${timer_state:-<nothing>}'${tm_msg:+; stderr: $tm_msg}). Treating it as LIVE — an unclear answer must never be read as 'disabled', because that would silence a running loop." ;;
   esac
 
   entry=$(jq -c --arg t "$loop" '
