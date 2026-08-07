@@ -99,9 +99,23 @@ turns via `/recall` over the window:
 
 ```bash
 python3 "$SKILL_DIR/dream.py" --since "$SINCE" --slug="$SLUG" \
+  --max-candidates 20000 \
   > "$SCRATCH/candidates.json"
 # first run: drop --since (7-day lookback kicks in)
 ```
+
+⚠️ **`--max-candidates 20000` is load-bearing — do not drop it.** The library default
+is **200** (`dream.py:53`), a token-blowout guard sized for a single slug's quiet week.
+A real window is far larger: the 2026-07-26 run judged **5,761** candidates and the
+2026-08-02 run **4,638**, both only because the override was passed by hand. The two
+runs that used the default (2026-07-13, 2026-07-19) were **capped at 200 — roughly 4%
+of their window — and the second produced zero proposals.**
+
+The override survived only as prose in `refs/session-handoff--dream.md`, a file
+`/offboard` **overwrites every session** ("it's a snapshot, not a log"). So the working
+configuration was one rewrite away from being lost, while the skill kept prescribing the
+crippled one. That is this lab's own two-copies defect, with the authoritative copy in
+the more perishable place. It lives here now.
 
 `dream.py` (i) lists in-window sessions, (ii) runs `recall.py` once per curated
 **learning-signal pattern** (correction / preference / gotcha / confirmed / rule —
