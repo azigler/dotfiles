@@ -135,6 +135,7 @@ def invoke(
     root: Path,
     recall: Path = RECALL_PY,
     timeout: int = DEFAULT_TIMEOUT,
+    env: dict | None = None,
 ) -> Result:
     args = [
         sys.executable,
@@ -143,5 +144,73 @@ def invoke(
         f"--root={root}",
         f"--recall={recall}",
     ]
-    cp = subprocess.run(args, capture_output=True, timeout=timeout, check=False)
+    cp = subprocess.run(
+        args,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+        env={**os.environ, **(env or {})},
+    )
     return Result(cp)
+
+
+def invoke_raw(
+    *args: str, timeout: int = DEFAULT_TIMEOUT, env: dict | None = None
+) -> Result:
+    """Drive dream.py with EXACTLY these argv — for subcommands (``remember``,
+    ``seams``) that take neither ``--root`` nor ``--recall``."""
+    cp = subprocess.run(
+        [sys.executable, str(DREAM_PY), *args],
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+        env={**os.environ, **(env or {})},
+    )
+    return Result(cp)
+
+
+# --------------------------------------------------------------------------- #
+# git fixture builders (the churn seams read history, so tests must MAKE history)
+# --------------------------------------------------------------------------- #
+GIT_ENV = {
+    "GIT_AUTHOR_NAME": "dream-test",
+    "GIT_AUTHOR_EMAIL": "dream@test.invalid",
+    "GIT_COMMITTER_NAME": "dream-test",
+    "GIT_COMMITTER_EMAIL": "dream@test.invalid",
+    "GIT_CONFIG_GLOBAL": "/dev/null",
+    "GIT_CONFIG_SYSTEM": "/dev/null",
+}
+
+
+def git(repo: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", "-C", str(repo), *args],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={**os.environ, **GIT_ENV},
+    )
+
+
+def git_init(repo: Path) -> Path:
+    repo = Path(repo)
+    repo.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["git", "init", "-q", "-b", "main", str(repo)],
+        capture_output=True,
+        check=True,
+        env={**os.environ, **GIT_ENV},
+    )
+    return repo
+
+
+def git_commit_file(
+    repo: Path, rel: str, body: str, subject: str = "test: revise"
+) -> Path:
+    """Write ``rel`` inside ``repo`` and commit it. Returns the file path."""
+    p = Path(repo) / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(body, encoding="utf-8")
+    git(repo, "add", "--", rel)
+    git(repo, "commit", "-q", "-m", subject)
+    return p

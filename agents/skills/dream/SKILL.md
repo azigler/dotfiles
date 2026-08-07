@@ -63,6 +63,19 @@ ever built it must be gated on confidential-exclusion (skip `linearb*`/`cfp*`, o
 route their proposals to a local-only tracker) BEFORE it sweeps. Do not build it
 as part of this loop.
 
+**Every seam inherits this, and it is enforced in code, not prose.** Each seam is
+scoped to the current slug (`memory-history` is pathspec-scoped to
+`<slug>/memory`) or the current repo, and every path a seam opens, globs, or hands
+to git passes through `dream.py`'s `guard_path()` — which refuses any component
+naming a `linearb*` / `cfp*` project. A confidential `--slug` is a hard exit 2.
+Set `DREAM_PATH_AUDIT=<file>` to log every permitted traversal (and every
+`REFUSED:` one); that audit is how the test suite proves the negative, with the
+explore paths in the same file as the positive control.
+
+⚠️ The seam sizes quoted when this was designed (560 handoff revisions across 7
+repos, 329 twice-revised memory files) were measured **fleet-wide**. That was a
+measurement, **not** a licence to traverse.
+
 ## Sleep-time, not hot-path
 
 This is a **pulse tick** — scheduled, low-frequency, one-unit-of-work, offboard,
@@ -92,24 +105,24 @@ SINCE=$(test -s "$LEDGER" && jq -r '.ts' "$LEDGER" | tail -1 || true)
   **7-day lookback** (`--lookback-days`), so the first tick does not distill all
   history at once.
 
-### b. Candidate gathering (the deterministic helper)
+### b. Candidate gathering — `collect`, over five seams
 
-Run `dream.py` — the stdlib-only helper — to surface candidate durable-learning
-turns via `/recall` over the window:
+Run `dream.py collect` — the stdlib-only helper — to surface candidate durable
+learnings from every **seam** at once:
 
 ```bash
-python3 "$SKILL_DIR/dream.py" --since "$SINCE" --slug="$SLUG" \
+python3 "$SKILL_DIR/dream.py" collect --since "$SINCE" --slug="$SLUG" \
   --max-candidates 20000 \
   > "$SCRATCH/candidates.json"
 # first run: drop --since (7-day lookback kicks in)
 ```
 
 ⚠️ **`--max-candidates 20000` is load-bearing — do not drop it.** The library default
-is **200** (`dream.py:53`), a token-blowout guard sized for a single slug's quiet week.
-A real window is far larger: the 2026-07-26 run judged **5,761** candidates and the
-2026-08-02 run **4,638**, both only because the override was passed by hand. The two
-runs that used the default (2026-07-13, 2026-07-19) were **capped at 200 — roughly 4%
-of their window — and the second produced zero proposals.**
+is **200** (`dream.py`'s `DEFAULT_MAX_CANDIDATES`), a token-blowout guard sized for a
+single slug's quiet week. A real window is far larger: the 2026-07-26 run judged
+**5,761** candidates and the 2026-08-02 run **4,638**, both only because the override
+was passed by hand. The two runs that used the default (2026-07-13, 2026-07-19) were
+**capped at 200 — roughly 4% of their window — and the second produced zero proposals.**
 
 The override survived only as prose in `refs/session-handoff--dream.md`, a file
 `/offboard` **overwrites every session** ("it's a snapshot, not a log"). So the working
@@ -117,20 +130,70 @@ configuration was one rewrite away from being lost, while the skill kept prescri
 crippled one. That is this lab's own two-copies defect, with the authoritative copy in
 the more perishable place. It lives here now.
 
-`dream.py` (i) lists in-window sessions, (ii) runs `recall.py` once per curated
-**learning-signal pattern** (correction / preference / gotcha / confirmed / rule —
-see `dream.py`'s `SIGNALS`, each with a documented rationale), and (iii)
-dedupes + emits candidate turns as JSON:
+#### The seams
+
+A **seam** is one place durable learnings leave a trace. Until `dotfiles-jx71`
+there was exactly one, and it was already drained: `/offboard`, `/dive` and
+decision beads harvest corrections *in-session*, so by the time the weekly tick
+grepped the transcripts the good material had been taken (run 4's ledger note:
+the sweep found **zero** uncaptured corrections). Precision was 100% — 5 proposals,
+5 promoted — and **recall** was the problem. The four added seams are all
+**churn histories**, where the signal *is* what changed.
+
+| seam | source (current slug / current repo ONLY) | why it carries signal |
+|---|---|---|
+| `session-recall` | `recall.py` over this slug's transcripts | the original seam: turns matching a learning-signal regex |
+| `offboard-history` | `git log -p -- refs/session-handoff*.md` in the current repo | `/offboard` **overwrites** its note, so the friction it recorded survives only in git |
+| `memory-history` | `git log -p` over `<slug>/memory/*.md` in the claude-vault memory repo | what we believed, then **un**believed |
+| `skill-history` | `git log -p -- agents/skills/*/SKILL.md` in `~/dotfiles` | which prompt wording keeps getting **re-fixed** — harness rot, directly |
+| `findings-corrections` | `## Corrections` / `## Scrutiny` blocks in `*/FINDINGS.md` | the highest-density corrections surface in the compendium |
+
+Toggle them with `--seams a,b,c` (default: all). Each is independent and each
+**degrades to empty rather than erroring** when its source is absent.
+
+Two things the git seams emit that a grep never could:
+
+- **diff-line candidates** — an added/removed line matching a learning signal,
+  carrying `occurrences` (how many revisions repeated it);
+- **churn candidates** — *"this file was revised N times in the window"*,
+  signal label `churn`. No single revision says "this keeps getting re-fixed";
+  only the count does. That is recurrence detection, which is what consolidation
+  *means* — and it is also what a rot detector is.
+
+The git seams get their **own** window: `--history-days` (default 90) or an
+explicit `--history-since`. `--since` stays the *session* window. A churn history
+one week long says nothing about recurrence — but friction density in the handoff
+notes was ~0% in May and ~45–55% by August, so the default deliberately favors
+recent history over all of it.
+
+#### `searched` is reported separately from `found` — always
 
 ```json
-{"since":"…","slug":"…","scanned_sessions":12,"window_sessions":3,
- "n_candidates":4,"truncated":false,
- "candidates":[{"slug","session","ts","role","line","text","signals":["correction","preference"]}]}
+{"since":"…","history_since":"…","slug":"…","repo":"/home/ubuntu/explore",
+ "scanned_sessions":144,"window_sessions":9,
+ "seams":{"session-recall":{"searched":true,"found":40,"note":"144 sessions scanned, 9 in-window"},
+          "skill-history":{"searched":false,"found":0,"note":"skills repo not found: …"}},
+ "seams_requested":5,"seams_searched":4,
+ "n_candidates":40,"truncated":false,
+ "candidates":[{"seams":["offboard-history"],"signals":["gotcha"],"ts":"…","text":"…",
+                "source":"…","n_sources":1,"detail":{"commit":"…","file":"…","kind":"diff-line"}}],
+ "memory_digest":{"path":"…","exists":true,"n_entries":12,"n_qualified":3,"entries":[…]}}
 ```
+
+**Exit contract: `0` = found · `1` = searched and found nothing · `3` = could not
+search** (no seam was able to look) · `2` = error or confidentiality refusal.
+This is the positive control, and it is the whole reason `searched` is a separate
+field: a seam that looked and found nothing is a quiet week; a seam that *could
+not look* is a broken instrument, and a shape that conflates them reports the
+second as the first forever. **A `3` is an incident, not a quiet run.**
 
 The helper is **recall-biased on purpose** (surface generously; a missed learning
 is worse than a noisy candidate) because the next step is a conservative human-
 gated filter. It makes no judgment and files nothing.
+
+**Legacy invocation.** Bare `dream.py --since … --slug …` (no subcommand) still
+runs session-recall only and emits the old flat JSON, unchanged, for any caller
+that has not moved. New work uses `collect`.
 
 ### c. Judgment (the LLM tick — be conservative)
 
@@ -154,6 +217,73 @@ live corpus these are the dominant false positives: skill docs are full of
 "always / never / confirmed / verified", so the signal patterns light up on them,
 but they encode no new learning. When in doubt, **drop it** — under-proposing is
 cheap, over-proposing is the failure mode.
+
+### c2. Recurrence memory — the two-phase `collect` → `remember` flow
+
+Before `dotfiles-jx71` this loop's **only durable state was `--since`.** It could
+ask *"is this turn durable?"* and never *"has this come up three times?"* — and
+recurrence is what consolidation MEANS.
+
+`refs/dream-memory.jsonl` (sibling of the ledger; path via `--memory`, default
+`<repo>/refs/dream-memory.jsonl`) is that state. One JSON object per learning:
+
+```json
+{"key":"flock-drops-on-fork","gist":"one line, the tick's own words","count":3,
+ "first_seen":"2026-07-19T…","last_seen":"2026-08-07T…",
+ "runs":["run-2026-07-19","run-2026-08-07"],"run_seams":{"run-2026-08-07":["skill-history","offboard-history"]},
+ "seams":["session-recall","skill-history"],"disposition":"observed","beads":["explore-ab1"]}
+```
+
+`disposition` is one of `observed` | `proposed` | `promoted` | `rejected`.
+
+**The flow is two-phase, and the model is the matcher in the middle:**
+
+1. **`collect`** emits `memory_digest` — every existing key, its gist, count, seam
+   list, disposition, and whether it currently clears the bar. Keys and gists
+   ONLY, never bodies.
+2. **You (the tick) judge**, and while judging you match each fresh observation
+   against the digest **semantically** — "this is the same lesson as
+   `flock-drops-on-fork`, worded differently." That is deliberately your job, not
+   the helper's: lexical fingerprinting is brittle and is exactly the keyword-grep
+   failure this bead was filed to fix. Do **not** add it to `dream.py`.
+3. **`remember`** merges the run back:
+
+```bash
+cat > "$SCRATCH/observations.json" <<'EOF'
+{"run_id":"run-2026-08-09","observations":[
+  {"key":"flock-drops-on-fork","gist":"flock silently releases across fork",
+   "seams":["skill-history","offboard-history"],"disposition":"observed"},
+  {"key":"pulse-row-never-null","gist":"…","seams":["session-recall"],
+   "disposition":"proposed","bead":"explore-ab1"}
+]}
+EOF
+python3 "$SKILL_DIR/dream.py" remember --observations "$SCRATCH/observations.json"
+```
+
+It prints what it created/updated and, crucially, **which keys now clear the bar**.
+`--dry-run` computes the merge without writing. Record the human's verdict on a
+later run by re-observing the key with `"disposition":"promoted"` or `"rejected"`.
+
+#### The recurrence bar
+
+A learning qualifies as a **proposal** when EITHER:
+
+- it has been seen in **≥ 2 distinct runs** (recurrence over time), **or**
+- it was seen in **≥ 2 distinct seams within one run** (independent corroboration —
+  the same lesson in a skill diff *and* a FINDINGS correction).
+
+Two standing suppressions, both phantom-backlog guards:
+
+- **`rejected` stays suppressed until its count DOUBLES.** A human said no once;
+  re-asking on the very next sighting is how a propose-only loop trains its
+  reviewer to ignore the channel. Doubling is the evidence bar for re-asking.
+- **`promoted` stays suppressed outright.** Re-proposing shipped work is
+  `project_golem_phantom_backlog` exactly.
+
+The bar is a **filter on what you propose, not on what you record**. Record every
+observation; propose only what clears the bar. A first sighting that is
+overwhelming on its own merits may still be proposed — say so in the bead and note
+that it was below the bar.
 
 ### d. Propose (human-gated) — file a proposal bead, NEVER write MEMORY.md
 
@@ -210,8 +340,13 @@ gate.
 Append **one line per run** to `refs/dream-ledger.jsonl`:
 
 ```json
-{"ts":"2026-07-08T09:00:00Z","row":"dream","since":"2026-07-01T00:00:00Z","slug":"-home-ubuntu-explore","scanned_sessions":12,"window_sessions":3,"candidates":4,"proposals":2,"proposal_beads":["explore-ab1","explore-ab2"],"note":"2 memory proposals filed"}
+{"ts":"2026-07-08T09:00:00Z","row":"dream","since":"2026-07-01T00:00:00Z","slug":"-home-ubuntu-explore","scanned_sessions":12,"window_sessions":3,"seams_searched":5,"seams_requested":5,"candidates":4,"observations":3,"proposals":2,"proposal_beads":["explore-ab1","explore-ab2"],"note":"2 memory proposals filed"}
 ```
+
+**Carry `seams_searched` / `seams_requested` from the `collect` output.** A run
+where they differ searched fewer places than it thinks it did — and that is
+invisible in `candidates` alone, which is the failure the positive control exists
+to surface. `observations` is how many keys the run handed `remember`.
 
 **`row` is MANDATORY and never null.** The canonical row for this loop is
 **`dream`** (declared in the pulse project's routing doc — for
@@ -276,6 +411,17 @@ Read-only: last 5 ledger lines, count of open proposal beads (**both** the
 `dream-proposal` and legacy `recall-distill-proposal` labels — see the warning
 above), and the `since` the next tick would use. No writes.
 
+Add the recurrence state — it is the part a human cannot get from `br list`:
+
+```bash
+python3 "$SKILL_DIR/dream.py" collect --seams=findings-corrections --max-candidates=0 \
+  | jq '.memory_digest | {n_entries, n_qualified,
+        qualified: [.entries[] | select(.qualified) | {key, count, disposition}]}'
+```
+
+(`--seams` is narrowed only to keep `status` fast; the digest is read from
+`--memory` regardless of which seams ran.)
+
 ## Scheduling — WIRED, weekly, Sun 04:13 PT
 
 `pulse-dream.timer` is **enabled** and fires `OnCalendar=Sun *-*-* 04:13:00
@@ -313,7 +459,17 @@ saying "no" before comprehension rot (the cognitive-surrender guard).
 - ❌ **Over-proposing** — a flood of low-signal proposals is worse than none; it
   trains Zig to ignore the channel. Conservative bar; when in doubt, drop.
 - ❌ **Re-proposing shipped learnings** — always dedupe against `MEMORY.md` + open
-  `propose-*` beads first (phantom-backlog guard).
+  `propose-*` beads first (phantom-backlog guard), and honor the `promoted` /
+  `rejected` suppressions in `refs/dream-memory.jsonl`.
+- ❌ **Reading a seam's `found: 0` as a quiet week without checking `searched`** —
+  that is the exact conflation the exit contract exists to break. `searched:false`
+  is a broken instrument; fix it, don't log `done`.
+- ❌ **Running `collect` without `remember`** — a run that judges and never records
+  its observations leaves the loop stateless again, and the recurrence bar can
+  never fire. Both phases or neither.
+- ❌ **Adding lexical fingerprinting to `dream.py` to match observations to
+  memory keys** — the model in the loop does that matching, semantically. A regex
+  matcher here is the keyword-grep limiter, re-introduced one layer up.
 - ❌ **Bare relative ledger path** — anchor to the absolute `$PULSE_DIR` (a durable
   pulse session's cwd drifts; a relative path crosses into another project's
   ledger).
