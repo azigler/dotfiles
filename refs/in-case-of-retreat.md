@@ -29,6 +29,44 @@ What changed: **the pulse migration is done**, and **the data-loss question is a
 
 ---
 
+## ⚠️ READ FIRST — WHERE THE RETREAT IS BEING RUN FROM (2026-08-07 01:5xZ)
+
+**The executing session now lives on zig-computer, `work:retreat`, on the LinearB seat
+(`~/.claude-work`).** It was moved off marketing-vps deliberately, by pushing this
+conversation to the transcripts vault and resuming it here.
+
+That move **resolves the ordering contradiction the earlier draft could not**: while the
+session ran ON marketing-vps, cutting `claude-gateway-tunnel` killed the very session
+that had to run the wipe (fail-hard by `dotfiles-ucl4`). From here, every remaining step
+runs over ssh, and **nothing in Phase 2/3/4 can kill its own executor.**
+
+- The old marketing-vps session is **dead** — its `work` tmux session is gone.
+  ⚠️ `di-fable` (1 window, created 2026-08-05) is **still alive there** and will be taken
+  by the final `tmux kill-server`. Spare it deliberately or accept it.
+- `andrew` was added to **`adm`** on marketing-vps so auth.log is readable without sudo.
+- A login watch ran during the move and died with the old session. Not re-armed (Zig's
+  call, 2026-08-07). Nothing is currently watching that box for logins.
+
+### PHASE 2 — DONE except the two deliberate holds
+
+    lb-granola-pull.timer     disabled
+    imc-pull.timer            disabled
+    vps-repo-refresh.timer    disabled
+    :7100 fleet tunnel        killed (0 listeners)
+    :17017 gateway tunnel     UP, healthy (HTTP 401 = keyless passthrough)
+    claude-gateway-tunnel     ENABLED — held
+    claude-vault-sync         ENABLED — held
+    Linger                    still yes — held
+
+The three holds are ordering, not oversight: `vault-sync` performs the final push,
+`disable-linger` would stop the user manager that runs it, and the gateway is free to
+leave up now that nothing on that box runs `claude`.
+
+⚠️ A `pkill -u andrew -f "ssh .*-L .*7100"` **matched its own shell** and truncated its
+output. Harmless there; remember it before any broader `pkill -f` during the wipe.
+
+---
+
 ## STATE
 
 ### DONE — the migration (the real work that was hiding inside this retreat)
@@ -122,25 +160,70 @@ unique to push) but understand it before relying on that sync elsewhere.
 
 ## WHAT REMAINS — in order. Do not reorder.
 
-### Phase 1 RESCUE — only the non-git dirs are left
-- `scp marketing-vps:'~/marketing-vps/.beads/issues.jsonl'` off; decide where the 6 rows live.
-- Decide `~/work` (11M) and `~/bin` (16K): keep or discard.
+### Phase 1 RESCUE — DONE
+- The 6 orphan beads are off the box: `zig-computer:~/retreat-rescue-mvps-beads.jsonl`,
+  sha `aedf5173` matching both ends. Zig: they are that box's own provisioning story
+  (NOPASSWD grant, dogfooding setup.sh, teammate onboarding) and **die with it** — rescued
+  for the record, not migrated into a live store.
+- `~/work` (11M, 10 tick run dirs) and `~/bin` (16K, `lb-granola-pull.sh` plus a file
+  literally named `vps-repo-refresh.sh.RETIRED-20260801`): **discard** (Zig, 2026-08-06).
 
-### Phase 2 STOP — ⚠️ NEW ORDERING HAZARD
-- Safe now: `lb-granola-pull`, `imc-pull`, `vps-repo-refresh`.
-- **`claude-gateway-tunnel` and `claude-vault-sync` go LAST**, after the final sync and
-  after the last session on this box ends. Disabling the tunnel kills `claude` here by
-  policy (`dotfiles-ucl4` — fail-hard, no fallback), *including the session running the
-  retreat*.
-- `loginctl disable-linger andrew` — Linger=yes, so disabling timers alone is not enough.
-- Kill the two `ssh -L` tunnels (127.0.0.1:7100, :17017), then `tmux kill-server`.
+### Phase 2 STOP — DONE except the three deliberate holds (see the READ FIRST block)
 
-### Phase 3 WIPE
-`~/.claude` (6.7G) · `~/.claude.json*` · `~/.config/gh` · `~/.secrets` · `~/work` ·
-`~/linearb` · `~/dotfiles` · `~/marketing-vps` · `~/bin` · `~/.gnupg` · shell history.
-Then the tooling remainder, or leave it for `userdel -r`.
+### Phase 3 WIPE — the exact order, and WHY each item is where it is
 
-### Phase 4 SEVER — 4a → 4b → 4c → 4d, and the order is the defense
+**Four things must outlive the final sync.** Deleting any of them early breaks it:
+
+| must survive until | because |
+|---|---|
+| `~/dotfiles` | holds `agents/vault/vault-sync.sh` — the sync itself |
+| `~/.claude` | holds `vaults/*.git` AND the `projects/` worktree being pushed |
+| **`~/.config/gh`** | ⚠️ **the push token.** Both vaults use a PER-REPO helper `credential.https://github.com.helper = !gh auth git-credential`, reading `~/.config/gh/hosts.yml`. There is **no** global credential helper — `git config --get credential.helper` returns nothing, which makes this dependency invisible unless you look in the vault repos' own config. Delete gh first and the final push fails on auth. |
+| `claude-vault-sync` + Linger | the user manager that runs the sync |
+
+    1.  bash ~/dotfiles/agents/vault/vault-sync.sh
+        VERIFY BY THE STAMP, NOT THE WORD: `.last-success-{memory,transcripts}` fresh
+        (< VAULT_SYNC_STALE_HOURS=6) AND each vault local == `git ls-remote`.
+        `deferred` + FRESH stamp is HEALTHY (a concurrent run pushed); `deferred` + stale
+        is not. Retry until both tiers prove pushed.
+    2.  systemctl --user disable --now claude-vault-sync.timer     # before deleting what it reads
+    3.  rm -rf  ~/work ~/marketing-vps ~/bin ~/.gnupg ~/.zsh_history   # no dependents
+        rm -rf  ~/linearb                                              # 2.0G, all repos pushed
+        rm -rf  ~/.claude ~/.claude.json*                              # 6.8G, vaults pushed in step 1
+        rm -rf  ~/.secrets ~/.config/gh                                # auth no longer needed
+        rm -rf  ~/dotfiles                                             # 432M — LAST, everything above used it
+        then the tooling remainder (~/.cache ~/.local ~/.npm ~/.nvm ~/.rustup ~/.cargo
+        ~/.bun ~/.oh-my-zsh ~/.antigen) or leave it for `userdel -r`.
+    4.  loginctl disable-linger andrew        # after everything needing the user manager
+        pkill the :17017 gateway tunnel
+        tmux kill-server                      # LAST — also takes di-fable
+
+**~9.3G freed**, of which 6.8G is `~/.claude` — almost entirely Zig's corpus pulled DOWN
+through the vault, not this box's own work.
+
+### Phase 4 SEVER — ⚠️ THE DOCUMENTED ORDER CANNOT COMPLETE. Use `4d → 4a → 4b → 4c`.
+The original says `4a → 4b → 4c → 4d`, but **4d runs `ssh marketing-vps 'sudo …'`** and
+4c deletes zig-computer's outbound key, so by 4d that ssh is already dead. 4a truncating
+`authorized_keys` closes the door too. **Every step that must RUN ON marketing-vps has to
+precede the step that closes the connection.** Corrected order:
+
+    4d  ssh marketing-vps 'sudo rm -f /etc/sudoers.d/90-andrew-nopasswd && sudo visudo -c'
+    4a  ssh marketing-vps 'rm -f ~/.ssh/id_zig_computer* ~/.ssh/known_hosts* ~/.ssh/local; : > ~/.ssh/authorized_keys'
+    4b  on zig-computer: drop the authorized_keys line by COMMENT match ("marketing-vps -> zig-computer")
+    4c  on zig-computer: rm ~/.ssh/id_ed25519*; delete the `Host marketing-vps` block from ~/.ssh/local; ssh-keygen -R 15.204.114.210
+
+Measured trust, both directions (2026-08-06):
+
+    marketing-vps -> zig-computer : ~/.ssh/id_zig_computer + ~/.ssh/local Host block;
+                                    authorized on zig-computer line 8, from="15.204.114.210"
+    zig-computer -> marketing-vps : ~/.ssh/id_ed25519 (zig-computer-build@andrewzigler3),
+                                    referenced ONLY in ~/.ssh/local (0 other Host blocks);
+                                    its public half is the ONLY line in mvps authorized_keys
+
+**Removing zig-computer's `authorized_keys` line is the step that matters** — that is the
+lock. Deleting the key on marketing-vps only removes a copy.
+
+### Phase 4 SEVER — original note retained: the order is the defense
 4a runs ON marketing-vps and needs the connection 4b/4c destroy. **After 4b+4c there is
 no way back in.** 4d (the sudoers drop-in) has the highest blast radius in the plan —
 a malformed `/etc/sudoers.d` locks out kevin, mike and ben too. `sudo visudo -c`, without
@@ -178,3 +261,29 @@ zig-computer and must be **present and running** — they moved, they did not st
 `/home/{ubuntu,kevin,mike,ben}` · sshd config · the firewall · any system service other
 than the one sudoers file in 4d · the GitHub repos · **`~/.hermes/node` on zig-computer**
 (live tick-jail dependency).
+
+---
+
+## MEASUREMENT TRAPS PAID FOR DURING THIS RETREAT — do not re-pay them
+
+Each of these produced a confident WRONG answer before it was caught. They are recorded
+because the next person auditing this box will hit the same ones.
+
+1. **`find` and the slug symlinks.** `~/.claude/projects/-home-andrew-*` are SYMLINKS to
+   `./-home-ubuntu-*`, created by `agents/vault/vps-phase2-symlinks.sh` so an agent whose
+   cwd is `/home/andrew/...` reads the CANONICAL content. `find` does not descend symlinks
+   without **`-L`**, so `find ./-home-andrew-dotfiles -name '*.jsonl'` returns **0** while
+   `ls` shows 404. This produced a false "2,036 unique transcripts at risk" alarm, and
+   before that a false "0 transcripts, nothing at risk" reassurance. **`ls` and `find`
+   disagreeing on one directory is a symlink until proven otherwise.**
+2. **`deferred` is not failure.** See Phase 3 step 1. The summary prints `deferred` even on
+   the healthy path *deliberately*, "so the log never claims a push that did not happen."
+   The stamp is the other half of the test.
+3. **Leading-dash arguments.** Every slug starts with `-`. `grep "$SLUG"`, `find $SLUG`,
+   and `br close -r "-..."` all parse it as a flag. Use `grep -F --`, `find ./-…`, `-r=`.
+4. **`pkill -f` matches its own shell.** Cost a truncated command during Phase 2.
+5. **`ps -eo`/`ps axo` are unreliable on both boxes** (uutils): "conflicting format
+   options" on valid invocations. Read `/proc/<pid>/{cmdline,environ,stat}` instead.
+6. **The seat is the ACCOUNT, not the path.** `~/.claude` is PERSONAL on zig-computer and
+   the LinearB COMPANY seat on marketing-vps. A path-based rule labelled a company session
+   `(me)`. `claude/statusline.sh` now reads `oauthAccount.emailAddress`.
