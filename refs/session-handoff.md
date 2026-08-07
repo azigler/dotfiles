@@ -41,6 +41,14 @@ Conversational decisions not filed as beads: rollout by force-fire not natural f
 gateway routing for the work seat; emptied-but-present end state; `--session work` not
 `zig-computer`; drop the 3 stale skills-library commits; leave the unidentified ecdsa key.
 
+## Filed after the first offboard (this note was re-written 2026-08-07)
+
+- **`dotfiles-effn`** — the six silent-wrong-answer tool idioms, see Watch-outs.
+- **`dotfiles-vhys`** — the unidentified ecdsa key, below.
+- memory `feedback-on-the-record-means-a-bead`, indexed in `MEMORY.md`.
+- `dotfiles-9o46` appears in the decision harvest for this span but belongs to the
+  **marketing-vps session**, not this one.
+
 ## OPEN — and the first one is the only security item
 
 1. **`dotfiles-vhys` — an UNIDENTIFIED ecdsa key has unrestricted inbound access to
@@ -70,16 +78,21 @@ closed, every one of which had green mechanical gates.
 
 ## Watch-outs
 
-- **`rm` is aliased to `rm -iv`** — it hung a command for 5 minutes waiting for a `y`.
-  Use `command rm -f` non-interactively.
-- **`pkill -f` matches its own shell.** Truncated a Phase 2 command.
-- **`find` does not follow symlinks without `-L`** — `~/.claude/projects/-home-andrew-*`
-  are symlinks to `./-home-ubuntu-*`. This produced BOTH a false all-clear and a false
-  2,036-transcript alarm before it was understood.
-- **`deferred` in the vault ledger is HEALTHY when the stamp is fresh** (`STALE_HOURS=6`).
-  The word is printed deliberately so the log never claims a push that did not happen.
+**→ `dotfiles-effn` is the record.** Six tool idioms on this fleet that return a confident
+WRONG answer instead of an error — `find` without `-L` on the project-slug symlinks,
+`deferred` in the vault ledger, `rm` aliased to `-iv`, self-matching `pkill -f`,
+leading-dash arguments, and uutils `ps`. Each with the wrong answer it actually produced
+and the correct form. Cross-referenced from `dotfiles-cxle`, its consumer-side twin.
+
+*This section used to duplicate that list. Zig's correction, 2026-08-07: a durable finding
+belongs in a queryable bead, and prose points AT it rather than copying it — a handoff is
+overwritten by the next `/offboard`, so anything only recorded here is already half-lost.
+Filed as memory `feedback-on-the-record-means-a-bead`.*
+
+Session-specific, not in that bead:
+
 - **The seat is the ACCOUNT, not the path** — `~/.claude` is personal on zig-computer and
   the LinearB seat on marketing-vps. A path-based statusline rule labelled a company
-  session `(me)`; Zig caught it.
+  session `(me)`; Zig caught it. Fixed in `b0b95da`; the reasoning is in the script.
 - **The recurring shape, five days running:** every defect had green mechanical gates, and
   the tell was always silence rather than error.
