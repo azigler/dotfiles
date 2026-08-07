@@ -354,7 +354,8 @@ and word count. Measured on Qwen 2026-08-04: a valid slug renders
 `article.post-single` with a real title and `5068 words`; a bogus one renders
 the site shell with **no title**, `undefined minute · 0 words`, and **today's
 date** — a date field that is always today is never a publication date. The
-per-lab traps live in `~/explore/refs/sources/ai-research-labs.json`.
+per-lab traps live in `~/digestd/refs/sources/ai-research-labs.json` (the source
+registries moved out of `~/explore` with the digest on 2026-08-07, `explore-9nk4`).
 
 If a fetch fails (403, 401, 404, partial body):
 
