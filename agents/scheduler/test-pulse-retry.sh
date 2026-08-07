@@ -127,6 +127,11 @@ exit 0
 LWEOF
   chmod +x "$PRT_FAKE/ledger-watch"
   export PULSE_LEDGER_WATCH="$PRT_FAKE/ledger-watch"
+  # The watcher is DISABLED by default in pulse-retry.sh (dotfiles-sxsv blocks it —
+  # the queue's injected command is remote-only and tells the receiving session to
+  # land a ledger row that a LOCAL tick has already written). These cases exercise the
+  # WIRING, so they force it on; the default-off behavior gets its own case below.
+  export PULSE_LEDGER_WATCH_ENABLE=1
 }
 drain_calls() { [ -f "$PRT_FAKE/drain-calls" ] && wc -l < "$PRT_FAKE/drain-calls" | tr -d ' ' || echo 0; }
 watch_calls() { [ -f "$PRT_FAKE/watch-calls" ] && wc -l < "$PRT_FAKE/watch-calls" | tr -d ' ' || echo 0; }
@@ -446,6 +451,23 @@ if [ "$RC" = 0 ] && [ "$(started_count)" = "1" ] && [ "$(drain_calls)" = "1" ]; 
   ok
 else
   bad "an absent ledger-watch script breaks neither the drain nor the retry (rc=$RC starts=$(started_count) drains=$(drain_calls))"
+fi
+
+# Case 18 (dotfiles-sxsv): the watcher is OFF BY DEFAULT and the drain still runs.
+#   Every other watcher case forces PULSE_LEDGER_WATCH_ENABLE=1, so without this one
+#   the suite would pass identically whether the kill switch worked or not — the
+#   disable would be untested and could be silently undone.
+#   It is disabled because pulse-surface-queue.sh's injected command is hardcoded for
+#   the REMOTE dispatcher: it tells the receiving session to "land the ledger row",
+#   which a LOCAL tick has ALREADY written. The duplicate row carries a fresh ts, the
+#   next run reads it as new, and the announcement re-stages itself forever.
+setup_case
+unset PULSE_LEDGER_WATCH_ENABLE
+"$RETRY"; RC=$?
+if [ "$RC" = 0 ] && [ "$(watch_calls)" = "0" ] && [ "$(drain_calls)" = "1" ]; then
+  ok
+else
+  bad "the ledger watch is OFF by default while the drain still runs (rc=$RC watch=$(watch_calls) drains=$(drain_calls))"
 fi
 
 # --- Summary ---
