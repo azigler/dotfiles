@@ -104,9 +104,10 @@ in one session before this was written down (`explore-0og4`).
 
 ## Effort — choose it per dispatch (this is where effort is decided)
 
-The session sits at `high` and stays there; **the dispatch is the only
-place effort moves** (see AGENTS.md "Effort"). Pick it consciously every
-time:
+The policy, the mechanism, and the per-model envelope table are owned by
+AGENTS.md "Effort" — read them there; a copy here would rot against a
+measurement that moves with every model and client bump. **The dispatch is
+the only place effort moves**, so pick it consciously every time:
 
 - **high** — the default. Leave it alone unless you can name the reason.
 - **xhigh** — a research / exploration / divergent or multi-tool dispatch
@@ -116,19 +117,11 @@ time:
 - **medium / low** — mechanical, well-specified edits; queue-draining and
   bookkeeping subagents.
 
-⚠️ **Never escalate a dispatch that calls WebSearch.** On Opus 5,
-`xhigh`/`max` returns a 400 whenever thinking is disabled, and Claude Code
-disables thinking on the WebSearch path — the searching agent silently
-loses search and answers from in-weights knowledge. Search-shaped
-dispatches stay at `high`.
-
-Mechanism: the plain **`Agent` tool has no effort param** — a bare dispatch
-**inherits the session level** (`$CLAUDE_EFFORT`, i.e. `high`). To run a
-subagent at `xhigh`/`max` you must use a **Workflow** `agent(prompt,
-{effort:'max'})`. That constraint is the feature: escalation is scoped to
-the one step that needs it. **Name why** ("max effort: divergent
-ideation") and state the intended effort in the dispatch note so it's a
-recorded decision.
+**Name why** ("max effort: divergent ideation") and state the intended
+effort in the dispatch note, so it is a recorded decision. Escalating a
+search-shaped dispatch above `high` was once a silent search-killer; that
+finding is REVISED, not deleted — check the envelope table before relying
+on either the presence or the absence of the failure.
 
 ## Type-specific additions
 

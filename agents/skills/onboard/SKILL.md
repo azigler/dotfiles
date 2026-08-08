@@ -220,26 +220,23 @@ If the project uses a different pipeline, follow its `CLAUDE.md`.
 
 Every session must start *conscious of its effort*. The session level is
 `high` and stays there; intelligence above that is bought **per dispatch**,
-not by moving the session (see AGENTS.md "Effort").
+not by moving the session. AGENTS.md "Effort" owns the policy, the
+mechanism, and the per-model envelope table — read them there, and do not
+carry a copy in this skill.
 
 ```bash
 echo "${CLAUDE_EFFORT:-high}"   # the interactive session's effort level
 ```
 
-- **`high` is correct — say so and move on.** It is the vendor default on
-  Opus 5 (identical to omitting the parameter). Do not ask Zig to bump
-  it, for divergent work or any other reason.
-- **⚠️ Anything ABOVE `high` is the anomaly to flag.** At `xhigh`/`max`,
-  Opus 5 returns a 400 on any request with thinking disabled — which is
-  the path Claude Code uses for **WebSearch**. A session sitting there has
-  no working web search, and the failure is silent. If `$CLAUDE_EFFORT`
-  reads `xhigh` or `max`, surface it to Zig (AskUserQuestion) and ask
-  him to set it back to `high` before doing research-shaped work.
+- **`high` is correct — say so and move on.** It is the vendor default,
+  identical to omitting the parameter.
+- **Anything above `high` gets a line in the orientation summary** — report
+  the reading and check the envelope table before research-shaped work,
+  rather than treating it as an anomaly to escalate.
 - **Escalate the step, not the session.** When one delegated step needs
   more than `high` — a divergent ideation pass, a frontier synthesis — run
   *that dispatch* through a **Workflow `agent(…, {effort:'xhigh'|'max'})`**;
   the bare `Agent` tool has no effort param and inherits the session level.
-  Never escalate a step that calls WebSearch.
 - **Mechanical / well-specified / convergent** work can go *down* to
   `medium`/`low` on its dispatches. Spending less there funds the moments
   that deserve `max`.

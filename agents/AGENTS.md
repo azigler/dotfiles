@@ -36,37 +36,45 @@ again, so check `tailscale status` rather than assuming membership.
 
 ## Effort — a per-dispatch choice, not a session setting
 
-The **session stays `high`** — the vendor default on Opus 5, identical to omitting
-the parameter. Escalate a single step through a Workflow
+An effort level is a **calibration of one model on one client version, not a
+constant** — re-measure (`/ab`) when either moves. This table is the only
+authority; a model with no row is unmeasured, so **don't pin it above `high`**.
+
+| Model, on CLI 2.1.226 | `low`–`max`, no tools | WebSearch at `high`/`xhigh`/`max` |
+|---|---|---|
+| `claude-fable-5` | all pass | real search at all three |
+| `claude-opus-5` | all pass | real search at all three |
+| anything else | unmeasured — stay at `high` | unmeasured — stay at `high` |
+
+15 cells, both models, gateway and direct, 2026-08-08 — `dotfiles-8eod`,
+`refs/probes/fable5-envelope-2026-08-08.md`.
+
+The **session stays `high`** — the vendor default, identical to omitting the
+parameter. Escalate a single step through a Workflow
 `agent(…, {effort:'xhigh'|'max'})`; the plain `Agent` tool has **no** effort
 parameter, so a dispatched agent inherits the session level. Reserve `max` for
 genuinely generative moments (`/elevate`, `/desk`, foundational design); use
-`low`/`medium` liberally for mechanical work — on Opus 5 the low end is strong, and
-the cheap lever is always **lower effort with thinking ON, never thinking off**.
-Name any escalation, and why, in the dispatch note.
+`low`/`medium` liberally for mechanical work — the low end is strong on
+current-generation models, and the cheap lever is always **lower effort with
+thinking ON, never thinking off**. Name any escalation, and why, in the dispatch note.
 
-⚠️ **The Opus 5 400 — why the session never goes above `high`.** Opus 5 rejects
-`output_config.effort` of `xhigh`/`max` whenever **thinking is disabled**:
-
-```
-400 output_config.effort 'xhigh' is not supported when thinking is
-disabled on this model. Use effort 'high' or below, or enable thinking.
-```
-
-Claude Code disables thinking on the **WebSearch** path — so a session pinned above
-`high` has **no working web search on Opus 5**. Verified by controlled A/B
-(2026-07-25) and confirmed first-party by the Opus 5 prompting guide's *"thinking
-can be disabled only at effort `high` or below."* **In a scheduled loop this failure
-is silent**: the tick doesn't error, it answers from in-weights knowledge and logs
-`done`, and the finding is quietly stale.
-
-An effort level tuned on one model is a calibration, not a constant — re-measure
-(`/ab`) when the fleet's default model changes.
+⚠️ **REVISED 2026-08-08 — "the Opus 5 400" no longer reproduces.** *The original
+finding, 2026-07-25, kept as history:* Opus 5 rejected `output_config.effort` of
+`xhigh`/`max` whenever **thinking was disabled** (`400 … not supported when thinking
+is disabled on this model`), and Claude Code disabled thinking on the **WebSearch**
+path — so a session pinned above `high` had no working web search; the Opus 5
+prompting guide corroborated it (*"thinking can be disabled only at effort `high` or
+below"*). `dotfiles-8eod` re-ran that reproduction on CLI 2.1.226 and could not get
+it: real searches in every cell, gateway and direct, with genuine thinking blocks
+present during an `xhigh` WebSearch turn. N=1 per cell, so this retires the
+prohibition, not the caution — **re-test before relying on the presence OR the
+absence of the failure**, because that failure is silent: a tick without search does
+not error, it answers from in-weights knowledge and logs `done`.
 
 ## Verification — no self-checking, but always evidence at the checkpoint
 
-Never tell an agent to double-check its own work mid-task; Opus 5 does that natively
-and the instruction can degrade output. **Do** require evidence at every checkpoint —
+Never tell an agent to double-check its own work mid-task; current-generation models
+do that natively and the instruction can degrade output. **Do** require evidence at every checkpoint —
 a command run, a number re-derived, an artifact curled, a target re-read after a
 write. That is empirical evidence-gathering, not self-checking, and it is the only
 thing between "it ran" and "it's right"; dropping it looks like a token saving and
@@ -192,9 +200,9 @@ commit conventions, and bead tracking. Built-in types (`Explore`, `Plan`, …) a
 fire-and-forget worktree subagents so they self-terminate; naming one makes a
 lingering teammate with no force-kill.
 
-Opus 5 delegates, expands scope, and writes long files more readily than its
-predecessors — so in every dispatch **cap the spawns, name the out-of-scope adjacent
-work ("file a bead, don't do it"), and state an expected output length.**
+Current-generation models delegate, expand scope, and write long files more readily
+than their predecessors — so in every dispatch **cap the spawns, name the out-of-scope
+adjacent work ("file a bead, don't do it"), and state an expected output length.**
 
 ⚠️ **CROSS-REPO DISPATCH IS NOT ISOLATED — SERIALIZE IT YOURSELF**
 (`dotfiles-xype`, 2026-07-27). The worktree is cut from the **orchestrator's** repo.

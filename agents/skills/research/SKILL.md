@@ -366,9 +366,10 @@ been doing FOR you — catching things like:
   "blocker" → "documented limitation with workaround")
 
 **Route this pass to an independent reviewer — do not run it on
-yourself.** What the pass needs is not more care (Opus 5 already
-re-reads its own output natively, and Anthropic's Opus 5 prompting
-guide says to stop spending prompt tokens instructing it to). What it
+yourself.** What the pass needs is not more care (current-generation
+models already re-read their own output natively, and Anthropic's
+prompting guides say to stop spending prompt tokens instructing them
+to). What it
 needs is **disinterest**: the agent that produced the finding is the
 one with a stake in it holding. See Option A below.
 
