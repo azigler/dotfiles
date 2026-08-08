@@ -80,7 +80,9 @@ no investment in the result.
 > no investment, skeptical-by-default) — not model choice. A **different
 > model** is a *supplementary* lever worth reaching for on high-stakes or
 > repeatedly-passed work (it breaks shared blind spots the same model
-> keeps); run it via a Workflow `agent(…, {model:'sonnet'|…})`. Don't
+> keeps); run it via a Workflow `agent(…, {model:'sonnet'|…})`, or pass
+> `model:` on a plain `Agent` call — AGENTS.md "Effort and model" owns the
+> allocation policy and the alias seams. Don't
 > treat model-swap as the headline — fresh-context adversarial separation
 > is (Loop Engineering §V.B: model-swap "too helps," it isn't the core).
 

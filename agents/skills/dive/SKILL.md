@@ -60,13 +60,11 @@ Default to **report-only** unless the user explicitly asks for an archive or a p
 ## Effort — search at `high`, brainstorm HOTTER
 
 - **Run the research at `high`** — the session default, and the vendor
-  default on Opus 5. **Do NOT escalate the search/fetch fan-out.** Opus 5
-  returns `400 … effort 'xhigh' is not supported when thinking is disabled`
-  and Claude Code disables thinking on the **WebSearch** path, so a
-  searching step raised to `xhigh`/`max` loses search entirely — and loses
-  it *silently*, answering from in-weights knowledge instead. For the skill
-  whose whole job is searching, escalating the search step is the one move
-  that breaks it. (See AGENTS.md "Effort".)
+  default. **Do NOT escalate the search/fetch fan-out**: there is no
+  measured upside, and escalating it once killed search outright and
+  *silently*, the searching step answering from in-weights knowledge. That
+  failure is REVISED, not deleted — AGENTS.md "Effort" holds the per-model
+  envelope table and the dated history. Read it there, not from a copy here.
 - **Add a divergent `max`-effort ideation pass.** Beyond cataloguing "what
   is this," every archival exploration gets a fresh, **max**-effort
   brainstorm — *"what's the novel opportunity here — an ENTIRELY NEW idea
