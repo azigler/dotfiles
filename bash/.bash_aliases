@@ -85,8 +85,8 @@ ftext ()
 }
 
 # Better defaults
-alias dir="ls -C -b"
-alias vdir="ls -l -b"
+alias dir="ls -C --escape"
+alias vdir="ls -l --escape"
 alias grep="grep --color=auto"
 alias cp='cp -i'
 alias mv='mv -i'

@@ -244,9 +244,6 @@ sync() {
             sync_source "$SCRIPT_DIR/yabai/yabairc" "$HOME/.config/yabai/yabairc"
             sync_source "$SCRIPT_DIR/yabai/yabairc" "$HOME/.yabairc"
             ;;
-        "yarn")
-            sync_source "$SCRIPT_DIR/yarn/.yarnrc" "$HOME/.yarnrc"
-            ;;
         "zsh")
             sync_source "$SCRIPT_DIR/zsh/ohmyzsh" "$HOME/.oh-my-zsh"
             [[ ! -f "$SCRIPT_DIR/zsh/.$(hostname -s).zsh" ]] || sync_source "$SCRIPT_DIR/zsh/.$(hostname -s).zsh" "$HOME/.$(hostname -s).zsh"
