@@ -32,15 +32,12 @@ antigen bundle gh
 antigen bundle git
 antigen bundle gpg-agent
 antigen bundle jsontools
-antigen bundle multipass
 antigen bundle npm
 antigen bundle nvm
 antigen bundle pip
 antigen bundle systemadmin
 antigen bundle tmux
-antigen bundle vscode
 antigen bundle web-search
-antigen bundle yarn
 
 antigen bundle zsh-users/zsh-autosuggestions
 antigen bundle zsh-users/zsh-completions

@@ -14,7 +14,11 @@ alias folders="du -h --max-depth=1"
 alias mountedinfo="df -hT"
 alias checkcommand="type -t"
 alias openports='ss -nape --inet'
-alias logs="sudo find /var/log -type f -exec file {} \; | grep 'text' | cut -d' ' -f1 | sed -e's/:$//g' | grep -v '[0-9]$' | xargs tail -f"
+# tty-guarded: sudo/prompt aliases hang (not error) when run non-interactively
+# (e.g. the harness's Bash tool) — see dotfiles-effn #3. Only defined in a real
+# interactive, tty-attached shell, so Zig's habits are unaffected and a
+# non-interactive caller falls through to the real, non-prompting command.
+[[ -o interactive && -t 0 ]] && alias logs="sudo find /var/log -type f -exec file {} \; | grep 'text' | cut -d' ' -f1 | sed -e's/:$//g' | grep -v '[0-9]$' | xargs tail -f"
 alias countfiles="for t in files links directories; do echo \`find . -type \${t:0:1} | wc -l\` \$t; done 2> /dev/null"
 
 # Navigation aliases
@@ -81,22 +85,22 @@ ftext ()
 }
 
 # Better defaults
-alias dir="ls -C -b"
-alias vdir="ls -l -b"
+alias dir="ls -C --escape"
+alias vdir="ls -l --escape"
 alias grep="grep --color=auto"
 alias cp='cp -i'
 alias mv='mv -i'
-alias rm='rm -iv'
+[[ -o interactive && -t 0 ]] && alias rm='rm -Iv'
 alias mkdir='mkdir -p'
-alias ps='ps auxf'
+alias psf='ps auxf'
 alias ping='ping -c 10'
 alias less='less -R'
 alias cls='clear'
-alias apt-get='sudo apt-get'
+[[ -o interactive && -t 0 ]] && alias apt-get='sudo apt-get'
 alias multitail='multitail --no-repeat -c'
 alias freshclam='sudo freshclam'
 alias vi='vim'
-alias svi='sudo vi'
+[[ -o interactive && -t 0 ]] && alias svi='sudo vi'
 alias vis='vim "+set si"'
 
 cd ()
@@ -145,6 +149,15 @@ fi
 # Machine-local server aliases (UNTRACKED, per-box: e.g. `zig-computer` ->
 # ssh to the box). Guarded, so this is a no-op on any machine without the
 # file — which is why it costs upstream nothing to keep.
+#
+# Contract: $HOME/.servers.bash_aliases is NOT synced or created by sync.sh —
+# there is no "servers" case for it. It is a plain, manually-created file (or
+# a manually-made symlink to a gitignored `bash/.servers.bash_aliases` in this
+# repo, matched by the bare `.servers.bash_aliases` entry in .gitignore, if you
+# want it repo-adjacent). Create it by hand on any box that wants server
+# aliases; a box without one just skips this block (dotfiles-np0b removed a
+# dangling leftover symlink here that pointed at a target which had never
+# actually been created on this machine).
 #
 # This line was DROPPED in the 723-commit fast-forward on 2026-08-01 (the
 # local version of this file sourced it; origin's sourced ~/.secrets instead,

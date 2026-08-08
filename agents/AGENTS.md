@@ -126,6 +126,12 @@ silently taking the other writer's work**. `pre-shared-tree-guard.sh` blocks the
 destructive verbs while another writer is provably mid-run, and its block message
 carries the measurements; outside that window the verbs are yours, the idiom is not.
 
+This rule is now also **mechanical, not just prose**: `git/.gitconfig` sets
+`pull.rebase=false` and `rebase.autoStash=false`, so a bare `git pull` cannot
+silently rebase or autostash even if the idiom above is forgotten
+(`dotfiles-ofql`). `merge.conflictstyle=zdiff3` and `rerere.enabled=true` are
+free wins on top — clearer conflict markers and remembered resolutions.
+
 ## Secrets never go in memory (or notes) — reference them, don't paste them
 
 A literal secret (API key, OAuth/bearer/refresh token, password, private key) must
