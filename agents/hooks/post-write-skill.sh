@@ -17,6 +17,16 @@ esac
 
 [ -f "$FILE_PATH" ] || exit 0
 
+# Shared agents-tier resolver (dotfiles-tm0w) — see agents/lib/agents-root.sh.
+# Used below to find AGENTS.md for the cross-reference check so a demesne-
+# split move doesn't silently disarm it. Fail-open to the pre-fix hardcoded
+# path if the lib itself is missing, but say so — never silently.
+if ! source "$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")/lib/agents-root.sh" 2>/dev/null \
+   || ! declare -F agents_root >/dev/null; then
+  echo "post-write-skill: cannot load lib/agents-root.sh — agents-tier resolution degraded to the hardcoded fallback path." >&2
+  agents_root() { [ -d "$HOME/dotfiles/${1:-agents}" ] && printf '%s\n' "$HOME/dotfiles/${1:-agents}"; }
+fi
+
 WARNINGS=""
 
 # 1. Frontmatter present?
@@ -80,11 +90,22 @@ fi
 # the front of a heading and drops its em-dash tail — `AGENTS.md "Effort"`
 # against `## Effort — a per-dispatch choice, not a session setting`.
 AGENTS_MD=""
+# dotfiles-tm0w: resolve the fleet-wide AGENTS.md through agents_root()
+# rather than a hardcoded $HOME/dotfiles path, so a demesne-split move can't
+# silently disarm this check. AGENTS_ROOT_UNRESOLVED is reported below
+# unconditionally — a target that resolves NOWHERE must be LOUD, independent
+# of whether this particular file happens to cite AGENTS.md.
+_AR=$(agents_root 2>/dev/null); AGENTS_ROOT_UNRESOLVED=$?
 for _cand in \
   "$(dirname "$(dirname "$(dirname "$FILE_PATH")")")/AGENTS.md" \
-  "$HOME/dotfiles/agents/AGENTS.md"; do
-  if [ -f "$_cand" ]; then AGENTS_MD="$_cand"; break; fi
+  "${_AR:+$_AR/AGENTS.md}"; do
+  [ -n "$_cand" ] && [ -f "$_cand" ] && { AGENTS_MD="$_cand"; break; }
 done
+
+if [ "$AGENTS_ROOT_UNRESOLVED" -ne 0 ]; then
+  WARNINGS="${WARNINGS}- agents_root() could not resolve an agents-tier root (checked ~/.agents for real tier content, then \$HOME/dotfiles/agents) — the fleet AGENTS.md fallback for citation checks is unavailable
+"
+fi
 
 CITATIONS=$(grep -oE 'AGENTS\.md[^"]{0,4}"[^"]+"' "$FILE_PATH" 2>/dev/null \
             | sed 's/.*"\(.*\)"/\1/')

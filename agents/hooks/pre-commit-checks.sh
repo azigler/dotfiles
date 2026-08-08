@@ -43,6 +43,17 @@ if ! source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/scrutiny-verdic
     return 1
   }
 fi
+
+# Shared agents-tier resolver (dotfiles-tm0w) — see agents/lib/agents-root.sh.
+# Used below by the ledger-lint fallback so a demesne-split move doesn't
+# silently disarm the schema gate. Fail-open to the pre-fix hardcoded path if
+# the lib itself is missing (an even bigger break than what it fixes), but say
+# so — never silently.
+if ! source "$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")/lib/agents-root.sh" 2>/dev/null \
+   || ! declare -F agents_root >/dev/null; then
+  echo "pre-commit-checks: cannot load lib/agents-root.sh — agents-tier resolution degraded to the hardcoded fallback path." >&2
+  agents_root() { [ -d "$HOME/dotfiles/${1:-agents}" ] && printf '%s\n' "$HOME/dotfiles/${1:-agents}"; }
+fi
 [ -z "$SKEL" ] && SKEL="$COMMAND"
 
 # Block overly-broad git add at ANY time, not just when chained with commit.
@@ -480,7 +491,16 @@ if [ -n "$LEDGERS" ] && [ -n "$GIT_TOPLEVEL" ] && command -v python3 &>/dev/null
     if [ -f "$GIT_TOPLEVEL/agents/scheduler/pulse-ledger-lint.py" ]; then
       LEDGER_LINT="$GIT_TOPLEVEL/agents/scheduler/pulse-ledger-lint.py"
     else
-      LEDGER_LINT="$HOME/dotfiles/agents/scheduler/pulse-ledger-lint.py"
+      # dotfiles-tm0w: resolve through the shared agents-tier indirection
+      # rather than a hardcoded $HOME/dotfiles path, so a demesne-split move
+      # doesn't silently disarm this gate.
+      _AR=$(agents_root 2>/dev/null)
+      if [ -n "$_AR" ] && [ -f "$_AR/scheduler/pulse-ledger-lint.py" ]; then
+        LEDGER_LINT="$_AR/scheduler/pulse-ledger-lint.py"
+      else
+        echo "Note: pulse-ledger-lint.py not found in-repo, and agents_root() ${_AR:+resolved to '$_AR' but the file is missing there}${_AR:-could not resolve an agents-tier root at all (checked ~/.agents and \$HOME/dotfiles/agents)} — the ledger schema gate is DISARMED for this commit (dotfiles-tm0w)." >&2
+      fi
+      unset _AR
     fi
   fi
   if [ -f "$LEDGER_LINT" ]; then

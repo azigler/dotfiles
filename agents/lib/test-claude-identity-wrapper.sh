@@ -366,6 +366,39 @@ check 'T12 [case 4u] armed hatch strips inherited base URL with no headers at al
 check 'T12b [case 4u] still no header var' '<UNSET>' "$(got_hdrs)"
 assert_launch 'T12 [case 4u]'
 
+# --- T13/T14 [dotfiles-tm0w]: agents_root() resolution is LOUD on failure,
+# silent on success ----------------------------------------------------------
+# The wrapper's load-time sourcing of tmux-pane-resolve.sh now goes through
+# the shared agents_root() resolver (agents/lib/agents-root.sh) rather than a
+# hardcoded $HOME/dotfiles path. Neither $FAKEHOME above IS this: it has no
+# ~/.agents and no ~/dotfiles/agents, so every run() call already exercises
+# the loud-failure path (visible as stderr noise throughout this suite's
+# output) — but nothing until now ASSERTED it. These two cases pin both ends.
+
+# T13: agents_root() unresolvable (bare, empty $HOME) -> a named, loud stderr
+# note, not silence.
+t13err=$(env -i HOME="$TMPROOT/t13-void" PATH="$MOCKDIR:/usr/bin:/bin" \
+          "$SH" -c '. "$0"' "$WRAPPER" 2>&1 1>/dev/null)
+case "$t13err" in
+  *"tmux-pane-resolve.sh not found via agents_root()"*) pass 'T13 [dotfiles-tm0w] agents_root() unresolvable -> loud stderr note' ;;
+  *) fail 'T13 [dotfiles-tm0w] agents_root() unresolvable -> loud stderr note' \
+       '*tmux-pane-resolve.sh not found via agents_root()*' "$t13err" ;;
+esac
+
+# T14: the fallback candidate DOES resolve ($HOME/dotfiles/agents/lib/tmux-
+# pane-resolve.sh present) -> silent, no warning at all.
+T14HOME="$TMPROOT/t14-resolves"
+mkdir -p "$T14HOME/dotfiles/agents/lib"
+: > "$T14HOME/dotfiles/agents/lib/tmux-pane-resolve.sh"
+t14err=$(env -i HOME="$T14HOME" PATH="$MOCKDIR:/usr/bin:/bin" \
+          "$SH" -c '. "$0"' "$WRAPPER" 2>&1 1>/dev/null)
+if [ -z "$t14err" ]; then
+  pass 'T14 [dotfiles-tm0w] agents_root() resolves via $HOME/dotfiles fallback -> silent'
+else
+  fail 'T14 [dotfiles-tm0w] agents_root() resolves via $HOME/dotfiles fallback -> silent' \
+    '<empty>' "$t14err"
+fi
+
 echo
 if [ "$FAILS" -eq 0 ]; then echo "ALL PASS ($SH)"; else echo "$FAILS FAILURE(S) ($SH)"; fi
 

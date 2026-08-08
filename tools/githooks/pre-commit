@@ -103,6 +103,7 @@ mapped_suites_for() { # <staged path> -> newline-separated suite paths
       printf '%s\n' \
         agents/hooks/test/test-session-start-merge-driver.sh \
         agents/hooks/test/test-session-start-settings-symlink.sh \
+        agents/hooks/test/test-session-start-symlink-triple.sh \
         agents/hooks/test/test-secret-alert.sh \
         agents/hooks/test/test-always-loaded-staleness.sh ;;
     agents/hooks/session-end.sh)

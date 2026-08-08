@@ -303,6 +303,45 @@ else
   bad "this test mutated the REAL $REAL_TICK ($REAL_TICK_STATE_BEFORE -> $REAL_TICK_STATE_AFTER)"
 fi
 
+# ============================================================================
+# dotfiles-tm0w: the tracked-template lookup goes through agents_root(claude)
+# now, not a hardcoded $HOME/dotfiles/claude path. Two cases: total resolution
+# failure must be LOUD (not silently skip the diagnostic), and the everyday
+# $HOME/dotfiles fallback (already exercised by every case above, since
+# new_home() only ever populates $fh/dotfiles/claude/) must keep working.
+# ============================================================================
+
+# --- 16. no tracked template ANYWHERE (no ~/.agents, no ~/dotfiles/claude) --
+#     -> still warns about the broken symlink, but says explicitly that the
+#     key-diff could not run, naming why (agents_root() found nothing) rather
+#     than silently omitting the "Diverged keys" / "No key differences" lines.
+FH=$(mktemp -d "$BASE/home.XXXXXX")
+mkdir -p "$FH/.claude"
+printf '%s\n' '{"model":"opus","env":{"ANTHROPIC_BASE_URL":"http://live-proxy"}}' \
+  > "$FH/.claude/settings.json"
+OUT=$(run_hook "$FH")
+echo "$OUT" | grep -q 'not a symlink' \
+  && ok || bad "no template anywhere: still warns about the broken symlink"
+echo "$OUT" | grep -q 'could not diff the keys' \
+  && ok || bad "no template anywhere: names that the key-diff could not run"
+echo "$OUT" | grep -qF 'agents_root()' \
+  && ok || bad "no template anywhere: cites agents_root() as the thing that found nothing"
+if echo "$OUT" | grep -q 'Diverged keys'; then
+  bad "no template anywhere: must not fabricate a key-diff with nothing to diff against"
+else
+  ok
+fi
+
+# --- 17. the everyday case: template found via the \$HOME/dotfiles fallback -
+#     Every case above already exercises this (new_home() only ever populates
+#     $fh/dotfiles/claude/), so this just makes the assertion explicit: the
+#     resolver's fallback tier is what is under test here, not a fluke of the
+#     other cases' fixtures.
+FH=$(new_home regular)
+OUT=$(run_hook "$FH")
+echo "$OUT" | grep -q 'Diverged keys' \
+  && ok || bad "dotfiles fallback: key-diff runs when \$HOME/dotfiles/claude/settings.json exists"
+
 # --- Summary ---
 cleanup_proj
 TOTAL=$((PASS + FAIL))

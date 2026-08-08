@@ -161,7 +161,24 @@ fi
 # invariant is ALREADY broken, so a healthy session pays nothing measurable.
 if ! $IN_WORKTREE; then
   _ST_LIVE="$HOME/.claude/settings.json"
-  _ST_TMPL="$HOME/dotfiles/claude/settings.json"
+  # dotfiles-tm0w: resolve the tracked template through the shared agents-tier
+  # resolver (agents/lib/agents-root.sh) rather than a hardcoded $HOME/dotfiles
+  # path, so a demesne-split move doesn't silently disarm this diagnostic. This
+  # is the diagnostic's own read of the TEMPLATE for comparison purposes —
+  # NOT the ~/.claude/settings.json symlink's target, which stays dotfiles-
+  # retarget-claude-symlinks-860z's job. Fail-open to the pre-fix hardcoded
+  # path if the lib itself is missing, but say so — never silently.
+  if ! source "$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")/lib/agents-root.sh" 2>/dev/null \
+     || ! declare -F agents_root >/dev/null; then
+    echo "session-start: cannot load lib/agents-root.sh — agents-tier resolution degraded to the hardcoded fallback path." >&2
+    agents_root() { [ -d "$HOME/dotfiles/${1:-agents}" ] && printf '%s\n' "$HOME/dotfiles/${1:-agents}"; }
+  fi
+  if _ST_AR=$(agents_root claude 2>/dev/null); then
+    _ST_TMPL="$_ST_AR/settings.json"
+  else
+    _ST_TMPL="$HOME/dotfiles/claude/settings.json"
+  fi
+  unset _ST_AR
   if [ -e "$_ST_LIVE" ] && [ ! -L "$_ST_LIVE" ]; then
     echo ""
     echo "⚠ ~/.claude/settings.json is a REGULAR FILE, not a symlink to dotfiles."
@@ -187,6 +204,12 @@ if ! $IN_WORKTREE; then
         # the two files not parsing is itself worth knowing about.
         echo "  (could not diff the keys — one of the files is not valid JSON; see $LOG)"
       fi
+    elif [ ! -f "$_ST_TMPL" ]; then
+      # dotfiles-tm0w: a target that resolves NOWHERE must be LOUD — "I could
+      # not check" must never render the same as "no differences found".
+      echo "  (could not diff the keys — no tracked template found at '$_ST_TMPL'"
+      echo "   via agents_root(); checked ~/.agents for real tier content, then"
+      echo "   \$HOME/dotfiles/claude — the key-divergence diagnostic is unavailable)"
     fi
     echo "  Fix, MERGE FIRST — do not just re-run sync:"
     echo "    1. diff ~/.claude/settings.json ~/dotfiles/claude/settings.json"
@@ -228,6 +251,63 @@ if ! $IN_WORKTREE; then
       echo "$_TICK_OUT"
     fi
   fi
+fi
+
+# --- hook/skills symlink triple guard (dotfiles-qvee) -----------------------
+# ~/.claude, ~/.claude-work, ~/.claude-tick each symlink hooks/ and skills/
+# INDEPENDENTLY to the same target (today $HOME/dotfiles/agents/{hooks,skills};
+# post-cutover, somewhere behind ~/.agents — see dotfiles-tm0w and
+# dotfiles-retarget-claude-symlinks-860z). A retarget that repoints one tap and
+# misses the others leaves the missed seat(s) silently running the PRE-MOVE
+# tier — a fleet-wide config split with no signal anywhere, the same failure
+# class the settings.json symlink guard above closes for a single tap, but
+# across taps instead of within one file.
+#
+# A seat dir that doesn't exist on this box (no ~/.claude-work, no
+# ~/.claude-tick — not every box runs every seat) is skipped SILENTLY, same
+# convention as the tick-seat drift guard above. A seat dir that exists but
+# whose hooks/ or skills/ is missing or not a symlink at all is ALSO skipped
+# here — that is a different problem (nothing to compare against) than a
+# divergence between two real links, and not this guard's job to flag.
+if ! $IN_WORKTREE; then
+  _SEAT_DIRS=("$HOME/.claude" "$HOME/.claude-work" "$HOME/.claude-tick")
+  _SEAT_MISMATCH=""
+  _SEAT_REF_HOOKS=""
+  _SEAT_REF_SKILLS=""
+  for _seat in "${_SEAT_DIRS[@]}"; do
+    [ -d "$_seat" ] || continue
+    for _link in hooks skills; do
+      _seat_target="$_seat/$_link"
+      [ -L "$_seat_target" ] || continue
+      _seat_resolved=$(readlink -f "$_seat_target" 2>/dev/null)
+      [ -z "$_seat_resolved" ] && continue
+      if [ "$_link" = "hooks" ]; then
+        if [ -z "$_SEAT_REF_HOOKS" ]; then
+          _SEAT_REF_HOOKS="$_seat_resolved"
+        elif [ "$_seat_resolved" != "$_SEAT_REF_HOOKS" ]; then
+          _SEAT_MISMATCH="${_SEAT_MISMATCH}  $_seat_target -> $_seat_resolved (expected $_SEAT_REF_HOOKS)
+"
+        fi
+      else
+        if [ -z "$_SEAT_REF_SKILLS" ]; then
+          _SEAT_REF_SKILLS="$_seat_resolved"
+        elif [ "$_seat_resolved" != "$_SEAT_REF_SKILLS" ]; then
+          _SEAT_MISMATCH="${_SEAT_MISMATCH}  $_seat_target -> $_seat_resolved (expected $_SEAT_REF_SKILLS)
+"
+        fi
+      fi
+    done
+  done
+  if [ -n "$_SEAT_MISMATCH" ]; then
+    echo ""
+    echo "⚠ hook/skills symlink triple DIVERGED across seats (dotfiles-qvee)."
+    echo "  ~/.claude, ~/.claude-work, ~/.claude-tick must all point hooks/ and"
+    echo "  skills/ at the SAME target — a partial retarget leaves a seat"
+    echo "  silently running the pre-move tier."
+    printf '%s' "$_SEAT_MISMATCH"
+  fi
+  unset _SEAT_DIRS _SEAT_MISMATCH _SEAT_REF_HOOKS _SEAT_REF_SKILLS \
+        _seat _link _seat_target _seat_resolved
 fi
 
 emit_git_context
