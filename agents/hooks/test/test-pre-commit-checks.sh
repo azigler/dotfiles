@@ -562,7 +562,8 @@ rm -f "$SIBREPO/refs/notes.jsonl"
 rm -rf "$SIBREPO"
 
 # --- the SCHEMA gate: pulse-ledger-lint.py has a hook caller (dotfiles-775y) -
-# The linter's only invoker was pulse-dispatch-remote.sh, so a row appended by
+# The linter's only invoker was the remote dispatcher (since retired,
+# dotfiles-y3u8), so a row appended by
 # any OTHER path was unlinted — which is exactly how explore-qdo5 happened (23
 # `"row":null` rows across 3 projects, copied from /pulse's own example, none
 # of them written by the dispatcher). These cases assert the gate in both

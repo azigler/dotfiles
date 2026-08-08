@@ -446,7 +446,8 @@ fi
 
 # 2.6. loop-ledger SCHEMA gate — `agents/scheduler/pulse-ledger-lint.py`.
 #   THE DEFECT THIS FIXES (dotfiles-775y): the linter had NO hook caller. Its
-#   only invoker was `pulse-dispatch-remote.sh`, so a row appended by ANY other
+#   only invoker was the remote dispatcher (since retired, `dotfiles-y3u8` — this
+#   gate is now the linter's SOLE caller), so a row appended by ANY other
 #   path — a hand-run tick, a local injector, a skill writing its own row — was
 #   completely unlinted, while /pulse and /desk both present the row-name rule
 #   as a hard invariant. The incident it exists to prevent (explore-qdo5: 23

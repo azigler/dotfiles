@@ -22,8 +22,10 @@ below is what happens when you don't):
   staging a ``*-ledger.jsonl`` has its NEW rows linted against that repo's
   ``refs/pulse.md``. New lines only: a ledger is append-only history and
   re-validating it would block on rows written years earlier.
-* ``agents/scheduler/pulse-dispatch-remote.sh`` step 9 — lints after appending
-  and ROLLS THE ROW BACK on failure.
+The remote dispatcher was the second caller (step 9 — it linted after appending
+and ROLLED THE ROW BACK on failure). It was retired with marketing-vps
+(``dotfiles-y3u8``), so the pre-commit gate above is now the ONLY caller — which
+is the right way round, and the opposite of the gap described next.
 
 Until 2026-08-01 only the dispatcher called it (``dotfiles-775y``), so a row
 appended by any other path — a hand-run tick, a local injector, a skill writing

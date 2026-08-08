@@ -126,16 +126,20 @@ mapped_suites_for() { # <staged path> -> newline-separated suite paths
         agents/hooks/test/test-stop-context-guard.sh \
         agents/hooks/test/test-pre-shared-tree-guard.sh \
         agents/hooks/test/test-always-loaded-staleness.sh ;;
-    # There is no test-pulse-surface-queue.sh — the queue is covered by its two
-    # CONSUMERS, which drive the real script rather than a stub. That is not an
+    # There is no test-pulse-surface-queue.sh — the queue is covered by its
+    # CONSUMER, which drives the real script rather than a stub. That is not an
     # accident of naming: the queue's P1 (dotfiles-sxsv) was in the command its
     # drain TYPES, which is only observable end to end, through a real stage and a
-    # real drain into a recording injector. test-pulse-ledger-watch.sh does that
-    # for the local origin, test-pulse-dispatch-remote.sh for the remote one.
+    # real drain into a recording injector. test-pulse-ledger-watch.sh does that.
+    # It used to be TWO consumers — test-pulse-dispatch-remote.sh covered the
+    # `remote` origin — but the remote dispatcher was retired with marketing-vps
+    # (dotfiles-y3u8). The queue still HAS a `remote` origin and it is still the
+    # default; what it no longer has is a producer, so the local suite is the
+    # whole of its end-to-end coverage. Restore the second entry the day a remote
+    # origin comes back.
     agents/scheduler/pulse-surface-queue.sh)
       printf '%s\n' \
-        agents/scheduler/test-pulse-ledger-watch.sh \
-        agents/scheduler/test-pulse-dispatch-remote.sh ;;
+        agents/scheduler/test-pulse-ledger-watch.sh ;;
     # Not under agents/, so no convention arm below reaches it — and its bug was
     # an ORDERING bug (dotfiles-v26x), the kind an unrun suite is written for.
     mac.upgrade.sh)

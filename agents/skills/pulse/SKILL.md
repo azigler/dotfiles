@@ -228,10 +228,16 @@ bead; update an existing artifact in place or leave it alone. Say in the ledger
 Two invariants, and they carry the same weight as the rc table above:
 
 - ⚠️ **A TICK MAY NEVER SELF-AUTHORIZE A WAIVER.** It arrives only in a
-  `DISPATCH.md` written by a human-run `pulse-dispatch-remote.sh --resume <ref>`.
-  No systemd unit passes that flag and no timer can produce one — that structural
-  fact is the entire anti-runaway property. A tick that finds itself at cap and
-  decides to proceed anyway IS the runaway loop the cap exists to stop.
+  `DISPATCH.md`, and no systemd unit and no timer can produce one — that
+  structural fact is the entire anti-runaway property. A tick that finds itself at
+  cap and decides to proceed anyway IS the runaway loop the cap exists to stop.
+
+  **As of 2026-08-08 there is NO producer of `DISPATCH.md` at all.** The only one
+  was `pulse-dispatch-remote.sh --resume <ref>`, retired with marketing-vps
+  (`dotfiles-y3u8`). So the waiver branch is currently **unreachable, and that is
+  a strengthening, not a gap** — the cap is now absolute. Nothing here needs
+  fixing; a future remote path that wants the branch back must write the
+  `DISPATCH.md` itself, and the human-run requirement comes with it.
 - ⚠️ **rc `2` IS STILL BLOCKED.** A waiver waives *at cap*; it never waives
   *could not tell*. An unreadable or missing ledger is `outcome:"blocked"` with
   or without the block, exactly as the row above says.
@@ -499,14 +505,15 @@ the daily cap.)
 
 ## ATTENDED loops — the tick raises its OWN bell (added 2026-08-07)
 
-The prohibition below assumes something that is not always true: that a
-**dispatcher wraps the tick and surfaces it**. `pulse-dispatch-remote.sh` does
+The prohibition below assumes something that is **no longer true anywhere**: that
+a **dispatcher wraps the tick and surfaces it**. The retired remote dispatcher did
 exactly that — its step 7, **ALWAYS**, for every finished tick, `done`/`quiet`/
 `blocked` (`dotfiles-5ts2`; Zig, 2026-07-31: *"I don't think there's such a thing
 as a low-value bell … you need to be in charge of making sure I see their actions
-and I know when they're ready so I can pick them up and publish them"*). It stages
-into the deferred-surface queue and **raises the AskUserQuestion itself** from the
-local session.
+and I know when they're ready so I can pick them up and publish them"*). It staged
+into the deferred-surface queue and **raised the AskUserQuestion itself** from the
+local session. With it retired (`dotfiles-y3u8`), every loop on this box is the
+LOCAL path described next — so the guarantee below is the only one there is.
 
 **`pulse-inject.sh` — the LOCAL path — surfaces nothing itself**, and cannot: it
 returns the instant it has typed the command, before the tick has run. So moving a

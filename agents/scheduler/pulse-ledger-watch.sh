@@ -4,10 +4,12 @@
 # ---------------------------------------------------------------------------
 # THE HOLE THIS FILLS
 # ---------------------------------------------------------------------------
-# pulse-dispatch-remote.sh surfaces EVERY finished tick — done, quiet, blocked
-# alike (step 7, dotfiles-5ts2; Zig 2026-07-31: "there's no such thing as a
-# low-value bell"). It can do that only because it OBSERVES completion: step 5
-# polls result.json, step 6 writes the ledger row, step 7 stages the surface.
+# The retired remote dispatcher surfaced EVERY finished tick — done, quiet,
+# blocked alike (step 7, dotfiles-5ts2; Zig 2026-07-31: "there's no such thing as
+# a low-value bell"). It could do that only because it OBSERVED completion: step 5
+# polled result.json, step 6 wrote the ledger row, step 7 staged the surface.
+# It went with marketing-vps (dotfiles-y3u8); this script is now the ONLY thing
+# keeping that guarantee alive, which raises the stakes on everything below.
 #
 # pulse-inject.sh — the LOCAL path — observes nothing. It returns the moment it
 # has typed the command into the pane; at that instant the tick has not run. So a
@@ -34,8 +36,10 @@
 #
 #   1. Enumerate the pulse-*.service units installed HERE and keep the ones whose
 #      ExecStart calls pulse-inject.sh AND whose TIMER is enabled. Those are the
-#      LOCAL loops. A unit that calls pulse-dispatch-remote.sh is skipped: the
-#      dispatcher already surfaces it, and surfacing again would double-announce.
+#      LOCAL loops. Anything else is skipped — including a unit still naming the
+#      retired remote dispatcher, which the catch-all arm handles with no special
+#      case (the dispatcher went with marketing-vps, dotfiles-y3u8; while it lived
+#      the skip existed so its own surfacing was not double-announced).
 #      A unit whose timer is DISABLED is skipped too — see "A DISABLED LOOP IS NOT
 #      DRIFT" below.
 #   2. Resolve each one's project path + ledger + row from the harnessd manifest
@@ -322,13 +326,11 @@ for unit in "${UNITS[@]}"; do
   es=$("$SYSTEMCTL_BIN" --user show "$unit" -p ExecStart --value)
   case "$es" in
     *pulse-inject.sh*) : ;;                       # LOCAL — ours
-    *pulse-dispatch-remote.sh*)
-      note "skip $loop: dispatched remotely — pulse-dispatch-remote.sh surfaces it itself"
-      continue ;;
     *)
-      # Not a pulse tick at all (pulse-retry, pulse-stall, …). Silent by design:
-      # these units are named pulse-* but inject nothing, so there is no ledger
-      # row to watch and no surface to lose.
+      # Not a pulse tick at all (pulse-retry, pulse-stall, …) — or a unit still
+      # naming the retired remote dispatcher, which lands here too and is skipped
+      # identically. Silent by design: these units are named pulse-* but inject
+      # nothing, so there is no ledger row to watch and no surface to lose.
       note "skip $loop: ExecStart is not a pulse injection"
       continue ;;
   esac

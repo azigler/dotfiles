@@ -287,9 +287,9 @@ if our_pid >/dev/null; then
   sleep 1
 fi
 
-# ExitOnForwardFailure=yes is load-bearing for the same reason as in
-# pulse-dispatch-remote.sh: without it ssh exits 0 when the bind fails, leaving a
-# connection that forwards nothing while looking healthy.
+# ExitOnForwardFailure=yes is load-bearing: without it ssh exits 0 when the bind
+# fails, leaving a connection that forwards nothing while looking healthy. (The
+# retired remote dispatcher set it for the same reason — dotfiles-y3u8.)
 if ! ssh -f -N \
       -o ExitOnForwardFailure=yes -o BatchMode=yes -o ConnectTimeout=15 \
       -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \

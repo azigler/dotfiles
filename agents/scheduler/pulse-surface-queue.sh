@@ -8,8 +8,10 @@
 #      so I can pick them up and publish them."
 #
 # Which makes every finished pulse tick something he must SEE — not only the ones
-# carrying a decision. pulse-dispatch-remote.sh now surfaces on EVERY completion.
-# That policy alone would have made things WORSE, and this script is why.
+# carrying a decision. The policy that every completion surfaces came from the
+# remote dispatcher (retired, dotfiles-y3u8) and outlived it: pulse-ledger-watch.sh
+# now carries it for local loops. That policy alone would have made things WORSE,
+# and this script is why.
 #
 # ---------------------------------------------------------------------------
 # THE HOLE THIS FILLS
@@ -53,8 +55,8 @@
 # ---------------------------------------------------------------------------
 # WHAT TRIGGERS A DRAIN
 # ---------------------------------------------------------------------------
-#   1. Every surface attempt. pulse-dispatch-remote.sh stages THEN drains, so a
-#      later tick's injection carries the earlier tick's held announcements with it.
+#   1. Every surface attempt. A producer stages THEN drains, so a later tick's
+#      injection carries the earlier tick's held announcements with it.
 #   2. pulse-retry.sh, every 2 minutes (pulse-retry.timer). That watcher already
 #      exists for precisely this shape of problem — "the 🔔 cleared, deliver what
 #      was deferred" — and reusing it means no new unit and no polling daemon. It
@@ -82,9 +84,12 @@
 # The text the drain types is read and OBEYED by the receiving Claude session, so
 # it has to be true of the tick it announces. Two clauses differ by origin:
 #
-#   remote  the tick ran on marketing-vps, and the LOCAL session is the one that
-#           lands the ledger row (pulse-dispatch-remote.sh step 6). "…and land the
+#   remote  the tick ran on another box, and the LOCAL session is the one that
+#           lands the ledger row (the retired dispatcher's step 6). "…and land the
 #           ledger row at <dir>/refs/pulse-ledger.jsonl" is CORRECT there.
+#           ⚠️ This origin currently has NO PRODUCER — marketing-vps and its
+#           dispatcher were retired (dotfiles-y3u8). The wording is kept because
+#           the origin is still the default and still reachable via --origin.
 #   local   the tick ran HERE, on a local timer, and wrote its OWN ledger row at
 #           wrap — that row is precisely what pulse-ledger-watch.sh READ in order to
 #           stage this surface. Repeating the remote wording makes the session write
@@ -92,8 +97,11 @@
 #           stages again, and types again: a self-sustaining announcement loop that
 #           corrupts the ledger the whole mechanism reads, on the happy path.
 #
-# `remote` is the DEFAULT so pulse-dispatch-remote.sh (which passes no --origin)
-# produces byte-identical text to what it always has.
+# `remote` is the DEFAULT because the dispatcher passed no --origin and had to
+# produce byte-identical text. The dispatcher is gone; the default is LEFT ALONE
+# on purpose — every live caller (pulse-ledger-watch.sh) passes --origin local
+# explicitly, so flipping it would change nothing but could silently rewrite the
+# wording of any future producer that forgets the flag.
 #
 # BOTH the 1-pending and the n-pending forms carry these clauses independently, so
 # both are origin-aware. A mixed group (a local and a remote surface waiting on the
@@ -219,7 +227,7 @@ if [ "$CMD" = stage ]; then
   [ -n "$FILE" ] || usage_fail "stage: --file is required"
   SESSION=${SESSION:-work}
   # `pulse` since 2026-07-31 (bd-j8di) — the shared surface window for every row
-  # on this box. Keep in step with pulse-dispatch-remote.sh / pulse-inject.sh.
+  # on this box. Keep in step with pulse-inject.sh.
   WINDOW=${WINDOW:-pulse}
   target="$QUEUE_DIR/$(slug_of "$ROW").json"
   now=$(date -u +%FT%TZ)

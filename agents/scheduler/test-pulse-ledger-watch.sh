@@ -286,15 +286,19 @@ if [ "$(stage_calls)" = 1 ] && grep -q -- "--row pulse-demo" "$PLW_FAKE/stage-ca
 else bad "ledger_row null matches any row, keyed by the loop id (stages=$(stage_calls))"; fi
 
 # ---------------------------------------------------------------------------
-# Case 12: a REMOTELY DISPATCHED loop is skipped. pulse-dispatch-remote.sh already
-#   surfaces every completion itself; watching it too would double-announce.
+# Case 12: a unit naming the RETIRED remote dispatcher is skipped cleanly — 0
+#   staged, and 0 ERRORS. While the dispatcher lived this was a dedicated case arm
+#   (it surfaced every completion itself, so watching it too would double-announce);
+#   the arm went with the script (dotfiles-y3u8) and the catch-all now covers it.
+#   The assertion is unchanged on purpose: the point is that retiring the arm did
+#   not turn a silent skip into an error for any unit never migrated off it.
 setup_case
 printf '{ path=/x/pulse-dispatch-remote.sh ; argv[]=/x/pulse-dispatch-remote.sh --row demo ; }\n' \
   > "$PLW_FAKE/execstart/pulse-demo.service"
 row 2026-08-02T11:00:00Z done "a remote tick"
 OUT=$("$WATCH" 2>&1)
 if [ "$(verdict_of "$OUT")" = "staged:0:seeded:0:errors:0" ] && [ "$(stage_calls)" = 0 ]; then ok
-else bad "a dispatched loop is skipped, not double-announced (verdict=$(verdict_of "$OUT"))"; fi
+else bad "a unit naming the retired dispatcher is a clean skip (verdict=$(verdict_of "$OUT"))"; fi
 
 # Case 12b: a pulse-* unit that injects nothing (pulse-retry, pulse-stall) is
 #   skipped WITHOUT an error — it has no ledger row and no surface to lose.

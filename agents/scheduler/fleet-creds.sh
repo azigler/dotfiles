@@ -8,9 +8,10 @@
 # ---------------------------------------------------------------------------
 # The gap this closes
 # ---------------------------------------------------------------------------
-# pulse-dispatch-remote.sh brokers FLEET_API_TOKEN (and friends) into the box's
-# tmux environment for ONE run, then unsets them on teardown — deliberately: "the
-# token must not outlive the tunnel." That is right for a dispatched tick.
+# The retired remote dispatcher (dotfiles-y3u8) brokered FLEET_API_TOKEN (and
+# friends) into the box's tmux environment for ONE run, then unset them on
+# teardown — deliberately: "the token must not outlive the tunnel." That was right
+# for a dispatched tick, and it is why this script exists rather than a broker.
 #
 # But an agent working on the box OUTSIDE a dispatch — Zig's own session, a
 # follow-up after a tick ended — inherits a live tunnel and NO token. Every proxy
@@ -108,7 +109,7 @@ VARS=(FLEET_API_TOKEN SLACK_BOT_TOKEN SLACK_NEWS_PLANNING_CHANNEL_ID SITE_PASSWO
 # — SITE_PASSWORD, SLACK_BOT_TOKEN, SLACK_NEWS_PLANNING_CHANNEL_ID — do not live in
 # ~/.secrets at all. Their canonical home is the dashboard's .env.local, which is
 # where both DI skills say to set them ("both must be set in .env.local"), and which
-# pulse-dispatch-remote.sh deliberately rsync-EXCLUDES from marketing-vps. So a
+# the remote dispatcher deliberately rsync-EXCLUDED from marketing-vps. So a
 # remote tick had no path to them: this script reported "MISSING upstream" and exited
 # 2, and the tick's whole second unit (the research digest) could not run, because
 # every research route answers 401 without the password.

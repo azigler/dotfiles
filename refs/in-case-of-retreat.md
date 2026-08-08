@@ -232,11 +232,19 @@ exception.
 ### Phase 5 ACCOUNT — nothing to do (decision 4: emptied-but-present).
 
 ### Phase 7 PAPERWORK — part of the job, not a follow-up
-- Delete or archive deliberately, saying which: `pulse-dispatch-remote.sh` (~2,300 lines),
-  `vps-preflight.sh`, `vps-repo-refresh.sh`, `fleet-creds.sh`'s peer, `vps-repo-manifest.txt`,
-  the deferred-surface / `surface_request` round-trip.
-  ⚠️ **`pulse-retry.sh` also consumes the surface-queue machinery** — check callers first
-  or retry loses a limb.
+- ✅ **DONE 2026-08-08 (`dotfiles-y3u8`) — DELETED, not archived.** Zig's call. Git history
+  preserves the machinery; the hard-won knowledge (glyph matcher, ownership guards, surface
+  relay) is recoverable from it, and the *lessons* already live in `agents/infra.md`.
+  Removed: `pulse-dispatch-remote.sh` (~2,300 lines) + its suite, `vps-preflight.sh`,
+  `vps-repo-refresh.sh` + its suite, `vps-repo-manifest.txt`, `vps-peer-bootstrap.sh`,
+  `vps-phase2-symlinks.sh`.
+  **Deliberately KEPT** — the warning below was right:
+  - the deferred-surface / surface-queue machinery (`pulse-surface-queue.sh`), because
+    `pulse-retry.sh` AND `pulse-ledger-watch.sh` both consume it. Its `remote` origin
+    survives with no producer, and its default is left alone on purpose.
+  - `fleet-creds.sh` entire — it is the box's own credential path, not the peer's.
+  - `templates/claude-vault-sync.timer` — **SHARED, not peer-only**; verified live on
+    zig-computer (enabled, hourly, last run minutes before the check).
 - Fold `work:pulse` and `work:🗼 vps`. Verified safe: no other unit targets `--window pulse`.
   ⚠️ `--window pulse` is still pulse-inject's built-in DEFAULT; folding the window does
   not change that.
