@@ -1,4 +1,4 @@
-# The computing demesne
+# The machine baseline
 
 Every machine Zig's harness runs on or reaches. Read when work touches infra / ports
 / deploy / networking (the `/daemon` shape always needs it).
@@ -15,7 +15,7 @@ Last full re-derivation: **2026-08-01** (runtimes, vhosts, ports, timers).
 decommissioned host's claims; it did **not** re-derive anything else, so the date above
 still stands and everything below it is still one week stale.
 
-## The demesne at a glance
+## The baseline at a glance
 
 | Host | Reached by | Kind | Role |
 |---|---|---|---|
@@ -33,7 +33,7 @@ must not be treated as live.** Its seven LinearB pulse rows moved back here — 
 "systemd USER timers" below. The runbook that executed the retreat, kept for its
 measurement traps, is `refs/in-case-of-retreat.md`.
 
-⚠️ **The demesne is not the tailnet — still true, and it survives its example.** Every
+⚠️ **The baseline is not the tailnet — still true, and it survives its example.** Every
 host in the table above is now a tailnet peer, so "everything is a peer" happens to hold
 today. Do not encode that: `marketing-vps` was reached by ordinary SSH and never appeared
 in `tailscale status`, and a mesh-shaped assumption was wrong for exactly the host with a

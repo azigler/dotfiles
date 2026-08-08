@@ -27,12 +27,13 @@ Run `/onboard`. It reads CLAUDE.md, MEMORY.md, the prior session's handoff note
 (`refs/session-handoff.md`), and the skills digest `~/.claude/skills/TOOLKIT.md` —
 in the main session, not via an Explore agent. At session end run `/offboard`.
 
-For infra / ports / deploy / networking work, also read `agents/infra.md` — **the
-computing demesne**: every machine the harness runs on or reaches (zig-computer,
-pico, and the tailnet peers), with each one's role, IPs, ports, services,
-secrets-by-pointer and gotchas. Note the demesne is NOT the tailnet — it has held a
-plain-SSH, non-peer box before (`marketing-vps`, decommissioned 2026-08-07) and may
-again, so check `tailscale status` rather than assuming membership.
+For infra / ports / deploy / networking work, also read `~/.agents/infra.md`
+(until the flip: `dotfiles/agents/infra.md`) — **the machine baseline**: every
+machine the harness runs on or reaches (zig-computer, pico, and the tailnet peers),
+with each one's role, IPs, ports, services, secrets-by-pointer and gotchas. The
+baseline is NOT the tailnet — it has held a plain-SSH, non-peer box before
+(`marketing-vps`, decommissioned 2026-08-07) and may again, so check
+`tailscale status` rather than assuming membership.
 
 ## Effort and model — a per-dispatch choice
 
@@ -312,7 +313,8 @@ answer it.
 
 ## Skills
 
-Global skills live in `~/.claude/skills/` (symlinked from `dotfiles/agents/skills/`).
+Global skills live in `~/.claude/skills/` (symlinked from `~/.agents/skills/` —
+until the flip, `dotfiles/agents/skills/`).
 Their descriptions are already injected into your system prompt; `TOOLKIT.md` adds
 each one's anti-patterns, prereqs, and side-effects — that is what `/onboard` reads.
 Umbrella-scoped libraries load on demand: `~/explore/.claude/skills/INDEX.md` is the
@@ -333,7 +335,7 @@ A toybox skill graduates to the global set only when **both** hold:
 
 Both, because graduating adds ~120 words to the always-loaded tier permanently, in
 every session in every project. A skill that fails (2) should be *pointed at*, not
-moved; one whose content is really infra documentation belongs in `agents/infra.md`.
+moved; one whose content is really infra documentation belongs in `~/.agents/infra.md`.
 (`dotfiles-ihc0`, 2026-08-01 — the count was being read off raw log lines.)
 
 ## Reference material conventions
