@@ -14,7 +14,11 @@ alias folders="du -h --max-depth=1"
 alias mountedinfo="df -hT"
 alias checkcommand="type -t"
 alias openports='ss -nape --inet'
-alias logs="sudo find /var/log -type f -exec file {} \; | grep 'text' | cut -d' ' -f1 | sed -e's/:$//g' | grep -v '[0-9]$' | xargs tail -f"
+# tty-guarded: sudo/prompt aliases hang (not error) when run non-interactively
+# (e.g. the harness's Bash tool) — see dotfiles-effn #3. Only defined in a real
+# interactive, tty-attached shell, so Zig's habits are unaffected and a
+# non-interactive caller falls through to the real, non-prompting command.
+[[ -o interactive && -t 0 ]] && alias logs="sudo find /var/log -type f -exec file {} \; | grep 'text' | cut -d' ' -f1 | sed -e's/:$//g' | grep -v '[0-9]$' | xargs tail -f"
 alias countfiles="for t in files links directories; do echo \`find . -type \${t:0:1} | wc -l\` \$t; done 2> /dev/null"
 
 # Navigation aliases
@@ -86,17 +90,17 @@ alias vdir="ls -l -b"
 alias grep="grep --color=auto"
 alias cp='cp -i'
 alias mv='mv -i'
-alias rm='rm -iv'
+[[ -o interactive && -t 0 ]] && alias rm='rm -Iv'
 alias mkdir='mkdir -p'
 alias psf='ps auxf'
 alias ping='ping -c 10'
 alias less='less -R'
 alias cls='clear'
-alias apt-get='sudo apt-get'
+[[ -o interactive && -t 0 ]] && alias apt-get='sudo apt-get'
 alias multitail='multitail --no-repeat -c'
 alias freshclam='sudo freshclam'
 alias vi='vim'
-alias svi='sudo vi'
+[[ -o interactive && -t 0 ]] && alias svi='sudo vi'
 alias vis='vim "+set si"'
 
 cd ()
