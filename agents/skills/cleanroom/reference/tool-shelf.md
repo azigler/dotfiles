@@ -331,8 +331,18 @@ Minimum sensible additions on this box, cheapest-first:
 sudo apt install binwalk radare2 python3-capstone python3-unicorn \
                  gdb-multiarch ltrace python3-hypothesis
 # Frida needs a venv (PEP 668):
-uv venv ~/.venvs/re && ~/.venvs/re/bin/uv pip install frida-tools
+uv venv ~/.venvs/re
+uv pip install --python ~/.venvs/re/bin/python frida-tools
 ```
+
+⚠️ `uv venv` does **not** place a `uv` binary inside the venv, so
+`~/.venvs/re/bin/uv pip install …` fails — target the venv's interpreter with
+`--python` instead. Verified empirically against uv 0.11.32; this file carried
+the broken form until 2026-08-08.
+
+On this box the whole tier is wrapped: **`~/dotfiles/re.setup.sh`** (idempotent,
+`--dry-run`, one `RE_SETUP_RESULT=` on every path) installs exactly the packages
+above and builds that venv. Prefer it over running these by hand.
 
 Then **verify, do not assume** — especially
 `python3 -c "import unicorn; print(unicorn.UC_ARCH_M68K)"` before planning a
