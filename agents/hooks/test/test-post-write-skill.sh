@@ -102,6 +102,27 @@ if printf '{"tool_input":{"file_path":"%s"}}' "$E" \
   bad "E: citations with no AGENTS.md report NOT VERIFIED"
 fi
 
+# --- G: agents_root() itself unresolvable -> LOUD, unconditionally (dotfiles-tm0w) --
+# Independent of whether this file cites AGENTS.md at all: a target that
+# resolves NOWHERE must be reported, not silently absorbed into "nothing to
+# check here". Use a file with NO citations and NO local AGENTS.md three dirs
+# up, under a HOME that has neither ~/.agents content nor ~/dotfiles/agents.
+G_DIR="$TMP/g/agents/skills/probe"
+mkdir -p "$G_DIR"
+{
+  echo '---'
+  echo 'description: a probe'
+  echo 'when_to_use: never'
+  echo '---'
+  echo
+  echo 'Nothing cited, and no local AGENTS.md either.'
+} > "$G_DIR/SKILL.md"
+if printf '{"tool_input":{"file_path":"%s"}}' "$G_DIR/SKILL.md" \
+   | HOME="$TMP/g-empty" bash "$HOOK" 2>&1 >/dev/null \
+   | grep -q 'agents_root() could not resolve'; then ok; else
+  bad "G: agents_root() unresolvable is reported even with no citations to check"
+fi
+
 # --- F: the shipped tree is clean -------------------------------------------
 # Not a unit test — a live assertion that this check passes on every skill it
 # governs today. If it fires here, a real citation is broken.

@@ -161,7 +161,24 @@ fi
 # invariant is ALREADY broken, so a healthy session pays nothing measurable.
 if ! $IN_WORKTREE; then
   _ST_LIVE="$HOME/.claude/settings.json"
-  _ST_TMPL="$HOME/dotfiles/claude/settings.json"
+  # dotfiles-tm0w: resolve the tracked template through the shared agents-tier
+  # resolver (agents/lib/agents-root.sh) rather than a hardcoded $HOME/dotfiles
+  # path, so a demesne-split move doesn't silently disarm this diagnostic. This
+  # is the diagnostic's own read of the TEMPLATE for comparison purposes —
+  # NOT the ~/.claude/settings.json symlink's target, which stays dotfiles-
+  # retarget-claude-symlinks-860z's job. Fail-open to the pre-fix hardcoded
+  # path if the lib itself is missing, but say so — never silently.
+  if ! source "$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")/lib/agents-root.sh" 2>/dev/null \
+     || ! declare -F agents_root >/dev/null; then
+    echo "session-start: cannot load lib/agents-root.sh — agents-tier resolution degraded to the hardcoded fallback path." >&2
+    agents_root() { [ -d "$HOME/dotfiles/${1:-agents}" ] && printf '%s\n' "$HOME/dotfiles/${1:-agents}"; }
+  fi
+  if _ST_AR=$(agents_root claude 2>/dev/null); then
+    _ST_TMPL="$_ST_AR/settings.json"
+  else
+    _ST_TMPL="$HOME/dotfiles/claude/settings.json"
+  fi
+  unset _ST_AR
   if [ -e "$_ST_LIVE" ] && [ ! -L "$_ST_LIVE" ]; then
     echo ""
     echo "⚠ ~/.claude/settings.json is a REGULAR FILE, not a symlink to dotfiles."
@@ -187,6 +204,12 @@ if ! $IN_WORKTREE; then
         # the two files not parsing is itself worth knowing about.
         echo "  (could not diff the keys — one of the files is not valid JSON; see $LOG)"
       fi
+    elif [ ! -f "$_ST_TMPL" ]; then
+      # dotfiles-tm0w: a target that resolves NOWHERE must be LOUD — "I could
+      # not check" must never render the same as "no differences found".
+      echo "  (could not diff the keys — no tracked template found at '$_ST_TMPL'"
+      echo "   via agents_root(); checked ~/.agents for real tier content, then"
+      echo "   \$HOME/dotfiles/claude — the key-divergence diagnostic is unavailable)"
     fi
     echo "  Fix, MERGE FIRST — do not just re-run sync:"
     echo "    1. diff ~/.claude/settings.json ~/dotfiles/claude/settings.json"

@@ -658,6 +658,54 @@ rm -rf "$NOROUTE"
 
 rm -rf "$SCHEMAREPO"
 
+# 51. dotfiles-tm0w: the ledger-lint fallback resolves through agents_root()
+#     (agents/lib/agents-root.sh) instead of a bare hardcoded $HOME/dotfiles
+#     path. When NEITHER the in-repo linter NOR any agents_root() candidate
+#     resolves (a completely void $HOME — no ~/.agents, no ~/dotfiles), the
+#     gate must be DISARMED-BUT-LOUD: the commit still succeeds (an infra gap
+#     must not brick every commit fleet-wide), but stderr says so by name.
+#     A bare "commit succeeded" would not distinguish "gate ran and passed"
+#     from "gate silently never ran" — the stderr line is the real assertion,
+#     and it is exactly the silent-degrade this bead exists to close.
+VOIDHOME=$(mktemp -d)
+LEDGERVOID=$(mktemp -d)
+git -C "$LEDGERVOID" init -q
+git -C "$LEDGERVOID" config user.email t@t; git -C "$LEDGERVOID" config user.name t
+mkdir "$LEDGERVOID/refs"
+cat > "$LEDGERVOID/refs/pulse.md" <<'ROUTING'
+# Pulse routing
+
+| name | cadence | what |
+|---|---|---|
+| `dive` | daily | dive one lead |
+ROUTING
+printf '%s\n' '{"ts":"2026-01-01T00:00:00Z","row":"dive","outcome":"quiet"}' \
+  > "$LEDGERVOID/refs/pulse-ledger.jsonl"
+git -C "$LEDGERVOID" add refs/pulse.md refs/pulse-ledger.jsonl
+git -C "$LEDGERVOID" commit -qm seed
+printf '%s\n' '{"ts":"2026-08-02T09:00:00Z","row":"dive","outcome":"quiet"}' \
+  >> "$LEDGERVOID/refs/pulse-ledger.jsonl"
+git -C "$LEDGERVOID" add refs/pulse-ledger.jsonl
+
+VOID_STDERR=$(
+  ( export HOME="$VOIDHOME"; cd "$LEDGERVOID" && \
+    echo '{"tool_input":{"command":"git commit -m \":card_file_box: tick\""},"cwd":"/tmp"}' | "$HOOK" ) \
+    2>&1 >/dev/null
+)
+VOID_EXIT=$?
+
+if [ "$VOID_EXIT" -eq 0 ]; then PASS=$((PASS + 1)); else
+  FAIL=$((FAIL + 1)); FAILED_NAMES+=("void HOME: infra gap must not block the commit (exit $VOID_EXIT)")
+fi
+if echo "$VOID_STDERR" | grep -q "DISARMED"; then PASS=$((PASS + 1)); else
+  FAIL=$((FAIL + 1)); FAILED_NAMES+=("void HOME: stderr must name the gate as DISARMED (got: $VOID_STDERR)")
+fi
+if echo "$VOID_STDERR" | grep -qF "dotfiles-tm0w"; then PASS=$((PASS + 1)); else
+  FAIL=$((FAIL + 1)); FAILED_NAMES+=("void HOME: stderr must cite dotfiles-tm0w")
+fi
+
+rm -rf "$VOIDHOME" "$LEDGERVOID"
+
 # --- paths containing spaces (dotfiles-b9ii, bug 4a/4b) -------------------
 # Two independent word-splitting bugs, both of which changed the VERDICT:
 #   a) `$JS_FILES` / `$PY_FILES` were passed to the linters unquoted, so one

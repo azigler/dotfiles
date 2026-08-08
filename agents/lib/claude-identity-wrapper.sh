@@ -82,9 +82,31 @@
 # exactly as before. Guarded by T9–T12 in test-claude-identity-wrapper.sh.
 
 # Source the harness window resolver once, at load, so the identity matches the rest of
-# the harness (glyph-stripped window name, bg-fork-aware). Harmless if absent.
-[ -f "$HOME/dotfiles/agents/lib/tmux-pane-resolve.sh" ] && \
-  . "$HOME/dotfiles/agents/lib/tmux-pane-resolve.sh" 2>/dev/null
+# the harness (glyph-stripped window name, bg-fork-aware).
+#
+# dotfiles-tm0w: resolve through the shared agents-tier indirection
+# (agents/lib/agents-root.sh) rather than a hardcoded $HOME/dotfiles path, so
+# a demesne-split move doesn't silently disarm identity attribution. Sourced
+# robustly across bash AND zsh: in bash ${BASH_SOURCE[0]} is this file; in zsh
+# (what Claude Code's Bash tool runs) BASH_SOURCE is empty, so we fall to $0,
+# which a sourced zsh file sets to its own path (same idiom as handoff-path.sh).
+_ciw_self="${BASH_SOURCE[0]:-$0}"
+_ciw_dir="$(cd "$(dirname -- "$_ciw_self")" 2>/dev/null && pwd)"
+if [ -n "$_ciw_dir" ] && [ -f "$_ciw_dir/agents-root.sh" ]; then
+  . "$_ciw_dir/agents-root.sh"
+fi
+unset _ciw_self _ciw_dir
+if ! declare -F agents_root >/dev/null; then
+  echo "claude-identity-wrapper: cannot load lib/agents-root.sh — agents-tier resolution degraded to the hardcoded fallback path." >&2
+  agents_root() { [ -d "$HOME/dotfiles/${1:-agents}" ] && printf '%s\n' "$HOME/dotfiles/${1:-agents}"; }
+fi
+
+if _ciw_ar=$(agents_root 2>/dev/null) && [ -f "$_ciw_ar/lib/tmux-pane-resolve.sh" ]; then
+  . "$_ciw_ar/lib/tmux-pane-resolve.sh" 2>/dev/null
+else
+  echo "claude-identity-wrapper: tmux-pane-resolve.sh not found via agents_root() (root=${_ciw_ar:-<unresolved>}) — window names in X-Session-Identity fall back to raw tmux names (lexicon glyphs not stripped)." >&2
+fi
+unset _ciw_ar
 
 # zsh refuses to define a function over an existing same-name alias ("defining
 # function based on alias" -> parse error). Drop any pre-existing `claude` alias
