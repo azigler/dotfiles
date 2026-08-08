@@ -212,6 +212,97 @@ else
   bad "this test mutated the REAL $REAL_SETTINGS ($REAL_STATE_BEFORE -> $REAL_STATE_AFTER)"
 fi
 
+# ============================================================================
+# tick-seat settings drift guard (dotfiles-qby3)
+#
+# ~/.claude-tick/settings.json is a MANAGED REAL FILE by design (not a
+# symlink — see agents/bin/sync-tick-settings.sh's header for the bwrap
+# jail-bind evidence). session-start.sh shells out to
+# `sync-tick-settings.sh --check` and surfaces its output verbatim when it
+# fails. These cases exercise that wiring, hermetically (fake $HOME, the
+# real ~/.claude-tick is never read or written).
+# ============================================================================
+REAL_TICK="$HOME/.claude-tick/settings.json"
+REAL_TICK_STATE_BEFORE="missing"
+[ -L "$REAL_TICK" ] && REAL_TICK_STATE_BEFORE="symlink"
+[ ! -L "$REAL_TICK" ] && [ -e "$REAL_TICK" ] && REAL_TICK_STATE_BEFORE="regular-file"
+
+# tick_home <shared-model> <tick-json-or-absent> -> fh
+#   Builds on new_home(symlink) (a healthy ~/.claude, so the case isolates
+#   the tick guard from the primary symlink guard) and adds a
+#   ~/.claude-tick/settings.json fixture.
+tick_home() {
+  local shared_model=$1 tick_mode=$2 fh
+  fh=$(new_home symlink)
+  # Overwrite the template with a caller-chosen model so "diverged" /
+  # "in sync" is controlled per case.
+  printf '{"model":"%s","env":{"FOO":"bar"}}\n' "$shared_model" \
+    > "$fh/dotfiles/claude/settings.json"
+  mkdir -p "$fh/.claude-tick"
+  case "$tick_mode" in
+    matching)   printf '{"model":"%s","env":{"FOO":"bar"},"theme":"dark"}\n' "$shared_model" > "$fh/.claude-tick/settings.json" ;;
+    diverged)   printf '{"model":"claude-old-stale-model","env":{"FOO":"bar"},"theme":"dark"}\n' > "$fh/.claude-tick/settings.json" ;;
+    symlinked)  ln -s "$fh/dotfiles/claude/settings.json" "$fh/.claude-tick/settings.json" ;;
+    absent)     : ;;
+  esac
+  printf '%s' "$fh"
+}
+
+# --- 10. diverged tick file: warns loud, names the drifted key -----------
+FH=$(tick_home "claude-new-model" diverged)
+OUT=$(run_hook "$FH")
+echo "$OUT" | grep -q 'DIVERGED' \
+  && ok || bad "tick diverged: warns with DIVERGED"
+echo "$OUT" | grep -q 'model' \
+  && ok || bad "tick diverged: names the drifted key (model)"
+echo "$OUT" | grep -qF 'sync-tick-settings.sh' \
+  && ok || bad "tick diverged: names the fix command"
+
+# --- 11. tick file in sync: no drift warning ------------------------------
+FH=$(tick_home "claude-new-model" matching)
+OUT=$(run_hook "$FH")
+if echo "$OUT" | grep -q 'DIVERGED'; then
+  bad "tick in sync: must not warn (got: $(echo "$OUT" | grep 'DIVERGED' | head -1))"
+else
+  ok
+fi
+
+# --- 12. no tick seat on this box (absent): silent, not attempted --------
+FH=$(tick_home "claude-new-model" absent)
+OUT=$(run_hook "$FH")
+if echo "$OUT" | grep -qi 'tick'; then
+  bad "no tick seat: must not mention tick settings at all (got: $(echo "$OUT" | grep -i 'tick' | head -1))"
+else
+  ok
+fi
+
+# --- 13. tick settings.json accidentally made a symlink: warns, doesn't crash
+#     (this is exactly the state that breaks the bwrap ro-bind at jail launch —
+#     see the sync-tick-settings.sh header for the measured failure.)
+FH=$(tick_home "claude-new-model" symlinked)
+OUT=$(run_hook "$FH")
+echo "$OUT" | grep -qi 'SYMLINK' \
+  && ok || bad "tick symlinked: warns that the managed file was replaced by a symlink"
+
+# --- 14. worktree sessions are exempt from the tick guard too ------------
+FH=$(tick_home "claude-new-model" diverged)
+OUT=$(run_hook "$FH" worktree)
+if echo "$OUT" | grep -q 'DIVERGED'; then
+  bad "worktree: must not run the tick drift guard for a dispatched subagent"
+else
+  ok
+fi
+
+# --- 15. THE TEST'S OWN SAFETY PROPERTY (tick file) -----------------------
+REAL_TICK_STATE_AFTER="missing"
+[ -L "$REAL_TICK" ] && REAL_TICK_STATE_AFTER="symlink"
+[ ! -L "$REAL_TICK" ] && [ -e "$REAL_TICK" ] && REAL_TICK_STATE_AFTER="regular-file"
+if [ "$REAL_TICK_STATE_BEFORE" = "$REAL_TICK_STATE_AFTER" ]; then
+  ok
+else
+  bad "this test mutated the REAL $REAL_TICK ($REAL_TICK_STATE_BEFORE -> $REAL_TICK_STATE_AFTER)"
+fi
+
 # --- Summary ---
 cleanup_proj
 TOTAL=$((PASS + FAIL))
