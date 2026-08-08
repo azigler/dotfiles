@@ -198,6 +198,18 @@ if ! $IN_WORKTREE; then
   fi
 fi
 
+# --- ~/.claude/debug age-based sweep (dotfiles-j6g1) ------------------------
+# ~/.claude/debug/ accumulates one file per session's debug output with
+# nothing to age it out — found at 1.4G / 1,940 files, newest still 4 months
+# old, on 2026-08-08 (dotfiles-j6g1). No prior seam purged it. This is the
+# cheapest hook that already runs general per-session ~/.claude housekeeping
+# (the settings-symlink guard above, the secret-alert self-heal below): one
+# `find` per session, silent and near-free once nothing has aged past the
+# window.
+if ! $IN_WORKTREE; then
+  find "$HOME/.claude/debug" -mindepth 1 -mtime +30 -delete 2>>"$LOG"
+fi
+
 # --- tick-seat settings drift guard (dotfiles-qby3) -------------------------
 # ~/.claude-tick/settings.json is DIFFERENT from every other seat: it must
 # stay a REAL, non-symlink file, because tick-jailed.sh's isolated mode
