@@ -150,6 +150,15 @@ fi
 # ssh to the box). Guarded, so this is a no-op on any machine without the
 # file — which is why it costs upstream nothing to keep.
 #
+# Contract: $HOME/.servers.bash_aliases is NOT synced or created by sync.sh —
+# there is no "servers" case for it. It is a plain, manually-created file (or
+# a manually-made symlink to a gitignored `bash/.servers.bash_aliases` in this
+# repo, matched by the bare `.servers.bash_aliases` entry in .gitignore, if you
+# want it repo-adjacent). Create it by hand on any box that wants server
+# aliases; a box without one just skips this block (dotfiles-np0b removed a
+# dangling leftover symlink here that pointed at a target which had never
+# actually been created on this machine).
+#
 # This line was DROPPED in the 723-commit fast-forward on 2026-08-01 (the
 # local version of this file sourced it; origin's sourced ~/.secrets instead,
 # and the migration between them was flagged and then never done). Losing it
