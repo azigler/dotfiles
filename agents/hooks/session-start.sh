@@ -253,6 +253,63 @@ if ! $IN_WORKTREE; then
   fi
 fi
 
+# --- hook/skills symlink triple guard (dotfiles-qvee) -----------------------
+# ~/.claude, ~/.claude-work, ~/.claude-tick each symlink hooks/ and skills/
+# INDEPENDENTLY to the same target (today $HOME/dotfiles/agents/{hooks,skills};
+# post-cutover, somewhere behind ~/.agents — see dotfiles-tm0w and
+# dotfiles-retarget-claude-symlinks-860z). A retarget that repoints one tap and
+# misses the others leaves the missed seat(s) silently running the PRE-MOVE
+# tier — a fleet-wide config split with no signal anywhere, the same failure
+# class the settings.json symlink guard above closes for a single tap, but
+# across taps instead of within one file.
+#
+# A seat dir that doesn't exist on this box (no ~/.claude-work, no
+# ~/.claude-tick — not every box runs every seat) is skipped SILENTLY, same
+# convention as the tick-seat drift guard above. A seat dir that exists but
+# whose hooks/ or skills/ is missing or not a symlink at all is ALSO skipped
+# here — that is a different problem (nothing to compare against) than a
+# divergence between two real links, and not this guard's job to flag.
+if ! $IN_WORKTREE; then
+  _SEAT_DIRS=("$HOME/.claude" "$HOME/.claude-work" "$HOME/.claude-tick")
+  _SEAT_MISMATCH=""
+  _SEAT_REF_HOOKS=""
+  _SEAT_REF_SKILLS=""
+  for _seat in "${_SEAT_DIRS[@]}"; do
+    [ -d "$_seat" ] || continue
+    for _link in hooks skills; do
+      _seat_target="$_seat/$_link"
+      [ -L "$_seat_target" ] || continue
+      _seat_resolved=$(readlink -f "$_seat_target" 2>/dev/null)
+      [ -z "$_seat_resolved" ] && continue
+      if [ "$_link" = "hooks" ]; then
+        if [ -z "$_SEAT_REF_HOOKS" ]; then
+          _SEAT_REF_HOOKS="$_seat_resolved"
+        elif [ "$_seat_resolved" != "$_SEAT_REF_HOOKS" ]; then
+          _SEAT_MISMATCH="${_SEAT_MISMATCH}  $_seat_target -> $_seat_resolved (expected $_SEAT_REF_HOOKS)
+"
+        fi
+      else
+        if [ -z "$_SEAT_REF_SKILLS" ]; then
+          _SEAT_REF_SKILLS="$_seat_resolved"
+        elif [ "$_seat_resolved" != "$_SEAT_REF_SKILLS" ]; then
+          _SEAT_MISMATCH="${_SEAT_MISMATCH}  $_seat_target -> $_seat_resolved (expected $_SEAT_REF_SKILLS)
+"
+        fi
+      fi
+    done
+  done
+  if [ -n "$_SEAT_MISMATCH" ]; then
+    echo ""
+    echo "⚠ hook/skills symlink triple DIVERGED across seats (dotfiles-qvee)."
+    echo "  ~/.claude, ~/.claude-work, ~/.claude-tick must all point hooks/ and"
+    echo "  skills/ at the SAME target — a partial retarget leaves a seat"
+    echo "  silently running the pre-move tier."
+    printf '%s' "$_SEAT_MISMATCH"
+  fi
+  unset _SEAT_DIRS _SEAT_MISMATCH _SEAT_REF_HOOKS _SEAT_REF_SKILLS \
+        _seat _link _seat_target _seat_resolved
+fi
+
 emit_git_context
 
 # Unabsorbed-submodule guard: if cwd is a submodule of a parent project
