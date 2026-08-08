@@ -270,6 +270,12 @@ Write the markdown below to `$HANDOFF`:
 - <key accomplishments, decisions, merges>
 - <anything load-bearing for next session>
 
+## Friction
+- <what fought you this session — hook rejections, retries, workarounds you
+  had to reach for. This is for the NEXT reader and for /dream's
+  harness-friction seam, not a complaint box.>
+- <"nothing notable" is a legitimate entry — an empty section is a datum too>
+
 ## Decisions made this session (autonomous decide-and-proceed calls)
 - <the `-t decision` beads harvested in Step 2.5, one bullet each; or "none this session">
 - <INCLUDING the ones created AND closed inside this session — mark those
