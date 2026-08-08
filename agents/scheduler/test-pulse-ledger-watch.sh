@@ -451,12 +451,13 @@ has   "a LOCAL surface still forbids re-running the tick"              "Do NOT r
 has   "a LOCAL surface labels itself LOCAL"                            "LOCAL PULSE SURFACE"
 unset PULSE_SURFACE_STATE PULSE_SURFACE_LOG PULSE_DISPATCH_INJECT
 
-# Case 17: a REMOTE surface, 1 pending — the dispatcher's wording, UNCHANGED. It
-#   stages without --origin, so this also pins the default.
+# Case 17: a REMOTE surface, 1 pending — the dispatcher's wording, UNCHANGED. The
+#   default flipped to `local` (dotfiles-9qju: the remote producer has no producer
+#   left), so this now passes --origin remote explicitly rather than relying on it.
 setup_case
 use_real_queue
 "$REAL_QUEUE" stage --row demo --run r1 --session work --window demo --dir "$CASE/proj" \
-  --file /tmp/nope.json --reason completed:done --summary "a remote tick" > /dev/null 2>&1
+  --file /tmp/nope.json --origin remote --reason completed:done --summary "a remote tick" > /dev/null 2>&1
 "$REAL_QUEUE" drain > /dev/null 2>&1
 has   "a REMOTE surface still says the tick ran on marketing-vps"  "ran on marketing-vps"
 has   "a REMOTE surface still says to land the ledger row"         "land the ledger row at $CASE/proj/refs/pulse-ledger.jsonl"
@@ -481,12 +482,13 @@ has   "the n-pending LOCAL form still forbids re-running any tick"   "Do NOT re-
 has   "the n-pending LOCAL form labels itself LOCAL"                 "LOCAL PULSE SURFACE (2 PENDING"
 unset PULSE_SURFACE_STATE PULSE_SURFACE_LOG PULSE_DISPATCH_INJECT
 
-# Case 18b: the n-pending REMOTE form is unchanged (both stages omit --origin).
+# Case 18b: the n-pending REMOTE form is unchanged, now staged with --origin
+#   remote explicitly (the default flipped to `local`, dotfiles-9qju).
 setup_case
 use_real_queue
 for r in alpha beta; do
   "$REAL_QUEUE" stage --row "$r" --run "d:$r" --session work --window demo --dir "$CASE/proj" \
-    --file "/tmp/$r.json" --reason completed:done --summary "$r landed" > /dev/null 2>&1
+    --file "/tmp/$r.json" --origin remote --reason completed:done --summary "$r landed" > /dev/null 2>&1
 done
 "$REAL_QUEUE" drain > /dev/null 2>&1
 has "the n-pending REMOTE form still says to land any ledger rows" "land any ledger rows at $CASE/proj/refs/pulse-ledger.jsonl"
@@ -495,11 +497,12 @@ unset PULSE_SURFACE_STATE PULSE_SURFACE_LOG PULSE_DISPATCH_INJECT
 
 # Case 19: a MIXED group (one local, one remote waiting on the same window) claims
 #   neither origin globally, marks the local entry, and scopes the ledger
-#   instruction to the entries that are NOT marked local.
+#   instruction to the entries that are NOT marked local. --origin remote is
+#   explicit here since the default flipped to `local` (dotfiles-9qju).
 setup_case
 use_real_queue
 "$REAL_QUEUE" stage --row remoterow --run d1 --session work --window demo --dir "$CASE/proj" \
-  --file /tmp/a.json --reason completed:done --summary "remote landed" > /dev/null 2>&1
+  --file /tmp/a.json --origin remote --reason completed:done --summary "remote landed" > /dev/null 2>&1
 "$REAL_QUEUE" stage --row localrow --run lw1 --session work --window demo --dir "$CASE/proj" \
   --file /tmp/b.json --origin local --reason completed:done --summary "local landed" > /dev/null 2>&1
 "$REAL_QUEUE" drain > /dev/null 2>&1
