@@ -532,7 +532,14 @@ explorations. Not a list. Lists are how the rot started.
   past the threshold reports the counts and stops. Promotion stays human-gated:
   the pass never creates the Asana card. A "no" goes to **Dropped** (run step 6).
 - **loop health** — under the MANDATORY literal heading `### LOOP HEALTH`. One line
-  per managed loop (`dive`, `digest`): last fire, outcome mix since the last memo,
+  per managed loop (`dive`, `digest`). ⚠️ **`digest` lives in `~/digestd` since
+  2026-08-07** (`explore-9nk4`) — read `~/digestd/refs/digest-ledger.jsonl` by ABSOLUTE
+  path; a desk pass runs with cwd `~/explore` and a bare `refs/digest-ledger.jsonl` now
+  resolves to nothing. Nothing in the done-proof asserts a digest verdict (it greps only
+  the `### LOOP HEALTH` heading; `digest=<state>` appears solely in the ledger note
+  template), so the failure mode here is **silently dropping the loop while the proof
+  still passes** — the exact shape this section exists to catch. Per loop: last fire,
+  outcome mix since the last memo,
   **whether its work actually shipped**, un-reviewed-entry count, and the single
   worst open blocker with its bead id. State plainly what you fixed this pass and
   what you are escalating. "Both loops healthy, nothing escalated" is a valid line —
@@ -669,6 +676,13 @@ lens (A2); it is what keeps the pass off the modal tie-back. `/dive` and
 `/elevate` point at the same file — never re-copy it here.
 
 ## The Desk MANAGES the loops — this is step 0, not a favour
+
+⚠️ **`digest` moved to its own repo on 2026-08-07** (`~/digestd`, `explore-9nk4`). It is
+STILL yours to manage — the split was about ownership of the code, not of the review.
+Read its ledger at `~/digestd/refs/digest-ledger.jsonl` and its beads with
+`br --dir ~/digestd`. Do NOT add a done-proof clause asserting that repo's freshness from
+explore's gate: coupling explore's proof to another checkout's existence is the
+brittleness `crosslink.py`'s zero-chunk `CannotCross` already demonstrates.
 
 **You are `dive`'s and `digest`'s manager, not just the reader of what they
 produce.** Zig's words, 2026-07-31: *"Part of your job as the Desk is to make
