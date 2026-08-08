@@ -6,7 +6,10 @@
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5[1m]"
   },
   "permissions": {
-    "allow": ["Read(/home/ubuntu/.local/state/harness/conduit/**)"]
+    "defaultMode": "default",
+    "allow": [
+      "Read(/home/ubuntu/.local/state/harness/conduit/**)"
+    ]
   },
   "hooks": {
     "SessionStart": [
