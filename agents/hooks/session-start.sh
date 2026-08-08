@@ -198,6 +198,26 @@ if ! $IN_WORKTREE; then
   fi
 fi
 
+# --- tick-seat settings drift guard (dotfiles-qby3) -------------------------
+# ~/.claude-tick/settings.json is DIFFERENT from every other seat: it must
+# stay a REAL, non-symlink file, because tick-jailed.sh's isolated mode
+# ro-binds the shared settings.json onto exactly this path at every bwrap
+# launch, and bwrap refuses to bind onto a symlink destination (measured
+# 2026-08-08 — see agents/bin/sync-tick-settings.sh's header for the launch
+# failure this would cause). So instead of a symlink guard, this is a content
+# guard: warn if the managed file's model/env keys have drifted from the
+# shared template. Only checked when the box actually HAS a tick seat —
+# absent means nothing to check, not every box runs pulse-dive/digest.
+if ! $IN_WORKTREE; then
+  _TICK_SYNC="$HOOK_LIB_DIR/../../bin/sync-tick-settings.sh"
+  if [ -e "$HOME/.claude-tick/settings.json" ] && [ -x "$_TICK_SYNC" ]; then
+    if ! _TICK_OUT=$(bash "$_TICK_SYNC" --check 2>&1); then
+      echo ""
+      echo "$_TICK_OUT"
+    fi
+  fi
+fi
+
 emit_git_context
 
 # Unabsorbed-submodule guard: if cwd is a submodule of a parent project
