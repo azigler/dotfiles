@@ -1,6 +1,6 @@
 #!/bin/bash
 # lib/portable.sh — the coreutils-flavour shim for hooks and scripts that must
-# run on BOTH GNU/Linux (marketing-vps, pico, docker) and BSD/macOS (this box).
+# run on BOTH GNU/Linux (zig-computer, docker) and BSD/macOS (pico, metis).
 #
 # ── THE DEFECT CLASS THIS EXISTS FOR (dotfiles-5vz2) ────────────────────────
 #

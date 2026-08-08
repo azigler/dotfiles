@@ -26,8 +26,8 @@
 #
 # Why this file and not a per-repo `git config`: .gitattributes is COMMITTED and
 # so travels with a clone, but the driver is CONFIG and never does. Registering
-# it here — in the file ~/.gitconfig symlinks to on both zig-computer and
-# marketing-vps — is the only half that was ever fragile. The `~` expands because
+# it here — in the file ~/.gitconfig symlinks to on every machine that syncs these
+# dotfiles — is the only half that was ever fragile. The `~` expands because
 # git runs the driver through a shell (verified 2026-07-28 on a real 3-way merge).
 #
 # ⚠️ NEVER replace this with git's built-in `merge=union`. Union keeps BOTH sides'

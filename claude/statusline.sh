@@ -85,8 +85,10 @@ COST_FMT=$(printf '$%.2f' "$COST")
 #
 # ⚠️ DERIVE FROM THE ACCOUNT, NOT THE PATH. The first version of this mapped
 # ~/.claude -> "(me)" and ~/.claude-work -> "(lb)". That is right on zig-computer
-# and WRONG on marketing-vps, whose DEFAULT ~/.claude is itself a company seat —
-# so it labelled a LinearB session "(me)". Measured 2026-08-05:
+# and was WRONG on marketing-vps, whose DEFAULT ~/.claude was itself a company
+# seat — so it labelled a LinearB session "(me)". Measured 2026-08-05, before that
+# box was decommissioned (2026-08-07); the counter-example is no longer
+# reproducible, which is exactly why it is written down:
 #     marketing-vps ~/.claude       andrew.zigler@linearb.io  | LinearB Marketing
 #     zig-computer  ~/.claude       andrewzigler@gmail.com    | personal
 #     zig-computer  ~/.claude-work  andrew.zigler@linearb.io  | LinearB Marketing

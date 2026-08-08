@@ -11,6 +11,9 @@ UNINSTALLED" when both were installed and running. An agent reading it would hav
 concluded two live loops were switched off.
 
 Last full re-derivation: **2026-08-01** (runtimes, vhosts, ports, timers).
+`marketing-vps` struck out **2026-08-08** after its retreat — that pass removed a
+decommissioned host's claims; it did **not** re-derive anything else, so the date above
+still stands and everything below it is still one week stale.
 
 ## The demesne at a glance
 
@@ -18,21 +21,33 @@ Last full re-derivation: **2026-08-01** (runtimes, vhosts, ports, timers).
 |---|---|---|---|
 | **zig-computer** | public IP + tailnet | Linux VPS | the **harness host** — Claude Code, skills, beads, `/pulse` systemd timers, nginx edge |
 | **pico** | tailnet only | macOS, **no systemd** (launchd) | **where most user-facing production runs**; home, behind NAT |
-| **marketing-vps** (was `vps-8a9eb245` until 2026-08-03) | **plain SSH, NOT on the tailnet** | Linux VPS | LinearB marketing work; a second writer on shared repos; Claude Code routes through pico's agentgateway over a chained `ssh -L` |
 | metis | tailnet | macOS | — |
 | iphone-15-pro | tailnet | iOS | Termius client |
 | homeassistant | tailnet, **tag:server** | HAOS rpi5 | "948 Palm" install (`ssh hassio@homeassistant`, key `~/.ssh/id_ha`); managed from `~/picod` |
 
-⚠️ **The demesne is not the tailnet.** `marketing-vps` is reached by ordinary SSH and
-does not appear in `tailscale status` — so a mesh-shaped assumption ("everything is a
-peer, everything is private") is wrong for exactly the host with a history of
-stranding commits. Treat it as a separate machine that happens to share repos.
+**DECOMMISSIONED — `marketing-vps`** (the LinearB company seat, OVH; called
+`vps-8a9eb245` until the 2026-08-03 rename). Retreat completed **2026-08-07**: timers
+disabled, disk wiped 14G → 16K, SSH severed in both directions, `ssh marketing-vps`
+returns rc=255 and the host alias is gone from `~/.ssh/local`. **It is not reachable and
+must not be treated as live.** Its seven LinearB pulse rows moved back here — see
+"systemd USER timers" below. The runbook that executed the retreat, kept for its
+measurement traps, is `refs/in-case-of-retreat.md`.
 
-⚠️ **Two writers, one repo.** `marketing-vps` commits to the same repos as this box.
-That is why `/commit` demands a push proof against `git ls-remote` rather than
-`git rev-parse HEAD` (4 commits were stranded there 2026-07-31 by a re-detached HEAD),
-and why the fleet rule is `git fetch && git merge` — never `pull --rebase`, never
-`stash`.
+⚠️ **The demesne is not the tailnet — still true, and it survives its example.** Every
+host in the table above is now a tailnet peer, so "everything is a peer" happens to hold
+today. Do not encode that: `marketing-vps` was reached by ordinary SSH and never appeared
+in `tailscale status`, and a mesh-shaped assumption was wrong for exactly the host with a
+history of stranding commits. The next non-peer box will be the same shape. Check
+`tailscale status` rather than assuming membership.
+
+⚠️ **Two writers, one repo — STILL LIVE, with a different second writer.** The rule was
+paid for by `marketing-vps` (4 commits stranded there 2026-07-31 by a re-detached HEAD,
+while `git push` exited 0), but it did not retire with it. On this box a **`/pulse` tick
+is a real session in the project root**, and a parallel interactive session commits
+constantly — so any checkout here can acquire a second writer on a timer, with no hint in
+`git status` that another *process* owns those files. `/commit` therefore still demands a
+push proof against `git ls-remote` rather than `git rev-parse HEAD`, and the fleet rule is
+still `git fetch && git merge` — never `pull --rebase`, never `stash`.
 
 ## zig-computer — the harness host
 - **hostname `zig-computer`** — a public VPS AND the dev box + Claude Code harness
@@ -120,10 +135,10 @@ headers into two columns of `~/.local/share/agentgateway/requests.db`:
 | `X-Machine-Origin` | `group` → `agentgateway_group` | `hostname -s` |
 
 ⚠️ **`agentgateway_user` is NOT a machine name**, however much `zig-computer:hevyd` looks
-like one — the first field is the tmux SESSION. zig-computer and marketing-vps both run a
-session called `work`, and metis shares the namespace, so ≥3 machines collide there. That
-is why `group` exists. `src.addr` cannot substitute: tunnelled traffic arrives as
-zig-computer's tailnet IP.
+like one — the first field is the tmux SESSION. zig-computer and metis both run a session
+called `work` (marketing-vps did too, before it was decommissioned), so the namespace
+collides across machines. That is why `group` exists. `src.addr` cannot substitute:
+tunnelled traffic arrives as zig-computer's tailnet IP.
 
 ⚠️ **Querying that DB — two traps, both paid for on 2026-08-04 (`dotfiles-9o46`).** The
 table is **`request_logs`** (not `requests`) and the time column is **`started_at`** (not
@@ -186,9 +201,11 @@ tunnel timer and types into live panes — measured in review. Use `--dry-run` i
 test suite is hermetic because it puts fakes on `PATH`, not because of `$HOME`.)
 
 Three things hold the routing and all three must move, which is what the script does:
-the per-host `~/.$(hostname -s).zshenv` export; `claude-gateway-tunnel.timer` **if this
-host has one** (marketing-vps does, zig-computer does not — the script keys on unit
-existence, never on a hostname); and the environment of **already-running shells**, since
+the per-host `~/.$(hostname -s).zshenv` export; a `claude-gateway-tunnel.timer` **if this
+host has one** — **no host does today**; the only box that ever did was marketing-vps,
+and the shipped unit templates went with it. The branch stays because the script keys on
+**unit existence, never on a hostname**, so it is already correct for the next non-peer
+box; and the environment of **already-running shells**, since
 the durable tmux panes hold zsh processes that are days old, exported the old value at
 start, and will never re-read the file.
 
@@ -224,100 +241,24 @@ request under `env -u CC_NO_GATEWAY` (see the false-pass warning above — witho
 - The tailscale "can't reach the configured DNS servers" health warning is **zig-computer's**,
   not pico's. pico reports no health warnings.
 
-## marketing-vps — the LinearB company seat
+## The LinearB seat — `~/.claude-work` (here, since 2026-08-07)
 
-**NOT on the tailnet.** Plain SSH only, by the `marketing-vps` host alias.
-`tailscale status` lists zig-computer, homeassistant, iphone-15-pro, metis, pico
-— this box is not a mesh peer.
+LinearB work used to run on its own box (`marketing-vps`, decommissioned above). It now
+runs **here on zig-computer**, in `work:<row>` tmux windows, under a **separate Claude
+config dir** — `CLAUDE_CONFIG_DIR=~/.claude-work` — so company work bills and attributes
+to the LinearB account and not to Zig's personal subscription. `lb-claude` is the wrapper
+that launches `claude` with that seat set.
 
-⚠️ **Renamed `vps-8a9eb245` → `marketing-vps` on 2026-08-03** (`dotfiles-v1uh`) so
-agentgateway's `group` column reads the name the box is actually called. The OVH FQDN
-`vps-8a9eb245.vps.ovh.us` and the bare old name are kept as `/etc/hosts` aliases, and
-`/etc/cloud/cloud.cfg` now sets `preserve_hostname: true` — it was `false` with
-`set_hostname`/`update_hostname` active, so cloud-init would have silently reverted the
-rename at the next reboot. Per-host dotfiles are keyed on `hostname -s`
-(`zsh/.zshrc:10`, `zsh/.zshenv:14`, `sync.sh:52,233,237`), so the three
-`zsh/.marketing-vps.*` / `bash/.marketing-vps.bashrc` files were added as COPIES and the
-old names deleted only after the rename was verified — moving them first would have
-stripped PATH and the gateway routing from every new shell in between.
+⚠️ **The seat is the ACCOUNT, not the path.** `~/.claude` is personal on this box; it was
+the LinearB company seat on marketing-vps. A path-based rule therefore labelled a company
+session `(me)` — `claude/statusline.sh` now reads `oauthAccount.emailAddress` instead.
 
-**Claude Code routes through pico's agentgateway** (since 2026-08-03, `dotfiles-ogkz`)
-via `ANTHROPIC_BASE_URL=http://127.0.0.1:17017/claude` in `zsh/.marketing-vps.zshenv` —
-a **loopback** address, because this box is not a tailnet peer. `claude-gateway-tunnel.timer`
-is the ONLY thing that opens that forward (`ssh -L 127.0.0.1:17017:100.72.47.4:17017
-zig-computer`; ssh resolves a `-L` destination on the FAR end, so zig-computer does the
-tailnet leg). Routing fails HARD with no fallback (`dotfiles-ucl4`). `CC_NO_GATEWAY=1`
-bypasses it for one session (fixed 2026-08-03, `dotfiles-20rx`); to bypass the box
-lastingly use `agents/scheduler/gateway-switch.sh off` rather than editing the export by
-hand — `sed -i` on `~/.marketing-vps.zshenv` replaces the symlink and detaches the host
-from the repo. See "The kill switch" under pico, above.
+⚠️ **A row that migrates without a pinned seat fails SILENTLY**, which is why
+`pulse-inject.sh` gained `--config-dir` and a suite of cases around it: nothing errors,
+the tick simply bills and attributes to the wrong account. Verified in pico's request log
+after the migration (`group=zig-computer user=work:di-thursday`).
 
-| | |
-|---|---|
-| hostname | `vps-8a9eb245` |
-| public IP | `15.204.114.210/32` on `ens3` (OVH; gw `15.204.112.1`) |
-| OS / kernel | Ubuntu 26.04 LTS · `7.0.0-14-generic` |
-| resources | 8 vCPU · 22 GiB RAM · 193 GB `/` (16 G used, 9%) |
-| accounts | `ubuntu`, `kevin` (Kevin Fayle), `andrew`, `mike` (Mike Noel), `ben` (Ben Lloyd Pearson) — **a genuinely shared box** |
-| `andrew` sudo | **passwordless root** (`sudo -n whoami` → `root`) |
-
-**Role.** Executes the five migrating Dev-Interrupted + weekly-report pulse rows
-on the LinearB company seat (`explore-7iz9` architecture (c)). zig-computer's
-`pulse-dispatch-remote.sh` drives them; `vps-preflight.sh` gates every dispatch
-from zig-computer, never from here. It is a **read-only consumer** of dotfiles —
-`vps-repo-refresh.sh --self-update` dies if the tree has local commits.
-Interactive work happens in the durable tmux session `work`
-(`di-monday`, `di-wednesday`, `pipeline-website`, `imc-aug26`).
-
-**Ports.** `0.0.0.0:22` sshd — the only internet-reachable port.
-`127.0.0.1:7100` is a **loopback-only** `ssh -L` to zig-computer's fleet proxy,
-opened from this side by `ensure-fleet-tunnel.sh` so the box can self-heal when
-zig-computer's reverse `-R` forward dies. `gatewayports no`. No web server, no
-nginx, no other listener.
-
-**User timers** (all enabled, all firing; `crontab -l` is empty):
-`lb-granola-pull` every 2 min · `imc-pull` every 10 min ·
-`vps-repo-refresh` hourly (+300 s jitter) · `claude-vault-sync` at `*:15:00`
-(offset from zig-computer's `*:00:00`, so the two never clobber each other's push).
-
-**Repos.** `~/dotfiles` (main, read-only consumer) · `~/linearb` umbrella with
-`dashboard-dev-interrupted` + `weekly-reporting` + `agent-factory` as submodules
-(detached HEADs are normal for submodules) · `~/marketing-vps` · `~/work/`
-(pulse-dispatch run dirs, fable-*, vet drafts).
-
-⚠️ **`~/marketing-vps` is NOT a git repo** (measured 2026-08-04). This file called it
-"the team's shared `lb-marketing/marketing-vps` setup repo" — there is no `.git` there
-at all, which is consistent with the PAT gotcha below: the clone could never have
-succeeded. It is a plain directory (`setup.sh`, `sync.sh`, `upgrade.sh`, `config`,
-`.backup/`) **plus its own `.beads/` store** — 6 rows in `issues.jsonl` and a
-`beads.db`, last touched 2026-07-20. Those beads are replicated NOWHERE: they are not
-in the `dotfiles` store and there is no remote to push them to. Anything that wipes
-that directory destroys them (see `~/.in-case-of-retreat.txt` on zig-computer).
-
-**Secrets, by pointer.** `~/.secrets/google-service-account.json` (0600) ·
-`~/.config/gh/hosts.yml` — `oauth_token` for `azigler` ·
-`~/linearb/pipeline-website/.env.local` — `STRAPI_URL`, `STRAPI_API_TOKEN`.
-All `0600`. Nothing pasted into a doc, bead, or memory file.
-
-**Gotchas.**
-- ⚠️ **It has re-detached HEAD before, stranding 4 commits (2026-07-31).** Prove a
-  push against `git ls-remote`, never `git rev-parse HEAD`. (Clean as of
-  2026-08-01: on `main`, tree clean.)
-- ⚠️ **Its GitHub PAT 404s on every `lb-marketing/*` repo**, so `agent-factory`,
-  `weekly-reporting` and six other submodules cannot be initialized from here
-  (`explore-lc15`).
-- **`core.hooksPath`**: SET on `~/dotfiles` (`tools/githooks` — the gate fires here;
-  observed live 2026-08-04, `verdict: CLEAN` on a doc commit), still **unset on
-  `~/linearb`**. This file previously said unset on both. It is a per-clone local
-  setting, so it stays easy to get wrong — check it rather than assuming, in either
-  direction: believing the gate is off invites hand-running suites that already ran,
-  and believing it is on invites shipping ungated.
-- ⚠️ **`~/bin/vps-repo-refresh.sh` is a 49-line stub, not the tracked 604-line
-  script** (`dotfiles-qcfx`, still open 2026-08-01). The hourly timer runs the
-  stub, which writes no receipt; `vps-preflight` invokes the tracked path
-  directly, which is why dispatch still works.
-- ⚠️ **Password SSH is on and there is no firewall** — see the P0 in
-  `refs/audit/H-marketing-vps.md`. Do not assume this box is hardened.
+The seven rows themselves are ordinary `/pulse` timers now — see "systemd USER timers".
 
 ## The production norm (and its exception)
 Andrew's default: *production runs on **pico** over tailscale, forwarded from
@@ -360,10 +301,19 @@ sqlite3 3.46.1, **duckdb v1.5.4** (`~/.local/bin/duckdb`).
 
 ## systemd USER timers (the `/pulse` fleet + builds)
 
-`systemctl --user list-timers --all` is the source of truth; **31 units** live as of
-2026-08-01. The `/pulse` fleet: `pulse-{dive,desk,digest,dream,retry,stall}`,
+`systemctl --user list-timers --all` is the source of truth; **30 units** live, measured
+2026-08-08 (was 31 on 2026-08-01 — the list below is otherwise carried forward from that
+pass and not re-derived). The `/pulse` fleet: `pulse-{dive,desk,digest,dream,retry,stall}`,
 `pulse-di-{monday,tuesday,wednesday,thursday,friday}`, `pulse-autonoveld-{mail,conceive,voice,write}`,
 `pulse-{aaif-radar,andrewzigler3,biweekly-content,hevyd-recap,weekly-report}`.
+
+⚠️ **The seven LinearB rows** — `pulse-di-{mon..fri}`, `pulse-weekly-report`,
+`pulse-biweekly-content` — **run HERE now.** They were dispatched onto a remote box until
+2026-08-07 and came back with the retreat. They are ordinary local timers; the thing that
+is NOT ordinary is that each pins the LinearB seat via `--config-dir ~/.claude-work`. A
+row that loses that pin does not error — it bills Zig's personal account. All seven are
+present and scheduled (`list-timers --all`, 2026-08-08).
+
 Non-pulse: `andrewzigler3-build`, `claude-vault-sync`, `harnessd-tlscert`,
 `hevyd-social-tick`, `lb-granola-commit`, `picod-health`, `vs14d-backup-health`,
 `gateway-host-update`, `restart-loop-check`, `zettel-refresh`.

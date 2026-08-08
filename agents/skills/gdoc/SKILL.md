@@ -185,8 +185,10 @@ Google, so the `.docx`/PDF half already works anywhere.
 
 `FLEET_URL` (default `http://localhost:7100`), `FLEET_API_TOKEN`, and
 `GDOC_AGENT_NAME` (default `zig-agent-copy`) configure the proxy path. This is
-what lets a credential-less worker such as `marketing-vps` render a themed tab:
-`localhost:7100` is a valid address there too, over the reverse SSH tunnel.
+what lets a **credential-less worker** render a themed tab without holding a service
+account key: `localhost:7100` is a valid address on any box reached by the reverse
+SSH tunnel. (Built for the since-decommissioned `marketing-vps`; the capability is
+not tied to that host.)
 
 Two wrinkles worth knowing about the proxy path.
 

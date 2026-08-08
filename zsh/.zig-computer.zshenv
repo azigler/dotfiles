@@ -1,8 +1,8 @@
 # zig-computer — per-host NON-interactive env, sourced by zsh/.zshenv.
 #
 # ANTHROPIC_BASE_URL used to live in the fleet-wide claude/settings.json `env`
-# block. It was removed there on 2026-07-27 because marketing-vps could not reach
-# pico's tailnet address at all, and every session on that box was pinging a
+# block. It was removed there on 2026-07-27 because one box (marketing-vps, since
+# decommissioned) could not reach pico's tailnet address at all, and every session on it was pinging a
 # gateway that would never answer. The setting isn't wrong — it's just
 # machine-scoped, so it belongs in a per-host file rather than in the config
 # every machine loads.

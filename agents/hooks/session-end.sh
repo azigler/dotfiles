@@ -168,8 +168,11 @@ case "$PWD" in
     if [ -f "$_VAULT_LIB" ]; then
       . "$_VAULT_LIB"
       vault_push_memory >>"$HOME/.claude/vault-session-end.log" 2>&1 || true
-      # PEER (marketing-vps): also push transcripts at session-end so a worker
-      # session's results sync immediately (spec lin-i2d.1 P5). The primary uses
+      # PEER: also push transcripts at session-end so a worker session's results
+      # sync immediately (spec lin-i2d.1 P5). Keyed on the `.peer` MARKER FILE,
+      # never on a hostname — built for marketing-vps (decommissioned 2026-08-07);
+      # no box carries the marker today, so this branch is currently dormant, not
+      # dead. The primary uses
       # the hourly timer instead (avoids parallel-session push contention).
       if [ -f "$HOME/.claude/vaults/.peer" ]; then
         _TR_LIB="$(dirname "$_VAULT_LIB")/transcripts-lib.sh"

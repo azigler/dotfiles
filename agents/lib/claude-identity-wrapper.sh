@@ -9,8 +9,9 @@
 #   X-Session-Identity: <session>:<window>   -> pico maps to standardAttributes.user
 #   X-Machine-Origin:   <hostname -s>        -> pico maps to standardAttributes.group
 # The session header's FIRST field is the tmux SESSION name, not the machine, and
-# that namespace is shared: zig-computer, marketing-vps AND metis all have a session
-# called `work`, so `user` alone cannot say which box a request came from. The two
+# that namespace is shared: zig-computer and metis both have a session called `work`
+# (marketing-vps did too, before it was decommissioned — the collision is the norm,
+# not that box), so `user` alone cannot say which box a request came from. The two
 # are INDEPENDENT — no tmux still emits the machine header (jailed and
 # non-interactive ticks are exactly the ones that were unattributed before), and a
 # failed hostname still emits the session header. X-Session-Identity's format is
@@ -35,7 +36,8 @@
 # reason. ANTHROPIC_BASE_URL used to live in the fleet-wide claude/settings.json `env`
 # block, which EVERY claude process read at launch. On 2026-07-27 it moved to the
 # per-host shell tier (~/.<host>.zshenv, commits 2b8d22a + 5c9ff80). The scoping is
-# right — marketing-vps had no route to the gateway then — but it turned a LAUNCH-time
+# right — one box (marketing-vps, since decommissioned) had no route to the gateway
+# then — but it turned a LAUNCH-time
 # setting into a SHELL-START-time one, and the harness's durable tmux panes hold zsh
 # processes that are days old. Those shells never sourced the new file, so every claude
 # launched from them (i.e. every pulse tick in every long-lived window) silently
@@ -70,7 +72,7 @@
 #
 # The hatch fired only where the variable happened to be unset — bash — which is the
 # opposite of where it is needed: the interactive fleet is zsh. Worse, since
-# dotfiles-ucl4 marketing-vps routes through the gateway FAIL-HARD, so a box whose
+# dotfiles-ucl4 gateway routing is FAIL-HARD fleet-wide, so a box whose
 # tunnel is down had neither a working `claude` nor a hatch that could fire in its own
 # login shell.
 #

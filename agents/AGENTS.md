@@ -29,9 +29,10 @@ in the main session, not via an Explore agent. At session end run `/offboard`.
 
 For infra / ports / deploy / networking work, also read `agents/infra.md` — **the
 computing demesne**: every machine the harness runs on or reaches (zig-computer,
-pico, marketing-vps, and the tailnet peers), with each one's role, IPs, ports,
-services, secrets-by-pointer and gotchas. Note the demesne is NOT the tailnet —
-`marketing-vps` is plain SSH and is a second writer on shared repos.
+pico, and the tailnet peers), with each one's role, IPs, ports, services,
+secrets-by-pointer and gotchas. Note the demesne is NOT the tailnet — it has held a
+plain-SSH, non-peer box before (`marketing-vps`, decommissioned 2026-08-07) and may
+again, so check `tailscale status` rather than assuming membership.
 
 ## Effort — a per-dispatch choice, not a session setting
 

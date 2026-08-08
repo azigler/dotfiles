@@ -3,10 +3,11 @@
 #
 #   bash agents/scheduler/mutate-tunnel-ownership.sh [-v]
 #
-# WHY THIS EXISTS. ensure-fleet-tunnel.sh decides WHICH PROCESS TO KILL, and it
-# runs on marketing-vps — a box shared with four other human accounts and with
-# two of these tunnels live at once (the fleet proxy on 7100, pico's agentgateway
-# on 17017). A target-blind pgrep pattern there does not fail a test, it kills
+# WHY THIS EXISTS. ensure-fleet-tunnel.sh decides WHICH PROCESS TO KILL. It was
+# written for marketing-vps (decommissioned 2026-08-07) — a box shared with four
+# other human accounts and with two of these tunnels live at once (the fleet proxy
+# on 7100, pico's agentgateway on 17017). The hazard is SHARED-BOX-SHAPED, not
+# host-specific, so this stays. A target-blind pgrep pattern does not fail a test, it kills
 # somebody else's forward mid-dispatch. That was observed live during
 # dotfiles-47nf: with the pattern stopped at the local port, bringing up tunnel B
 # printed `closed our local forward (pid …)` against tunnel A.

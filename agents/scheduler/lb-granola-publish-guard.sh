@@ -4,8 +4,10 @@
 #
 # WHY THIS EXISTS (dotfiles-1o9t, 2026-08-05). Eight days and eleven commits of
 # Granola deliveries sat local-only on zig-computer while `lb-granola-commit`
-# reported success every hour. marketing-vps pushed to lb-granola on 2026-07-28
-# 22:05; from that moment every `git push` from zig was rejected non-fast-forward.
+# reported success every hour. A second writer (marketing-vps, since decommissioned)
+# pushed to lb-granola on 2026-07-28 22:05; from that moment every `git push` from
+# zig was rejected non-fast-forward. A `/pulse` tick can play the same role — the
+# guard is not retired with the box.
 #
 # THE BINARY DOES NOT SWALLOW THAT ERROR — that part of the original diagnosis is
 # wrong, and the correction matters because it is what tells you where the fix

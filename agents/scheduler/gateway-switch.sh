@@ -26,8 +26,11 @@
 # The three things that hold the routing, and why all three must move
 # ---------------------------------------------------------------------------
 #   1. $HOME/.<host>.zshenv         the value every NEW shell exports
-#   2. claude-gateway-tunnel.timer  (marketing-vps only) opens the ssh -L that
-#                                   makes the loopback base URL resolve at all
+#   2. claude-gateway-tunnel.timer  opens the ssh -L that makes a LOOPBACK base
+#                                   URL resolve at all. Only a NON-tailnet box
+#                                   needs it; no host has one today (the last was
+#                                   marketing-vps, decommissioned 2026-08-07), so
+#                                   this step is currently a no-op everywhere.
 #   3. the ENVIRONMENT OF SHELLS THAT ARE ALREADY RUNNING — the harness's
 #      durable tmux panes hold zsh processes that are days old. They exported
 #      the old value at start and will never re-read the file, and
@@ -94,8 +97,9 @@
 #    second `#` that `on` cannot reverse. The file steps are state-driven: if
 #    there is nothing to comment, nothing is written at all.
 # D. NO HARDCODED HOSTNAMES for the tunnel step. Key on whether the unit
-#    EXISTS, so this is correct on zig-computer (no unit), on marketing-vps
-#    (unit), and on a host that does not exist yet.
+#    EXISTS, so this is correct on zig-computer (no unit), on a box that has one
+#    (marketing-vps did, until it was decommissioned), and on a host that does
+#    not exist yet. That is why the retreat did not require touching this file.
 
 set -uo pipefail
 
@@ -496,7 +500,7 @@ if [ "$CMD" = "status" ]; then
   if timer_exists; then
     say "timer:      $TIMER_UNIT exists, is-enabled=$(timer_state), is-active=$( { systemctl --user is-active "$TIMER_UNIT" || true; } | head -1)"
   else
-    say "timer:      no $TIMER_UNIT on this host — nothing to toggle (that is normal off marketing-vps)"
+    say "timer:      no $TIMER_UNIT on this host — nothing to toggle (normal: only a non-tailnet box needs one, and none exists today)"
   fi
   CODE=$(probe)
   if [ "$CODE" = "$EXPECT_CODE" ]; then

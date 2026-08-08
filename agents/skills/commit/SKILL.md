@@ -115,8 +115,9 @@ test "$(git rev-parse "$BRANCH")" = "$(git ls-remote origin "$BRANCH" | cut -f1)
 prints your LOCAL head — including a detached one — not what the remote
 received, so it reports success on exactly the failure it should catch.
 
-This is not hypothetical. On 2026-07-31 a managed checkout on `marketing-vps`
-re-detached HEAD mid-session, repeatedly, including between two commits in the
+This is not hypothetical. On 2026-07-31 a managed checkout on `marketing-vps` (a
+box since decommissioned — the lesson is not) re-detached HEAD mid-session,
+repeatedly, including between two commits in the
 same turn. Four commits landed on the detached HEAD while the `main` branch
 never moved; `git push origin main` dutifully pushed the unmoved branch, exited
 `0`, and the session reported "pushed" four times against a remote that had
@@ -189,10 +190,13 @@ zsh, one echo later:               ${pipestatus[1]} = [0]   <- clobbered
 Two silent-failure traps stacked is one too many. **Keep the pipe out of the
 guard** — pipe afterwards if you want quiet output.
 
-⚠️ **Assume another machine has already committed.** As of 2026-07-28 this is no
-longer a single-writer fleet: `marketing-vps` runs full dispatched pulse ticks
-against its own checkouts of `~/dotfiles` and `~/linearb`, and a parallel
-interactive session commits here constantly. A bare `git push` against a moved
+⚠️ **Assume another writer has already committed.** This has not been a
+single-writer fleet since 2026-07-28. The second writer is no longer another
+*machine* — `marketing-vps` ran dispatched pulse ticks against its own checkouts
+until it was decommissioned 2026-08-07 — but the hazard did not leave with it:
+**a `/pulse` tick is a real session in the project root**, and a parallel
+interactive session commits constantly. A second writer arrives on a timer,
+with nothing in `git status` marking whose files are whose. A bare `git push` against a moved
 remote either fails outright (`! [rejected] … fetch first`) or, worse, tempts a
 `--force` that silently discards the other machine's work.
 
@@ -237,7 +241,8 @@ touches the working tree behind you (an rsync, a sync client, a cleanup script, 
 sibling agent, a checkout you forgot) gets its removals silently folded into your
 commit, under a message that claims you added something.
 
-Measured instance, 2026-07-30 on marketing-vps: an hourly `rsync -az --delete` from
+Measured instance, 2026-07-30 on the since-decommissioned `marketing-vps`: an
+hourly `rsync -az --delete` from
 a stale source removed 12 committed files between a `cp` and a `git add
 refs/doc-scripts`. Two commits captured the deletions as if they were intentional.
 Nothing was lost only because the files were recoverable from history.

@@ -280,10 +280,11 @@ fi
 
 # --- the tunnel-ownership logic -> prove IT still bites --------------------
 # Same argument as the block above, on a script whose decision is WHICH PROCESS
-# TO KILL — running on marketing-vps, a box shared with four other human
-# accounts and with two of these tunnels live at once. A target-blind pgrep
-# pattern there kills somebody else's forward mid-dispatch; it was observed live
-# during dotfiles-47nf. Measured on a 12-core box:
+# TO KILL. The case that paid for it: marketing-vps (decommissioned 2026-08-07),
+# a box shared with four other human accounts and with two of these tunnels live
+# at once. A target-blind pgrep pattern there killed somebody else's forward
+# mid-dispatch; observed live during dotfiles-47nf. The gate stays — a shared box
+# is a shape, not that one host. Measured on a 12-core box:
 #
 #     test-ensure-fleet-tunnel.sh                        9s
 #     mutate-tunnel-ownership.sh (5 mutants + baseline) 63s

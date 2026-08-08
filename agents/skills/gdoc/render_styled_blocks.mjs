@@ -27,10 +27,12 @@
 //   GDOC_AGENT_NAME  X-Agent-Name on writes, default zig-agent-copy
 //   SA_KEY           service-account key path (required for direct only)
 //
-// This matters because the DI pulse ticks are moving to `marketing-vps`, a box
-// that deliberately holds NO credentials and reaches this machine's fleet proxy
-// over a reverse SSH tunnel — so `http://localhost:7100` is a valid address in
-// both places, while `$SA_KEY` exists in only one. Same convention as
+// This matters for any CREDENTIAL-LESS worker: a box that deliberately holds no
+// service-account key but reaches this machine's fleet proxy over a reverse SSH
+// tunnel, so `http://localhost:7100` is a valid address in both places while
+// `$SA_KEY` exists in only one. (Built when the DI pulse ticks moved to
+// `marketing-vps`; that box was decommissioned 2026-08-07 and the ticks run here
+// now, but the credential-less shape is the point, not the host.) Same convention as
 // `dashboard-dev-interrupted/scripts/gdoc_proxy.mjs`.
 //
 // Loudness contract: every failure prints the HTTP status + body on stderr and

@@ -168,8 +168,8 @@ alias ssh-pico='ssh pico@$(tailscale ip -4 pico 2>/dev/null || echo pico)'
 # The cc-gw / cc-direct / cc-route toggle lived here until 2026-07-28. It wrote
 # ANTHROPIC_BASE_URL into ~/.claude/settings.json, which is now the WRONG home:
 # that file is fleet-wide, and the gateway is reachable from some machines and
-# not others (marketing-vps could not reach pico's tailnet address at all, and every
-# claude call there failed while the config looked fine).
+# not others (the since-decommissioned marketing-vps could not reach pico's tailnet
+# address at all, and every claude call there failed while the config looked fine).
 #
 # Routing is now per-host and ON by default where it works, via the .zshenv tier —
 # and, since 2026-07-29, ALSO re-derived at launch by the claude() wrapper below.
@@ -180,10 +180,12 @@ alias ssh-pico='ssh pico@$(tailscale ip -4 pico 2>/dev/null || echo pico)'
 # per invocation, which makes the setting shell-age-independent.
 #     zsh/.zig-computer.zshenv   exports ANTHROPIC_BASE_URL
 #     zsh/.metis.zshenv          exports ANTHROPIC_BASE_URL
-#     zsh/.marketing-vps.zshenv  DOES too, since 2026-08-03 — that box is not a
-#                                tailnet peer, so it reaches pico through a chained
-#                                ssh -L kept alive by claude-gateway-tunnel.timer
-# zsh/.zshenv sources ~/.${HOST%%.*}.zshenv; sync.sh links the matching one.
+# zsh/.zshenv sources ~/.${HOST%%.*}.zshenv; sync.sh links the matching one — there
+# is no list of hosts anywhere, so adding a box is just adding its file.
+# (A third file existed for marketing-vps until 2026-08-08. It is the shape a
+# NON-tailnet box needs: a loopback base URL plus an ssh -L held open by a
+# per-host timer, because such a box cannot dial pico directly. Recover it from
+# git history rather than re-deriving it if that case comes back.)
 #
 # The two things the old toggle also carried, and where they went:
 #   - ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-5[1m] — still set fleet-wide in
