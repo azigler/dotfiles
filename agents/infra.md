@@ -345,7 +345,12 @@ phantom catch-up tick. Same reason a re-armed timer needs its stamp touched firs
   NOT mean broken; do not "fix" it by unmasking. The old
   `state-bus.timer` →
   `~/harnessd/bin/harness-refresh`; Go daemon binds the tailnet IP at Phase 1.
-- `~/linearb`, `~/reef`, ss14 game server, `~/hermes` (VPS agent, archived).
+- `~/linearb`, `~/reef`, ss14 game server.
+- **DECOMMISSIONED — `~/.hermes`** (killed substrate, 2.1G, last touched 06-29). Retired
+  2026-08-08 under the substrate-uninstall discipline: credential files (`.env`,
+  `auth.json`, incl. the `state-snapshots/` pre-update copies) quarantined to
+  `~/.hermes-credentials-quarantine` (mode 700) before deletion, so rotation evidence
+  survives the directory. Rotation is Zig's call, not done here. `dotfiles-j4ps`.
 
 ## Secrets — `~/.secrets` (mode 600, `source` to load)
 `HEVY_API_KEY` (Pro, verified) · `HEVYD_WEBHOOK_TOKEN` · `FLEET_API_TOKEN` ·

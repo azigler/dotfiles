@@ -52,8 +52,11 @@ antigen apply
 # `tmux` -> _zsh_tmux_plugin_run, which names a session after the $PWD
 # basename and auto-attaches/creates it (ZSH_TMUX_AUTOCONNECT=true). A bare
 # `tmux` from the wrong directory then silently spins up a session (e.g. a
-# `hermes` dispatch session the broker immediately populates with servitors
-# -> runaway session/RAM leak). Anything wanting the wrapper calls `tmuxa`.
+# `hermes` dispatch session the broker immediately populated with servitors
+# -> runaway session/RAM leak — Hermes itself is retired, 2026-08-08,
+# `dotfiles-j4ps`, but the tmux-hijack risk this guards against is generic
+# to any broker that shells out bare `tmux`). Anything wanting the wrapper
+# calls `tmuxa`.
 unalias tmux 2>/dev/null
 alias tmuxa='_zsh_tmux_plugin_run'
 
@@ -84,5 +87,6 @@ if [ -d "$HOME/.local/share/pnpm" ]; then
 fi
 # pnpm end
 
-# ensure ~/.local/bin is on PATH (user tools: mlx, the hermes CLI, etc.)
+# ensure ~/.local/bin is on PATH (user tools: mlx, br, bv, claude, etc. — no
+# longer the hermes CLI, retired 2026-08-08, `dotfiles-j4ps`)
 export PATH="$HOME/.local/bin:$PATH"
