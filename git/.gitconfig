@@ -9,6 +9,14 @@
 	signingkey = 8CA628797E026F48
 [init]
 	defaultBranch = main
+[pull]
+	rebase = false
+[rebase]
+	autoStash = false
+[merge]
+	conflictstyle = zdiff3
+[rerere]
+	enabled = true
 [include]
 	path = ~/.gitconfig.local
 [credential "https://github.com"]
