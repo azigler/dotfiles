@@ -34,7 +34,7 @@ secrets-by-pointer and gotchas. Note the demesne is NOT the tailnet — it has h
 plain-SSH, non-peer box before (`marketing-vps`, decommissioned 2026-08-07) and may
 again, so check `tailscale status` rather than assuming membership.
 
-## Effort — a per-dispatch choice, not a session setting
+## Effort and model — a per-dispatch choice
 
 An effort level is a **calibration of one model on one client version, not a
 constant** — re-measure (`/ab`) when either moves. This table is the only
@@ -70,6 +70,19 @@ present during an `xhigh` WebSearch turn. N=1 per cell, so this retires the
 prohibition, not the caution — **re-test before relying on the presence OR the
 absence of the failure**, because that failure is silent: a tick without search does
 not error, it answers from in-weights knowledge and logs `done`.
+
+**Model moves per dispatch too — the `Agent` tool takes `model`.** Pass
+`model: fable|opus|sonnet|haiku` on the call; it overrides the subagent
+definition's frontmatter and needs no implementation (measured 2026-08-08: 167
+fleet dispatches already carry one). Default allocation: **Fable plans and
+reviews, Opus/Sonnet implement** — a different model for review defeats blind
+spots that a fresh context of the same model shares. Two seams, never conflate
+them: the session's model is `claude/settings.json`'s top-level `model` key,
+while the `opus`/`sonnet`/`haiku` **aliases** resolve through
+`ANTHROPIC_DEFAULT_<TIER>_MODEL` env vars — only `OPUS` is pinned here, so the
+other aliases follow whatever the vendor points them at. Neither seam tells you
+what actually ran: verify at the agentgateway request logs, not from the
+dispatch note.
 
 ## Verification — no self-checking, but always evidence at the checkpoint
 

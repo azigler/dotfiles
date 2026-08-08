@@ -117,8 +117,12 @@ the only place effort moves**, so pick it consciously every time:
 - **medium / low** — mechanical, well-specified edits; queue-draining and
   bookkeeping subagents.
 
+Pick a **model** the same way — the `Agent` tool takes `model:
+fable|opus|sonnet|haiku` per call, overriding the subagent definition;
+AGENTS.md "Effort and model" owns the allocation policy and the alias seams.
+
 **Name why** ("max effort: divergent ideation") and state the intended
-effort in the dispatch note, so it is a recorded decision. Escalating a
+effort and model in the dispatch note, so both are recorded decisions. Escalating a
 search-shaped dispatch above `high` was once a silent search-killer; that
 finding is REVISED, not deleted — check the envelope table before relying
 on either the presence or the absence of the failure.
