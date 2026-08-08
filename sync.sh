@@ -121,11 +121,26 @@ sync() {
         "editorconfig")
             sync_source "$SCRIPT_DIR/editorconfig/.editorconfig" "$HOME/.editorconfig"
             ;;
+        "frida")
+            # Opt-in RE tier (re/README.md). frida-tools lives in ~/.venvs/re,
+            # installed by re.setup.sh — nothing here puts it on PATH.
+            sync_source "$SCRIPT_DIR/frida" "$HOME/.config/frida"
+            ;;
+        "gdb")
+            # Shared by gdb AND gdb-multiarch: keep target-specific setup out
+            # of it (see the file's own header).
+            sync_source "$SCRIPT_DIR/gdb/.gdbinit" "$HOME/.gdbinit"
+            ;;
         "gemini")
             sync_source "$SCRIPT_DIR/gemini/settings.json" "$HOME/.gemini/settings.json"
             sync_source "$SCRIPT_DIR/agents/hooks" "$HOME/.gemini/hooks"
             sync_source "$SCRIPT_DIR/agents/skills" "$HOME/.gemini/skills"
             sync_source "$SCRIPT_DIR/agents/AGENTS.md" "$HOME/.gemini/GEMINI.md"
+            ;;
+        "ghidra")
+            # Ghidra's DEFAULT user script dir. -scriptPath resolves scripts by
+            # NAME, not path, so being on the default path is what matters.
+            sync_source "$SCRIPT_DIR/ghidra/scripts" "$HOME/ghidra_scripts"
             ;;
         "golangci-lint")
             sync_source "$SCRIPT_DIR/golangci-lint/.golangci.yml" "$HOME/.config/golangci-lint/.golangci.yml"
@@ -160,6 +175,10 @@ sync() {
             ;;
         "npm")
             sync_source "$SCRIPT_DIR/npm/.npmrc" "$HOME/.npmrc"
+            ;;
+        "radare2")
+            # Read on EVERY r2 invocation, including scripted `r2 -q -c` runs.
+            sync_source "$SCRIPT_DIR/radare2" "$HOME/.config/radare2"
             ;;
         "ranger")
             sync_source "$SCRIPT_DIR/ranger" "$HOME/.config/ranger"

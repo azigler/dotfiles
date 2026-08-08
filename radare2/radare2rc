@@ -1,0 +1,46 @@
+# ~/.config/radare2/radare2rc — dotfiles/radare2/radare2rc,
+# symlinked by `./sync.sh radare2`.
+#
+# Scaffolding for the opt-in reverse-engineering tier (`bash re.setup.sh`).
+# See re/README.md; the tool inventory lives in
+# agents/skills/cleanroom/reference/tool-shelf.md and only there.
+#
+# ⛔ DELIBERATELY EMPTY. Every line below is commented out.
+#
+# radare2 is NOT INSTALLED on this box yet (apt has 5.9.8). Nothing here has
+# been run, so nothing here is enabled.
+#
+# ⚠️ THE GOTCHA THAT MATTERS
+#
+#   r2 reads this file on EVERY invocation, including the non-interactive one
+#   that makes r2 worth having:
+#
+#       r2 -q -c 'aaa; afl; pdf @ main' -A binary
+#
+#   So an `e` setting written here for interactive comfort silently rewrites
+#   the bytes a scripted parse consumes. That is the shared-failure-mode trap:
+#   the analysis still "succeeds", it just reports something else. Put display
+#   preferences in the -c command line of the run that wants them, not here,
+#   unless you have measured the effect on the scripted output too.
+#
+#   (`-N` skips this file entirely — the escape hatch when a scripted run must
+#   be independent of user config. Consider using it in any harness.)
+
+# --- deterministic, diffable output ----------------------------------------
+# These are the settings most likely to be RIGHT for agent use — colour codes
+# and box-drawing characters are noise in a diff — and they are still off,
+# because "likely right" is not "measured here". Enable them per-run first:
+#   r2 -e scr.color=0 -q -c '...' binary
+# e scr.color=0
+# e scr.utf8=false
+# e scr.interactive=false
+
+# --- analysis depth ---------------------------------------------------------
+# `aaa` is the usual default; `aaaa` is much slower and occasionally worse.
+# Pin the depth in the command line of the run so the finding records which
+# analysis produced it.
+# e anal.depth=64
+
+# --- what does NOT belong here ---------------------------------------------
+# Per-target scripts. r2 will happily `. script.r2` from here and then every
+# unrelated binary you open gets that project's assumptions applied to it.
