@@ -76,7 +76,7 @@
 #       --dir <project>     the LOCAL project dir (ledger lives at <dir>/refs/…)
 #       --reason <text>     why this surfaced (surface-request / completed:done / …)
 #       --summary <text>    one line: what landed
-#       --origin remote|local   WHERE the tick ran (default remote) — see below
+#       --origin remote|local   WHERE the tick ran (default local) — see below
 #
 # ---------------------------------------------------------------------------
 # ORIGIN — the injected command is an INSTRUCTION, not a caption (dotfiles-sxsv)
@@ -88,8 +88,9 @@
 #           lands the ledger row (the retired dispatcher's step 6). "…and land the
 #           ledger row at <dir>/refs/pulse-ledger.jsonl" is CORRECT there.
 #           ⚠️ This origin currently has NO PRODUCER — marketing-vps and its
-#           dispatcher were retired (dotfiles-y3u8). The wording is kept because
-#           the origin is still the default and still reachable via --origin.
+#           dispatcher were retired (dotfiles-y3u8). The wording is kept, and
+#           `--origin remote` still works, in case a future non-tailnet box needs
+#           it again; it is just no longer the default (dotfiles-9qju).
 #   local   the tick ran HERE, on a local timer, and wrote its OWN ledger row at
 #           wrap — that row is precisely what pulse-ledger-watch.sh READ in order to
 #           stage this surface. Repeating the remote wording makes the session write
@@ -97,11 +98,12 @@
 #           stages again, and types again: a self-sustaining announcement loop that
 #           corrupts the ledger the whole mechanism reads, on the happy path.
 #
-# `remote` is the DEFAULT because the dispatcher passed no --origin and had to
-# produce byte-identical text. The dispatcher is gone; the default is LEFT ALONE
-# on purpose — every live caller (pulse-ledger-watch.sh) passes --origin local
-# explicitly, so flipping it would change nothing but could silently rewrite the
-# wording of any future producer that forgets the flag.
+# `local` is the DEFAULT (dotfiles-9qju). It used to be `remote`, because the
+# retired dispatcher passed no --origin and had to produce byte-identical text —
+# but that dispatcher is gone, so a default naming a producer that doesn't exist
+# is misleading to the next reader. Every live caller (pulse-ledger-watch.sh) has
+# always passed --origin local explicitly, so the flip changes no caller's
+# behavior; it only changes what an omitted flag means for a FUTURE caller.
 #
 # BOTH the 1-pending and the n-pending forms carry these clauses independently, so
 # both are origin-aware. A mixed group (a local and a remote surface waiting on the
@@ -189,9 +191,10 @@ CMD="${1:-}"
 shift || true
 
 ROW=""; RUN=""; SESSION=""; WINDOW=""; DIR=""; FILE=""; REASON=""; SUMMARY=""; LOOP=""
-# Default `remote`: the dispatcher stages without --origin and its wording must not
-# move. Only pulse-ledger-watch.sh passes `local`.
-ORIGIN="remote"
+# Default `local` (dotfiles-9qju): the `remote` producer (the retired dispatcher)
+# is gone, so an omitted --origin should not name a thing that no longer exists.
+# `--origin remote` still works for a future non-tailnet producer.
+ORIGIN="local"
 F_SESSION=""; F_WINDOW=""
 while [ $# -gt 0 ]; do
   case "$1" in

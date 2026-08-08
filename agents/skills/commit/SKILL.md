@@ -140,7 +140,7 @@ fi
 
 `if !` tests the exit status of the **pipeline**, which is its LAST command's —
 `tail`, which always succeeds. The fetch+merge therefore cannot run, ever. The
-idiom was written specifically to satisfy AGENTS.md's "two writers" rule and
+idiom was written specifically to satisfy AGENTS.md's "Two writers, one working tree" rule and
 satisfied nothing; the pipe was never load-bearing, it only trimmed output.
 
 This is the `rev-parse` trap one level down — **a guard whose signal is swallowed
