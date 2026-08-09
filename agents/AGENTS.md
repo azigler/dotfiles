@@ -311,6 +311,16 @@ git worktree list          # verify OTHER agents' worktrees survived
 With several agents in flight, name the path explicitly and re-check
 `git worktree list` after — a broad cleanup kills a running agent's tree.
 
+⚠️ **Cleanup gates on the agent's COMPLETION NOTIFICATION, never on "the branch
+has commits."** Batch agents (multi-task dispatches) commit incrementally, so a
+merged branch can belong to an agent still mid-task — merging early is safe (a
+later merge picks up new commits), but `worktree remove` on a live agent
+destroys its uncommitted work with no error. Paid for 2026-08-09
+(`dotfiles-3135`): a 3-task agent's worktree was reaped after task 1's commit
+merged; task 2's fully-verified diff existed only in that tree and was lost.
+The reaper line above is for AFTER completion; the mechanical refuse-while-live
+guard is `dotfiles-3135`.
+
 `session-start.sh` already symlinks `.beads/` into worktrees and runs `direnv allow`;
 no setup needed.
 
