@@ -191,6 +191,34 @@ without grepping titles: `br list --label friction`. Don't invent a
 `friction` type for this; the bead's type is still whatever kind of
 work it is — the label is the cross-cutting marker.
 
+### Label taxonomy (dotfiles-iypf, 2026-08-09)
+
+Three label families, applied at create time, not backfilled after the
+fact — the point of a label is that `br list --label <x>` and `bv -l <x>`
+already have signal the moment the bead exists:
+
+| Label | Marks | Example |
+|---|---|---|
+| `friction` | A bug/gotcha caught mid-session — the `/offboard` Step 2.7 Friction section, made mechanical | `br create -t bug -l friction "guard: false-positives on non-git commands"` |
+| `epic:<name>` | A bead belonging to a named multi-bead campaign, keyed to the epic's short name (not its bead ID — the name outlives any one bead) | `br create -l epic:hall "hall: responsive court — mobile layout"` |
+| `area:<area>` | The subsystem a piece of DESIGNED work (feature, spec, validator) touches — orthogonal to `friction`, which marks HOW it was found, not WHERE it lives | `br create -t feature -l area:hall "roster: emit agents/seats.json"` |
+
+`friction` and `area:<x>` are not mutually exclusive in principle (a
+friction bead can also name its area), but in practice pick the label
+that answers the sharper question for that bead: "was this caught as a
+gotcha" (`friction`) or "what part of the estate does this touch"
+(`area:<x>`). Don't force both onto every bead — that's over-labeling,
+not signal.
+
+`area:<x>` values are decided per-project as the estate's subsystems
+stabilize, not a fixed enum — dotfiles' first cohort (dotfiles-iypf
+backfill) used `hall` (the roster/seats/court UI), `drain` (the
+overnight fleet-claim machinery, 69qr/htqt), `works` (general
+build/cutover/infra machinery with no sharper home), `attribution`
+(gateway-spend-to-seat mapping), and `comms` (mail/channels/broadcasts).
+Add a new `area:<x>` when a real cluster of beads needs one; don't
+pre-declare areas nobody has beads for yet.
+
 ## Markers — `fleet:`, `fleet-model:`, `outward:` (fleet/outward eligibility)
 
 69qr (the fleet drain spec) and htqt (the outward gate spec) both name
@@ -429,12 +457,19 @@ Before creating, ask: **can one agent complete this in one session?**
 
 ### Orchestrator at start
 ```bash
-br create -p 2 "scope: title"
+br create -p 2 -l friction "scope: title"    # add -l friction / epic:<name> / area:<x> at CREATE time — see Labels above
 br update <id> --description "..." --acceptance-criteria "..."
 br update <id> --claim          # atomic assignee + in_progress
 ```
 Pass `<id>` to the subagent prompt with: *"Your bead is `<id>`. Include
 `Bead: <id>` in your commit trailer."*
+
+Label at create time, not as a later backfill pass — a label decided in
+the moment (was this a Friction-section catch? does it belong to a
+named epic or subsystem?) is cheap and accurate; a label applied weeks
+later is a guess from the title alone. dotfiles-iypf backfilled ~30
+unlabeled beads from a single founding session precisely because none
+of them were labeled going in.
 
 ### Subagent during work
 - Reads the bead via `br show <id>`
