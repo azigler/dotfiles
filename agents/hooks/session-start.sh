@@ -22,6 +22,38 @@ else
   emit_bead_context() { :; }
 fi
 
+# --- window resolution (dotfiles-k50m) --------------------------------------
+# session-start.sh was window-blind (zero tmux references) while
+# agents/lib/handoff-path.sh already solves window resolution robustly across
+# /clear and env loss (TMUX_PANE fast path, then process-ancestry, then the
+# sticky session->window cache — see tmux-pane-resolve.sh). Don't re-derive any
+# of that here: source handoff-path.sh and call its EXISTING `_handoff_key`
+# helper, the same helper session-end.sh already uses for its own window-keyed
+# markers (see its `_HP=... . "$_HP"` + `_handoff_key` call).
+#
+# SESSION_WINDOW is exposed here (not consumed yet) for the seams that are
+# blocked on it: roster/charter injection at session start
+# (dotfiles-seat-roster-from-windows-ojjf AC3) and laurels
+# (dotfiles-laurels-durability-9z7l AC4) both need "which window is this
+# session in" before they can act, and this hook is where session start
+# happens.
+#
+# Failure mode: no tmux binary, no tmux server, or a truly unresolvable window
+# (detached, no pane ancestor, no cache entry) -> SESSION_WINDOW stays empty,
+# EXACTLY the pre-existing (window-blind) behavior. Never blocks session start:
+# handoff-path.sh missing, or _handoff_key failing, both degrade silently to
+# empty rather than erroring.
+SESSION_WINDOW=""
+_SW_HP="$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")/lib/handoff-path.sh"
+if [ -r "$_SW_HP" ]; then
+  # shellcheck source=../lib/handoff-path.sh
+  . "$_SW_HP"
+  if type _handoff_key >/dev/null 2>&1; then
+    SESSION_WINDOW=$(_handoff_key 2>/dev/null) || SESSION_WINDOW=""
+  fi
+fi
+unset _SW_HP
+
 # Hooks receive JSON on stdin. SubagentStart's payload contains a `cwd`
 # field — the subagent's intended working directory (the worktree).
 # Without this, the hook runs in the ORCHESTRATOR's cwd and never sees
@@ -38,6 +70,7 @@ HOOK_SOURCE=$(echo "$STDIN" | jq -r '.source // empty' 2>/dev/null)
   echo "process cwd: $(pwd -P)"
   echo "hook_event: $HOOK_EVENT"
   echo "stdin cwd:  $HOOK_CWD"
+  echo "session window: ${SESSION_WINDOW:-<unresolved>}"
   echo "stdin (first 400 chars): $(echo "$STDIN" | head -c 400)"
 } >> "$LOG"
 
