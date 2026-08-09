@@ -8,7 +8,14 @@
 #   - prints a PASS/FAIL summary on the last line
 #
 # Stubbed `br`:
-#   - `br lint <id>`  → exit 1 if <id> contains "bogus", else exit 0
+#   - `br lint <id>`  → a template-incomplete failure (exit 1, "Missing: ##
+#                       ...") if <id> contains "bogus"; a real not-found
+#                       failure (exit 3, "Error: Issue not found: <id>") if
+#                       <id> contains "noexist"; else exit 0. These are two
+#                       DIFFERENT failure classes (dotfiles-n10e) — "bogus"
+#                       simulates a real bead that fails template lint,
+#                       "noexist" simulates a typo'd/stale ID that br can't
+#                       find at all, and the hook must label them differently.
 #   - `br show <id>`  → "Type: <impl|bug|spec|epic>" if <id> contains that
 #                       word (else "task"); a SHIP verdict line if it has
 #                       "ship", an OVERRIDE line if it has "ovr"
@@ -31,8 +38,11 @@ cat > "$STUB_DIR/br" <<'STUB'
 case "${1:-}" in
   lint)
     case "${2:-}" in
-      *bogus*) echo "Error: Issue not found: ${2:-}" >&2; exit 1 ;;
-      *)       exit 0 ;;
+      *noexist*) echo "Error: Issue not found: ${2:-}" >&2
+                 echo "Hint: Run 'br list' to see available issues." >&2
+                 exit 3 ;;
+      *bogus*)   echo "Missing: ## Acceptance Criteria" >&2; exit 1 ;;
+      *)         exit 0 ;;
     esac
     ;;
   show)
@@ -342,6 +352,17 @@ run_case "block message points at --description, not the AC field" 2 \
 run_case "block message says the AC field does not clear it" 2 \
   '{"tool_input":{"command":"br close bd-bogus"},"cwd":"/tmp"}' \
   "does NOT clear it"
+
+# 31a-b. dotfiles-n10e: a nonexistent ID gets its OWN message, not the
+# template-incomplete one — "Issue not found" and "incomplete template
+# sections" are different failure classes.
+run_case "block: nonexistent id says 'not found', not 'incomplete template'" 2 \
+  '{"tool_input":{"command":"br close bd-noexist"},"cwd":"/tmp"}' \
+  "not found"
+
+run_case "block: nonexistent id message does NOT claim template sections" 2 \
+  '{"tool_input":{"command":"br close bd-noexist"},"cwd":"/tmp"}' \
+  "NOT a template-incomplete warning"
 
 # 32. the chained-update skip fires for --description (the flag that can
 #     actually satisfy the lint) — the dotfiles-90s clunk fix, unchanged.

@@ -89,8 +89,9 @@ Beads with no activity for 2+ weeks. Decide per bead:
   There is also **no `br defer --list`** (`error: unexpected argument`).
   Both wrong forms were documented here until 2026-08-01 and both fail
   outright — verified against br v1 in `~/aaif`.
-- **Won't happen** → `br close <id>` with a `--notes` reason
-  ("won't fix: superseded by bd-YYYY")
+- **Won't happen** → `br close <id> -r "<reason>"` (e.g.
+  `br close <id> -r "won't fix: superseded by bd-YYYY"`) — the flag is
+  `-r`/`--reason`, not `--notes` (verified via `br help close`, br 0.2.16)
 
 ### `br epic status`
 
