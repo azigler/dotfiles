@@ -3,6 +3,10 @@
 Companion to `/cleanroom`. Read when choosing instruments; do not guess
 command forms from memory.
 
+> **Instrument invocations rot** — versions bump, flags change, packages move.
+> Everything below was verified **2026-08-07**; re-derive a command before
+> depending on it, the way `infra.md` treats its own facts.
+
 **Verified empirically on zig-computer 2026-08-07** (Ubuntu, kernel 6.17,
 x86_64, Python 3.13.7, binutils 2.45, OpenJDK 21, Rust 1.97.1, Node
 v22.22.3, passwordless sudo, docker usable, `ptrace_scope=1`). Anything
