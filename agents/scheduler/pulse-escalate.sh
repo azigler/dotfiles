@@ -234,6 +234,39 @@
 # `stage=summoned` for the current episode is terminal — no second bead, no second
 # push, however many ticks pass — exactly as `floored` is terminal above.
 #
+# THE MOLT WATCHER'S ACCEPTED BOUNDS (adversarial review, 2026-08-09). These are
+# CLOSED decisions, not TODOs — each was reproduced, weighed and kept. They are
+# written down so a later reader finds the reasoning instead of re-deriving it, and
+# so nobody "fixes" one without knowing what it was trading against.
+#
+#   1. TWO IMPATIENT RETRIES INSIDE ONE 30m RATE WINDOW, right after a SUCCESSFUL
+#      molt, are a page. A seat that molts, then re-arms twice, collects two
+#      `refused-rate-limited` rows after the reset and summons. That is it06's
+#      letter — two refusals in the window — and the honest read is that a seat
+#      re-arming twice inside its own rate limit is misconfigured and worth a look.
+#      ACCEPTED as written rather than special-cased on verdict.
+#   2. A RETRY CADENCE SLOWER THAN THE WINDOW NOTES FOREVER AND NEVER SUMMONS. A
+#      seat retrying every 2h with a 90m window has every refusal in its own
+#      episode, so each is a first. The trail is in the log and the note file; the
+#      phone stays quiet. Widening the window to catch it would re-admit the
+#      daily-alarm failure (case 31) — the wrong trade for a seat that is, by that
+#      cadence, not urgently wedged.
+#   3. `summoned` IS TERMINAL PER EPISODE, so a multi-day wedge pages ONCE. A seat
+#      still refusing on day three has an episode whose neighbours stay inside the
+#      window, so it is the SAME episode and the bead already exists. Deliberate:
+#      the P1 bead is the durable surface and re-paging a known-open bead is the
+#      siren E3 exists to prevent.
+#   4. IF BOTH `br create` AND THE PUSH FAIL, THE EPISODE IS STILL MARKED
+#      `summoned`. The loss is log-only — two WARN lines and `errors:` on the
+#      verdict — and the episode never retries. Marking after a failed summon would
+#      mean re-attempting a bead every 5 minutes against a repo that is broken, so
+#      the trade is a missed page vs. a retry storm; the log is the fallback.
+#   5. json_field TRUNCATES A REASON CONTAINING AN ESCAPED QUOTE. Its `[^"]*` stops
+#      at the first `\"`, so such a reason renders clipped in the note and the bead.
+#      Cosmetic: no seat-molt refusal sentence contains a quote today, the verdict
+#      and the seat are unaffected, and the fix is a real JSON parser in a script
+#      that deliberately has none.
+#
 # GAPS THIS BUILD DOES NOT CLOSE, stated rather than hidden:
 #   * The raise rung's nudge FILE has no reader yet. `human:`-prefixed P1 beads
 #     ARE read by seneschal-gather.py (it filters on exactly that prefix), so the
@@ -837,6 +870,28 @@ m_record() { M_EPISODE[$1]=$2; M_STAGE[$1]=$3; M_ACTED[$1]=$now_iso; molt_change
 # admits it does not have it.
 pctx() { case "${1:-}" in ''|null|unknown) printf 'context unknown' ;; *) printf 'context %s%%' "$1" ;; esac; }
 
+# row_fields <packed-row> — splits "<epoch>\t<result>\t<pct>\t<reason>" into
+# R_EPOCH / R_RESULT / R_PCT / R_REASON.
+#
+# ⚠️ NEVER `IFS=$'\t' read` THIS ROW. Tab is IFS WHITESPACE, so read collapses a
+# RUN of tabs into ONE delimiter — and `pct` is empty on every refusal recorded
+# without a statusline reading, which is most of them. The row then has two
+# adjacent tabs, read yields three fields instead of four, and the REASON lands in
+# the PCT slot. Measured on the first cut (adversarial review, 2026-08-09): the
+# summon's own title read "the seat is wedged (context already molted within the
+# last 30 minutes%)" and every trail line ended "— <no reason recorded>" — a page
+# that reports a fabricated context percentage and drops the only evidence in it.
+# Parameter expansion has no such rule: it splits on the FIRST tab each time and an
+# empty field stays empty. A sentinel would also work; this needs no collision
+# analysis at all, which is why it wins.
+row_fields() {
+  local rest
+  R_EPOCH=${1%%$'\t'*}; rest=${1#*$'\t'}
+  R_RESULT=${rest%%$'\t'*}; rest=${rest#*$'\t'}
+  R_PCT=${rest%%$'\t'*}
+  R_REASON=${rest#*$'\t'}
+}
+
 if [ "$MOLT_WATCH" = on ] && [ -s "$MOLT_LEDGER" ]; then
   # Rows are "<epoch>\t<result>\t<pct>\t<reason>"; seat-molt.sh flattens tabs and
   # newlines out of `reason` before writing, so the tab is a safe separator here.
@@ -902,7 +957,7 @@ if [ "$MOLT_WATCH" = on ] && [ -s "$MOLT_LEDGER" ]; then
     [ "$m_stage" = summoned ] && continue
 
     m_sess=${mseat%%:*}; m_win=${mseat#*:}
-    IFS=$'\t' read -r _ m_res m_pct m_reason <<< "$m_newest"
+    row_fields "$m_newest"; m_res=$R_RESULT; m_pct=$R_PCT; m_reason=$R_REASON
     m_window_min=$((MOLT_WINDOW_S / 60))
 
     # RUNG 1 — NOTE. One refusal is not an escalation; it06 is explicit that TWO
@@ -923,8 +978,8 @@ if [ "$MOLT_WATCH" = on ] && [ -s "$MOLT_LEDGER" ]; then
     # seneschal-gather.py filters on) AND a push. Both, never one.
     m_trail=""
     for ((mi = mn - mcount; mi < mn; mi++)); do
-      IFS=$'\t' read -r _e _res _pct _reason <<< "${_melig[mi]}"
-      m_trail="$m_trail  - $(date -u -d "@$_e" +%FT%TZ) $_res ($(pctx "$_pct")) — ${_reason:-<no reason recorded>}"$'\n'
+      row_fields "${_melig[mi]}"
+      m_trail="$m_trail  - $(date -u -d "@$R_EPOCH" +%FT%TZ) $R_RESULT ($(pctx "$R_PCT")) — ${R_REASON:-<no reason recorded>}"$'\n'
     done
     m_span=$(( (m_newest_ep - m_first) / 60 ))
     m_title="human: $m_win seat molt REFUSED ${mcount}x in ${m_span}m — the seat is wedged ($(pctx "$m_pct"))"

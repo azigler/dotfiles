@@ -1109,6 +1109,54 @@ else
   bad "35 read-only: the watcher never writes the molt ledger and never touches a pane (renames=$(count renames) injects=$(count inject-calls) started=$(count started))"
 fi
 
+# ---------------------------------------------------------------------------
+# Case 36: A NULL pct MUST NOT SHIFT THE FIELDS (adversarial review, 2026-08-09).
+#   `pct` is null on every refusal recorded without a statusline reading — most of
+#   them, including every pre-o3qj row — so the packed row carries TWO ADJACENT
+#   TABS. Tab is IFS whitespace, so `IFS=$'\t' read` collapses that run into one
+#   delimiter and the REASON lands in the PCT slot: the first cut's note read
+#   "(context not offboarded: there is no offboard marker at /x/…session%)" and
+#   reported the reason as <none>. Both halves of that are disqualifying — a
+#   fabricated context percentage, and the loss of the only evidence the note
+#   carries. The assertions are therefore positive AND negative: the reason renders
+#   whole, the pct renders as UNKNOWN, and the mangled form is provably absent.
+NULLPCT_REASON='not offboarded: there is no offboard marker at /x/.claude/last-offboard-session'
+setup_case
+molt_row 5 refused-not-offboarded null "$NULLPCT_REASON"
+run
+NOTEF="$HARNESS_STATE_DIR/molt-refusal-note.md"
+if v_has "molt-noted:1" \
+   && logtxt | grep -qF "$NULLPCT_REASON" && logtxt | grep -q 'context unknown' \
+   && ! logtxt | grep -q 'session%' && ! logtxt | grep -q 'no reason recorded' \
+   && grep -qF "$NULLPCT_REASON" "$NOTEF" && grep -q 'context unknown' "$NOTEF"; then
+  ok
+else
+  bad "36 null-pct-note: a pct-less refusal notes the reason whole and the pct as unknown (verdict=$VERDICT log=$(logtxt | grep MOLT-NOTE | head -1))"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 36b: ...and the SUMMON, which is the one that reaches Zig. The bead's trail
+#   and the push TITLE both render through the same parse, so the field shift
+#   corrupted the page itself: "the seat is wedged (context already molted within
+#   the last 30 minutes%)". A summon whose headline reports a percentage that is
+#   really a sentence is worse than no summon — it teaches the reader to distrust
+#   the mechanism.
+setup_case
+molt_row 40 refused-not-offboarded null "$NULLPCT_REASON"
+molt_row 5  refused-rate-limited   null "already molted within the last 30 minutes"
+run
+if [ "$(count br-calls)" = 1 ] && [ "$(count curl-calls)" = 1 ] && v_has "molt-summoned:1" \
+   && grep -qF "$NULLPCT_REASON" "$PE_FAKE/br-calls" \
+   && grep -q 'context unknown' "$PE_FAKE/br-calls" \
+   && grep -q 'context unknown' "$PE_FAKE/curl-body" \
+   && ! grep -q 'session%' "$PE_FAKE/br-calls" \
+   && ! grep -q 'minutes%' "$PE_FAKE/curl-body" \
+   && ! grep -q 'no reason recorded' "$PE_FAKE/br-calls"; then
+  ok
+else
+  bad "36b null-pct-summon: the bead trail and the push title carry the reasons whole and 'context unknown' (br=$(count br-calls) curl=$(count curl-calls) verdict=$VERDICT)"
+fi
+
 # --- Summary ---
 TOTAL=$((PASS + FAIL))
 if [ "$FAIL" -eq 0 ]; then

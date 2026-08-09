@@ -36,8 +36,8 @@
 #     about the guard under test (dotfiles-77s4). Each mutant declares the case ids
 #     that must FAIL and the ones that must keep PASSING.
 #
-# COST, measured on this box 2026-08-09: 5m51s wall for baseline + 2 recorder
-# mutants + 8 watcher mutants. The seat-molt suite (real tmux fixtures, ~50s a run)
+# COST, measured on this box 2026-08-09: 5m29s wall for baseline + 2 recorder
+# mutants + 9 watcher mutants. The seat-molt suite (real tmux fixtures, ~50s a run)
 # is three of those runs and most of the clock; the escalate suite is fully shimmed
 # and cheap. That is why pre-commit fires this on five files — the two scripts,
 # their two suites, and this harness — and not on every scheduler edit.
@@ -67,6 +67,14 @@ SM="seat-molt.sh"
 SM_SUITE="test-seat-molt.sh"
 PE="pulse-escalate.sh"
 PE_SUITE="test-pulse-escalate.sh"
+
+# The case COUNTS each suite must report at baseline. Neither suite is run through
+# a section filter here, so a zero-case run is not the hazard mutate-t5fj-staleness
+# guards against — the hazard is a suite that lost cases to a bad merge or a
+# half-applied edit, which would let a mutant "die" against coverage that is no
+# longer there. Bump these when a case is added, deliberately.
+EXPECT_MOLT_CASES=69
+EXPECT_ESC_CASES=45
 
 FAILED=0
 HARNESS_ERR=0
@@ -192,10 +200,23 @@ check() {
   return 0
 }
 
+# want_cases <label> <expected> — the baseline's case count must match, or every
+# mutant below is being measured against unknown coverage.
+want_cases() {
+  local label=$1 want=$2 got
+  got=$(printf '%s\n' "$SUITE_OUT" | tail -1 | sed -n -E 's/^PASS: ([0-9]+)\/([0-9]+).*/\2/p')
+  if [ "${got:-0}" -ne "$want" ]; then
+    echo "  HARNESS ERROR: $label ran ${got:-0} cases, expected $want."
+    echo "  A suite that lost (or gained) cases makes every mutant below meaningless."
+    exit 2
+  fi
+}
+
 echo "=== baseline: the unmutated copies must be GREEN =========================="
 fresh_copy
 if run_molt_suite; then
   echo "  ok      $SM_SUITE: $(printf '%s\n' "$SUITE_OUT" | tail -1)"
+  want_cases "$SM_SUITE" "$EXPECT_MOLT_CASES"
 else
   echo "  BROKEN  $SM_SUITE is RED before any mutation — nothing below means anything"
   printf '%s\n' "$SUITE_OUT" | tail -12 | sed 's/^/          /'
@@ -203,6 +224,7 @@ else
 fi
 if run_esc_suite; then
   echo "  ok      $PE_SUITE: $(printf '%s\n' "$SUITE_OUT" | tail -1)"
+  want_cases "$PE_SUITE" "$EXPECT_ESC_CASES"
 else
   echo "  BROKEN  $PE_SUITE is RED before any mutation"
   printf '%s\n' "$SUITE_OUT" | tail -12 | sed 's/^/          /'
@@ -351,6 +373,28 @@ mutate "$PE" \
 check run_esc_suite "E8 [kill-switch-inert] molt_refusal_watch=off does nothing" \
   "34" \
   "27 28 29 31 33 35"
+
+# E9 [empty-pct-shifts-fields] — the reviewer's defect, restored verbatim: the
+# packed row parsed with `IFS=$'\t' read`. Tab is IFS WHITESPACE, so a run of tabs
+# collapses to one delimiter, and `pct` is empty on every refusal recorded without
+# a statusline reading — which is most of them, and ALL of the pre-o3qj rows. The
+# reason then lands in the pct slot and the page reads "(context <the whole reason
+# sentence>%) — <no reason recorded>": a fabricated percentage in the headline and
+# the evidence gone from the body. It survives every other case in this suite,
+# because they all carry a numeric pct — which is exactly why 36/36b had to be
+# written with a null one.
+fresh_copy
+mutate "$PE" \
+  'row_fields() {
+  local rest
+  R_EPOCH=${1%%$'"'"'\t'"'"'*}; rest=${1#*$'"'"'\t'"'"'}' \
+  'row_fields() {
+  local rest
+  IFS=$'"'"'\t'"'"' read -r R_EPOCH R_RESULT R_PCT R_REASON <<< "$1"; return 0
+  R_EPOCH=${1%%$'"'"'\t'"'"'*}; rest=${1#*$'"'"'\t'"'"'}'
+check run_esc_suite "E9 [empty-pct-shifts-fields] a null pct shifts the reason into the pct slot" \
+  "36 36b" \
+  "27 28 29 30 31 32 33 34 35"
 
 echo
 if [ "$HARNESS_ERR" -ne 0 ]; then
