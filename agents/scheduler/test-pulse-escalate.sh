@@ -208,6 +208,81 @@ AMBIGUOUS_PANE='Loading…
 
 (nothing else on the screen)'
 
+# --- THE LYING 🧠 FIXTURES (dotfiles-t5fj) ------------------------------------
+#
+# STALLED_TURN_PANE is THE live instance, not a transcription and not a synthesis:
+# it is byte-identical to the `tail` field of the 2026-08-09T15:11:01Z `seneschal`
+# row of ~/.local/state/harness/api-error-captures.jsonl — one of the four panes
+# that were stalled that morning. Its shape IS the class this rung exists for:
+# an errored turn ("● API Error: Unable to connect to API"), a turn timer frozen in
+# the PAST tense ("✻ Worked for 2m 57s" — no interrupt hint, because nothing is
+# running), and then an idle composer with its footer. The pane proves idle; the
+# WINDOW NAME is where the lie lives, and the name is not in this fixture at all —
+# it comes from the harness's window list ("1 🧠 marshal"), which is exactly the
+# split the two-proof standard has to resolve: never trust the name, ask the pane.
+# Against the two EREs: chrome 0 matches, composer 1 match => rename proceeds.
+#
+# The corpus is private machine state and is NOT in this repo, so the byte-identity
+# is pinned by digest below rather than re-derived at test time. Re-derive it with:
+#   python3 -c "import json,hashlib;rows=[json.loads(l) for l in open('$HOME/.local/state/harness/api-error-captures.jsonl')];r=[x for x in rows if x['ts']=='2026-08-09T15:11:01Z' and x['window']=='seneschal'][0];print(hashlib.sha256(r['tail'].encode()).hexdigest())"
+# shellcheck disable=SC2016  # the `$0.00` in the captured statusline is DATA, not an
+# expression: this literal is byte-identical to a real pane and the digest gate below
+# refuses any edit that "fixes" it.
+STALLED_TURN_PANE='
+ ▐▛███▜▌   Claude Code v2.1.226
+▝▜█████▛▘  Fable 5 · Claude Max
+  ▘▘ ▝▝    ~/dotfiles
+
+
+❯ /seneschal brief
+
+● API Error: Unable to connect to API
+  (ConnectionRefused)
+
+✻ Worked for 2m 57s
+
+
+
+─────────────────────────────────────────────────────
+❯ 
+─────────────────────────────────────────────────────
+  🧠 [Fable 5] 📁 dotfiles | 📮 main ~1 | 🔗 https:…
+  [----------] 0% | $0.00 | 🕰️  3m 1s | (me)
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ←…'
+STALLED_TURN_SHA=202708ba7d188de48b66967b8d3b7631a53c7f38694efaedb8bf504b32aea967
+
+# LIVE TURN: a turn that is RUNNING. No corpus row can supply this one — the
+# api-error capture only ever fires on a pane whose turn has already died, and all
+# 671 rows lack an interrupt hint — and the live tmux server is off limits while
+# the marshal campaign runs, so this is a transcription of the running-turn shape
+# and is labelled as one. It deliberately carries the composer footer TOO: the
+# premise "a mid-flight turn renders no composer" could not be verified, so the
+# fixture assumes the pessimistic version of it, and the case below therefore
+# tests the busy fingerprint rather than the absence of a composer. Strip the
+# interrupt hint from this fixture and it becomes STALLED_TURN_PANE's classifier
+# outcome — which is precisely the mutant.
+LIVE_TURN_PANE='● Read agents/scheduler/pulse-escalate.sh (546 lines)
+
+✻ Brewed for 3m 12s (esc to interrupt · ctrl+t for todos)
+
+─────────────────────────────────────────────────────
+❯
+─────────────────────────────────────────────────────
+  🧠 [Fable 5] 📁 dotfiles | 📮 main
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ←'
+
+# The digest gate. A "tidy up the fixture" edit — a stripped trailing space, a
+# normalised NBSP, a re-typed box-drawing run — silently turns the live instance
+# back into a synthesis, and every case built on it starts proving nothing. That
+# is a broken suite, not one failing case, so it aborts rather than counting.
+_stalled_got=$(printf '%s\n' "$STALLED_TURN_PANE" | sha256sum | cut -d' ' -f1)
+if [ "$_stalled_got" != "$STALLED_TURN_SHA" ]; then
+  echo "FIXTURE ERROR: STALLED_TURN_PANE is no longer byte-identical to the captured pane"
+  echo "  want $STALLED_TURN_SHA"
+  echo "  got  $_stalled_got"
+  exit 1
+fi
+
 # setup_case — a fresh state dir + control dir + conf. Every knob is defaulted to the
 # marshal-shaped happy path; a case overrides only what it is about.
 setup_case() {
@@ -433,9 +508,12 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Case 9: NON-CRITICAL LOOPS ARE IGNORED. `loops` is the opt-in gate; a seat that is not
-#   listed is never escalated however hard it bounces. (The ladder ends in a push to
-#   Zig's phone — nothing opts in by accident.)
+# Case 9: AN UNLISTED LOOP NEVER REACHES RUNGS 2-4. `loops` is the opt-in gate for the
+#   ESCALATION half of the ladder; a seat that is not listed is never nudged, raised,
+#   beaded or pushed however hard it bounces. (That ladder ends in a buzz on Zig's
+#   phone — nothing opts in by accident.) Here neither derived window exists, so rung 1
+#   is a no-op too and the run is completely silent — which is also the assertion that
+#   a wrong window derivation costs nothing.
 setup_case
 bounce 25 blocked_on_andrew pulse-hevyd-recap
 bounce 20 blocked_on_andrew pulse-dive
@@ -513,7 +591,7 @@ fi
 #   no-op that reads exactly like "nothing to do".
 setup_case
 run
-if [ "$RC" = 0 ] && [ "$VERDICT" = "PULSE_ESCALATE_RESULT=checked:0:grace:0:reconciled:0:nudged:0:raised:0:floored:0:skipped:0:errors:0" ]; then
+if [ "$RC" = 0 ] && [ "$VERDICT" = "PULSE_ESCALATE_RESULT=checked:0:grace:0:reconciled:0:reconciled-unlisted:0:nudged:0:raised:0:floored:0:skipped:0:errors:0" ]; then
   ok
 else
   bad "14 verdict: the empty run emits the full documented result line last (rc=$RC verdict='$VERDICT')"
@@ -673,6 +751,125 @@ if v_has "checked:0" && v_has "errors:1" && [ "$(count inject-calls)" = 0 ]; the
   ok
 else
   bad "22b short-row: a two-field loops row is skipped and counted as an error (verdict=$VERDICT)"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 23: `already_running` IS AN EPISODE TRIGGER (dotfiles-t5fj). pulse-inject's
+#   --fresh same-loop guard records this reason when the pane looks mid-turn and returns
+#   deferred-already-running. Over a LYING glyph that refusal is permanent — every
+#   scheduled tick defers, for as long as the window lives — so a reason filter that
+#   drops it makes the whole class invisible to the only watcher that would act. Here the
+#   block is genuine (real chrome), so the ladder does its ordinary job and the nudge
+#   carries the reason to the front desk.
+setup_case
+bounce 25 already_running
+bounce 20 already_running
+run
+if [ "$(count inject-calls)" = 1 ] && [ "$(rung_of)" = nudged ] && v_has "checked:1" \
+   && grep -q "already_running" "$PE_FAKE/inject-calls"; then
+  ok
+else
+  bad "23 already_running: the --fresh same-loop refusal drives an episode and the nudge names it (injects=$(count inject-calls) rung=$(rung_of) verdict=$VERDICT)"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 24: THE LYING 🧠 — THE LIVE INSTANCE. This is the morning-stall shape from
+#   2026-08-09 verbatim (see STALLED_TURN_PANE: the digest gate above proves it is the
+#   captured pane and not a tidy-up of one): an errored turn, a turn timer frozen in the
+#   past tense, and an idle composer underneath. The window NAME still says 🧠 — the lie
+#   lives there, and the fixture deliberately does not contain it, because the name comes
+#   from the harness's window list and never from the pane. Two proofs (chrome ABSENT,
+#   composer PRESENT, no live turn) and the glyph is stripped; the rung then STOPS,
+#   exactly as it does for 🔔, because pulse-retry owns every re-fire.
+setup_case
+printf '1 🧠 marshal\n2 ✅ seneschal\n' > "$PE_FAKE/windows/zig-computer"
+set_pane 1 "$STALLED_TURN_PANE"
+bounce 25 already_running
+run
+if [ "$(count renames)" = 1 ] && [ "$(winname 1)" = "marshal" ] && [ "$(rung_of)" = reconciled ] \
+   && [ "$(count inject-calls)" = 0 ] && [ "$(count started)" = 0 ] && v_has "reconciled:1" \
+   && logtxt | grep -q 'RENAMED pulse-marshal'; then
+  ok
+else
+  bad "24 lying-brain: a real stalled 🧠 pane (2026-08-09 capture) is proven idle and the glyph stripped (renames=$(count renames) name='$(winname 1)' rung=$(rung_of) verdict=$VERDICT)"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 24b: 🌀 IS THE SAME LIE. A session that dies mid-compaction leaves the compacting
+#   glyph up forever, and pulse-inject reads it exactly as it reads a stale 🧠. One code
+#   path, one proof standard, both glyphs.
+setup_case
+printf '1 🌀 marshal\n2 ✅ seneschal\n' > "$PE_FAKE/windows/zig-computer"
+set_pane 1 "$IDLE_PANE"
+bounce 25 already_running
+run
+if [ "$(count renames)" = 1 ] && [ "$(winname 1)" = "marshal" ] && [ "$(rung_of)" = reconciled ]; then
+  ok
+else
+  bad "24b lying-compact: a stale 🌀 over an idle composer is reconciled like a stale 🧠 (renames=$(count renames) name='$(winname 1)' rung=$(rung_of))"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 25: A LIVE TURN IS NEVER RENAMED — the 🧠 half of the asymmetry. For 🔔 the
+#   dangerous mistake is clearing a live DIALOG and signal 1 (chrome) catches it; chrome
+#   says nothing at all about a running turn, so for 🧠 the danger is stripping the glyph
+#   off work in flight, and only the interrupt hint refutes it. This fixture carries the
+#   composer footer TOO, on purpose: the premise "a mid-flight turn renders no composer"
+#   is unverified here, so the case asserts the guard that holds either way. The
+#   classification assertion is what makes the case detect a missing busy check at all —
+#   as in case 19, the refusal alone would still happen via the ambiguity fallback.
+setup_case
+printf '1 🧠 marshal\n2 ✅ seneschal\n' > "$PE_FAKE/windows/zig-computer"
+set_pane 1 "$LIVE_TURN_PANE"
+bounce 25 already_running
+run
+if [ "$(count renames)" = 0 ] && [ "$(winname 1)" = "🧠 marshal" ] \
+   && logtxt | grep -q 'LIVE TURN' && [ "$(rung_of)" = nudged ]; then
+  ok
+else
+  bad "25 live-turn: a running turn's 🧠 is never stripped, and the pane is classified BUSY (renames=$(count renames) name='$(winname 1)' rung=$(rung_of))"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 26: THE SCOPE SPLIT, RECONCILE HALF. `pulse-dive` is NOT in escalate.conf, and the
+#   silently-stalled seats are exactly the unlisted ones. Its window is DERIVED
+#   (pulse-dive -> dive, in reconcile_session) and the fleet-safe verb runs: two proofs,
+#   glyph stripped, nobody told. The counters keep the populations apart — `checked` is
+#   the ladder's own metric and must NOT move, and the reconcile lands in
+#   `reconciled-unlisted`, so opting a seat in is still visible in the telemetry.
+setup_case
+printf '1 🧠 dive\n2 ✅ seneschal\n' > "$PE_FAKE/windows/zig-computer"
+set_pane 1 "$STALLED_TURN_PANE"
+bounce 25 already_running pulse-dive
+run
+if [ "$(count renames)" = 1 ] && [ "$(winname 1)" = "dive" ] \
+   && v_has "reconciled-unlisted:1" && v_has "reconciled:0" && v_has "checked:0" \
+   && [ "$(count inject-calls)" = 0 ] && [ "$(count started)" = 0 ] \
+   && [ "$(count br-calls)" = 0 ] && [ "$(count curl-calls)" = 0 ]; then
+  ok
+else
+  bad "26 unlisted-reconcile: an unlisted loop's lying glyph is fixed and counted separately (renames=$(count renames) name='$(winname 1)' verdict=$VERDICT)"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 26b: THE SCOPE SPLIT, LADDER HALF — the zero-side-effect assertion. Same unlisted
+#   loop, but rung 1 REFUSES (real chrome), which is the only path that reaches the split.
+#   Rungs 2-4 must not run: no nudge, no raise, no bead, no push. `loops` is the consent
+#   for a P1 bead and a buzzing phone, and nothing derived from a bounce log may grant it.
+#   The log assertions are the positive half — the run must show it looked and decided,
+#   not merely that it did nothing.
+setup_case
+printf '1 🔔 dive\n2 ✅ seneschal\n' > "$PE_FAKE/windows/zig-computer"
+set_pane 1 "$MODAL_PANE"
+bounce 25 already_running pulse-dive
+run
+if [ "$(count renames)" = 0 ] && [ "$(winname 1)" = "🔔 dive" ] \
+   && [ "$(count inject-calls)" = 0 ] && [ "$(count started)" = 0 ] \
+   && [ "$(count br-calls)" = 0 ] && [ "$(count curl-calls)" = 0 ] \
+   && logtxt | grep -q 'CHROME PRESENT' && logtxt | grep -q 'reconciliation-only'; then
+  ok
+else
+  bad "26b unlisted-no-ladder: an unlisted loop that cannot be reconciled escalates to nobody (injects=$(count inject-calls) started=$(count started) br=$(count br-calls) verdict=$VERDICT)"
 fi
 
 # --- Summary ---
