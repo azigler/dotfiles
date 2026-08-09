@@ -1,0 +1,404 @@
+# seats.yml — the single roster (dotfiles-seat-address-spec-uikg schema v1).
+#
+# A SEAT is a durable, named agent identity above session and sandbox (Yegge's
+# Gas Town: "sessions are days, seats are people"). A TAP is a token/quota
+# source a seat draws from at inject time. Full spec: bead
+# dotfiles-seat-address-spec-uikg. Ratified roster + offices/sigils:
+# dotfiles-seat-roster-from-windows-ojjf. Tap-type abstraction: dotfiles-d3ky.
+#
+# Read by (once each lands): seat_resolve (btti), pulse-inject (d0bk), harnessd
+# fleet join (harnessd-g7qd), seneschal, laurels. Enumerable with NO tmux
+# server running (R8) — this file is complete on its own.
+#
+# Ephemeral worktree subagents are explicitly NOT seats and never get a row
+# here (ojjf). Game daemons (vs14d/ts4d/robloxd/creaturesd) are deliberately
+# UNSEATED for now — Article IV's steward process creates a seat on demand
+# when a seating trigger fires (schedule attaches / continuity matters /
+# something needs to address it / a charter claims stewardship) — see
+# dotfiles-th3e.
+
+schema: 1
+
+hosts: [zig-computer] # future: pico, metis
+
+# Reserved for the charter REGISTRY (epic dotfiles-ixap, spec dotfiles-ohnq) —
+# a named grouping of seats (e.g. "Inquiry" vs "Household"), distinct from
+# each seat's own one-line `charter-line:`. Null until that registry ships;
+# the validator accepts the key now so it never has to reject it later.
+charter: null
+
+# ---------------------------------------------------------------------------
+# TAPS — token/quota sources. `type:` is REQUIRED (dotfiles-d3ky): claude|codex
+# today; unknown values are rejected. `launch:`/`preflight:`/`identity:` are
+# optional schema-forward keys (per-type strategy overrides) — absent means
+# "use the type's default", nothing consumes them yet.
+#
+# FAILOVER IS ASYMMETRIC, DELIBERATELY (Zig 2026-08-08): personal seats fail
+# over to work when personal is exhausted/unavailable, but work-tap seats do
+# NOT fail over to personal — a schedule bound to `work` (LinearB's day-of-week
+# + reporting rows) is Zig's job, and silently spending the wrong account's
+# quota on someone else's work is worse than the row stalling. `tick` mirrors
+# tick-jailed.sh's own AUTO-DETECT-WITH-SAFE-FALLBACK (explore-24fn): if the
+# isolated ~/.claude-tick credential is missing, the jail already falls back to
+# the shared/personal config, so the same order is recorded here.
+# ---------------------------------------------------------------------------
+taps:
+  personal:
+    type: claude
+    config_dir: ~/.claude
+    failover: [work]
+  work:
+    type: claude
+    config_dir: ~/.claude-work
+    failover: [] # NEVER falls over to personal — see note above
+  tick:
+    type: claude
+    config_dir: ~/.claude-tick
+    failover: [personal] # matches tick-jailed.sh's own isolated->shared fallback
+
+# ---------------------------------------------------------------------------
+# SEATS — the offices of the estate. `model:` policy (dotfiles-pulse-row-model-
+# seat-d0bk, Zig 2026-08-08): DEFAULT-UP, PIN-DOWN. Judgment-charter seats
+# either pin `fable` explicitly or, where not yet explicitly assigned, inherit
+# the machine default (also `fable` today) — a missing pin over-spends, never
+# under-thinks. Mechanical-charter seats pin `sonnet`. `dive` and
+# `autonoveld` (creative generation) pin `opus`. AMENDMENT (Zig 2026-08-09):
+# `linearb` pins `fable` for ALL seven of its schedules — "high impact work",
+# no sonnet-default carve-out.
+#
+# `home:` is the default cwd — seats ROAM, home is not a jail. `history:` is
+# append-only, machine-level under refs/seats/ (OQ1 resolution on uikg,
+# 2026-08-08), distinct from the per-window handoff note that gets
+# overwritten every session. `aliases:` are prior/alternate window names that
+# resolve to this seat (rename migration AND, for the linearb merge, the
+# still-live per-day/per-report window names that never got literally renamed
+# to "linearb").
+# ---------------------------------------------------------------------------
+seats:
+
+  # --- Household: dispatch, brief, harness --------------------------------
+
+  seneschal:
+    charter-line: "ingress/brief — answers 'what needs Zig, everywhere'; no dispatch authority"
+    office: "The Seneschal"
+    sigil: "🗝"
+    home: ~/dotfiles
+    model: sonnet
+    effort: high
+    aliases: []
+    history: refs/seats/seneschal.history.md
+    # v0 design (dotfiles-front-desk-faty) is a daily pulse-seneschal timer,
+    # not yet shipped — no unit exists in `systemctl --user list-unit-files`
+    # as of 2026-08-09. Reserved seat, interactive/no-schedule until then.
+    schedules: []
+
+  marshal:
+    charter-line: "fleet dispatch authority — the worker-facing half of Yegge's Wheelhouse"
+    office: "The Marshal"
+    sigil: "🪖"
+    home: ~/dotfiles
+    model: fable
+    effort: high
+    aliases: []
+    history: refs/seats/marshal.history.md
+    # Design-only until the fleet-drain spec (dotfiles-69qr) is checked
+    # (dotfiles-4d57) — no unit exists yet.
+    schedules: []
+
+  dotfiles:
+    charter-line: "harness orchestrator — owns the always-loaded instruction tier"
+    office: "The Master of Works"
+    sigil: "🧰"
+    # Post-cutover this moves to ~/demesne (dotfiles-th3e); pre-cutover it is
+    # the repo whose worktree this file lives in.
+    home: ~/dotfiles
+    model: fable
+    effort: high
+    aliases: []
+    history: refs/seats/dotfiles.history.md
+    # Interactive window (zig-computer:dotfiles), no pulse timer.
+    schedules: []
+
+  harnessd:
+    charter-line: "watchtower — harness observability daemon, PWA + action API"
+    office: "The Warden"
+    sigil: "🛡"
+    home: ~/harnessd
+    model: fable
+    effort: high
+    aliases: []
+    history: refs/seats/harnessd.history.md
+    # A live systemd daemon (harnessd.service), not a pulse-tick loop — no
+    # tap/window binding to record here.
+    schedules: []
+
+  # --- Inquiry: research + allocation --------------------------------------
+
+  desk:
+    charter-line: "chancery/allocation — weekly corpus allocator memo for the explore lab"
+    office: "The Chancellor"
+    sigil: "📜"
+    home: ~/explore
+    model: fable
+    effort: high
+    aliases: []
+    history: refs/seats/desk.history.md
+    schedules:
+      - unit: pulse-desk
+        tap: personal
+        window: desk
+        session: zig-computer
+
+  dive:
+    charter-line: "research leads — blank-context generative pass + independent scrutiny"
+    office: "The Ranger"
+    sigil: "🧭"
+    home: ~/explore
+    model: opus
+    effort: high
+    aliases: []
+    history: refs/seats/dive.history.md
+    schedules:
+      # tick-jailed.sh (explore-24fn): auto-detects the isolated ~/.claude-tick
+      # credential and runs the tick there.
+      - unit: pulse-dive
+        tap: tick
+        window: dive
+        session: zig-computer
+
+  # --- Remembrance ----------------------------------------------------------
+
+  dream:
+    charter-line: "consolidation — every session's sessions become ITS history"
+    office: "The Remembrancer"
+    sigil: "🕯"
+    home: ~/explore
+    model: fable
+    effort: high
+    aliases: []
+    history: refs/seats/dream.history.md
+    schedules:
+      - unit: pulse-dream
+        tap: personal
+        window: dream
+        session: zig-computer
+
+  # --- Herald / mechanical charters -----------------------------------------
+
+  digest:
+    charter-line: "daily news — the morning digest crawl"
+    office: "The Herald"
+    sigil: "📯"
+    home: ~/digestd
+    model: sonnet
+    effort: high
+    aliases: []
+    history: refs/seats/digest.history.md
+    schedules:
+      - unit: pulse-digest
+        tap: tick
+        window: digest
+        session: zig-computer
+
+  aaif:
+    charter-line: "ambassador — aaif's outward-facing radar loop"
+    office: "The Envoy"
+    sigil: "🕊"
+    home: ~/aaif
+    model: fable
+    effort: high
+    aliases: []
+    history: refs/seats/aaif.history.md
+    schedules:
+      - unit: pulse-aaif-radar
+        tap: personal
+        window: aaif
+        session: zig-computer
+
+  az3:
+    charter-line: "public site — andrewzigler3 maintenance"
+    office: "The Mason"
+    sigil: "🧱"
+    home: ~/andrewzigler3
+    model: sonnet
+    effort: high
+    aliases: []
+    history: refs/seats/az3.history.md
+    schedules:
+      - unit: pulse-andrewzigler3
+        tap: personal
+        window: az3
+        session: zig-computer
+
+  hevyd:
+    charter-line: "coach recap — hevyd training-log analysis"
+    office: "The Physician"
+    sigil: "💪"
+    home: ~/hevyd
+    model: sonnet
+    effort: high
+    aliases: []
+    history: refs/seats/hevyd.history.md
+    schedules:
+      - unit: pulse-hevyd-recap
+        tap: personal
+        window: hevyd
+        session: zig-computer
+
+  picod:
+    charter-line: "the literal house — picod pulse tick"
+    office: "The Castellan"
+    sigil: "🏰"
+    home: ~/picod
+    model: sonnet
+    effort: high
+    aliases: []
+    history: refs/seats/picod.history.md
+    schedules:
+      # pulse-picod.timer is currently disabled (in-progress rollout, see the
+      # unit's own TO ENABLE comment) — the unit exists, so it is recorded.
+      - unit: pulse-picod
+        tap: personal
+        window: picod
+        session: zig-computer
+
+  investd:
+    charter-line: "treasury — investd + investd-defi pulse ticks"
+    office: "The Treasurer"
+    sigil: "🪙"
+    home: ~/investd
+    model: fable
+    effort: high
+    aliases: []
+    history: refs/seats/investd.history.md
+    schedules:
+      - unit: pulse-investd
+        tap: personal
+        window: investd
+        session: zig-computer
+      - unit: pulse-investd-defi
+        tap: personal
+        window: investd
+        session: zig-computer
+
+  autonoveld:
+    charter-line: "creative writing — conceive/write/voice/mail/daily loops"
+    office: "The Bard"
+    sigil: "🎻"
+    home: ~/autonoveld
+    model: opus
+    effort: high
+    aliases: []
+    history: refs/seats/autonoveld.history.md
+    schedules:
+      - unit: pulse-autonoveld-conceive
+        tap: personal
+        window: autonoveld
+        session: zig-computer
+      - unit: pulse-autonoveld-mail
+        tap: personal
+        window: autonoveld
+        session: zig-computer
+      - unit: pulse-autonoveld-voice
+        tap: personal
+        window: autonoveld
+        session: zig-computer
+      - unit: pulse-autonoveld-write
+        tap: personal
+        window: autonoveld
+        session: zig-computer
+      - unit: pulse-daily-ao3
+        tap: personal
+        window: autonoveld
+        session: zig-computer
+
+  romd:
+    charter-line: "estate game office — romd ROM/emulator daemon"
+    office: "The Gamekeeper"
+    sigil: "🎲"
+    home: ~/romd
+    model: fable
+    effort: high
+    aliases: []
+    history: refs/seats/romd.history.md
+    # Interactive window (zig-computer:romd), no pulse timer.
+    schedules: []
+
+  # --- Job seats: retire when the job changes, history preserved -----------
+
+  linearb:
+    charter-line: "represents Zig's JOB — LinearB day-of-week + weekly/biweekly reporting"
+    office: "The Factor"
+    sigil: "🧾"
+    home: ~/linearb/dashboard-dev-interrupted
+    # AMENDED (Zig 2026-08-09): fable for ALL seven schedules — "high impact
+    # work" — no sonnet-default carve-out for this seat.
+    model: fable
+    effort: high
+    # ONE seat merges every prior per-day/per-report window; none of them was
+    # literally renamed to "linearb", so each is an alias, not history.
+    aliases:
+      - di-monday
+      - di-tuesday
+      - di-wednesday
+      - di-thursday
+      - di-friday
+      - weekly-report
+      - biweekly-content
+      - imc-aug26
+    history: refs/seats/linearb.history.md
+    schedules:
+      - unit: pulse-di-monday
+        tap: work
+        window: di-monday
+        session: work
+      - unit: pulse-di-tuesday
+        tap: work
+        window: di-tuesday
+        session: work
+      - unit: pulse-di-wednesday
+        tap: work
+        window: di-wednesday
+        session: work
+      - unit: pulse-di-thursday
+        tap: work
+        window: di-thursday
+        session: work
+      - unit: pulse-di-friday
+        tap: work
+        window: di-friday
+        session: work
+      - unit: pulse-weekly-report
+        tap: work
+        window: weekly-report
+        session: work
+      - unit: pulse-biweekly-content
+        tap: work
+        window: biweekly-content
+        session: work
+
+  # --- Ad-hoc umbrellas seated 2026-08-09 (dotfiles-th3e) -------------------
+
+  tinker:
+    charter-line: "coding-jams — ad-hoc coding-jam umbrella"
+    office: "The Tinker"
+    sigil: "🔧"
+    home: ~/coding-jams
+    model: sonnet
+    effort: high
+    aliases: []
+    history: refs/seats/tinker.history.md
+    # Ad-hoc, hand-opened windows; no durable timer yet.
+    schedules: []
+
+  orator:
+    charter-line: "cfp — talks and papers pipeline"
+    office: "The Orator"
+    sigil: "📣"
+    home: ~/cfp
+    model: fable
+    effort: high
+    aliases: []
+    history: refs/seats/orator.history.md
+    # Ad-hoc, hand-opened windows; no durable timer yet.
+    schedules: []

@@ -190,6 +190,7 @@ while IFS= read -r f; do
                                       add_suite "agents/scheduler/test-$base.sh" ;;
     agents/lib/test-*.sh)             add_suite "$f" ;;
     agents/lib/*.sh)                  add_suite "agents/lib/test-$base.sh" ;;
+    agents/lib/*.py)                  add_suite "agents/lib/test-$base.sh" ;;
     agents/doclint/test-*.sh)         add_suite "$f" ;;
     agents/doclint/*.py)              add_suite "agents/doclint/test-$base.sh" ;;
   esac
@@ -359,6 +360,25 @@ if [ -n "$DOCS" ] && [ -f "$ROOT/agents/doclint/doc-example-lint.py" ]; then
       echo "pre-commit: FAIL — banned git verb in a documented example" >&2
       FAILED=1
     fi
+  fi
+fi
+
+# --- the seats.yml DATA-FILE arm (dotfiles-lbxa) ---------------------------
+# seats.yml is DATA, not a script — the convention loop above only maps
+# scripts to test-<n>.sh suites, so a bad alias or a fallback-risk sigil in
+# the roster had no commit-time gate at all (Review J). A wrong pin here
+# misattributes every downstream row from the next tick, so this blocks
+# rather than warns, same posture as the banned-git-verb doc lint above.
+if printf '%s\n' "$STAGED" | grep -qx 'agents/seats.yml'; then
+  if [ -f "$ROOT/agents/lib/validate-seats.py" ]; then
+    echo "pre-commit: validating staged agents/seats.yml"
+    if ! python3 "$ROOT/agents/lib/validate-seats.py" "$ROOT/agents/seats.yml"; then
+      echo "pre-commit: FAIL — agents/seats.yml failed validate-seats.py" >&2
+      FAILED=1
+    fi
+  else
+    echo "pre-commit: FAIL — agents/seats.yml is staged but agents/lib/validate-seats.py is missing" >&2
+    FAILED=1
   fi
 fi
 
