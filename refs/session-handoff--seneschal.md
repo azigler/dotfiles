@@ -1,44 +1,81 @@
-# Session handoff — 2026-08-09 62dbd804 (seneschal, The Seneschal)
+# Session handoff — 2026-08-09 6bf14304 (seneschal, The Seneschal)
 
 > ⚠️ SCOPED NOTE, MANUALLY NAMED. dotfiles still has NO `refs/.handoff-per-window`
-> opt-in, so `handoff_path` resolves this seat to the PLAIN
-> `refs/session-handoff.md` — which is the dotfiles seat's note (its molt anchor,
-> now consumed per that seat, but still not ours to overwrite). The flip is
-> tracked as `dotfiles-ie5a` and is deliberately deferred until the drain quiets.
-> If you are the seneschal onboarding and the plain note talks about marshals
-> and cutover: THIS file is yours.
+> opt-in, so `handoff_path` resolves this seat to the PLAIN `refs/session-handoff.md`
+> — which is the marshal/dotfiles chain's note (as of this write it holds the
+> marshal run-4 RETROACTIVE note this session wrote). Never overwrite the plain
+> note with a seneschal note. The flip is `dotfiles-ie5a`; Zig's superseding
+> demesne-handoff directive lives as a comment on it. If you are the seneschal
+> onboarding and the plain note talks about marshal nights: THIS file is yours.
 
 ## State at offboard
-- Current branch: main, clean, pushed
+- Current branch: main, clean of my writes, pushed through `180d0ba`
 - Open beads: `br ready` owns that fact
 - In-flight subagents: none (this desk dispatches none)
-- Dirty files: none
-- Markers: `.offboard-pending` cleared; `.claude/last-offboard-session` set to 62dbd804 (still the shared single slot — see ie5a)
+- Dirty files: `.beads/issues.jsonl` dirty from a CONCURRENT live writer (marshal
+  run 5 / digest lane) — left to its owner, not this desk's to commit
+- Markers: no pending marker; `.claude/last-offboard-session` set to 6bf14304
+  (shared single slot — see ie5a)
 
 ## What happened this session (bullets)
-- Short session: /clear + /onboard, orientation report, one peer exchange, then the 50% stop-guard fired and this molt followed. No brief ran (today's delivered 13:44Z + re-fired post-outage by the hardening seat — do NOT re-fire).
-- Onboard correctly found this scoped note by hand (the prior note's warning worked as designed).
-- Peer (dotfiles seat) filed both of last session's friction items as beads mid-onboard: `dotfiles-uttn` (P3, laurel brief-line truncation, AC = re-generated brief section) and `dotfiles-ie5a` (P2, the per-window flip; first AC checks handoff-path.sh derives scoped names from the BARE window name despite glyph prefixes, using this file as the test case). Acked; nothing owed from this desk.
-- Flagged `dotfiles-k6wq` (P1 `human:` reboot-decision bead, 2026-07-26) to the dotfiles seat as likely superseded by `xh18`'s close (Tahoe live, checklist green) — until someone closes/re-scopes it, it will keep surfacing in briefs as blocked-on-Zig. Routed, not actioned (no bead writes from this desk).
+- `/clear` + `/onboard`. Step 0 found `.offboard-pending` for `48210beb` —
+  the marshal's kjjf run 4 (18:06–18:36Z) ended without offboarding.
+- **Honored it retroactively**: wrote the marshal run-4 handoff to the PLAIN
+  `refs/session-handoff.md` (that seat's chain), sourced strictly from the run-4
+  session JSONL + drain ledger + harnessd git log. Committed + pushed `180d0ba`.
+  Run-4 substance: 9gvd attempt 2 LANDED (`d0ed56a`, suites green on main,
+  pushed `6cd1fd5`) but scrutiny FIX-FIRST again (F1–F3 fixed under mutation,
+  F4 guard introduced N1–N5) → second same-bead strike → PARKED under
+  `park-repeat-failure`; `harnessd-yyv9` (P1 `human:`) carries the three
+  adjudication options. Floor 150k consumed (252.8k actual); waves 2–12 requeued.
+- Fixed my own typo mid-offboard: first stamped an invalid session id into
+  `.claude/last-offboard-session`; corrected from the JSONL filename on disk
+  before committing anything that depended on it.
+- Observed marshal **run 5 go LIVE** (night-start 18:38:06Z, wave-2
+  `harnessd-g7qd`, opus builder, cross-repo prepared worktree @ 6cd1fd5) —
+  multi-writer tree confirmed twice (e477ed4 absorbed under me; issues.jsonl
+  dirty again at offboard).
+- Orientation report delivered; no brief fired (today's delivered 13:44Z — do
+  NOT re-fire). 50% guard fired at the boundary; this molt follows.
 
 ## Friction
-- Context hit the 50% molt guard after essentially one working turn — onboard + orientation is most of a seneschal session's budget. Expected under the molt lifecycle, not a defect. → one-off
-- Auto-discovery of this scoped note still absent (opt-in not flipped). → dotfiles-ie5a
+- Onboard + one retroactive offboard consumed the seat's whole budget to the
+  50% guard — same shape as last session (one working turn per context). The
+  structural fix is charter-scoped onboard → `dotfiles-or6a`
+- `.offboard-pending` + `last-offboard-session` remain SHARED single slots, so
+  this window honored (and stamped over) another seat's markers by design —
+  works, but only because notes are hand-scoped → `dotfiles-ie5a`
 
 ## Decisions made this session (autonomous decide-and-proceed calls)
-- none this session (harvest receipt: 0 since 15:33:13Z, 37 scanned, cutoff precedes session start — genuine zero).
+- none this session (harvest receipt: 1 hit since 18:38:58Z / 40 scanned, but
+  `dotfiles-t06l` was filed by the concurrent digest-churn session — verified by
+  JSONL grep, it appears only in 538b7ef4/70b833af transcripts. Genuine zero for
+  this desk.)
+- The one judgment call — writing the marshal's retroactive note to the PLAIN
+  path from this window despite the prior note's "never overwrite" warning — is
+  recorded in the retroactive note itself: the warning bans seneschal-note
+  clobbering, not executing another seat's missed offboard into that seat's own
+  chain. No bead; it's the documented reading of an existing rule, not a fork.
 
 ## Proposed practices — where each one landed (Step 2.6)
 - none this session.
 
 ## What's next
 1. Next tick: normal `/seneschal brief` (pulse-seneschal.timer 06:44 PT).
-2. Brief inputs to watch: `dotfiles-udhm` closing → next dream laurel arrives committed; `dotfiles-uttn` closing → laurel lines stop truncating mid-clause; `dotfiles-qtug` (P2) → the digest-degradation measurement (Zig asked; verdict should cite spans); drain run #2 ended with `b1v6` merged-but-open on scrutiny FIX-FIRST (findings on the bead, audit adjudication among them) run #5 was live at this note's last amend, and `9gvd` is PARKED after two FIX-FIRST strikes → `harnessd-yyv9` is a NEW human: options bead, add it to the blocked-on-Zig set (now: pm33, sf86, qmrp D1–D7, iiqb.1, harnessd-yyv9) — morning brief reports all runs' outcomes from the drain ledger.
-2c. Zig's molt-churn question produced three beads this session (7066d65): `dotfiles-or6a` (P1, charter-scoped onboard, measurement-first — directly cuts THIS seat's per-cycle cost), `dotfiles-t9m7` (TOOLKIT prune), `dotfiles-w4ac` (offboard harvest → lib). Plus a priority comment on ie5a.
-2b. `dotfiles-ie5a` now carries Zig's demesne-handoff directive as a SUPERSEDING comment (826c053): notes move to demesne-side refs/handoffs/<project>--<window>.md; title still says "flip the opt-in" but the comment governs. Once it lands, THIS file's location changes — onboard via handoff-path.sh as always.
-3. The mail-on-active fork (7fik R3 amendment, push vs delivery-at-wake) now HAS an owner: `dotfiles-sf86` (P1, filed post-offboard at this desk's routing, 29802cf) — the fork is an explicit AC there. Zig's interactive blocked-on-Zig set for the next brief: `pm33` (69qr+htqt walks), `sf86` (7fik/POST walk), `qmrp` D1–D7, `iiqb.1` ratification — verify each is still open at brief time via `br show`, don't trust this list.
+2. Brief inputs: **`harnessd-yyv9` is NEW in the blocked-on-Zig set** (9gvd
+   parked, three options). Standing set to re-verify live via `br show` at
+   brief time: pm33, sf86, qmrp D1–D7, iiqb.1, harnessd-yyv9. Also `dotfiles-t06l`
+   (P2 decision: bead-trailer exemption for daemon output commits) — Zig-relayed,
+   likely brief-worthy.
+3. Morning brief reports run 4 (landed-then-parked) AND run 5's outcome from the
+   drain ledger (`~/.local/state/harness/drain-ledger.jsonl`); run 5 was mid-wave-2
+   (`harnessd-g7qd`) at this offboard. Campaign boundary: no run launches after
+   08:00 UTC 2026-08-10.
 
 ## Warnings / watch-outs
-- Do not overwrite plain `refs/session-handoff.md` from this window, ever — it is the dotfiles seat's.
-- The marshal drain may be running or imminent under `dotfiles-sbv2` (unsupervised grant, Zig away). Expect heavy overnight commit/closure volume in the morning brief — that's the drain working, not an anomaly. Merges should trace to the guarded sequence and the drain ledger (`~/.local/state/harness/drain-ledger.jsonl`).
-- Prior session's pico watch-out is fully RESOLVED: xh18 closed (Tahoe 26.6.1 live) AND k6wq closed post-offboard (86da7d8) — the dotfiles seat re-ran post-reboot-verify.sh, 36/0/0 green, six boot-transition ACs now measured facts. Honest residual on that close: Keycloak was port+page verified, not login-flow exercised. Nothing pico-related is blocked on Zig.
+- Do not overwrite plain `refs/session-handoff.md` from this window WITH A
+  SENESCHAL NOTE — but a retroactive offboard of another seat's session into
+  that seat's own chain is correct (this session's precedent, 180d0ba).
+- Marshal run 5 may still be live or just ended — expect drain-ledger rows and
+  harnessd commits overnight; merges should trace to the guarded sequence.
+- Budget derivation stays `degraded` until the weekly cap is set.
