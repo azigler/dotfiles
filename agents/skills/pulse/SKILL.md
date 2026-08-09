@@ -712,12 +712,12 @@ anything and does **not** block, because a typo in a `CLAUDE.md` must never be
 able to interrupt a running tick. When you see that warning: `/clear` the
 window, or re-READ the named file before relying on any rule it states.
 
-A loop that clears every tick also **cannot reach the 85% context guard**, so
+A loop that clears every tick also **cannot reach the 75% context guard**, so
 for it the human-unblock step below is not a steady-state loop feature.
 
 The compact-awareness guard (wave 4, shipped 2026-06-10:
 `stop-context-guard.sh`) watches the official context % — statusline
-persists it per-session — and at 85% an exit-2 Stop tells the agent
+persists it per-session — and at 75% an exit-2 Stop tells the agent
 to /offboard immediately. When that fires mid-tick: finish nothing
 new, /offboard, and `/clear` deliberately — the next tick re-onboards
 from the handoff note. A PreCompact backstop runs in observe mode
@@ -732,7 +732,7 @@ receiving ticks, so it will sit context-full and defer every future
 tick until Zig physically comes and clears it. Therefore, once you
 have offboarded (handoff written + committed + pushed), **end the turn
 with an `AskUserQuestion`** asking him to `/clear` (or `/compact`) the
-window — e.g. *"explore session is context-full at 85% and offboarded;
+window — e.g. *"explore session is context-full at 75% and offboarded;
 clear it so the loop resumes? [Clear it now / Leave it]"*. This is the
 **one sanctioned exception** to the "ticks never AskUserQuestion" rule
 (below), and it is exactly right here: the AskUserQuestion is the
@@ -756,13 +756,13 @@ AskUserQuestion is the load-bearing summon.
   Zig watches with no dispatcher to surface for it, so its tick MUST end with an
   AskUserQuestion when it produced something he has to act on. See "ATTENDED
   loops" above; the inverse failure (a ✅ pane over a finished deliverable) is
-  what bit `pulse-weekly-report` on 2026-08-07. **ONE further exception (Zig,
-  2026-07-22):
-  when the session is context-full at the 85% guard and needs Zig to
-  manually `/clear` it, DO end with an AskUserQuestion to summon him —
-  see "Session durability and context" above. The window is offboarded
-  with nothing else to do, so the freeze is the point, and the dialog is
-  the only notification that reliably reaches him.**
+  what bit `pulse-weekly-report` on 2026-08-07. **The context-full exception is RETIRED (2026-08-09,
+  dotfiles-it06): a session at the 75% guard offboards and self-cycles via
+  `agents/scheduler/seat-molt.sh --self --mode auto` — no AskUserQuestion, no
+  frozen window waiting for Zig. Summon him ONLY if the molt itself fails
+  (`SEAT_MOLT_RESULT=failed-*` / `refused-*` twice): that is a harness defect
+  he should see, not a routine cycle.** (History: 2026-07-22 to 2026-08-09
+  this bullet froze the pane on an AskUserQuestion for a manual /clear.)
 - ❌ **Self-invoking the next tick** (ScheduleWakeup loops, recursive
   /pulse) — the systemd timer is the loop; a session that loops itself
   defeats the caps and the steering wheel.

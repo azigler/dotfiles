@@ -40,6 +40,18 @@ baseline is NOT the tailnet — it has held a plain-SSH, non-peer box before
 (`marketing-vps`, decommissioned 2026-08-07) and may again, so check
 `tailscale status` rather than assuming membership.
 
+## The molt — context lifecycle (dotfiles-it06)
+
+**Molt at work-item boundaries; compact only mid-flight; never let the ceiling
+choose for you.** With nothing in flight, cycle deliberately: `/offboard`, then
+`agents/scheduler/seat-molt.sh --self --mode auto --in-flight no` — a fresh
+context onboarding from the durable anchor beats a degraded compacted one. With
+subagents/background work in flight, `--in-flight yes` compacts instead (handles
+survive compaction; a /clear orphans them — measured 2026-08-09). The 75% stop
+guard is the BACKSTOP, not the mechanism: long loops molt proactively between
+work items once past ~50%. A failed/refused molt (twice) is the only context
+event that summons Zig.
+
 ## Effort and model — a per-dispatch choice
 
 An effort level is a **calibration of one model on one client version, not a
