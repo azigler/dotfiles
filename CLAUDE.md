@@ -29,7 +29,7 @@ Consequences that bite:
 | `agents/hooks/` | every hook — these run on **every tool call fleet-wide** |
 | `agents/lib/` | shared shell libs the hooks source |
 | `agents/scheduler/` | `pulse-inject.sh`, unit templates, `pulse-ledger-lint.py` |
-| `agents/bin/` | standalone operator scripts — `claude-seat-link.sh` (wire a second Claude seat into the harness), `restart-loop-check.sh` |
+| `agents/bin/` | standalone operator scripts — `hall` (THE HALL: the court view of the roster, `prefix H` in tmux), `claude-seat-link.sh` (wire a second Claude seat into the harness), `restart-loop-check.sh` |
 | `agents/infra.md` | machine + mesh baseline; **re-verify before depending on a fact** |
 | `mac.setup.sh` / `ubuntu.setup.sh` | first-run machine provisioning |
 | `mac.upgrade.sh` / `ubuntu.upgrade.sh` / `pico.upgrade.sh` | per-machine binary upgrades — one per OS/role |

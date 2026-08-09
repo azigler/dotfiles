@@ -1,0 +1,460 @@
+#!/usr/bin/env bash
+# hall — THE HALL, v0: the tmux-native court view + visit.  Bead dotfiles-sb6s.
+#
+# THE INVERSION (sb6s Overview): agents/seats.yml is TRUTH, tmux windows are
+# CACHE.  The machinery owns window lifecycle; a hand-made window shows as
+# UNREGISTERED (🚧) and is NEVER adopted silently.  Physical-layer vocabulary is
+# the ratified estate lexicon (dotfiles-demesne-lexicon-gadu) — the ESTATE, the
+# KEEP (zig-computer), the WORKS (pico), the ROADS (zig-zone); cited, not
+# restated.  Seats SIT on hosts; hosts do not get seats.
+#
+# ---------------------------------------------------------------------------
+# WHAT V0 IS, AND IS NOT
+#
+# v0 is DUMB GLASS over two sources that are always there: the ROSTER and the
+# LIVE TMUX SERVER.  There is deliberately NO harnessd dependency — the cockpit
+# must not die with the daemon (sb6s AC3).  The state.json join (unread mail,
+# marshal queue, tap headroom) is v1; so are `hall mail/brief/queue/adopt/
+# retire` and TAP FAILOVER.  Where a v1 field would go, this file has a
+# reserved cell and a comment, never an invented value.
+#
+# VERBS
+#   hall                the COURT VIEW (also `hall court`)
+#   hall <seat|alias>   VISIT: switch to the seat's window, or MATERIALIZE it
+#                       correctly (roster session, roster home as cwd, canonical
+#                       name) and then switch.  v0 does NOT launch claude — an
+#                       empty shell in the right place is the correct v0 answer;
+#                       launching is the injector's job (and Zig's).
+#   hall home           the front desk: an alias for `hall seneschal`
+#                       (ratified 2026-08-09 — attach lands at the desk).
+#   hall --help
+#
+# `home` and `court` are RESERVED VERBS: a seat may not be named either.
+#
+# ---------------------------------------------------------------------------
+# DISCIPLINE THIS SCRIPT IS BOUND BY
+#
+# * ONE ROSTER PARSER.  Everything here reads the roster through
+#   agents/lib/seat-resolve.sh, which reuses validate-seats.py's YAML-subset
+#   parser.  There is no second (or third) parser, and no `grep` of seats.yml.
+# * R13 — session and window are SEPARATE FIELDS, never colon-joined into a
+#   tmux `-t` target.  A `<session>:<window>` string is byte-identical in shape
+#   to a tmux target and tmux matches targets by prefix/fnmatch, so a near-miss
+#   silently binds the WRONG session.  Sessions are targeted as `=<name>`
+#   (exact); windows are targeted by their `@<id>`, which is unique per server.
+# * EXPLICIT SOCKET, ALWAYS, and `env -u TMUX` on every call: an inherited $TMUX
+#   must never be able to redirect a -S-targeted call back at another server
+#   (dotfiles-2v8h — a bare tmux command killed the live server once already).
+# * THE HALL NAVIGATES, IT NEVER TYPES.  There is no send-keys in this file and
+#   there must never be one; test-hall.sh asserts that mechanically.
+# * EVERY GLYPH IN THE OUTPUT passes validate-seats.py's sigil rule
+#   (U+1F300+, or the small proven-exception allowlist; no U+2000-U+2BFF, no
+#   VS16).  That means NO em dash, NO box drawing, NO arrows anywhere in the
+#   rendering — `·` (U+00B7) and ASCII only.  test-hall.sh runs the court
+#   view's real output through validate-seats.py's own checker.
+#
+# Environment seams (all optional; they exist for the attach hook and tests,
+# which must never touch the live tmux server):
+#   SEATS_YML             explicit roster path (honored by seat-resolve.sh)
+#   HALL_TMUX_SOCKET      tmux socket to read/act on (default: $TMUX's own)
+#   HALL_SESSION          explicit target session for a visit (the attach hook
+#                         passes #{hook_session_name}; otherwise unset)
+#   HALL_ONLY_IF_ABSENT   1 = a visit materializes-and-selects ONLY when the
+#                         window is absent; if it already exists, do nothing.
+#                         This is the attach hook's guard: never yank a
+#                         restored session (tmux-resurrect) to another window.
+#
+# Exit codes:  0 ok · 1 operational failure (no tmux/socket/session/home)
+#              2 unknown seat or usage error · 3 roster missing or unreadable
+
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB="$HERE/../lib"
+
+if [ ! -f "$LIB/seat-resolve.sh" ]; then
+  printf 'hall: cannot find agents/lib/seat-resolve.sh next to %s\n' "$HERE" >&2
+  exit 3
+fi
+# shellcheck source=../lib/seat-resolve.sh
+. "$LIB/seat-resolve.sh"
+
+# --- the glyph set ---------------------------------------------------------
+# Emoji-presentation codepoints only (AGENTS.md glyph rule).  📬 is PINNED by
+# Zig, 2026-08-09: the unread-mail glyph is 📬 (U+1F4EC) and NEVER U+2709 ✉,
+# which is in the banned U+2000-U+2BFF block.  It appears in the legend only —
+# v0 has no mail state to report, and inventing one would be worse than a
+# reserved cell.
+G_WORKING='🧠'   # mid-turn
+G_NEEDS='🔔'     # blocked on Zig (an open AskUserQuestion)
+G_IDLE='✅'      # idle, nothing to ask
+G_COMPACT='🌀'   # compacting
+G_ASLEEP='💤'    # seated, but no window on this server
+G_UNREG='🚧'     # a live window that matches NO seat and no alias
+G_MAIL='📬'      # unread mail (v1 — needs harnessd state.json)
+
+SEP='·'          # U+00B7, NOT an em dash: U+2014 is in the banned block.
+
+TMUX_BIN=$(command -v tmux 2>/dev/null); [ -x "${TMUX_BIN:-}" ] || TMUX_BIN=/usr/bin/tmux
+
+die() { local rc=$1; shift; printf 'hall: %s\n' "$*" >&2; exit "$rc"; }
+
+# --- tmux, always socket-explicit and $TMUX-scrubbed ------------------------
+tmux_e() { local sock=$1; shift; env -u TMUX "$TMUX_BIN" -S "$sock" "$@"; }
+
+# hall_socket -> the tmux socket this hall reads and acts on.
+hall_socket() {
+  if [ -n "${HALL_TMUX_SOCKET:-}" ]; then printf '%s' "$HALL_TMUX_SOCKET"; return 0; fi
+  if [ -n "${TMUX:-}" ]; then printf '%s' "${TMUX%%,*}"; return 0; fi
+  local d="/tmp/tmux-$(id -u)"
+  [ -S "$d/default" ] && { printf '%s' "$d/default"; return 0; }
+  return 1
+}
+
+# hall_bare <window-name> -> the name with any lexicon glyph removed.  The
+# lexicon regex lives in exactly ONE place (seat-resolve.sh's
+# _seat_strip_glyph); nothing here re-encodes the set.
+hall_bare() { _seat_strip_glyph "$1"; }
+
+# hall_status_glyph <window-name> -> the status glyph for a LIVE window: its own
+# lexicon prefix when it has one, else ✅.  A live window with no glyph is idle
+# by the lexicon's own definition (AGENTS.md: "bare name = fresh context
+# awaiting its first prompt") — nothing there wants Zig.
+#
+# It is never empty ON PURPOSE.  Records below are tab-separated and read with
+# IFS=$'\t'; tab is IFS *whitespace*, so bash collapses consecutive tabs into
+# one and an empty middle field would silently shift every later column.
+hall_status_glyph() {
+  local bare prefix
+  bare=$(_seat_strip_glyph "$1")
+  prefix=${1%"$bare"}
+  prefix=${prefix// /}
+  [ -n "$prefix" ] || prefix="$G_IDLE"
+  printf '%s' "$prefix"
+}
+
+# hall_live_windows <sock> -> "<session>\t<bare window>\t<status glyph>\t<activity>\t<window id>"
+# for every window on that server.  READ-ONLY.  No field is ever empty (see
+# hall_status_glyph on why that matters).
+hall_live_windows() {
+  local sock=$1 sess name act id
+  tmux_e "$sock" list-windows -a -F '#{session_name}	#{window_name}	#{window_activity}	#{window_id}' \
+    2>/dev/null | while IFS=$'\t' read -r sess name act id; do
+      [ -n "${sess:-}" ] || continue
+      printf '%s\t%s\t%s\t%s\t%s\n' \
+        "$sess" "$(hall_bare "$name")" "$(hall_status_glyph "$name")" "$act" "$id"
+    done
+}
+
+# hall_rel <epoch> -> a <=4 char relative age.  Column stability beats precision.
+hall_rel() {
+  local then=$1 now d
+  [ -n "$then" ] || { printf '%s' '-'; return 0; }
+  case "$then" in ''|*[!0-9]*) printf '%s' '-'; return 0 ;; esac
+  now=$(date +%s); d=$(( now - then ))
+  [ "$d" -lt 0 ] && d=0
+  if   [ "$d" -lt 60 ];    then printf '%ss' "$d"
+  elif [ "$d" -lt 3600 ];  then printf '%sm' "$(( d / 60 ))"
+  elif [ "$d" -lt 86400 ]; then printf '%sh' "$(( d / 3600 ))"
+  else                          printf '%sd' "$(( d / 86400 ))"
+  fi
+}
+
+# hall_trunc <string> <width>
+hall_trunc() {
+  local s=$1 n=$2
+  if [ "${#s}" -gt "$n" ]; then printf '%s.' "${s:0:$((n - 1))}"; else printf '%s' "$s"; fi
+}
+
+# hall_expand_home <roster home> -> absolute path (`~` and `~/x` only; the
+# roster never uses `~user`).
+hall_expand_home() {
+  case "$1" in
+    '~')    printf '%s' "$HOME" ;;
+    '~/'*)  printf '%s/%s' "$HOME" "${1#\~/}" ;;
+    *)      printf '%s' "$1" ;;
+  esac
+}
+
+# hall_taps_of <seat> <dump> -> the distinct taps this seat's schedules bind,
+# comma-joined; empty when the seat has no schedule (an interactive seat draws
+# whatever its window was launched with — v0 cannot know it, and says so).
+hall_taps_of() {
+  printf '%s\n' "$2" | awk -F'\t' -v s="$1" '$1=="sched" && $2==s {print $4}' | sort -u | paste -sd, -
+}
+
+# hall_tap_cell <seat> <dump> -> the TAP COLUMN's contents.
+#
+# ⚠️ THE V1 SEAM (sb6s "Tap failover", explicitly NOT v0).  When taps gain an
+# ordered failover list and a headroom check, the SERVING tap can differ from
+# the PREFERRED one, and this cell is where that shows up — as `work>tick`,
+# preferred first.  Everything upstream of this function already passes the
+# seat through, so v1 changes this function and the column width, and nothing
+# else in the renderer.  v0 prints the preferred tap alone because that is the
+# only tap it can honestly know.
+hall_tap_cell() {
+  local t
+  t=$(hall_taps_of "$1" "$2")
+  [ -n "$t" ] || t='-'
+  printf '%s' "$t"
+}
+
+# hall_seat_of_window <bare window> <dump> -> canonical seat, or non-zero.
+hall_seat_of_window() {
+  local hit
+  hit=$(_seat_lookup "$1" "$2") || return 1
+  printf '%s' "${hit#*$'\t'}"
+}
+
+# ---------------------------------------------------------------------------
+# THE COURT VIEW
+# ---------------------------------------------------------------------------
+# Width-stable by construction, for display-popup: fixed column widths, one
+# glyph per glyph-column (assumed 2 cells wide), text columns truncated.  Byte
+# padding via printf %-Ns is safe here because every text column is ASCII —
+# seat names are ^[a-z][a-z0-9-]+$ (R1) and offices are English.  A non-ASCII
+# office would skew one row; that is a roster question, not a renderer one.
+#
+# v0 matches a live window to a seat BY NAME (exact, then alias) within this
+# server.  Session qualification is moot on the keep — Zig's 2026-08-09
+# topology ruling made it one session per server, named for the host, so
+# session:window == host:seat universally — and the seats that have no schedule
+# at all (seneschal, marshal, dotfiles, harnessd, romd, tinker, orator) have no
+# binding session to qualify against.  The session each match was found in is
+# printed for the unregistered rows, where it is the actionable fact.
+court() {
+  local dump sock live host role cur_window cur_seat cur_tap
+  dump=$(_seat_dump) || die 3 "roster could not be read (see the parse error above). Set \$SEATS_YML or install the agents tier."
+
+  sock=$(hall_socket) || sock=""
+  live=""
+  if [ -n "$sock" ]; then live=$(hall_live_windows "$sock"); fi
+
+  host=$(hostname -s 2>/dev/null || printf 'unknown')
+  # dotfiles-demesne-lexicon-gadu: zig-computer IS the keep. Any other host
+  # names itself rather than claiming a role it was not given.
+  if [ "$host" = "zig-computer" ]; then role="the KEEP ($host)"; else role="host $host"; fi
+
+  # The header's tap is the CURRENT WINDOW's tap (sb6s Overview: visiting the
+  # Factor flips it to tap:work).  The current window is the CLIENT's, not this
+  # process's: inside display-popup this script has no window of its own.
+  cur_window=""
+  if [ -n "$sock" ]; then
+    cur_window=$(tmux_e "$sock" display-message -p '#{window_name}' 2>/dev/null)
+  fi
+  cur_tap='-'
+  cur_seat='-'
+  if [ -n "$cur_window" ]; then
+    if cur_seat=$(hall_seat_of_window "$(hall_bare "$cur_window")" "$dump"); then
+      cur_tap=$(hall_tap_cell "$cur_seat" "$dump")
+    else
+      cur_seat="$(hall_bare "$cur_window") $G_UNREG"
+    fi
+  fi
+
+  printf 'THE HALL %s %s %s here: %s %s tap: %s\n' \
+    "$SEP" "$role" "$SEP" "$cur_seat" "$SEP" "$cur_tap"
+  # 4 leading spaces, not 3: the sigil column is one emoji (2 cells) plus 2
+  # spaces. Every column below is byte-padded ASCII, so the header, the rule
+  # and every row land on the same boundaries.
+  printf '    %-11s %-24s %-2s %-4s %-6s %s\n' seat office st last model tap
+  printf '    %s\n' '----------- ------------------------ -- ---- ------ ---'
+
+  local seated=0 asleep=0
+  local name model home history office sigil
+  while IFS=$'\t' read -r _tag name model _effort home history office sigil _charter; do
+    [ -n "${name:-}" ] || continue
+    seated=$((seated + 1))
+    local aliases hit glyph act row
+    aliases=$(printf '%s\n' "$dump" | awk -F'\t' -v s="$name" '$1=="alias" && $3==s {print $2}')
+    # The seat's live window: its own name first, then any alias (a window that
+    # was never literally renamed is still that seat's window — that is what
+    # the alias list is FOR).
+    hit=$(printf '%s\n' "$live" | awk -F'\t' -v names="$(printf '%s %s' "$name" "$(printf '%s' "$aliases" | tr '\n' ' ')")" '
+      BEGIN { n = split(names, a, " "); for (i = 1; i <= n; i++) if (a[i] != "") k[a[i]] = i }
+      $2 in k { print k[$2] "\t" $0 }' | sort -n | head -1 | cut -f2-)
+    if [ -n "$hit" ]; then
+      glyph=$(printf '%s' "$hit" | cut -f3)
+      act=$(hall_rel "$(printf '%s' "$hit" | cut -f4)")
+    else
+      glyph="$G_ASLEEP"; act='-'; asleep=$((asleep + 1))
+    fi
+    printf '%s  %-11s %-24s %s %-4s %-6s %s\n' \
+      "$sigil" "$(hall_trunc "$name" 11)" "$(hall_trunc "$office" 24)" \
+      "$glyph" "$act" "$(hall_trunc "${model:--}" 6)" \
+      "$(hall_trunc "$(hall_tap_cell "$name" "$dump")" 8)"
+  done <<<"$(printf '%s\n' "$dump" | awk -F'\t' '$1=="seat"')"
+
+  # 🚧 — live windows that match NO seat and no alias.  Never adopted silently
+  # (sb6s AC2): the hall reports them and stops.  Adoption is a v1 verb that
+  # writes THROUGH the roster.
+  local unreg=0 sess bare g act id
+  while IFS=$'\t' read -r sess bare g act id; do
+    [ -n "${bare:-}" ] || continue
+    hall_seat_of_window "$bare" "$dump" >/dev/null && continue
+    unreg=$((unreg + 1))
+    printf '%s  %-11s %-24s %s %-4s %-6s %s\n' \
+      "$G_UNREG" "$(hall_trunc "$bare" 11)" \
+      "$(hall_trunc "no seat in $sess" 24)" \
+      "$G_UNREG" "$(hall_rel "$act")" '-' '-'
+  done <<<"$live"
+
+  printf '\n%s working %s %s needs Zig %s %s idle %s %s compacting\n' \
+    "$G_WORKING" "$SEP" "$G_NEEDS" "$SEP" "$G_IDLE" "$SEP" "$G_COMPACT"
+  printf '%s no window %s %s unregistered %s %s unread mail (v1)\n' \
+    "$G_ASLEEP" "$SEP" "$G_UNREG" "$SEP" "$G_MAIL"
+  printf '%s seats %s %s asleep %s %s unregistered %s hall <seat> to visit\n' \
+    "$seated" "$SEP" "$asleep" "$SEP" "$unreg" "$SEP"
+  if [ -z "$sock" ]; then
+    printf 'no tmux server in view: roster only. The court still renders.\n'
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# VISIT
+# ---------------------------------------------------------------------------
+
+# hall_near <input> <dump> — near matches for an unknown seat, on stderr.
+hall_near() {
+  local want=$1 dump=$2 near all
+  all=$(printf '%s\n' "$dump" | awk -F'\t' '$1=="seat"{print $2} $1=="alias"{print $2 " (alias of " $3 ")"}')
+  near=$(printf '%s\n' "$all" | grep -i -- "$want")
+  if [ -n "$near" ]; then
+    printf 'hall: no seat %s. Did you mean:\n' "'$want'" >&2
+    printf '%s\n' "$near" | sed 's/^/    /' >&2
+  else
+    printf 'hall: no seat %s. The roster holds:\n' "'$want'" >&2
+    printf '%s\n' "$all" | sed 's/^/    /' >&2
+  fi
+}
+
+# hall_target_session <seat> <dump> <sock> -> the session the seat's window
+# belongs in.  Precedence: explicit override (the attach hook) > the roster's
+# own binding > the client's current session > the only session on the server.
+# Nothing here invents a session NAME — the roster and the live server are the
+# only two authorities, exactly as seat-resolve.sh refuses to hardcode one.
+hall_target_session() {
+  local seat=$1 dump=$2 sock=$3 bound n cur first
+  if [ -n "${HALL_SESSION:-}" ]; then printf '%s' "$HALL_SESSION"; return 0; fi
+  bound=$(printf '%s\n' "$dump" | awk -F'\t' -v s="$seat" '$1=="sched" && $2==s {print $5}' | sort -u)
+  n=$(printf '%s' "$bound" | grep -c .)
+  if [ "$n" = 1 ]; then printf '%s' "$bound"; return 0; fi
+  if [ "$n" -gt 1 ]; then
+    printf 'hall: seat %s has bindings in %s sessions (%s) — pass HALL_SESSION to choose.\n' \
+      "'$seat'" "$n" "$(printf '%s' "$bound" | tr '\n' ' ')" >&2
+    return 1
+  fi
+  [ -n "$sock" ] || return 1
+  cur=$(tmux_e "$sock" display-message -p '#{session_name}' 2>/dev/null)
+  [ -n "$cur" ] && { printf '%s' "$cur"; return 0; }
+  first=$(tmux_e "$sock" list-sessions -F '#{session_name}' 2>/dev/null | head -1)
+  [ -n "$first" ] && { printf '%s' "$first"; return 0; }
+  return 1
+}
+
+# hall_find_window <sock> <session> <name...> -> the window id whose
+# glyph-stripped name matches any of the given names.  Names are matched in the
+# order given, so the canonical name wins over an alias.
+hall_find_window() {
+  local sock=$1 sess=$2; shift 2
+  local wanted="$*" id name bare w
+  tmux_e "$sock" list-windows -t "=$sess" -F '#{window_id}	#{window_name}' 2>/dev/null \
+    | while IFS=$'\t' read -r id name; do
+        bare=$(hall_bare "$name")
+        for w in $wanted; do
+          [ "$bare" = "$w" ] && { printf '%s' "$id"; return 0; }
+        done
+      done
+}
+
+visit() {
+  local want=$1 dump hit match seat row sock sess home office sigil win_id created=0
+  dump=$(_seat_dump) || die 3 "roster could not be read (see the parse error above)."
+
+  hit=$(_seat_lookup "$want" "$dump") || { hall_near "$want" "$dump"; exit 2; }
+  match=${hit%%$'\t'*}
+  seat=${hit#*$'\t'}
+  [ "$match" = alias ] && \
+    printf 'hall: %s is an ALIAS of seat %s (the roster is what makes the rename survivable).\n' \
+      "'$want'" "'$seat'" >&2
+
+  row=$(_seat_row "$seat" "$dump") || die 3 "seat '$seat' vanished from the roster mid-read"
+  home=$(printf '%s' "$row" | cut -f5)
+  office=$(printf '%s' "$row" | cut -f7)
+  sigil=$(printf '%s' "$row" | cut -f8)
+  home=$(hall_expand_home "$home")
+
+  sock=$(hall_socket) || die 1 "no tmux socket in view (no \$TMUX, no default server). Start tmux first."
+  tmux_e "$sock" list-sessions >/dev/null 2>&1 || die 1 "no tmux server on $sock"
+
+  sess=$(hall_target_session "$seat" "$dump" "$sock") || \
+    die 1 "cannot determine which session seat '$seat' belongs in"
+  tmux_e "$sock" has-session -t "=$sess" 2>/dev/null || \
+    die 1 "session '$sess' does not exist on $sock — attach (or let the session-created hook run) first; the hall does not invent sessions"
+
+  local aliases
+  aliases=$(printf '%s\n' "$dump" | awk -F'\t' -v s="$seat" '$1=="alias" && $3==s {print $2}' | tr '\n' ' ')
+  # shellcheck disable=SC2086  -- $aliases is a deliberate word list (R1 names)
+  win_id=$(hall_find_window "$sock" "$sess" "$seat" $aliases)
+
+  if [ -n "$win_id" ] && [ "${HALL_ONLY_IF_ABSENT:-0}" = 1 ]; then
+    printf 'hall: %s already has a window in session %s — leaving it alone (HALL_ONLY_IF_ABSENT).\n' \
+      "$seat" "'$sess'" >&2
+    return 0
+  fi
+
+  if [ -z "$win_id" ]; then
+    [ -d "$home" ] || die 1 "seat '$seat' home '$home' does not exist — fix the roster or the directory; the hall will not materialize a seat in the wrong place"
+    win_id=$(tmux_e "$sock" new-window -d -P -F '#{window_id}' -t "=$sess" -n "$seat" -c "$home") \
+      || die 1 "could not create the window for seat '$seat' in session '$sess'"
+    created=1
+    # v0 deliberately launches NOTHING here.  An empty shell at the seat's home
+    # is the correct materialization; starting claude is the injector's job
+    # (pulse-inject.sh) or Zig's, and doing it from a popup would spend a tap
+    # nobody asked to spend.
+  fi
+
+  tmux_e "$sock" select-window -t "$win_id" >/dev/null 2>&1 || true
+  if [ -n "$(tmux_e "$sock" list-clients -F '#{client_name}' 2>/dev/null)" ]; then
+    tmux_e "$sock" switch-client -t "=$sess" >/dev/null 2>&1 || true
+  fi
+
+  if [ "$created" = 1 ]; then
+    printf '%s  %s %s %s %s materialized in session %s, window %s, cwd %s\n' \
+      "$sigil" "$seat" "$SEP" "$office" "$SEP" "'$sess'" "'$seat'" "$home"
+  else
+    printf '%s  %s %s %s %s session %s, window %s\n' \
+      "$sigil" "$seat" "$SEP" "$office" "$SEP" "'$sess'" "'$seat'"
+  fi
+}
+
+usage() {
+  cat <<EOF
+hall — the court view of the estate (v0, bead dotfiles-sb6s)
+
+  hall                 the COURT VIEW: every seat, its office, status, last
+                       activity, model and tap, plus any UNREGISTERED window
+  hall <seat|alias>    visit a seat: switch to its window, or materialize it
+                       (roster session, roster home, canonical name)
+  hall home            the front desk (alias for: hall seneschal)
+  hall --help          this
+
+The roster (agents/seats.yml) is truth; windows are cache. v0 reads the roster
+and the live tmux server only — no harnessd, so the cockpit outlives the
+daemon. Mail, brief, marshal queue, adopt/retire and tap failover are v1.
+EOF
+}
+
+main() {
+  case "${1:-}" in
+    ''|court)        court ;;
+    -h|--help|help)  usage ;;
+    home)            visit seneschal ;;
+    -*)              printf 'hall: unknown option %s\n' "'$1'" >&2; usage >&2; exit 2 ;;
+    *)
+      [ $# -gt 1 ] && { printf 'hall: one seat at a time (got: %s)\n' "$*" >&2; exit 2; }
+      visit "$1" ;;
+  esac
+}
+
+main "$@"
