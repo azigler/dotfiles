@@ -123,7 +123,13 @@ cdn), **53** lima usernet, **2222** alt sshd, **50051** multipassd, **5900** Scr
 expansion is **verified working** (goose key → HTTP 200 on `15003/v1/models`; the literal string
 `${AGW_CC_KEY}` → 401). ⚠️ agentgateway's apiKey policy accepts **`Authorization: Bearer`, NOT
 `x-api-key`** — an `x-api-key` probe 401s and looks like a config failure.
-⚠️ `~/gojamming/config.json` still holds a plaintext token and is **not** a `~/.secrets` pointer.
+⚠️ `~/gojamming/config.json` still holds a plaintext token and is **not** a `~/.secrets` pointer —
+that's allowed (the app's own config, not docs) since `go-jamming` has no env/flag-based token
+override (`--help` lists only `-denylist`/`-import`/`-migrate`/`-verbose`; `strings` on the binary
+shows no `TOKEN`-named env lookup) — the pointer rule is about docs restating a secret, not an
+app's sole config path for one. **0600 as of 2026-08-09** (`dotfiles-3sc4`) — was 0644 (world-readable,
+the lone exception to pico's otherwise-consistent 600 discipline), fixed with no restart needed
+(permissions only); `:14829` verified 200 after.
 
 ### Request attribution — `user` is the SESSION, `group` is the MACHINE
 Verified live 2026-08-03 (`dotfiles-ogkz`). `config.standardAttributes` maps two request
