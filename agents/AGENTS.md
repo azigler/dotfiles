@@ -302,6 +302,7 @@ green worktree proves nothing about the merge result) → `br close <id>` with a
 reason that cites the evidence → commit `.beads/issues.jsonl` → push → cleanup:
 
 ```bash
+bash /home/ubuntu/dotfiles/agents/bin/orphan-reaper.sh --worktree /home/ubuntu/<project>/.claude/worktrees/agent-<id>
 git worktree remove --force --force /home/ubuntu/<project>/.claude/worktrees/agent-<id>
 git branch -D worktree-agent-<id>
 git worktree list          # verify OTHER agents' worktrees survived

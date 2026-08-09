@@ -1,0 +1,29 @@
+[Unit]
+Description=orphan-reaper — kill processes that outlive their worktrees/scratchpads
+Documentation=file:///home/ubuntu/dotfiles/agents/bin/orphan-reaper.sh
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/ubuntu/dotfiles/agents/bin/orphan-reaper.sh
+
+# Reaping is normal maintenance, not an alarm condition (unlike
+# restart-loop-check.sh's deliberate exit 10) — so this unit is expected to
+# exit 0 whether the sweep was clean or reaped something. The ledger
+# (~/.local/share/fleet-health/reaper.jsonl) is the recurrence record, not
+# `systemctl --user --failed`. Exit 1 (a killed pid survived SIGKILL) is the
+# one path that SHOULD read as a failed unit — deliberately left unguarded by
+# SuccessExitStatus, same reasoning as the sibling unit.
+Nice=10
+NoNewPrivileges=true
+
+# NO ProtectSystem / ProtectHome / PrivateTmp — this unit inspects and signals
+# arbitrary processes across the box via /proc; any of the three sandboxes it
+# into a sub-view of /proc that would make the sweep silently see (and reap)
+# less than the real process table. Same reasoning as restart-loop-check.sh's
+# omission for a different hazard (root-owned ssh config files reading as
+# `nobody`).
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target
