@@ -47,7 +47,8 @@
 # line, never parses prose):
 #
 #   MARSHAL_BUDGET=<tokens> status=computed
-#   MARSHAL_BUDGET=<tokens> status=derived reason=derived-cap(u7d=..,u5h=..,spend=..,cap_est=..,obs_age_h=..)
+#   MARSHAL_BUDGET=<tokens> status=derived reason=derived-cap(pool=..,u7d=..,u5h=..,spend=..,cap_est=..,obs_age_h=..)
+#   MARSHAL_BUDGET=<tokens> status=derived reason=derived-cap-transfer(pool=..,cap_from=..,u7d=..,spend=..,cap_est=..,obs_age_h=..)
 #   MARSHAL_BUDGET=degraded fallback_tokens=<n> reason=<why>
 #   MARSHAL_PLAN_RESULT=planned:<n> | frozen | no-budget | empty-queue | failed-<why>
 #   MARSHAL_RECORD_RESULT=recorded streak=<n> | park-repeat-failure | three-strikes
@@ -66,6 +67,11 @@
 # TEST SEAMS (the suite is hermetic — no pico, no real beads, no real repos)
 # ---------------------------------------------------------------------------
 #   MARSHAL_CONF          config path (default: marshal.conf beside this file)
+#   MARSHAL_TAPS_CONF     taps.conf path (default: taps.conf beside this file) —
+#                         READ-ONLY here; it is the consul's lane (dotfiles-kecb)
+#   MARSHAL_HOME          $HOME for `~` expansion in pool.<p>.config_dir
+#   CLAUDE_CONFIG_DIR     NOT a seam — the real launch env, and the FIRST rung of
+#                         pool resolution (the identity wrapper fixes it at exec)
 #   MARSHAL_SQL_CMD       command that reads SQL on stdin and prints rows
 #                         (default: ssh <pico_host> sqlite3 <requests_db>).
 #                         The suite points it at a local fixture db.
@@ -86,6 +92,8 @@ set -uo pipefail
 _MD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 CONF="${MARSHAL_CONF:-$_MD_DIR/marshal.conf}"
+TAPS_CONF="${MARSHAL_TAPS_CONF:-$_MD_DIR/taps.conf}"
+TH_HOME="${MARSHAL_HOME:-$HOME}"
 BR_BIN="${MARSHAL_BR_BIN:-br}"
 BV_BIN="${MARSHAL_BV_BIN:-bv}"
 FREEZE_SCRIPT="${MARSHAL_FREEZE_SCRIPT:-$_MD_DIR/demesne-freeze.sh}"
@@ -199,20 +207,199 @@ json_escape() { python3 -c 'import json,sys; sys.stdout.write(json.dumps(sys.std
 #      per-tap counting changed. `tap: tick` in a schedule's config is no
 #      longer a real tap either — see the `*) return 1` fallthrough.
 
-tap_predicate() { # tap_predicate <tap> -> SQL boolean, or return 1
-  local tap=$1
-  case "$tap" in
-    personal)
-      # epoch 2: group is the tap, and 'tick' folds into 'personal' (see note
-      # 3 above). epoch 1: group is a hostname, so anything outside the tap
-      # namespace that is not the work split is personal.
-      printf '%s' "(COALESCE(agentgateway_group,'') IN ('personal','tick') OR (COALESCE(agentgateway_group,'') NOT IN ('personal','work','tick') AND COALESCE(agentgateway_user,'') NOT LIKE 'work:%'))"
-      ;;
-    work)
-      printf '%s' "(COALESCE(agentgateway_group,'') = 'work' OR (COALESCE(agentgateway_group,'') NOT IN ('personal','work','tick') AND COALESCE(agentgateway_user,'') LIKE 'work:%'))"
-      ;;
-    *) return 1 ;;
+#   4. EPOCH 3 (2026-08-09, dotfiles-kecb): the tap NAMES changed and the
+#      accounts did not — `personal` -> `primary`, `work` -> `linearb`, plus a
+#      genuinely new `secondary`. Epoch-2 rows are NOT rewritten, so the
+#      classification is BY VALUE across all three epochs at once. The mapping
+#      is DATA, not a literal: taps.conf's `pool.<p>.groups` lists every group
+#      value that has ever identified a pool, and the predicates below are
+#      GENERATED from it.
+#
+#      ⚠️ THE MIXED SWEEP (dotfiles-5gob, the defect this section fixes). The
+#      epoch-2 `personal` predicate's catch-all excluded only
+#      ('personal','work','tick'), so every epoch-3 row — 'primary' AND
+#      'secondary' AND 'linearb' — fell through it and counted as personal
+#      spend. Mixed-pool spend divided by one arbitrary pool's utilization is
+#      incoherent in EITHER direction; it is not conservative. The exclusion
+#      list is now the UNION of every pool's groups, so a foreign pool's rows
+#      can never land in the legacy pool's catch-all.
+
+# ---------------------------------------------------------------------------
+# taps.conf — READ-ONLY, and parsed here rather than sourced from
+# agents/lib/tap-headroom.sh on purpose: that library is the consul's lane and
+# sits on the LAUNCH PATH of every `claude` on the box (dotfiles-5gob AC).
+# This is the same STRICT grammar it uses — `key=value`, key [a-z][a-z0-9_.-]*,
+# value [A-Za-z0-9_,./~:-]+ — with NO expansion and NO command substitution. A
+# line that does not match is ignored, exactly as there.
+# ---------------------------------------------------------------------------
+taps_get() { # taps_get <key> -> value, or return 1
+  [ -f "$TAPS_CONF" ] || return 1
+  awk -v want="$1" '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+    {
+      line=$0
+      sub(/^[[:space:]]+/, "", line)
+      sub(/[[:space:]]+$/, "", line)
+      i = index(line, "=")
+      if (i < 2) next
+      k = substr(line, 1, i-1)
+      v = substr(line, i+1)
+      if (k !~ /^[a-z][a-z0-9_.-]*$/) next
+      if (v !~ /^[A-Za-z0-9_,.\/~:-]+$/) next
+      if (k == want) { print v; found=1; exit }
+    }
+    END { if (!found) exit 1 }
+  ' "$TAPS_CONF"
+}
+
+taps_pools() { taps_get order | tr ',' ' '; }
+
+taps_pool_known() { # taps_pool_known <pool>
+  local p
+  [ -n "${1:-}" ] || return 1
+  for p in $(taps_pools); do [ "$p" = "$1" ] && return 0; done
+  return 1
+}
+
+# taps_expand_dir — `~` against $TH_HOME, and the quotes on the pattern are
+# load-bearing: an UNQUOTED `~/` inside ${d#~/} is tilde-expanded BEFORE it is
+# used as a pattern, so it matches nothing and the value comes back as
+# $HOME/~/.claude-… (measured in tap-headroom.sh on its first live run).
+# Trailing slashes are stripped so /a/b and /a/b/ compare equal.
+taps_expand_dir() {
+  local d=$1
+  case "$d" in
+    '~'/*) d="$TH_HOME/${d#'~'/}" ;;
+    '~')   d="$TH_HOME" ;;
   esac
+  while [ "${d%/}" != "$d" ] && [ "$d" != "/" ]; do d=${d%/}; done
+  printf '%s' "$d"
+}
+
+# sql_in_list <comma-list> -> 'a','b'  — REFUSES any token outside
+# [A-Za-z0-9_-], because these bytes are interpolated into SQL. A conf that can
+# reach the query is a conf that can be an incident; the refusal degrades the
+# night to the floor, which is the safe direction.
+sql_in_list() {
+  local raw=$1 item out=""
+  for item in $(printf '%s' "$raw" | tr ',' ' '); do
+    printf '%s' "$item" | grep -qE '^[A-Za-z0-9_-]+$' || return 1
+    case ",$out," in *",'$item',"*) continue ;; esac
+    out="$out${out:+,}'$item'"
+  done
+  [ -n "$out" ] || return 1
+  printf '%s' "$out"
+}
+
+# pool_predicate <pool> -> SQL boolean over request_logs, or return 1.
+#
+# Both extra clauses are DERIVED from taps.conf, never hardcoded to the name
+# "primary":
+#   * THE TICK FOLD (dotfiles-iez1) belongs to whichever pool lists `tick` in
+#     its `taps` — ~/.claude-tick is a jailed GRANT of that pool's account, so
+#     epoch-2 `group='tick'` rows are its spend.
+#   * THE EPOCH-1 CATCH-ALL belongs to whichever pool lists the epoch-2 value
+#     `personal` in its groups: epoch-1 rows carry a HOSTNAME in `group`, and
+#     epoch-1 traffic is exactly what later became the `personal` tap. The
+#     `work:%` half of the epoch-1 user split stays excluded from it.
+# Every other pool is EXACT group-list membership — a fresh pool must never
+# inherit rows it did not spend.
+pool_predicate() {
+  local pool=$1 p groups inlist all alllist tickpool="" legacy=""
+  groups=$(taps_get "pool.$pool.groups") || return 1
+  [ -n "$groups" ] || return 1
+  for p in $(taps_pools); do
+    case ",$(taps_get "pool.$p.taps")," in *,tick,*) tickpool=$p ;; esac
+    case ",$(taps_get "pool.$p.groups")," in *,personal,*) legacy=$p ;; esac
+  done
+  if [ "$pool" = "$tickpool" ]; then
+    case ",$groups," in *,tick,*) ;; *) groups="$groups,tick" ;; esac
+  fi
+  inlist=$(sql_in_list "$groups") || return 1
+  if [ "$pool" != "$legacy" ]; then
+    printf '%s' "(COALESCE(agentgateway_group,'') IN ($inlist))"
+    return 0
+  fi
+  all=""
+  for p in $(taps_pools); do
+    all="$all${all:+,}$(taps_get "pool.$p.groups")"
+  done
+  all="$all,tick"
+  alllist=$(sql_in_list "$all") || return 1
+  printf '%s' "(COALESCE(agentgateway_group,'') IN ($inlist) OR (COALESCE(agentgateway_group,'') NOT IN ($alllist) AND COALESCE(agentgateway_user,'') NOT LIKE 'work:%'))"
+}
+
+# ---------------------------------------------------------------------------
+# THE LAUNCH POOL — resolved, never assumed (dotfiles-5gob)
+# ---------------------------------------------------------------------------
+# The marshal was re-homed onto `secondary` (taps.conf seat_home.marshal, Zig's
+# ruling 2026-08-09) and the budget verb could not see it: it read `tap` out of
+# marshal.conf and metered a pool the process was not running on. The pool is
+# now RESOLVED, in this order, and the rung that answered rides into the JSON:
+#
+#   1. env CLAUDE_CONFIG_DIR matched against pool.<p>.config_dir — the identity
+#      wrapper fixes that variable at exec, so it is what the process IS using.
+#      Derived from what runs, never asserted from a roster.
+#   2. taps.conf seat_home.<seat> — the ruled home pool for this seat.
+#   3. marshal.conf `tap`, mapped epoch-2 -> pool (personal->primary,
+#      work->linearb), or taken as a pool name directly.
+#   4. Nothing resolved -> DEGRADE to the floor with a named reason. Never a
+#      guess: a budget metered against the wrong pool is wrong in both
+#      directions at once.
+POOL=""
+POOL_SOURCE=""
+POOL_FAIL=""
+
+resolve_launch_pool() {
+  POOL=""; POOL_SOURCE=""; POOL_FAIL=""
+  if [ ! -f "$TAPS_CONF" ]; then
+    POOL_FAIL="taps-conf-unreadable"
+    return 1
+  fi
+  local p ccd home seat tap
+  ccd=${CLAUDE_CONFIG_DIR:-}
+  if [ -n "$ccd" ]; then
+    ccd=$(taps_expand_dir "$ccd")
+    for p in $(taps_pools); do
+      home=$(taps_get "pool.$p.config_dir") || continue
+      [ "$(taps_expand_dir "$home")" = "$ccd" ] || continue
+      POOL=$p; POOL_SOURCE='env-config-dir'
+      return 0
+    done
+  fi
+  seat=$(cfg seat marshal)
+  if p=$(taps_get "seat_home.$seat"); then
+    if taps_pool_known "$p"; then
+      POOL=$p; POOL_SOURCE='seat-home'
+      return 0
+    fi
+    POOL_FAIL="unknown-pool:$p"
+    return 1
+  fi
+  tap=$(cfg tap '')
+  if [ -z "$tap" ]; then
+    POOL_FAIL="unknown-pool:unresolved"
+    return 1
+  fi
+  if taps_pool_known "$tap"; then
+    POOL=$tap; POOL_SOURCE='conf-tap'
+    return 0
+  fi
+  # The epoch-2 -> pool map, and NOTHING else. `tick` deliberately does not
+  # resolve: it is a jail PROFILE, not a tap of its own (dotfiles-iez1), and a
+  # schedule that names it as one is a config error that must be loud.
+  case "$tap" in
+    personal) p=primary ;;
+    work)     p=linearb ;;
+    *)        POOL_FAIL="unknown-pool:$tap"; return 1 ;;
+  esac
+  if taps_pool_known "$p"; then
+    POOL=$p; POOL_SOURCE='conf-tap-epoch2'
+    return 0
+  fi
+  POOL_FAIL="unknown-pool:$tap"
+  return 1
 }
 
 sql_cmd_default() {
@@ -278,6 +465,169 @@ print(now.strftime(fmt))
 PY
 }
 
+# ---------------------------------------------------------------------------
+# THE TWO GATES — one reads a CAP out of an observation, one decides the BRAKE.
+# They were a single block until dotfiles-5gob split them, because the cap and
+# the brake stopped belonging to the same pool: on a re-homed marshal the cap
+# may be TRANSFERRED from the reference pool while the brake stays metered on
+# the launch pool. A joined gate cannot express that without lying about one
+# of them.
+# ---------------------------------------------------------------------------
+
+# pool_window_spend <sqlcmd> <pred> <window_start> — the pool's spend since the
+# weekly reset. Used for the launch pool (the real spend) and for the reference
+# pool (the numerator of a transferred cap).
+pool_window_spend() {
+  local sqlcmd=$1 pred=$2 ws=$3 sql
+  sql="SELECT COALESCE(SUM(total_tokens),0) FROM request_logs WHERE datetime(started_at) >= '$ws' AND $pred;"
+  # shellcheck disable=SC2086  # the seam is a COMMAND, word splitting is the point
+  printf '%s\n' "$sql" | $sqlcmd
+}
+
+# pool_observation <sqlcmd> <pred> — the newest ratelimit observation for the
+# pool: "<datetime>|<u7d>|<u5h>", or empty when the pool has never carried one.
+# The `!= ''` is not decoration: the gateway's default()-guarded CEL writes the
+# EMPTY STRING when Anthropic sends no header, and `''` compares as 0 — so an
+# UNMEASURED window reads as "0% used" without it (~/.agents/infra.md, measured
+# on the secondary pool's very first request).
+pool_observation() {
+  local sqlcmd=$1 pred=$2 sql
+  sql="SELECT datetime(started_at) || '|' || COALESCE(json_extract(attributes_json, '\$.\"anthropic.ratelimit.7d\"'),'') || '|' || COALESCE(json_extract(attributes_json, '\$.\"anthropic.ratelimit.5h\"'),'') FROM request_logs WHERE $pred AND COALESCE(json_extract(attributes_json, '\$.\"anthropic.ratelimit.7d\"'),'') != '' ORDER BY datetime(started_at) DESC LIMIT 1;"
+  # shellcheck disable=SC2086  # the seam is a COMMAND, word splitting is the point
+  printf '%s\n' "$sql" | $sqlcmd
+}
+
+# derive_cap_gate <obs_row> <now_utc> <freshness_h> <min_spend> <spend>
+#   -> "ok <cap_est> <u7d> <u5h> <obs_age_h>"  |  "degrade <reason>"
+#
+# Fraction arithmetic on the RAW header strings, so "0.60" divides exactly
+# (float 3000000/0.6 is 4999999.99..; Fraction gives 5000000).
+#
+# ORDER MATTERS, and min-spend now precedes freshness: on a cold pool BOTH are
+# true, and `derive-low-spend` is the reason that carries the transfer
+# decision. A pool with real spend and a stale observation still reports
+# `derive-stale-observation` — it is not cold, and it does not transfer.
+derive_cap_gate() {
+  MD_OBS="$1" MD_NOW_UTC="$2" MD_FRESH_H="$3" MD_MIN_SPEND="$4" MD_SPENT="$5" \
+  python3 - <<'PY'
+import os, re, sys
+from datetime import datetime
+from fractions import Fraction
+
+def clean(raw):  # a corrupt header value must not break the one-verdict-line discipline
+    return re.sub(r"\s+", "_", raw)
+
+raw_obs = os.environ["MD_OBS"].strip()
+if not raw_obs:
+    print("degrade derive-no-observation"); sys.exit(0)
+parts = raw_obs.splitlines()[0].split("|")
+if len(parts) != 3:
+    print("degrade derive-no-observation"); sys.exit(0)
+obs_ts, raw7, raw5 = (p.strip() for p in parts)
+try:
+    fresh = int(os.environ["MD_FRESH_H"]); minspend = int(os.environ["MD_MIN_SPEND"])
+    spent = int(os.environ["MD_SPENT"])
+    now = datetime.strptime(os.environ["MD_NOW_UTC"], "%Y-%m-%d %H:%M:%S")
+except (KeyError, ValueError):
+    sys.exit(3)
+try:
+    obs = datetime.strptime(obs_ts, "%Y-%m-%d %H:%M:%S")
+except ValueError:
+    print("degrade derive-no-observation"); sys.exit(0)
+age_h = (now - obs).total_seconds() / 3600.0
+age_s = f"{age_h:.1f}"
+
+def parse_u(raw):  # a utilization is a fraction in [0, 1]; anything else is not one
+    try:
+        u = Fraction(raw)
+    except (ValueError, ZeroDivisionError):
+        return None
+    if u < 0 or u > 1:
+        return None
+    return u
+
+u7 = parse_u(raw7)
+if u7 is None:
+    print(f"degrade derive-unparseable(u7d={clean(raw7)})"); sys.exit(0)
+if spent < minspend:
+    print(f"degrade derive-low-spend(spend={spent},min={minspend})"); sys.exit(0)
+if age_h > fresh:
+    print(f"degrade derive-stale-observation(obs_age_h={age_s},limit_h={fresh})"); sys.exit(0)
+# u7d <= 2%: division blowup territory AND implausible for a week with real spend.
+if u7 <= Fraction(2, 100):
+    print(f"degrade derive-implausible-utilization(u7d={clean(raw7)})"); sys.exit(0)
+cap_est = int(Fraction(spent) / u7)
+print(f"ok {cap_est} {clean(raw7)} {clean(raw5)} {age_s}")
+PY
+}
+
+# brake_gate <obs_row> <now_utc> <freshness_h> <brake_pct> <spend> <min_spend>
+#   -> "ok <u5h>" | "waive <reason>" | "degrade <reason>"
+#
+# The 5h BRAKE protects the LIVE window whatever the week says (dw3r), and it
+# is metered on the LAUNCH pool even when the cap was transferred — a hot 5h
+# window on the pool the marshal is actually spending is the one thing a
+# transferred cap must not paper over.
+#
+# THE COLD-POOL WAIVER (dotfiles-5gob): a pool with no fresh observation AND
+# less than derive_min_spend_tokens of weekly spend is PROVABLY cold — it has
+# no hot 5h window to protect, and there is no observation because nothing has
+# run on it. That waiver is NAMED in the row. Every other no-fresh-observation
+# case DEGRADES: a pool with real spend and no reading is unmeasured, and
+# unmeasured never means unlimited.
+brake_gate() {
+  MD_OBS="$1" MD_NOW_UTC="$2" MD_FRESH_H="$3" MD_BRAKE="$4" MD_SPENT="$5" \
+  MD_MIN_SPEND="$6" python3 - <<'PY'
+import os, re, sys
+from datetime import datetime
+from fractions import Fraction
+
+def clean(raw):
+    return re.sub(r"\s+", "_", raw)
+
+try:
+    fresh = int(os.environ["MD_FRESH_H"]); brake = int(os.environ["MD_BRAKE"])
+    spent = int(os.environ["MD_SPENT"]); minspend = int(os.environ["MD_MIN_SPEND"])
+    now = datetime.strptime(os.environ["MD_NOW_UTC"], "%Y-%m-%d %H:%M:%S")
+except (KeyError, ValueError):
+    sys.exit(3)
+
+raw_obs = os.environ["MD_OBS"].strip()
+parts = raw_obs.splitlines()[0].split("|") if raw_obs else []
+obs = None
+raw5 = ""
+age_s = "none"
+if len(parts) == 3:
+    obs_ts, _raw7, raw5 = (p.strip() for p in parts)
+    try:
+        obs = datetime.strptime(obs_ts, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        obs = None
+if obs is not None:
+    age_h = (now - obs).total_seconds() / 3600.0
+    age_s = f"{age_h:.1f}"
+    if age_h > fresh:
+        obs = None                      # present but STALE is not a reading
+
+if obs is None:
+    if spent < minspend:
+        print(f"waive brake-waived-cold-pool(spend={spent},min={minspend},obs_age_h={age_s})")
+    else:
+        print(f"degrade brake-no-fresh-observation(obs_age_h={age_s},limit_h={fresh},spend={spent})")
+    sys.exit(0)
+
+try:
+    u5 = Fraction(raw5)
+except (ValueError, ZeroDivisionError):
+    u5 = None
+if u5 is None or u5 < 0 or u5 > 1:
+    print(f"degrade derive-unparseable(u5h={clean(raw5)})"); sys.exit(0)
+if u5 * 100 >= brake:
+    print(f"degrade brake-5h(u5h={clean(raw5)},brake_pct={brake})"); sys.exit(0)
+print(f"ok {clean(raw5)}")
+PY
+}
+
 # budget_compute — sets BUDGET_JSON and BUDGET_STATUS/BUDGET_TOKENS/BUDGET_REASON.
 BUDGET_JSON=""
 BUDGET_STATUS=""
@@ -295,8 +645,13 @@ budget_compute() { # budget_compute [weekly_cap_override]
   margin=$(cfg safety_margin_pct 20)
   cap=${cap_override:-$(cfg weekly_cap_tokens '')}
 
-  if ! pred=$(tap_predicate "$tap"); then
-    budget_degrade "$floor" "unknown-tap:$tap" ""
+  if ! resolve_launch_pool; then
+    budget_degrade "$floor" "$POOL_FAIL" ""
+    return 0
+  fi
+  local pool=$POOL
+  if ! pred=$(pool_predicate "$pool"); then
+    budget_degrade "$floor" "unknown-pool:$pool" ""
     return 0
   fi
 
@@ -345,95 +700,113 @@ SELECT COALESCE(SUM(total_tokens),0) FROM request_logs WHERE datetime(started_at
   # floor with its own reason, never silently.
   local cap_source
   if [ -n "$cap_override" ]; then cap_source=flag; else cap_source=config; fi
-  local u7d="" u5h="" obs_age=""
+  local u7d="" u5h="" obs_age="" ref_pool="" ref_spend="" brake_state="" brake_reason=""
   if [ -z "$cap" ]; then
-    local freshness minspend brake obs_sql obs_row
+    local freshness minspend brake obs_row gate rc2 bg
     freshness=$(cfg derive_freshness_hours 6)
     minspend=$(cfg derive_min_spend_tokens 1000000)
     brake=$(cfg brake_5h_pct 85)
-    # The dotted key needs the $."..." path form; values are STRINGS
-    # ("0.72"). datetime() wrapping on started_at as everywhere else (the
-    # 2903-vs-18-rows trap in the header note). Fields are '|'-concatenated
-    # in SQL rather than trusting the client's column separator.
-    obs_sql="SELECT datetime(started_at) || '|' || COALESCE(json_extract(attributes_json, '\$.\"anthropic.ratelimit.7d\"'),'') || '|' || COALESCE(json_extract(attributes_json, '\$.\"anthropic.ratelimit.5h\"'),'') FROM request_logs WHERE $pred AND COALESCE(json_extract(attributes_json, '\$.\"anthropic.ratelimit.7d\"'),'') != '' ORDER BY datetime(started_at) DESC LIMIT 1;"
-    obs_row=$(printf '%s\n' "$obs_sql" | $sqlcmd)
-    rc=$?
-    if [ "$rc" -ne 0 ]; then
+
+    obs_row=$(pool_observation "$sqlcmd" "$pred"); rc2=$?
+    if [ "$rc2" -ne 0 ]; then
       budget_degrade "$floor" "derive-db-error" "$window_start" "$spent" "$daytime"
       return 0
     fi
-    if [ -z "$obs_row" ]; then
-      budget_degrade "$floor" "derive-no-observation" "$window_start" "$spent" "$daytime"
-      return 0
-    fi
 
-    # The gate: parse -> freshness -> 5h brake -> plausibility -> min-spend.
-    # Fraction arithmetic on the RAW header strings, so "0.60" divides
-    # exactly (float 3000000/0.6 is 4999999.99..; Fraction gives 5000000).
-    local gate
-    gate=$(MD_OBS="$obs_row" MD_NOW_UTC="$now_utc" MD_FRESH_H="$freshness" \
-           MD_MIN_SPEND="$minspend" MD_BRAKE="$brake" MD_SPENT="$spent" \
-           python3 - <<'PY'
-import os, re, sys
-from datetime import datetime
-from fractions import Fraction
+    gate=$(derive_cap_gate "$obs_row" "$now_utc" "$freshness" "$minspend" "$spent") \
+      || { budget_degrade "$floor" "bad-budget-inputs" "$window_start" "$spent" "$daytime"; return 0; }
 
-def clean(raw):  # a corrupt header value must not break the one-verdict-line discipline
-    return re.sub(r"\s+", "_", raw)
-
-row = os.environ["MD_OBS"].strip().splitlines()[0]
-parts = row.split("|")
-if len(parts) != 3:
-    print("degrade derive-no-observation"); sys.exit(0)
-obs_ts, raw7, raw5 = (p.strip() for p in parts)
-try:
-    fresh = int(os.environ["MD_FRESH_H"]); minspend = int(os.environ["MD_MIN_SPEND"])
-    brake = int(os.environ["MD_BRAKE"]); spent = int(os.environ["MD_SPENT"])
-    now = datetime.strptime(os.environ["MD_NOW_UTC"], "%Y-%m-%d %H:%M:%S")
-except (KeyError, ValueError):
-    sys.exit(3)
-try:
-    obs = datetime.strptime(obs_ts, "%Y-%m-%d %H:%M:%S")
-except ValueError:
-    print("degrade derive-no-observation"); sys.exit(0)
-age_h = (now - obs).total_seconds() / 3600.0
-age_s = f"{age_h:.1f}"
-
-def parse_u(raw):  # a utilization is a fraction in [0, 1]; anything else is not one
-    try:
-        u = Fraction(raw)
-    except (ValueError, ZeroDivisionError):
-        return None
-    if u < 0 or u > 1:
-        return None
-    return u
-
-u7 = parse_u(raw7)
-if u7 is None:
-    print(f"degrade derive-unparseable(u7d={clean(raw7)})"); sys.exit(0)
-u5 = parse_u(raw5)
-if u5 is None:
-    print(f"degrade derive-unparseable(u5h={clean(raw5)})"); sys.exit(0)
-if age_h > fresh:
-    print(f"degrade derive-stale-observation(obs_age_h={age_s},limit_h={fresh})"); sys.exit(0)
-# The 5h BRAKE protects the live window whatever the week says (dw3r).
-if u5 * 100 >= brake:
-    print(f"degrade brake-5h(u5h={clean(raw5)},brake_pct={brake})"); sys.exit(0)
-# u7d <= 2%: division blowup territory AND implausible for a week with real spend.
-if u7 <= Fraction(2, 100):
-    print(f"degrade derive-implausible-utilization(u7d={clean(raw7)})"); sys.exit(0)
-if spent < minspend:
-    print(f"degrade derive-low-spend(spend={spent},min={minspend})"); sys.exit(0)
-cap_est = int(Fraction(spent) / u7)
-print(f"ok {cap_est} {clean(raw7)} {clean(raw5)} {age_s}")
-PY
-    ) || { budget_degrade "$floor" "bad-budget-inputs" "$window_start" "$spent" "$daytime"; return 0; }
     if [ "${gate%% *}" = "degrade" ]; then
-      budget_degrade "$floor" "${gate#degrade }" "$window_start" "$spent" "$daytime"
-      return 0
+      # --- THE CROSS-POOL CAP TRANSFER (dotfiles-5gob, decision dotfiles-bg71)
+      # cap_est = spend / u7d CANNOT work on a fresh pool: the numerator is
+      # tiny and the denominator is ~0, so correct per-pool scoping alone
+      # still means the floor, forever, on the pool Zig re-homed the marshal
+      # onto precisely because it has headroom. Those three degrades — and
+      # ONLY those three — are the fresh-pool signature, so the CAP comes from
+      # a history-rich SAME-TIER reference pool while spend, the daytime
+      # reserve and the 5h brake stay metered on the LAUNCH pool. Any other
+      # degrade (stale, unparseable, db error) is a DATA problem rather than a
+      # fresh pool, and still floors with its own reason.
+      #
+      # Not a hand-set weekly_cap_tokens (bg71): the ledger holds ZERO
+      # measured caps, so a typed-in number would be an invention wearing a
+      # number's clothes — the exact silent-huge-budget failure this file's
+      # header forbids. A transfer derives from the same measured formula the
+      # code already trusts, and names both pools in the reason.
+      local launch_reason=${gate#degrade }
+      case "${launch_reason%%(*}" in
+        derive-low-spend|derive-implausible-utilization|derive-no-observation) ;;
+        *) budget_degrade "$floor" "$launch_reason" "$window_start" "$spent" "$daytime"; return 0 ;;
+      esac
+
+      ref_pool=$(cfg cap_reference_pool '')
+      if [ -z "$ref_pool" ] || [ "$ref_pool" = "$pool" ]; then
+        # No reference configured, or the reference IS the launch pool: there
+        # is nothing to transfer FROM, so the launch pool's own reason stands
+        # and the night floors exactly as it did before this bead. The brake is
+        # not consulted because there is nothing for it to gate — this path
+        # ALREADY floors, and re-labelling a floor with a brake reason would
+        # only bury the cause.
+        budget_degrade "$floor" "$launch_reason" "$window_start" "$spent" "$daytime"
+        return 0
+      fi
+
+      # THE BRAKE IS THE LAUNCH POOL'S, ALWAYS — and it is checked BEFORE the
+      # transfer, so a hot 5h window on the pool the marshal actually spends
+      # can never be papered over by a cap borrowed from a quiet one.
+      bg=$(brake_gate "$obs_row" "$now_utc" "$freshness" "$brake" "$spent" "$minspend") \
+        || { budget_degrade "$floor" "bad-budget-inputs" "$window_start" "$spent" "$daytime"; return 0; }
+      case "${bg%% *}" in
+        degrade) budget_degrade "$floor" "${bg#degrade }" "$window_start" "$spent" "$daytime"; return 0 ;;
+        waive)   brake_state=waived-cold-pool; brake_reason=${bg#waive } ;;
+        *)       brake_state=enforced; u5h=${bg#ok } ;;
+      esac
+
+      local ref_pred ref_rows ref_obs ref_gate
+      if ! ref_pred=$(pool_predicate "$ref_pool"); then
+        budget_degrade "$floor" "derive-transfer-denied(pool=$pool,cap_from=$ref_pool,launch=$launch_reason,ref=unknown-pool:$ref_pool)" "$window_start" "$spent" "$daytime"
+        return 0
+      fi
+      ref_rows=$(pool_window_spend "$sqlcmd" "$ref_pred" "$window_start"); rc2=$?
+      if [ "$rc2" -ne 0 ]; then
+        budget_degrade "$floor" "derive-transfer-denied(pool=$pool,cap_from=$ref_pool,launch=$launch_reason,ref=derive-db-error)" "$window_start" "$spent" "$daytime"
+        return 0
+      fi
+      ref_spend=$(printf '%s\n' "$ref_rows" | grep -E '^[0-9]+$' | sed -n 1p)
+      if [ -z "$ref_spend" ]; then
+        budget_degrade "$floor" "derive-transfer-denied(pool=$pool,cap_from=$ref_pool,launch=$launch_reason,ref=db-unusable-result)" "$window_start" "$spent" "$daytime"
+        return 0
+      fi
+      ref_obs=$(pool_observation "$sqlcmd" "$ref_pred"); rc2=$?
+      if [ "$rc2" -ne 0 ]; then
+        budget_degrade "$floor" "derive-transfer-denied(pool=$pool,cap_from=$ref_pool,launch=$launch_reason,ref=derive-db-error)" "$window_start" "$spent" "$daytime"
+        return 0
+      fi
+      # The reference contributes a CAP and nothing else, so brake_gate is
+      # deliberately NOT run on it — its 5h window is not the one being spent.
+      # Freshness, plausibility and min-spend still are: a cap transferred off
+      # a stale or noisy observation is an invented number with a citation.
+      ref_gate=$(derive_cap_gate "$ref_obs" "$now_utc" "$freshness" "$minspend" "$ref_spend") \
+        || { budget_degrade "$floor" "bad-budget-inputs" "$window_start" "$spent" "$daytime"; return 0; }
+      if [ "${ref_gate%% *}" = "degrade" ]; then
+        budget_degrade "$floor" "derive-transfer-denied(pool=$pool,cap_from=$ref_pool,launch=$launch_reason,ref=${ref_gate#degrade })" "$window_start" "$spent" "$daytime"
+        return 0
+      fi
+      # u7d / obs_age describe the REFERENCE observation the cap came from;
+      # the reference's own 5h reading is discarded on purpose.
+      read -r _ cap u7d _ obs_age <<< "$ref_gate"
+      cap_source=transfer
+    else
+      bg=$(brake_gate "$obs_row" "$now_utc" "$freshness" "$brake" "$spent" "$minspend") \
+        || { budget_degrade "$floor" "bad-budget-inputs" "$window_start" "$spent" "$daytime"; return 0; }
+      case "${bg%% *}" in
+        degrade) budget_degrade "$floor" "${bg#degrade }" "$window_start" "$spent" "$daytime"; return 0 ;;
+        waive)   brake_state=waived-cold-pool; brake_reason=${bg#waive } ;;
+        *)       brake_state=enforced ;;
+      esac
+      read -r _ cap u7d u5h obs_age <<< "$gate"
+      cap_source=derived
     fi
-    read -r _ cap u7d u5h obs_age <<< "$gate"
-    cap_source=derived
   fi
 
   local out
@@ -466,13 +839,22 @@ PY
     BUDGET_STATUS=derived
     # The reason carries every input VERBATIM (dw3r output contract): the
     # ledger's night-start row must let a reader re-derive the number by hand.
-    BUDGET_REASON="derived-cap(u7d=$u7d,u5h=$u5h,spend=$spent,cap_est=$cap,obs_age_h=$obs_age)"
+    # `pool=` leads it (5gob) — which pool a budget metered is the first thing
+    # a reader needs, and the re-home made it a question with a real answer.
+    BUDGET_REASON="derived-cap(pool=$pool,u7d=$u7d,u5h=$u5h,spend=$spent,cap_est=$cap,obs_age_h=$obs_age)"
+  elif [ "$cap_source" = "transfer" ]; then
+    BUDGET_STATUS=derived
+    # Same contract, both pools named: u7d / spend / cap_est are the REFERENCE
+    # pool's, so cap_est = spend / u7d still divides out by hand.
+    BUDGET_REASON="derived-cap-transfer(pool=$pool,cap_from=$ref_pool,u7d=$u7d,spend=$ref_spend,cap_est=$cap,obs_age_h=$obs_age)"
   else
     BUDGET_STATUS=computed
     BUDGET_REASON=""
   fi
   BUDGET_TOKENS=$budget
   BUDGET_JSON=$(MD_J_STATUS="$BUDGET_STATUS" MD_J_TAP="$tap" MD_J_WS="$window_start" \
+    MD_J_POOL="$pool" MD_J_POOLSRC="$POOL_SOURCE" MD_J_REFPOOL="$ref_pool" \
+    MD_J_REFSPEND="$ref_spend" MD_J_BRAKE="$brake_state" MD_J_BRAKEWHY="$brake_reason" \
     MD_J_NOW="$now_utc" MD_J_DAYS="$days_to_reset" MD_J_CAP="$cap" \
     MD_J_SPENT="$spent" MD_J_REMAIN="$remaining" MD_J_SHARE="$share" \
     MD_J_DAYTIME="$daytime" MD_J_TRAIL="$(cfg zig_reserve_trailing_days 7)" \
@@ -484,9 +866,15 @@ PY
     python3 - <<'PY'
 import json, os
 i = lambda k: int(os.environ[k])
+s = lambda k: (os.environ.get(k) or "") or None
 d = {
     "status": os.environ["MD_J_STATUS"],
+    # `tap` is the LEGACY config value, kept so nothing that reads it breaks;
+    # `pool` is what was actually metered, and `pool_source` names the rung of
+    # the resolution ladder that answered (5gob).
     "tap": os.environ["MD_J_TAP"],
+    "pool": s("MD_J_POOL"),
+    "pool_source": s("MD_J_POOLSRC"),
     "now_utc": os.environ["MD_J_NOW"],
     "weekly_window_start_utc": os.environ["MD_J_WS"],
     "days_to_reset": i("MD_J_DAYS"),
@@ -507,9 +895,19 @@ d = {
 }
 if d["status"] == "derived":
     d["utilization_7d"] = os.environ["MD_J_U7D"]
-    d["utilization_5h"] = os.environ["MD_J_U5H"]
+    d["utilization_5h"] = s("MD_J_U5H")
     d["observation_age_hours"] = float(os.environ["MD_J_OBSAGE"])
     d["cap_formula"] = "spend_since_week_reset / utilization_7d (conservative: per-tap gateway spend underestimates pool spend, so cap_est errs LOW)"
+    d["brake_5h_state"] = s("MD_J_BRAKE")
+    d["brake_5h_reason"] = s("MD_J_BRAKEWHY")
+if d["weekly_cap_source"] == "transfer":
+    d["cap_reference_pool"] = s("MD_J_REFPOOL")
+    d["cap_reference_spend_this_window"] = int(os.environ["MD_J_REFSPEND"])
+    d["utilization_7d_pool"] = s("MD_J_REFPOOL")
+    d["cap_formula"] = ("CROSS-POOL TRANSFER: cap_reference_spend_this_window / utilization_7d, both "
+                        "read on cap_reference_pool; spend, the daytime reserve and the 5h brake stay "
+                        "on the LAUNCH pool. Valid only while both pools are the same account tier "
+                        "(marshal.conf cap_reference_pool)")
 print(json.dumps(d, sort_keys=True))
 PY
 )
@@ -523,15 +921,22 @@ budget_degrade() { # budget_degrade <floor> <reason> [window_start] [spent] [day
   BUDGET_REASON=$reason
   BUDGET_JSON=$(MD_J_REASON="$reason" MD_J_FLOOR="$floor" MD_J_WS="$ws" \
     MD_J_SPENT="$spent" MD_J_DAYTIME="$daytime" MD_J_TAP="$(cfg tap personal)" \
+    MD_J_POOL="$POOL" MD_J_POOLSRC="$POOL_SOURCE" \
     python3 - <<'PY'
 import json, os
 def maybe_int(k):
     v = os.environ.get(k) or ""
     return int(v) if v.isdigit() else None
+def s(k):
+    return (os.environ.get(k) or "") or None
 print(json.dumps({
     "status": "degraded",
     "reason": os.environ["MD_J_REASON"],
     "tap": os.environ["MD_J_TAP"],
+    # null when the launch pool could not be resolved at all — which is itself
+    # one of the degrade reasons, never a silent default.
+    "pool": s("MD_J_POOL"),
+    "pool_source": s("MD_J_POOLSRC"),
     "weekly_window_start_utc": os.environ.get("MD_J_WS") or None,
     "spent_this_window": maybe_int("MD_J_SPENT"),
     "zig_daytime_spend_trailing": maybe_int("MD_J_DAYTIME"),
