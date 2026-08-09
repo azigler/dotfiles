@@ -258,7 +258,7 @@ check "M3 injects-into-a-blocked-seneschal" "5"
 # actually cleared, so the loop is re-fired straight back into a 🔔 window.
 fresh_copy
 mutate "$PE" \
-  '        if [ -n "$after" ] && [ "$after" = "${after#🔔}" ]; then' \
+  '        if [ -n "$after" ] && [ "$after" = "$(strip_lexicon "$after")" ]; then' \
   '        if true; then'
 check "M4 rename-not-verified" "17"
 
@@ -297,9 +297,60 @@ check "M7 floor-never-pushes" "7"
 # comes up stalls the loop and escalates to nobody.
 fresh_copy
 mutate "$PE" \
-  '    case "$r" in blocked_on_andrew|deferred-blocked-on-human|not_ready) ;; *) continue ;; esac' \
-  '    case "$r" in blocked_on_andrew|deferred-blocked-on-human) ;; *) continue ;; esac'
+  '    case "$r" in blocked_on_andrew|deferred-blocked-on-human|not_ready|already_running|deferred-already-running) ;; *) continue ;; esac' \
+  '    case "$r" in blocked_on_andrew|deferred-blocked-on-human|already_running|deferred-already-running) ;; *) continue ;; esac'
 check "M8 not_ready-not-escalated (the pulse-retry hole)" "8"
+
+# M16 — already_running FILTERED OUT (dotfiles-t5fj): the state this script was in
+# BEFORE this change. pulse-inject's --fresh same-loop refusal is the reason a lying
+# glyph makes every scheduled tick defer, and with it dropped from the trigger set the
+# whole class is invisible to the only watcher that would act on it — the bounces pile
+# up in the log and nothing here ever reads them. Every case built on the new reason
+# goes dark at once, which is the measure of how much the one word carries.
+fresh_copy
+mutate "$PE" \
+  '    case "$r" in blocked_on_andrew|deferred-blocked-on-human|not_ready|already_running|deferred-already-running) ;; *) continue ;; esac' \
+  '    case "$r" in blocked_on_andrew|deferred-blocked-on-human|not_ready) ;; *) continue ;; esac'
+check "M16 already_running-not-escalated (the reason filter's blind spot)" "23 24 24b 25 26 26b"
+
+# M17 — THE LYING 🧠 UNCOVERED: rung 1 back to 🔔-only, which is where it was when four
+# panes sat stalled all morning with pulse-inject deferring into each of them. The 🔔
+# cases are untouched, so this mutant is precisely the missing coverage and nothing else.
+fresh_copy
+mutate "$PE" \
+  '    case "$wname" in
+      🔔*) glyph=🔔 ;;
+      🧠*) glyph=🧠 ;;
+      🌀*) glyph=🌀 ;;
+    esac' \
+  '    case "$wname" in
+      🔔*) glyph=🔔 ;;
+    esac'
+check "M17 lying-brain-not-reconciled (rung 1 back to 🔔-only)" "24 24b 25 26" "2 3 19 20"
+
+# M18 — THE LIVE-TURN GUARD DROPPED for exactly the glyphs it protects: "🔔 needs the
+# pane's permission because a dialog may be live; 🧠 is just a stale label" is the
+# tempting reasoning, and it strips the glyph off work that is still running. Signal 3
+# is what refutes a 🧠, the way signal 1 refutes a 🔔; the 🔔 refusal cases must stay
+# green, or the mutant broke something other than the guard under test.
+fresh_copy
+mutate "$PE" \
+  '      if [ "$pm" = 1 ]; then' \
+  '      if [ "$pm" = 1 ] || [ "$glyph" != "🔔" ]; then'
+check "M18 live-turn-renamed (the 🧠 half of the asymmetry deleted)" "25" "3 15 16 19 20"
+
+# M19 — UNLISTED LOOP GETS THE FULL LADDER. The scope split's whole point is that rung 1
+# is fleet-safe (it summons nobody) while rungs 2-4 are not (the floor is a P1 bead and a
+# buzz on Zig's phone). Drop the split and a bounce log — a file this script does not
+# even write — starts granting consent to wake a human about any seat on the box.
+fresh_copy
+mutate "$PE" \
+  '  if [ "$listed" != 1 ]; then continue; fi' \
+  '  if [ "$listed" != 1 ]; then :; fi'
+# 22/22b are named too, and they are not collateral: a MALFORMED `loops` row leaves its
+# loop unlisted, so without the split a config typo silently promotes that seat to the
+# full ladder instead of demoting it to the fleet-safe rung.
+check "M19 unlisted-loop-gets-full-ladder (the scope split removed)" "9 22 22b 26b"
 
 echo
 if [ "$HARNESS_ERR" -ne 0 ]; then

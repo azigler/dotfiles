@@ -21,7 +21,9 @@
 #                prove the ABSENCE of one before clearing a glyph: see TWO
 #                INDEPENDENT SIGNALS below. Name-only trust is removed on this,
 #                the consumer, side (jisc AC). This rung does NOT re-fire the
-#                loop: see SINGLE OWNERSHIP below.
+#                loop: see SINGLE OWNERSHIP below. It covers 🔔 AND the lying
+#                🧠/🌀 (see THE LYING 🧠), and it is the ONLY rung an unlisted
+#                loop ever reaches (see THE SCOPE SPLIT).
 #   2. NUDGE   — modal chrome present => genuinely blocked => the front desk's
 #                business. A SPECIFIC nudge naming the blocked seat, injected into
 #                the seneschal window via pulse-inject --cmd (a real user turn).
@@ -65,6 +67,65 @@
 # cannot clear a live dialog. The three-way split is also what the log records, so
 # "refused because chrome" and "refused because we could not tell" stay
 # distinguishable in the telemetry.
+#
+# THE LYING 🧠 — THE SILENT-STALL CLASS THAT HAD NO WATCHER (dotfiles-t5fj).
+#
+# A seat whose turn DIES mid-flight leaves its window glyph reading 🧠 (or 🌀)
+# forever: the lexicon says "thinking", the composer is idle, and nothing on the
+# box disagrees. Four panes were in exactly that state on the morning of
+# 2026-08-09. The lie is load-bearing in three directions at once:
+#
+#   * pulse-inject's --fresh same-loop guard refuses to type into what looks like
+#     a live turn (verdict deferred-already-running, bounce reason
+#     `already_running`), so EVERY scheduled tick for that seat defers — for as
+#     long as the window lives, up to 24h.
+#   * pulse-retry resolves on the same lying glyph, so the watcher that owns the
+#     re-fire never sees a reason to act.
+#   * this script's rung 1 fixed only 🔔.
+#
+# So the class had no watcher at all. Rung 1 now covers 🧠 and 🌀 on EXACTLY the
+# same proof as 🔔 — one joined capture, chrome ABSENT, idle composer PROVEN — and,
+# as with 🔔, it renames and STOPS. pulse-retry owns every re-fire.
+#
+# THE ASYMMETRY THAT MAKES THIS SAFE, stated because it is not obvious. For 🔔 the
+# dangerous mistake is clearing a LIVE DIALOG, and signal 1 (chrome) is what
+# catches it. For 🧠 the dangerous mistake is stripping the glyph off a LIVE TURN,
+# and chrome says nothing whatever about that: the two glyphs are guarded by two
+# different signals against two different failures, and neither is ever renamed on
+# an absence.
+#
+# For 🧠, that guard is signal 2 PLUS SIGNAL 3, and the third one is not belt and
+# braces. The premise handed to this build was "a mid-flight turn shows a spinner
+# and NO composer footer, so the idle-composer requirement alone protects a live
+# turn". That premise could not be verified here: the live tmux server is off
+# limits while the marshal campaign runs, and the api-error capture corpus
+# contains ZERO panes with a live spinner (671 rows, `esc to interrupt` matches
+# none) — it only ever fires on panes whose turn has already died. An unverifiable
+# premise is not a guard, and if it is wrong the failure is the worst one here:
+# the composer footer renders under a running turn, the pane classifies idle, and
+# a live turn's glyph is stripped. So the busy fingerprint is checked EXPLICITLY —
+# `esc to interrupt`, the interrupt hint a turn shows only while it is running —
+# and a pane carrying it is BUSY, never idle, whatever else is on the screen. If
+# the premise was right the check is redundant; if it was wrong it is the whole
+# guard. Cheap either way.
+#
+# THE SCOPE SPLIT — RECONCILIATION IS FLEET-SAFE, THE LADDER STAYS OPT-IN.
+# `loops` remains the opt-in gate for rungs 2-4: that ladder's floor is a P1 bead
+# and a push to Zig's phone, and nothing opts into a buzzing phone by accident.
+# But the rung-1 VERB — strip a glyph after two independent proofs, tell nobody,
+# re-fire nothing — summons no one and wakes no one, and the seats that stall
+# silently are precisely the ones nobody thought to list. So a bouncing loop that
+# is NOT in escalate.conf gets RECONCILIATION ONLY: capture, classify,
+# rename-if-proven, stop. Zero nudge, zero raise, zero bead, zero push.
+#
+# An unlisted loop has no row to read, so its window is DERIVED — unit `pulse-<seat>`
+# to window `<seat>`, in `reconcile_session` (default: the seneschal's session,
+# which is where the fleet's seats live) — with the bare loop name tried as a
+# fallback. Derivation cannot be dangerous here: a wrong guess simply matches no
+# window and does nothing, which is the exact no-op an unlisted seat got before,
+# and a right guess still has to clear both proofs. The result line keeps the two
+# populations apart: `reconciled:N` is conf-listed, `reconciled-unlisted:N` is not,
+# and `checked:N` still counts ONLY the loops the ladder itself is allowed to walk.
 #
 # SINGLE OWNERSHIP OF THE RE-FIRE DECISION (dotfiles-t5fj, measured 2026-08-09).
 # pulse-retry.sh already decides whether a bounced tick gets re-fired, and re-fires
@@ -120,7 +181,7 @@
 #
 # OUTCOME CONTRACT. The LAST line of stdout is always
 #
-#   PULSE_ESCALATE_RESULT=checked:<n>:grace:<n>:reconciled:<n>:nudged:<n>:raised:<n>:floored:<n>:skipped:<n>:errors:<n>
+#   PULSE_ESCALATE_RESULT=checked:<n>:grace:<n>:reconciled:<n>:reconciled-unlisted:<n>:nudged:<n>:raised:<n>:floored:<n>:skipped:<n>:errors:<n>
 #   PULSE_ESCALATE_RESULT=failed-config     (exit 78 — conf unreadable / not key=value)
 #   PULSE_ESCALATE_RESULT=checker-broken    (exit 1  — THIS script cannot run
 #                                            safely; ZERO actions were taken)
@@ -161,6 +222,12 @@
 #   PULSE_ESCALATE_INJECT (pulse-inject.sh path) · PULSE_ESCALATE_BR · PULSE_ESCALATE_CURL
 #   PULSE_ESCALATE_MODAL_MARKER — the dialog-chrome ERE; EMPTY disables the
 #   reconciler, in the safe direction (every 🔔 then reads as genuinely blocked).
+#   PULSE_ESCALATE_IDLE_MARKER  — the composer ERE (signal 2); EMPTY likewise
+#   disables renaming, never blocking.
+#   PULSE_ESCALATE_BUSY_MARKER  — the live-turn ERE (signal 3). EMPTY here is the
+#   ONE knob that is NOT safe to blank — it removes the live-turn guard rather
+#   than adding an ambiguity — so it is defaulted, documented, and left alone
+#   outside the suite.
 
 set -uo pipefail
 export LC_ALL=C
@@ -211,6 +278,16 @@ MODAL_MARKER="${PULSE_ESCALATE_MODAL_MARKER-Enter to select|Tab/Arrow keys to na
 # outcome; the fleet's seats run bypass mode, so this is belt for scratch panes.
 IDLE_MARKER="${PULSE_ESCALATE_IDLE_MARKER-shift\+tab to cycle|\? for shortcuts|bypass permissions on|accept edits on|plan mode on|manual mode on}"
 
+# SIGNAL 3 — A LIVE TURN. The interrupt hint a running turn prints beside its
+# spinner ("✻ Brewing… (esc to interrupt · ctrl+t for todos)") and an idle pane
+# never does; a DIED turn prints the past-tense form with no hint at all
+# ("✻ Worked for 2m 57s"), which is what the 2026-08-09 stalled captures show.
+# This is signal 2's counterweight and the ONLY thing standing between a live
+# 🧠 turn and a stripped glyph if the composer footer does render mid-turn — see
+# THE ASYMMETRY in the header for why that premise is treated as unproven.
+# A busy pane can never classify idle, whatever else is on the screen.
+BUSY_MARKER="${PULSE_ESCALATE_BUSY_MARKER-esc to interrupt}"
+
 TMUX_BIN=$(command -v tmux 2>>"$LOG")
 [ -x "${TMUX_BIN:-}" ] || TMUX_BIN=/usr/bin/tmux
 SYSTEMCTL_BIN=$(command -v systemctl 2>>"$LOG")
@@ -251,10 +328,11 @@ cfg() {
   if [ -n "${CFG[$k]+set}" ] && [ -n "${CFG[$k]}" ]; then printf '%s' "${CFG[$k]}"; else printf '%s' "$d"; fi
 }
 
-CHECKED=0; GRACED=0; RECONCILED=0; NUDGED=0; RAISED=0; FLOORED=0; SKIPPED=0; ERRORS=0
+CHECKED=0; GRACED=0; RECONCILED=0; RECON_UNLISTED=0
+NUDGED=0; RAISED=0; FLOORED=0; SKIPPED=0; ERRORS=0
 emit_result() {
-  printf 'PULSE_ESCALATE_RESULT=checked:%s:grace:%s:reconciled:%s:nudged:%s:raised:%s:floored:%s:skipped:%s:errors:%s\n' \
-    "$CHECKED" "$GRACED" "$RECONCILED" "$NUDGED" "$RAISED" "$FLOORED" "$SKIPPED" "$ERRORS"
+  printf 'PULSE_ESCALATE_RESULT=checked:%s:grace:%s:reconciled:%s:reconciled-unlisted:%s:nudged:%s:raised:%s:floored:%s:skipped:%s:errors:%s\n' \
+    "$CHECKED" "$GRACED" "$RECONCILED" "$RECON_UNLISTED" "$NUDGED" "$RAISED" "$FLOORED" "$SKIPPED" "$ERRORS"
 }
 
 conf_load "$CONF" || {
@@ -271,6 +349,10 @@ SEN_UNIT=$(cfg seneschal_unit pulse-seneschal)
 SEN_WINDOW=$(cfg seneschal_window seneschal)
 SEN_SESSION=$(cfg seneschal_session zig-computer)
 SEN_DIR=$(cfg seneschal_dir "$HOME/dotfiles")
+# Where an UNLISTED loop's seat window is looked for (THE SCOPE SPLIT). Defaults to
+# the seneschal's session because that is the session the fleet's seats live in;
+# it is a separate key so moving the front desk cannot silently move the sweep.
+RECON_SESSION=$(cfg reconcile_session "$SEN_SESSION")
 BEAD_REPO=$(cfg bead_repo "$HOME/dotfiles")
 PUSH_URL=$(cfg push_url)
 PUSH_ORIGIN=$(cfg push_origin)
@@ -290,30 +372,45 @@ win_lookup() {
   return 1
 }
 
-# pane_state <session> <index> -> 0 blocked-chrome · 1 idle-composer · 2 AMBIGUOUS.
+# pane_state <session> <index>
+#   -> 0 blocked-chrome · 1 idle-composer · 2 AMBIGUOUS · 3 LIVE TURN.
 # THE ONLY VALUE THAT MAY RENAME IS 1, and it requires POSITIVE evidence, not the
-# absence of the other signal (see TWO INDEPENDENT SIGNALS in the header).
+# absence of the other signals (see TWO INDEPENDENT SIGNALS in the header).
 # -J joins soft-wrapped lines, so a narrow pane cannot split a chrome phrase in
 # half and manufacture a `1`. Chrome wins ties: a pane showing both is a dialog.
+# BUSY beats idle: a running turn may or may not render the composer footer under
+# its spinner (unverifiable here — THE ASYMMETRY), so the interrupt hint decides.
 pane_state() {
   local session=$1 idx=$2 pane
   [ -n "$MODAL_MARKER" ] || return 2                  # marker disabled => cannot tell
   pane=$("$TMUX_BIN" capture-pane -pJ -t "=$session:$idx" 2>>"$LOG")
   [ -n "$pane" ] || return 2                          # no capture => cannot tell
   printf '%s\n' "$pane" | grep -Eq "$MODAL_MARKER" && return 0
+  if [ -n "$BUSY_MARKER" ] && printf '%s\n' "$pane" | grep -Eq "$BUSY_MARKER"; then
+    return 3                                          # a turn is RUNNING — hands off
+  fi
   [ -n "$IDLE_MARKER" ] || return 2
   printf '%s\n' "$pane" | grep -Eq "$IDLE_MARKER" && return 1
   return 2                                            # neither signal => cannot tell
 }
 
 # --- Read the bounce log (READ-ONLY to this script) ---------------------------
+#
+# THE EPISODE-TRIGGER REASON SET. `already_running` is pulse-inject's --fresh
+# same-loop refusal (dotfiles-t5fj: `record_bounce "already_running"`, verdict
+# `deferred-already-running`) — a tick deferred because the pane LOOKS mid-turn.
+# Over a lying 🧠 that is a permanent refusal, so it is the single most important
+# reason in this set, and rung 1 is exactly the fix for it. The `deferred-*` forms
+# are the emitted VERDICT strings rather than bounce reasons; they are matched for
+# the same defensive reason the human one already was — one writer, two vocabularies,
+# and a filter that silently drops a whole class is invisible until someone stalls.
 declare -A BTS=() BREASON=()
 if [ -s "$BOUNCES" ]; then
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     l=$(json_field "$line" loop); t=$(json_field "$line" ts); r=$(json_field "$line" reason)
     if [ -z "$l" ] || [ -z "$t" ]; then continue; fi
-    case "$r" in blocked_on_andrew|deferred-blocked-on-human|not_ready) ;; *) continue ;; esac
+    case "$r" in blocked_on_andrew|deferred-blocked-on-human|not_ready|already_running|deferred-already-running) ;; *) continue ;; esac
     BTS[$l]="${BTS[$l]:-}$t"$'\n'
     BREASON[$l]="$r"
   done < "$BOUNCES"
@@ -338,7 +435,14 @@ changed=0
 # record <loop> <episode> <rung> — remember the rung we just acted on.
 record() { S_EPISODE[$1]=$2; S_RUNG[$1]=$3; S_ACTED[$1]=$now_iso; changed=1; }
 
-# --- The ladder, per CONFIGURED loop (seats opt in; `loops` is the whole gate) --
+# --- THE TARGET LIST: conf-listed loops first, then everything else -------------
+#
+# Two populations, one body (THE SCOPE SPLIT in the header). `listed=1` walks the
+# whole ladder; `listed=0` reaches rung 1 and stops. Building both up front keeps
+# the ladder's opt-in gate exactly where it was — a loop is listed iff `loops`
+# names it — while letting the fleet-safe rung see every bouncing seat.
+declare -a TARGETS=()
+declare -A IS_LISTED=()
 IFS=, read -r -a LOOP_ROWS <<< "$(cfg loops)"
 for row in "${LOOP_ROWS[@]:-}"; do
   [ -n "$row" ] || continue
@@ -351,11 +455,31 @@ for row in "${LOOP_ROWS[@]:-}"; do
     note "skip malformed loops entry '$row' — want exactly <unit>:<window>:<session>"
     ERRORS=$((ERRORS + 1)); continue
   fi
+  IS_LISTED[${row%%:*}]=1
+  TARGETS+=("1|$row")
+done
+
+# Sorted, so a run's log reads the same way twice with the same input. A loop name
+# carrying a ':' or a '|' would corrupt the packed row, and is not a systemd unit
+# prefix anyway — refuse it rather than derive a window from half of it.
+mapfile -t _bounced < <(printf '%s\n' "${!BTS[@]}" | sort)
+for l in "${_bounced[@]}"; do
+  [ -n "$l" ] || continue
+  [ -n "${IS_LISTED[$l]+set}" ] && continue
+  case "$l" in *:*|*'|'*) note "skip unlisted loop '$l': the name is not a plain unit prefix"; continue ;; esac
+  TARGETS+=("0|$l:${l#pulse-}:$RECON_SESSION")
+done
+
+for target in "${TARGETS[@]:-}"; do
+  [ -n "$target" ] || continue
+  listed=${target%%|*}; row=${target#*|}
   loop=${row%%:*}; rest=${row#*:}; window=${rest%%:*}; session=${rest#*:}
 
   bl="${BTS[$loop]:-}"
   [ -n "$bl" ] || continue
-  CHECKED=$((CHECKED + 1))
+  # `checked` counts the loops THE LADDER may walk, and only those — the scope
+  # split adds a population, it does not silently inflate the ladder's own metric.
+  [ "$listed" = 1 ] && CHECKED=$((CHECKED + 1))
 
   mapfile -t tss < <(printf '%s' "$bl" | sort)
   n=${#tss[@]}
@@ -414,41 +538,90 @@ for row in "${LOOP_ROWS[@]:-}"; do
   # ⚠️ THE RENAME IS THE WHOLE RUNG — no re-fire (SINGLE OWNERSHIP, in the header).
   # What the truth probe actually established, carried verbatim into the nudge —
   # the front desk is told what was OBSERVED, never a confidence nobody earned.
+  #
+  # The window is looked up by CANDIDATE. A listed loop has exactly one: the
+  # window its conf row names. An unlisted one has a derived pair — `pulse-<seat>`
+  # stripped to `<seat>` first, then the bare loop name — and if neither matches,
+  # `wl` stays empty and this rung is a no-op, which is the whole downside of
+  # guessing wrong (THE SCOPE SPLIT).
+  if [ "$listed" = 1 ]; then
+    wcands=("$window")
+  else
+    wcands=("$window")
+    [ "$window" = "$loop" ] || wcands+=("$loop")
+  fi
+  wl=""
+  for cand in "${wcands[@]}"; do
+    if wl=$(win_lookup "$session" "$cand"); then window=$cand; break; fi
+    wl=""
+  done
+
   pane_note="no '$window' window is present in $session"
-  if wl=$(win_lookup "$session" "$window"); then
+  if [ -n "$wl" ]; then
     widx=${wl%% *}; wname=${wl#* }
-    pane_note="window '$wname' does not carry 🔔"
-    if [ "$wname" != "${wname#🔔}" ]; then
+    # WHICH GLYPH IS LYING. 🔔 claims a human is needed; 🧠/🌀 claim a turn is
+    # running. Both are claims the pane can refute, and both are refuted by the
+    # SAME two proofs — so the rung is one code path, not two (see THE LYING 🧠).
+    # ✅ is not a lie about anything, and an unglyphed window has nothing to strip.
+    glyph=""
+    case "$wname" in
+      🔔*) glyph=🔔 ;;
+      🧠*) glyph=🧠 ;;
+      🌀*) glyph=🌀 ;;
+    esac
+    pane_note="window '$wname' carries no 🔔/🧠/🌀 to reconcile"
+    if [ -n "$glyph" ]; then
       pane_state "$session" "$widx"; pm=$?
       case "$pm" in
         0) pane_note="a joined capture-pane shows live dialog chrome — the block is real" ;;
-        *) pane_note="a joined capture-pane could not classify the pane (no dialog chrome, no idle composer) — treated as blocked" ;;
+        3) pane_note="a joined capture-pane shows a LIVE TURN (the interrupt hint is on screen) — the $glyph is telling the truth" ;;
+        *) pane_note="a joined capture-pane could not classify the pane (no dialog chrome, no live turn, no idle composer) — treated as still working" ;;
       esac
-      # ONLY `1` (idle composer PROVEN present, chrome PROVEN absent, in a JOINED
-      # capture) may rename. 0 and 2 both escalate — and they are logged
-      # differently, so "refused because a dialog is up" stays distinguishable
-      # from "refused because we could not tell".
+      # ONLY `1` (idle composer PROVEN present, chrome and live-turn PROVEN absent,
+      # in a JOINED capture) may rename. 0, 2 and 3 all decline — and they are
+      # logged differently, so "refused because a dialog is up", "refused because a
+      # turn is running" and "refused because we could not tell" stay
+      # distinguishable in the telemetry.
       if [ "$pm" = 1 ]; then
         stripped=$(strip_lexicon "$wname")
         "$TMUX_BIN" rename-window -t "=$session:$widx" "$stripped" 2>>"$LOG"
         after=$("$TMUX_BIN" list-windows -t "=$session" -F '#{window_index} #{window_name}' 2>>"$LOG" \
                 | sed -n -E "s/^$widx //p" | head -1)
-        if [ -n "$after" ] && [ "$after" = "${after#🔔}" ]; then
+        # VERIFIED AGAINST THE WHOLE LEXICON, not against the one glyph we came
+        # here for: strip_lexicon removes any of the four, so "the name now equals
+        # its own stripped form" is the honest post-condition, and it stays true
+        # when a fifth glyph is added.
+        if [ -n "$after" ] && [ "$after" = "$(strip_lexicon "$after")" ]; then
           # States ONLY what this script did — see the header's log clause.
-          note "RENAMED $loop: window $widx '$wname' carried 🔔 over an IDLE COMPOSER and no dialog chrome in the joined capture (stale-🔔, dotfiles-jisc); renamed to '$after' after verifying the rename took. No re-fire issued here — pulse-retry owns that decision."
+          note "RENAMED $loop: window $widx '$wname' carried $glyph over an IDLE COMPOSER, with no dialog chrome and no live turn in the joined capture (stale glyph, dotfiles-jisc/t5fj); renamed to '$after' after verifying the rename took. No re-fire issued here — pulse-retry owns that decision."
           record "$loop" "$ep_start" reconciled
-          RECONCILED=$((RECONCILED + 1)); continue
+          if [ "$listed" = 1 ]; then
+            RECONCILED=$((RECONCILED + 1))
+          else
+            RECON_UNLISTED=$((RECON_UNLISTED + 1))
+          fi
+          continue
         fi
-        note "WARN: $loop: rename of window $widx did not clear 🔔 (now '${after:-<gone>}')"
+        note "WARN: $loop: rename of window $widx did not clear $glyph (now '${after:-<gone>}')"
         ERRORS=$((ERRORS + 1)); continue
       fi
-      if [ "$pm" = 0 ]; then
-        note "$loop: pane $widx shows dialog CHROME PRESENT in the joined capture — genuinely blocked, escalating"
-      else
-        note "$loop: pane $widx is AMBIGUOUS (no chrome, no idle composer, or nothing captured) — escalating, never renaming on an absence"
-      fi
+      # What happens NEXT is the scope split, so the log says which it is rather
+      # than promising an escalation an unlisted loop will never get.
+      if [ "$listed" = 1 ]; then next_step="escalating"; else next_step="reconciliation-only (unlisted loop: no nudge, no raise, no bead, no push)"; fi
+      case "$pm" in
+        0) note "$loop: pane $widx shows dialog CHROME PRESENT in the joined capture — genuinely blocked, $next_step" ;;
+        3) note "$loop: pane $widx shows a LIVE TURN (BUSY) in the joined capture — the $glyph is true, never renaming over a running turn, $next_step" ;;
+        *) note "$loop: pane $widx is AMBIGUOUS (no chrome, no live turn, no idle composer, or nothing captured) — $next_step, never renaming on an absence" ;;
+      esac
     fi
   fi
+
+  # ---- THE SCOPE SPLIT: rungs 2-4 are opt-in, rung 1 was not -------------------
+  # An unlisted loop stops here, whatever rung 1 concluded. The ladder below ends
+  # in a P1 bead and a push to Zig's phone; `loops` is the consent for that, and
+  # nothing derived from a bounce log may grant it. (Reached only when rung 1 did
+  # NOT reconcile — a successful reconcile has already `continue`d.)
+  if [ "$listed" != 1 ]; then continue; fi
 
   # The nudge, carried by rungs 2 and 3 alike.
   nudge="Escalation from pulse-escalate — the '$window' seat (loop $loop, session $session) has not delivered a tick for ${age_min}m: it bounced $n time(s), newest reason '$reason', and $pane_note. You are the front desk: read that window, answer or reroute whatever is holding it so the loop's next tick can land. If it genuinely needs Zig, file the P1 human: bead and say so."
