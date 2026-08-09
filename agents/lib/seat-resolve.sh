@@ -129,8 +129,22 @@ _seat_validator() {
 # Non-zero (silent) when the roster or the parser is unavailable — callers
 # decide whether that is fatal (seat_resolve refuses) or a degrade
 # (handoff-path.sh keeps its pre-seat behavior).
+#
+# $_SEAT_DUMP_CACHE — OPT-IN memo, for a caller that needs SEVERAL roster reads
+# in one process (dotfiles-z10i). Every helper here takes the dump as an
+# argument precisely so one seat_resolve costs one python3; a caller that then
+# ALSO calls seat_self_name + history_office + _hist_sigil pays that ~70ms
+# three times over. Measured on this box, seat-identity.sh's header:
+# 3 dumps 0.30s -> 1 dump 0.10s. The memo is never set by this library — a
+# caller sets it once (`_SEAT_DUMP_CACHE=$(_seat_dump)`) and every nested
+# subshell inherits it, so the scope of any staleness is that one short-lived
+# process. Unset (the default, and every existing consumer) reads the roster.
 _seat_dump() {
   local roster validator
+  if [ -n "${_SEAT_DUMP_CACHE:-}" ]; then
+    printf '%s\n' "$_SEAT_DUMP_CACHE"
+    return 0
+  fi
   roster=$(seat_roster_path) || return 1
   validator=$(_seat_validator) || return 1
   command -v python3 >/dev/null 2>&1 || return 1
