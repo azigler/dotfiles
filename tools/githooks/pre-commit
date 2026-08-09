@@ -1097,24 +1097,40 @@ fi
 # which are running. Nothing goes red — the failure IS the rendering, or the
 # absence of one. Measured on this box:
 #
-#     test-hall.sh (206 cases, real fixture tmux servers)     62s
+#     test-hall.sh (229 cases, real fixture tmux servers)     76s
 #     mutate-hall-prompt.sh (3 mutants + baseline)           218s
+#     mutate-hall-tap.sh (5 mutants)                         361s
 #
-# The convention arm above already runs the 62s suite for these files; this adds
-# ~156s, to commits touching THREE files. The test file is a trigger on purpose:
+# ⚠️ That is ~11 MINUTES on a commit touching any of the four files below, and
+# it is deliberately not hidden behind a smaller number: budget for it, and do
+# not run `git commit` under a shorter timeout than that (a killed commit
+# leaves a mutation harness mid-run, which is why mutate-hall-tap.sh refuses to
+# overwrite a hall it did not last write). The convention arm above already
+# runs the suite for these files; this adds the mutation time. The test file is
+# a trigger on purpose:
 # PROMPTARROWLIVE is the SOLE detector for the escape-sequence drain (an
 # early-closing popup and a correct one both exit 0 and leave the court alone),
 # PROMPTBKSP the sole one for backspace reaching the first character, and
 # BPLIVE/BPASLEEP the sole ones for WHICH ROWS the phone draws — so deleting one
 # case loses the bite while the suite stays green.
-if printf '%s\n' "$STAGED" | grep -qE '^agents/bin/(hall|test-hall\.sh|mutate-hall-prompt\.sh)$'; then
-  echo "pre-commit: staged changes touch the hall's interactive court -> running mutation harness (~220s)"
-  if [ -f "$ROOT/agents/bin/mutate-hall-prompt.sh" ]; then
-    bash "$ROOT/agents/bin/mutate-hall-prompt.sh" || FAILED=1
-  else
-    echo "pre-commit: FAIL — agents/bin/mutate-hall-prompt.sh is missing" >&2
-    FAILED=1
-  fi
+#
+# THE TAP COLUMN (dotfiles-oq4n) has the same shape of failure and gets the same
+# treatment. Zig read `personal` off that column while taps.conf said
+# `seat_home.marshal=secondary`: nothing errored, the suite was green, the cell
+# was simply WRONG — and the arithmetic underneath it (U+2192 is 3 bytes and ONE
+# cell, printf pads by bytes) fails by shifting a column two cells, which is
+# exactly the class of defect a passing test cannot see. TAPCOLMATH, TAPAGREE,
+# TAPEPOCH, TAPNOCONF and BPMEDIUM60 are each the SOLE detector for one rule.
+if printf '%s\n' "$STAGED" | grep -qE '^agents/bin/(hall|test-hall\.sh|mutate-hall-prompt\.sh|mutate-hall-tap\.sh)$'; then
+  echo "pre-commit: staged changes touch the hall -> running its mutation harnesses (~10min)"
+  for H in mutate-hall-prompt.sh mutate-hall-tap.sh; do
+    if [ -f "$ROOT/agents/bin/$H" ]; then
+      bash "$ROOT/agents/bin/$H" || FAILED=1
+    else
+      echo "pre-commit: FAIL — agents/bin/$H is missing" >&2
+      FAILED=1
+    fi
+  done
 fi
 
 # --- the banned git verbs, in EXECUTABLE examples (dotfiles-mjln) ----------
