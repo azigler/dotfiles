@@ -611,6 +611,40 @@ if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(seat-molt\.sh|test-sea
   fi
 fi
 
+# --- the MOLT-REFUSAL arm -> prove it06's "refused twice" still summons ----
+# The molt's OTHER silent half (dotfiles-o3qj). seat-molt refuses correctly and,
+# until this arm existed, told nobody: the dream seat sat at 100% context for 3+
+# hours on 2026-08-09 and the marshal at 73% at 21:22:12Z, both found by a human
+# noticing. AGENTS.md it06 ("a failed/refused molt TWICE is the only context
+# event that summons Zig") is now mechanical, and BOTH halves of that mechanism
+# fail silently in the dangerous direction:
+#
+#   * a recorder that stops writing a refusal row looks exactly like a seat that
+#     stopped refusing — the ledger just gets shorter;
+#   * a watcher that stops summoning looks exactly like a quiet night, and one
+#     that summons every 5-minute tick looks like a busy one. Both are
+#     indistinguishable from correct until someone counts beads.
+#
+# Measured on this box 2026-08-09:
+#
+#     mutate-o3qj-molt-refusal.sh (10 mutants + 2 baselines)   ~5m51s
+#
+# FIVE trigger files, and the two SUITES are triggers on purpose: case 29 is the
+# sole detector for the per-episode summon memory (E3, the bead-spam mutant),
+# case 32 is the sole detector for "a successful molt ends the episode" (E6, the
+# false positive tonight's real marshal trail would have produced), and cases
+# 26a-26j are the only proof the refusal rows are written at all (S1/S2).
+# Deleting any of them loses the bite while every suite stays green.
+if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(seat-molt\.sh|test-seat-molt\.sh|pulse-escalate\.sh|test-pulse-escalate\.sh|mutate-o3qj-molt-refusal\.sh)$'; then
+  echo "pre-commit: staged changes touch the MOLT-REFUSAL arm (it06's summon) -> running mutation harness (~6 min)"
+  if [ -f "$ROOT/agents/scheduler/mutate-o3qj-molt-refusal.sh" ]; then
+    bash "$ROOT/agents/scheduler/mutate-o3qj-molt-refusal.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/scheduler/mutate-o3qj-molt-refusal.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
 # --- the CONTEXT GUARD's re-arm + nudge logic -> prove THEY still bite -----
 # Same argument, on the OTHER half of the molt lifecycle (dotfiles-ygf8): the
 # 75% backstop's own fired-once marker. Without a re-arm it survives

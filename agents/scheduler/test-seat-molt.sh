@@ -457,6 +457,89 @@ want_verdict 25c "dead --pane still molts via fallback" molted
 want_typed   25d "fallback typed into pane .0" "/clear"
 kill_pane
 
+# --- 26: THE REFUSAL RECORD (dotfiles-o3qj) ---------------------------------
+# A refusal is a CORRECT decision with a SILENT consequence: the invoker's turn is
+# already over, so nothing in the pane ever sees the verdict, and the seat sits at
+# whatever context it was at. Measured twice on 2026-08-09 — the dream seat at 100%
+# for 3+ hours, the marshal at 73% at 21:22:12Z. The record is what gives
+# pulse-escalate's molt-refusal watcher something to read, so EVERY refused/failed
+# path has to write one: a verdict that reaches the ledger sometimes is a watcher
+# that summons sometimes.
+echo
+echo "-- o3qj: every refusal writes a ledger row carrying its REASON"
+
+ledger_last() { tail -1 "$LEDGER"; }
+# want_row <id> <desc> <expected-result> <reason-substring>
+#   Both halves matter. The result alone cannot tell the watcher WHY, and a summon
+#   that says "the marshal refused twice" is worth much less than one that says
+#   which rail refused and what it saw.
+want_row() {
+  local row; row=$(ledger_last)
+  case "$row" in
+    *"\"result\":\"$3\""*)
+      case "$row" in
+        *"$4"*) ok "$1" "$2" ;;
+        *) bad "$1" "$2 -- reason does not carry '$4': $row" ;;
+      esac ;;
+    *) bad "$1" "$2 -- no \"result\":\"$3\" row: ${row:-<ledger empty>}" ;;
+  esac
+}
+
+reset_ledger; fresh_offboard; mk_pane moltyT "✅ seat"
+printf '{"ts":"now","epoch":%s,"session":"moltyT","window":"seat","mode":"molt","pct":80,"result":"molted","reason":""}\n' \
+  "$(date +%s)" >> "$LEDGER"
+molt --target moltyT seat --mode molt --pct 73
+want_verdict 26 "the rate limit still refuses" refused-rate-limited
+want_row     26a "refused-rate-limited is RECORDED with its reason" refused-rate-limited "molt-loop protection"
+if [ "$(grep -c '"result":"refused-rate-limited"' "$LEDGER")" = 1 ] \
+   && grep -q '"pct":73' "$LEDGER"; then ok 26b "the refusal row carries the context pct the summon will quote"
+else bad 26b "refusal row pct/count wrong: $(ledger_last)"; fi
+kill_pane
+
+# The live dream/marshal shape: a seat that kept working past its offboard. The
+# reason is the operator sentence verbatim, so the bead the watcher files can name
+# the actual rail instead of "something refused".
+reset_ledger; no_offboard; mk_pane moltyU "✅ seat"
+molt --target moltyU seat --mode molt
+want_verdict 26c "no offboard marker still refuses" refused-not-offboarded
+want_row     26d "refused-not-offboarded records WHICH rail refused" refused-not-offboarded "there is no offboard marker at"
+kill_pane
+
+# aborted-not-idle IS a refusal to the seat — the molt did not happen and the
+# context was not freed — so it records too. (The CONSUMER decides which verdicts
+# summon; the recorder's job is to leave nothing out.)
+reset_ledger; fresh_offboard; mk_pane moltyN "🧠 seat"
+MOLT_IDLE_TIMEOUT=2 molt --target moltyN seat --mode molt
+want_verdict 26e "a pane that never goes idle still aborts" aborted-not-idle
+want_row     26f "aborted-not-idle is RECORDED (the molt did not happen)" aborted-not-idle "never went idle"
+kill_pane
+
+# aborted-modal records as well. pulse-escalate deliberately EXCLUDES it from the
+# summon set (that pane is already showing Zig a question) — but the exclusion is
+# the consumer's decision to make, and it can only make it from a record.
+reset_ledger; fresh_offboard; mk_pane moltyM "🔔 seat"
+MOLT_IDLE_TIMEOUT=2 molt --target moltyM seat --mode molt
+want_verdict 26g "a 🔔 window still aborts" aborted-modal
+want_row     26h "aborted-modal is RECORDED too (the consumer filters, the recorder does not)" aborted-modal "blocked on Andrew"
+kill_pane
+
+# A hard failure with a KNOWN seat records like any other refusal. This is the path
+# that used to exit straight past the ledger: `emit_result failed-no-window; exit 70`
+# wrote nothing at all, so a seat whose window vanished mid-molt left no trace.
+reset_ledger; fresh_offboard
+molt --target nosuch-session nosuch-window --mode molt
+want_verdict 26i "an absent window is still failed-no-window" failed-no-window
+want_row     26j "failed-no-window is RECORDED (it used to exit past the ledger)" failed-no-window "the seat's window is gone or renamed"
+
+# SCHEMA STABILITY. `reason` is present on EVERY row, empty on the success paths,
+# so the consumer's field extraction never has to care which verdict it is reading.
+reset_ledger; fresh_offboard; mk_pane moltyP "✅ seat"
+molt --target moltyP seat --mode molt
+want_verdict 26k "the happy path is unchanged" molted
+if grep -q '"result":"molted","reason":""' "$LEDGER"; then ok 26l "a successful molt carries an EMPTY reason, not a missing field"
+else bad 26l "molted row has no empty reason field: $(ledger_last)"; fi
+kill_pane
+
 # --- summary ----------------------------------------------------------------
 echo
 TOTAL=$((PASS + FAIL))

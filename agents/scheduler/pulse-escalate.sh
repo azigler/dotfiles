@@ -169,6 +169,71 @@
 # is configured and the route is shell-callable with curl. So the floor is a P1
 # `human:` bead AND a real push — not the bead alone.
 #
+# ===========================================================================
+# THE MOLT-REFUSAL WATCHER (dotfiles-o3qj) — a SECOND ladder in the same tick
+# ===========================================================================
+#
+# THE SILENCE IT CLOSES. seat-molt.sh refuses a molt for good reasons — no fresh
+# offboard, a 30-minute rate limit, a pane that never went idle — and the refusal
+# then goes to a log nobody watches while the seat sits WEDGED at whatever context
+# it had. Two live instances on 2026-08-09: the dream seat at 100% for 3+ hours
+# after `refused-not-offboarded` (found only because Zig asked), and the marshal at
+# 21:22:12Z at 73% after `refused-rate-limited`. In both, the DECISION was correct
+# and the SILENCE was the bug. AGENTS.md's it06 says "a failed/refused molt (twice)
+# is the only context event that summons Zig"; nothing counted refusals, so that
+# rule had no mechanical arm. This is the arm.
+#
+# TWO RUNGS, NOT FOUR. The bounce ladder's middle rungs (nudge the front desk, raise
+# its unit) do not apply: a refused molt is not a blocked seat that a seneschal can
+# read and unstick — the pane is IDLE and looks fine, which is precisely why nobody
+# notices. So the molt ladder is:
+#
+#   NOTE   — the FIRST refusal of an episode. A log line and a note file naming the
+#            seat, the verdict, the reason and the context pct. Summons nobody,
+#            re-fires nothing, types nowhere. it06 says ONE refusal is not an
+#            escalation, and this rung is what "not an escalation" looks like when
+#            it is still written down.
+#   SUMMON — the SECOND refusal/failure for the SAME seat inside
+#            molt_refusal_window_minutes: a P1 `human:` bead AND a push. This IS
+#            it06's "refused twice summons Zig", and it is the whole point.
+#
+# WHY THIS ONE IS FLEET-WIDE WHILE THE BOUNCE LADDER IS OPT-IN. `loops` gates rungs
+# 2-4 above because a bounce log is written FOR every scheduled loop whether or not
+# anyone asked for escalation. The molt ledger is different in kind: a row exists
+# only because a seat DELIBERATELY RAN seat-molt.sh on itself. Running the molt IS
+# the opt-in, and a seat that molts is by construction one whose context lifecycle
+# is being managed. Gating this on `loops` would mean the seats nobody listed — the
+# ones that stall silently, which is the whole population o3qj is about — stay
+# silent. `molt_refusal_watch=off` is the kill switch if that judgement is ever
+# wrong; it is not a per-seat allowlist on purpose.
+#
+# THE REFUSAL SET, and the one deliberate exclusion. `refused-*` (the rate limit,
+# the offboard rail), `failed-*` (no socket, no window, an unexpected exit) and
+# `aborted-not-idle` all mean THE SAME THING to the seat: the molt did not happen
+# and the context was not freed. `aborted-modal` is EXCLUDED — that pane is showing
+# Zig an open dialog, so it is already summoning him by the only mechanism that
+# matters; filing a P1 bead about a seat that is mid-question is noise, not signal.
+# `compacted-onboard-skipped` is excluded for the opposite reason: the context WAS
+# freed (that is why the rate limit counts it as a real molt); only the /onboard is
+# missing, which is a different defect with a different owner.
+#
+# EPISODES, AND WHAT ENDS ONE. Same idiom as the bounce ladder, two clocks instead
+# of three: refusals for one seat whose neighbours are within
+# molt_refusal_window_minutes are ONE episode, keyed by its first refusal. A newest
+# refusal older than that window means the episode is over (the seat molted, or
+# stopped trying) and nothing fires. A SUCCESSFUL molt in between ends the episode
+# outright — refusals at or before the newest `molted`/`compacted` row are not
+# eligible, so yesterday's refusal can never pair with today's to manufacture a
+# summon. That reset is load-bearing: without it every long-lived seat eventually
+# accumulates two refusals and the summon degrades into a daily alarm.
+#
+# IDEMPOTENT PER EPISODE, which is the difference between a summon and a siren.
+# This script ticks every 5 minutes and the ledger is append-only, so the refusal
+# rows that justified a summon are STILL THERE on the next tick, and the one after.
+# $STATE_DIR/molt-refusal-state.jsonl remembers {seat, episode, stage, acted_ts};
+# `stage=summoned` for the current episode is terminal — no second bead, no second
+# push, however many ticks pass — exactly as `floored` is terminal above.
+#
 # GAPS THIS BUILD DOES NOT CLOSE, stated rather than hidden:
 #   * The raise rung's nudge FILE has no reader yet. `human:`-prefixed P1 beads
 #     ARE read by seneschal-gather.py (it filters on exactly that prefix), so the
@@ -181,7 +246,12 @@
 #
 # OUTCOME CONTRACT. The LAST line of stdout is always
 #
-#   PULSE_ESCALATE_RESULT=checked:<n>:grace:<n>:reconciled:<n>:reconciled-unlisted:<n>:nudged:<n>:raised:<n>:floored:<n>:skipped:<n>:errors:<n>
+#   PULSE_ESCALATE_RESULT=checked:<n>:grace:<n>:reconciled:<n>:reconciled-unlisted:<n>:nudged:<n>:raised:<n>:floored:<n>:skipped:<n>:errors:<n>:molt-refusals:<n>:molt-noted:<n>:molt-summoned:<n>
+#
+# The three `molt-*` counters are the molt-refusal watcher's (below), kept at the
+# END of the line so a reader of the bounce ladder's numbers sees the same fields in
+# the same order they were always in. `molt-refusals` counts SEATS with a live
+# refusal episode this tick, not rows.
 #   PULSE_ESCALATE_RESULT=failed-config     (exit 78 — conf unreadable / not key=value)
 #   PULSE_ESCALATE_RESULT=checker-broken    (exit 1  — THIS script cannot run
 #                                            safely; ZERO actions were taken)
@@ -253,6 +323,14 @@ LOG="${PULSE_ESCALATE_LOG:-$STATE_DIR/pulse-escalate.log}"
 BOUNCES="$STATE_DIR/pulse-bounces.jsonl"
 ESC_STATE="$STATE_DIR/pulse-escalate-state.jsonl"
 NUDGE_FILE="$STATE_DIR/pulse-escalate-nudge.md"
+# THE MOLT LEDGER IS READ-ONLY HERE, exactly as the bounce log is: seat-molt.sh
+# writes it, this script consumes it, and a consumer that wrote to its own input
+# would be manufacturing the signal it reads. $MOLT_LEDGER is seat-molt.sh's own
+# env seam, reused verbatim rather than re-derived — one name for one file, so a
+# test (or an operator) that repoints one repoints both.
+MOLT_LEDGER="${MOLT_LEDGER:-$STATE_DIR/molt-ledger.jsonl}"
+MOLT_STATE="$STATE_DIR/molt-refusal-state.jsonl"
+MOLT_NOTE_FILE="$STATE_DIR/molt-refusal-note.md"
 _ME_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 CONF="${PULSE_ESCALATE_CONF:-$_ME_DIR/escalate.conf}"
 INJECT="${PULSE_ESCALATE_INJECT:-$_ME_DIR/pulse-inject.sh}"
@@ -299,6 +377,12 @@ note() { echo "$(date -u +%FT%TZ) $*" >> "$LOG"; }
 # --- and for its stated reason: one line each, replication keeps the proven
 # --- behaviour of both scripts independent).
 json_field() { printf '%s' "$1" | sed -n -E "s/.*\"$2\":\"([^\"]*)\".*/\1/p"; }
+# json_num — the same one-liner for an UNQUOTED numeric field (the molt ledger's
+# `epoch` and `pct`). `pct` is legitimately `null` on a row with no statusline
+# reading, and this prints nothing for it, which is the honest answer: absent, not
+# zero. A quoted-string extractor cannot be reused here — it would silently return
+# empty for every epoch and make the whole watcher a no-op.
+json_num() { printf '%s' "$1" | sed -n -E "s/.*\"$2\":([0-9]+).*/\1/p"; }
 ts_key() { printf '%s' "$1" | tr -cd '0-9'; }
 strip_lexicon() { printf '%s' "$1" | sed -E 's/^(🧠|✅|🔔|🌀) ?//'; }
 iso_epoch() { date -u -d "$1" +%s 2>>"$LOG"; }
@@ -330,9 +414,11 @@ cfg() {
 
 CHECKED=0; GRACED=0; RECONCILED=0; RECON_UNLISTED=0
 NUDGED=0; RAISED=0; FLOORED=0; SKIPPED=0; ERRORS=0
+MOLT_REFUSALS=0; MOLT_NOTED=0; MOLT_SUMMONED=0
 emit_result() {
-  printf 'PULSE_ESCALATE_RESULT=checked:%s:grace:%s:reconciled:%s:reconciled-unlisted:%s:nudged:%s:raised:%s:floored:%s:skipped:%s:errors:%s\n' \
-    "$CHECKED" "$GRACED" "$RECONCILED" "$RECON_UNLISTED" "$NUDGED" "$RAISED" "$FLOORED" "$SKIPPED" "$ERRORS"
+  printf 'PULSE_ESCALATE_RESULT=checked:%s:grace:%s:reconciled:%s:reconciled-unlisted:%s:nudged:%s:raised:%s:floored:%s:skipped:%s:errors:%s:molt-refusals:%s:molt-noted:%s:molt-summoned:%s\n' \
+    "$CHECKED" "$GRACED" "$RECONCILED" "$RECON_UNLISTED" "$NUDGED" "$RAISED" "$FLOORED" "$SKIPPED" "$ERRORS" \
+    "$MOLT_REFUSALS" "$MOLT_NOTED" "$MOLT_SUMMONED"
 }
 
 conf_load "$CONF" || {
@@ -356,6 +442,38 @@ RECON_SESSION=$(cfg reconcile_session "$SEN_SESSION")
 BEAD_REPO=$(cfg bead_repo "$HOME/dotfiles")
 PUSH_URL=$(cfg push_url)
 PUSH_ORIGIN=$(cfg push_origin)
+# THE MOLT-REFUSAL WATCHER's two knobs. The window is BOTH the episode gap and the
+# "twice" clock, deliberately: it06's rule is about two refusals close enough
+# together to be the same wedge, and a seat that refuses twice 4 hours apart is two
+# separate incidents, not one escalating one. 90m is roughly three of seat-molt's
+# own 30m rate-limit windows — long enough that a retry cycle stays inside it,
+# short enough that a quiet seat does not accumulate a summon overnight.
+MOLT_WATCH=$(cfg molt_refusal_watch on)
+MOLT_WINDOW_S=$(( $(cfg molt_refusal_window_minutes 90) * 60 ))
+
+# push_now <label> <push-title> <push-body> — harnessd's Web Push edge, the ONE
+# implementation both floors use (the bounce ladder's rung 4 and the molt watcher's
+# SUMMON). Factored rather than duplicated for a specific reason: a second copy of
+# this block would be a second place for `push_url` handling to drift, and the
+# failure mode of a push that silently stops firing is a floor rung that quietly
+# degrades to a bead nobody is watching for. <label> is what the log line names, so
+# the two callers stay distinguishable in the telemetry.
+push_now() {
+  local label=$1 ptitle=$2 pbody=$3 body code
+  if [ -n "$PUSH_URL" ]; then
+    body=$(python3 -c 'import json,sys; print(json.dumps({"title":sys.argv[1],"body":sys.argv[2],"all":True,"urgency":"high"}))' \
+             "$ptitle" "$pbody" 2>>"$LOG")
+    code=$("$CURL_BIN" -sS -o /dev/null -w '%{http_code}' -X POST "$PUSH_URL" \
+             -H 'X-Harnessd-Action: 1' -H "Origin: $PUSH_ORIGIN" \
+             -H 'Content-Type: application/json' -d "$body" 2>>"$LOG")
+    case "$code" in
+      2*) note "$label: push delivered (HTTP $code)" ;;
+      *)  note "WARN: $label: push to $PUSH_URL returned HTTP ${code:-<none>}"; ERRORS=$((ERRORS + 1)) ;;
+    esac
+  else
+    note "WARN: $label: no push_url configured — the bead is the only channel left"
+  fi
+}
 
 # win_lookup <session> <window> — prints "<index> <live-name>" for the window whose
 # LEXICON-STRIPPED name is <window>; empty output means absent. The index is what
@@ -686,22 +804,163 @@ the loop's next tick lands.
     note "WARN: $loop: 'br create' failed in $BEAD_REPO — the push below is the only floor left"
     ERRORS=$((ERRORS + 1))
   fi
-  if [ -n "$PUSH_URL" ]; then
-    body=$(python3 -c 'import json,sys; print(json.dumps({"title":sys.argv[1],"body":sys.argv[2],"all":True,"urgency":"high"}))' \
-             "$window seat is stuck" "$title" 2>>"$LOG")
-    code=$("$CURL_BIN" -sS -o /dev/null -w '%{http_code}' -X POST "$PUSH_URL" \
-             -H 'X-Harnessd-Action: 1' -H "Origin: $PUSH_ORIGIN" \
-             -H 'Content-Type: application/json' -d "$body" 2>>"$LOG")
-    case "$code" in
-      2*) note "FLOOR $loop: push delivered (HTTP $code)" ;;
-      *)  note "WARN: $loop: push to $PUSH_URL returned HTTP ${code:-<none>}"; ERRORS=$((ERRORS + 1)) ;;
-    esac
-  else
-    note "WARN: $loop: no push_url configured — the bead is the only floor"
-  fi
+  push_now "FLOOR $loop" "$window seat is stuck" "$title"
   record "$loop" "$ep_start" floored
   FLOORED=$((FLOORED + 1))
 done
+
+# =============================================================================
+# THE MOLT-REFUSAL WATCHER (dotfiles-o3qj) — see the header block of the same name
+# =============================================================================
+# A SECOND ladder over a SECOND input, sharing this tick's write probe, log, bead
+# and push. Two rungs: NOTE the first refusal of an episode, SUMMON on the second.
+# It never renames a window, never injects, never starts a unit — a refused molt
+# leaves an IDLE-LOOKING pane, so there is nothing for the front desk to unstick;
+# the only useful escalation is the one that reaches Zig.
+
+molt_changed=0
+declare -A M_EPISODE=() M_STAGE=() M_ACTED=()
+if [ -s "$MOLT_STATE" ]; then
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    ms=$(json_field "$line" seat); [ -n "$ms" ] || continue
+    M_EPISODE[$ms]=$(json_field "$line" episode)
+    M_STAGE[$ms]=$(json_field "$line" stage)
+    M_ACTED[$ms]=$(json_field "$line" acted_ts)
+  done < "$MOLT_STATE"
+fi
+# m_record <seat> <episode> <stage> — remember the rung we just fired for a seat.
+m_record() { M_EPISODE[$1]=$2; M_STAGE[$1]=$3; M_ACTED[$1]=$now_iso; molt_changed=1; }
+# pctx <pct-token> — the ledger's `pct` is legitimately absent (null) on a row
+# written without a statusline reading. Say "unknown" rather than printing a
+# confident 0%: a summon that misreports the context number is worse than one that
+# admits it does not have it.
+pctx() { case "${1:-}" in ''|null|unknown) printf 'context unknown' ;; *) printf 'context %s%%' "$1" ;; esac; }
+
+if [ "$MOLT_WATCH" = on ] && [ -s "$MOLT_LEDGER" ]; then
+  # Rows are "<epoch>\t<result>\t<pct>\t<reason>"; seat-molt.sh flattens tabs and
+  # newlines out of `reason` before writing, so the tab is a safe separator here.
+  declare -A MR=() MOK=()
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    mres=$(json_field "$line" result)
+    msess=$(json_field "$line" session)
+    mwin=$(json_field "$line" window)
+    mep=$(json_num "$line" epoch)
+    [ -n "$mres" ] && [ -n "$msess" ] && [ -n "$mwin" ] && [ -n "$mep" ] || continue
+    mseat="$msess:$mwin"
+    case "$mres" in
+      # A REAL molt ENDS whatever episode preceded it (see EPISODES in the header).
+      # The ledger is append-only and chronological, so last-wins is the newest.
+      molted|compacted|compacted-onboard-skipped) MOK[$mseat]=$mep; continue ;;
+      # THE REFUSAL SET. aborted-modal is deliberately absent: that pane is already
+      # showing Zig a question, and a bead about it is noise (see the header).
+      refused-*|failed-*|aborted-not-idle) ;;
+      *) continue ;;
+    esac
+    MR[$mseat]="${MR[$mseat]:-}$mep	$mres	$(json_num "$line" pct)	$(json_field "$line" reason)"$'\n'
+  done < "$MOLT_LEDGER"
+
+  mapfile -t _mseats < <(printf '%s\n' "${!MR[@]}" | sort)
+  for mseat in "${_mseats[@]}"; do
+    [ -n "$mseat" ] || continue
+    mapfile -t _mrows < <(printf '%s' "${MR[$mseat]}" | sort -n)
+
+    # Drop every refusal at or before this seat's newest SUCCESSFUL molt. Without
+    # this, a long-lived seat's refusals accumulate across days and the summon
+    # degrades into a daily alarm about a wedge that resolved hours ago.
+    _melig=()
+    for _r in "${_mrows[@]}"; do
+      [ -n "$_r" ] || continue
+      _e=${_r%%$'\t'*}
+      [ "$_e" -gt "${MOK[$mseat]:-0}" ] && _melig+=("$_r")
+    done
+    mn=${#_melig[@]}
+    [ "$mn" -gt 0 ] || continue
+
+    m_newest=${_melig[mn-1]}
+    m_newest_ep=${m_newest%%$'\t'*}
+    # The episode is OVER: nothing has refused inside the window, so the seat
+    # either molted or stopped trying. Same shape as the bounce ladder's
+    # `newest bounce older than the gap` check.
+    [ $((now - m_newest_ep)) -le "$MOLT_WINDOW_S" ] || continue
+
+    # Walk back through neighbours that are within the window — one contiguous
+    # episode, keyed by its FIRST refusal.
+    m_first=$m_newest_ep; m_prev=$m_newest_ep; mcount=1
+    for ((mi = mn - 2; mi >= 0; mi--)); do
+      _e=${_melig[mi]%%$'\t'*}
+      [ $((m_prev - _e)) -le "$MOLT_WINDOW_S" ] || break
+      m_first=$_e; m_prev=$_e; mcount=$((mcount + 1))
+    done
+    MOLT_REFUSALS=$((MOLT_REFUSALS + 1))
+
+    m_stage=""
+    [ "${M_EPISODE[$mseat]:-}" = "$m_first" ] && m_stage="${M_STAGE[$mseat]:-}"
+    # IDEMPOTENT PER EPISODE. `summoned` is terminal: the rows that justified it are
+    # still in the append-only ledger on the next tick, and the one after, forever.
+    [ "$m_stage" = summoned ] && continue
+
+    m_sess=${mseat%%:*}; m_win=${mseat#*:}
+    IFS=$'\t' read -r _ m_res m_pct m_reason <<< "$m_newest"
+    m_window_min=$((MOLT_WINDOW_S / 60))
+
+    # RUNG 1 — NOTE. One refusal is not an escalation; it06 is explicit that TWO
+    # is the threshold. This rung is what "not an escalation" looks like when it is
+    # still written down: no bead, no push, no injection, nobody woken.
+    if [ "$mcount" -lt 2 ]; then
+      [ "$m_stage" = noted ] && continue
+      { printf '## %s — %s:%s molt refused\n\nseat-molt returned `%s` (%s).\nReason: %s\n\nFIRST refusal of this episode. A SECOND inside %sm summons Zig (AGENTS.md it06).\nNobody was notified; nothing was re-fired.\n\n' \
+          "$now_iso" "$m_sess" "$m_win" "$m_res" "$(pctx "$m_pct")" "${m_reason:-<none recorded>}" "$m_window_min" \
+          >> "$MOLT_NOTE_FILE"; } || note "WARN: could not append to $MOLT_NOTE_FILE"
+      note "MOLT-NOTE $mseat: seat-molt returned $m_res ($(pctx "$m_pct")) — ${m_reason:-<no reason recorded>}. First refusal of episode $m_first; a second inside ${m_window_min}m summons Zig. Nobody was told."
+      m_record "$mseat" "$m_first" noted
+      MOLT_NOTED=$((MOLT_NOTED + 1))
+      continue
+    fi
+
+    # RUNG 2 — SUMMON. it06's rule, mechanically: a P1 `human:` bead (the prefix
+    # seneschal-gather.py filters on) AND a push. Both, never one.
+    m_trail=""
+    for ((mi = mn - mcount; mi < mn; mi++)); do
+      IFS=$'\t' read -r _e _res _pct _reason <<< "${_melig[mi]}"
+      m_trail="$m_trail  - $(date -u -d "@$_e" +%FT%TZ) $_res ($(pctx "$_pct")) — ${_reason:-<no reason recorded>}"$'\n'
+    done
+    m_span=$(( (m_newest_ep - m_first) / 60 ))
+    m_title="human: $m_win seat molt REFUSED ${mcount}x in ${m_span}m — the seat is wedged ($(pctx "$m_pct"))"
+    m_desc="## Context
+seat-molt.sh refused or failed to molt the '$m_win' seat (tmux session '$m_sess')
+$mcount times inside the last ${m_window_min} minutes. Every one of those refusals
+was a CORRECT decision — the offboard rail, the 30-minute rate limit and the
+idle-wait all refuse rather than degrade — but the molt DID NOT HAPPEN, so the seat
+is still carrying the context it was trying to shed, its pane looks idle, and
+nothing else on this box will notice.
+
+AGENTS.md (dotfiles-it06): a failed/refused molt TWICE is the only context event
+that summons Zig. This bead IS that summon, filed automatically by
+pulse-escalate.sh's molt-refusal watcher; the seat did not ask for it and cannot
+suppress it.
+
+The refusal trail, verbatim from the molt ledger:
+$m_trail
+## Task
+Read $m_sess:$m_win, clear whatever is blocking the molt (usually: run /offboard in
+that pane, then re-arm seat-molt), and confirm the context actually comes down.
+
+## Acceptance Criteria
+- [ ] $m_sess:$m_win has molted — a molted/compacted row lands in the molt ledger
+- [ ] The reason the molt kept being refused is understood, not merely stepped over"
+    if ( cd "$BEAD_REPO" && "$BR_BIN" create -t bug -p 1 -d "$m_desc" "$m_title" ) >>"$LOG" 2>&1; then
+      note "MOLT-SUMMON $mseat: filed P1 human: bead in $BEAD_REPO — $mcount refusals in episode $m_first (newest $m_res, $(pctx "$m_pct")). it06's refused-twice rule."
+    else
+      note "WARN: $mseat: 'br create' failed in $BEAD_REPO — the push below is the only summon left"
+      ERRORS=$((ERRORS + 1))
+    fi
+    push_now "MOLT-SUMMON $mseat" "$m_win seat is wedged" "$m_title"
+    m_record "$mseat" "$m_first" summoned
+    MOLT_SUMMONED=$((MOLT_SUMMONED + 1))
+  done
+fi
 
 # --- Write state atomically (only when something changed) ---------------------
 if [ "$changed" = 1 ]; then
@@ -712,6 +971,21 @@ if [ "$changed" = 1 ]; then
       "$l" "${S_EPISODE[$l]}" "${S_RUNG[$l]:-}" "${S_ACTED[$l]:-}" >> "$tmp"
   done
   mv -f "$tmp" "$ESC_STATE" || { note "FAIL: cannot install escalate-state $ESC_STATE"; rm -f "$tmp"; }
+fi
+
+# The molt watcher's own memory, written the same way and for the same reason: a
+# rung this script cannot remember firing is a rung it fires again every 5 minutes.
+if [ "$molt_changed" = 1 ]; then
+  mtmp="$MOLT_STATE.tmp.$$"
+  if : > "$mtmp"; then
+    for ms in "${!M_EPISODE[@]}"; do
+      printf '{"seat":"%s","episode":"%s","stage":"%s","acted_ts":"%s"}\n' \
+        "$ms" "${M_EPISODE[$ms]}" "${M_STAGE[$ms]:-}" "${M_ACTED[$ms]:-}" >> "$mtmp"
+    done
+    mv -f "$mtmp" "$MOLT_STATE" || { note "FAIL: cannot install molt-refusal state $MOLT_STATE"; rm -f "$mtmp"; }
+  else
+    note "FAIL: cannot write molt-refusal-state tmp $mtmp"
+  fi
 fi
 
 emit_result
