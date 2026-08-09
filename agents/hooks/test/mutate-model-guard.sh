@@ -60,6 +60,7 @@ HOOK="post-tool-model-guard.sh"
 SUITE="test-post-tool-model-guard.sh"
 FIXTURE="model-guard-transcript.fixture.jsonl"
 FIXTURE2="model-guard-subagent.fixture.jsonl"
+FIXTURE3="model-guard-coldstart.fixture.jsonl"
 
 FAILED=0
 HARNESS_ERR=0
@@ -71,7 +72,7 @@ cp -a "$HOOKS/$HOOK" "$WORK/pristine/$HOOK"
 CANONLIB="$(cd "$HOOKS/../lib" 2>/dev/null && pwd)/model-canon.sh"
 [ -f "$CANONLIB" ] || { echo "HARNESS ERROR: $CANONLIB does not exist — the hook's canonicalisation dependency" >&2; exit 2; }
 cp -a "$CANONLIB" "$WORK/lib/model-canon.sh"
-for f in "$SUITE" "$FIXTURE" "$FIXTURE2"; do
+for f in "$SUITE" "$FIXTURE" "$FIXTURE2" "$FIXTURE3"; do
   [ -f "$SRC/$f" ] || { echo "HARNESS ERROR: $SRC/$f does not exist" >&2; exit 2; }
   cp -a "$SRC/$f" "$WORK/hooks/test/$f"
 done
@@ -236,10 +237,10 @@ check "M5 off-switch-neutered" "C4" "C1 C5"
 # code. A hook that shouts on its own read errors is a hook that breaks every
 # session on the machine the first time a path moves (this repo's rule 1).
 fresh_copy
-mutate '    ledger_row "check-failed" "$1" "" ""
+mutate '    ledger_row "$1" "$2" "${EXPECTED:-}" ""
   fi
   exit 0
-}' '    ledger_row "check-failed" "$1" "" ""
+}' '    ledger_row "$1" "$2" "${EXPECTED:-}" ""
   fi
   exit 2
 }'
@@ -250,8 +251,13 @@ check "M6 detection-error-no-longer-fails-open" "C11 C12" "C1"
 # "Fable plans and reviews, Opus/Sonnet implement"), so this fires on every
 # healthy orchestrator that delegates. C14 is its sole detector.
 fresh_copy
+# diagnose_blind's own jq (dotfiles-8x8l) now contains the bare
+# `if .type == "assistant" then`, so that string is no longer a valid
+# REPLACEMENT here — it is already present in the pristine file and the harness
+# (correctly) refuses a mutation it cannot tell apart from a no-op. `and (true)`
+# neuters the same filter unambiguously.
 mutate 'if .type == "assistant" and (.isSidechain // false | not) then' \
-       'if .type == "assistant" then'
+       'if .type == "assistant" and (true) then'
 check "M7 sidechain-subagent-model-read-as-the-session-model" "C14" "C1 C2"
 
 # M8 — THE SUBAGENT BAIL removed. This is the one that was live: a subagent's
@@ -323,6 +329,45 @@ mutate '    SDRIFT=2
        '    SDRIFT=0
     write_state'
 check "M13 settings-drift-alarm-nags-every-round" "C29" "C1 C27 C28"
+
+# M14 — the cold-start shape collapsed back into a generic failure. This is the
+# LIVE bug of dotfiles-8x8l restated: six of seven ledger rows on 2026-08-09 read
+# `check-failed / no-served-model` and could not distinguish "the guard is broken"
+# from "the session has not spoken yet", so a guard that was mostly OFF looked
+# like a guard with a busy ledger. C30 is its sole detector.
+fresh_copy
+mutate '    no-assistant-row-yet) check_failed "check-skipped" "$BLIND_WHY" ;;' \
+       '    zz-no-such-reason)    check_failed "check-skipped" "$BLIND_WHY" ;;'
+check "M14 cold-start-not-distinguished-from-a-read-error" "C30" "C1 C2 C12 C31"
+
+# M15 — the cold-start re-read removed, so the first tool round of every session
+# is a round the guard simply does not make. That is the difference between
+# catching a degradation on round 1 and catching it on round 2 — small, until the
+# session's first act is the expensive one. C31 is its sole detector.
+fresh_copy
+mutate '  [ "$MG_ATTEMPT" -ge "$MG_RETRIES" ] && break' \
+       '  [ "$MG_ATTEMPT" -ge 0 ] && break'
+check "M15 cold-start-re-read-removed" "C31" "C1 C2 C12 C30"
+
+# M16 — a blind row stops carrying the seat it was watching. Both fields empty is
+# precisely what made the six real rows unattributable: you could not tell which
+# model the guard thought it was guarding, so you could not tell whether the miss
+# mattered. C30 is its sole detector.
+fresh_copy
+mutate '    ledger_row "$1" "$2" "${EXPECTED:-}" ""' \
+       '    ledger_row "$1" "$2" "" ""'
+check "M16 blind-row-no-longer-names-the-seat" "C30" "C1 C2 C11 C12 C31"
+
+# M17 — the cooldown gate on the re-read budget disarmed, so a persistently blind
+# shape sleeps the full ceiling on EVERY tool call instead of once per cooldown.
+# That is a real second of latency per tool call in the hottest hook on the
+# machine, and the header's claim about the cost becomes false — this repo's
+# rule-2 defect class, a measured claim that stopped being true. C32 is its sole
+# detector.
+fresh_copy
+mutate '    [ $(( NOW - LAST_RETRY )) -ge "$COOLDOWN" ] || break' \
+       '    [ $(( NOW - LAST_RETRY )) -ge 0 ] || break'
+check "M17 re-read-budget-no-longer-cooldown-gated" "C32" "C1 C2 C30 C31"
 
 echo
 if [ "$HARNESS_ERR" -ne 0 ]; then
