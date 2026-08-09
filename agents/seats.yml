@@ -57,6 +57,16 @@ taps:
     failover: [personal] # matches tick-jailed.sh's own isolated->shared fallback
 
 # ---------------------------------------------------------------------------
+# UNIT ALLOWLIST (dotfiles-hfm5) — enabled pulse-* timers that are
+# deliberately NOT a seat schedule row: fleet-infra plumbing, not a JOB or
+# OFFICE (Article IV seats jobs, not timers). pulse-retry sweeps the ledger's
+# retry queue; pulse-stall detects a stalled tick. Both fire fleet-wide and
+# answer to no single seat. Anything else enabled and unclaimed is a real
+# UNIT-ORPHAN finding, not a candidate for this list by default.
+# ---------------------------------------------------------------------------
+unit_allowlist: [pulse-retry, pulse-stall]
+
+# ---------------------------------------------------------------------------
 # SEATS — the offices of the estate. `model:` policy (dotfiles-pulse-row-model-
 # seat-d0bk, Zig 2026-08-08): DEFAULT-UP, PIN-DOWN. Judgment-charter seats
 # either pin `fable` explicitly or, where not yet explicitly assigned, inherit
@@ -350,6 +360,13 @@ seats:
     tap: personal
     aliases: []
     history: refs/seats/autonoveld.history.md
+    # pulse-autonoveld-{conceive,mail,voice,write} and pulse-daily-ao3 are all
+    # currently DISABLED (in-progress rollout) — the units exist, so they are
+    # recorded, same convention as picod's row above (dotfiles-hfm5 fixed the
+    # roster being internally inconsistent about this: these five rows were
+    # uncaveated while picod's carried the caveat, for the same disabled
+    # state). Check current enablement with:
+    #   systemctl --user list-timers 'pulse-autonoveld-*' 'pulse-daily-ao3' --all
     schedules:
       - unit: pulse-autonoveld-conceive
         tap: personal

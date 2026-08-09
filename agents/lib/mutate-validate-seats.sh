@@ -228,6 +228,27 @@ check "M4 seat-tap-presence-optional" \
   "SEATTAP-MISSING" \
   "SEATTAP-UNKNOWN SIGIL-EPRES-GOOD REAL-ROSTER"
 
+# M5 -- the UNIT/UNIT-ORPHAN strict promotion silently disarmed (dotfiles-hfm5).
+# The whole point of --strict-units is that it turns the same WARN findings
+# into a block. A mutant that stops appending `uviol` to `errors` under
+# strict mode makes it a no-op flag -- exactly the shape this bead's own
+# caution warns about, just inverted: not a validator that flakes, one that
+# goes quiet forever under the flag meant to make it strict. Case 11 and 14
+# both invoke --strict-units expecting a non-zero exit and a tagged
+# violation; under this mutant they get exit 0 instead, which the harness
+# reads back as those two named cases (UNIT, UNIT-ORPHAN). Case 12 (warn
+# mode) and case 13/15 (already-passing strict cases) are untouched by this
+# mutant and must keep passing -- that asymmetry is the signature.
+fresh_copy
+mutate "$SCRIPT_NAME" \
+  '        if strict_units:
+            errors += uviol' \
+  '        if False and strict_units:
+            errors += uviol'
+check "M5 strict-units-promotion-disarmed" \
+  "UNIT UNIT-ORPHAN" \
+  "REAL-ROSTER"
+
 echo
 if [ "$HARNESS_ERR" -ne 0 ]; then
   echo "=== RESULT: HARNESS ERROR -- at least one mutation never applied. ========"

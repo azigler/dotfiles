@@ -19,8 +19,32 @@ bad() { FAIL=$((FAIL + 1)); FAILED+=("$1"); }
 BASE=$(mktemp -d)
 trap 'rm -rf "$BASE"' EXIT
 
-run() { # run <fixture-file> -> sets OUT, RC
-  OUT=$(python3 "$VALIDATOR" "$1" 2>&1)
+# A hermetic --systemd-dir every fixture gets BY DEFAULT (dotfiles-hfm5): both
+# units every fixture below is derived from (pulse-desk, pulse-dream) are
+# installed AND enabled, nothing else is. Without this, every `run "$F"` call
+# that omits --systemd-dir falls through to validate-seats.py's own default
+# (~/.config/systemd/user) -- THIS BOX'S real, live timer state -- and every
+# fixture's WARN-mode output fills up with however many real pulse-* timers
+# happen to be enabled here today. That noise never fails a test (warn mode
+# never blocks), but it is not hermetic, and it is exactly the kind of
+# host-state coupling the UNIT/UNIT-ORPHAN caution in the module docstring
+# argues against — even a WARN should not depend on what this particular box
+# happens to have enabled right now.
+NEUTRAL_SD="$BASE/neutral-systemd"
+mkdir -p "$NEUTRAL_SD/timers.target.wants"
+touch "$NEUTRAL_SD/pulse-desk.timer" "$NEUTRAL_SD/pulse-dream.timer"
+touch "$NEUTRAL_SD/timers.target.wants/pulse-desk.timer" \
+      "$NEUTRAL_SD/timers.target.wants/pulse-dream.timer"
+
+run() { # run <fixture-file> [extra validator args...] -> sets OUT, RC
+  local f=$1
+  shift
+  local args=("$@") a has_sd=0
+  for a in ${args[@]+"${args[@]}"}; do
+    case "$a" in --systemd-dir|--systemd-dir=*) has_sd=1 ;; esac
+  done
+  [ "$has_sd" -eq 0 ] && args+=(--systemd-dir "$NEUTRAL_SD")
+  OUT=$(python3 "$VALIDATOR" "$f" ${args[@]+"${args[@]}"} 2>&1)
   RC=$?
 }
 
@@ -228,13 +252,71 @@ if [ "$RC" -ne 0 ]; then ok; else bad "WINDOW: must fail"; fi
 case "$OUT" in *"WINDOW:"*) ok ;; *) bad "WINDOW: expected that tag, got: $OUT" ;; esac
 
 # --- 10. the REAL agents/seats.yml must pass its own validator --------------
+# Explicitly opts OUT of the hermetic NEUTRAL_SD default (the whole point of
+# this case is checking the roster against THIS BOX'S real installed units) —
+# still non-strict, so a legitimate roster-edits-before-unit-install ordering
+# never fails this suite; see the WARN-by-default rationale in the module
+# docstring.
 REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 if [ -f "$REPO_ROOT/agents/seats.yml" ]; then
-  run "$REPO_ROOT/agents/seats.yml"
+  run "$REPO_ROOT/agents/seats.yml" --systemd-dir "$HOME/.config/systemd/user"
   if [ "$RC" -eq 0 ]; then ok; else bad "REAL-ROSTER agents/seats.yml must pass: $OUT"; fi
 else
   bad "REAL-ROSTER agents/seats.yml not found at $REPO_ROOT/agents/seats.yml"
 fi
+
+# --- 11-15. UNIT / UNIT-ORPHAN (dotfiles-hfm5): schedules <-> installed units,
+# both directions, WARN-by-default / strict-via-flag. Every case below points
+# --systemd-dir at a SCRATCH fixture tree, never the real box, so these never
+# depend on this machine's actual timer state (the seam the bead demanded).
+
+# 11. UNIT (strict): a schedule's unit has no installed .timer -> must fail,
+# tagged, and name the missing unit.
+SD1="$BASE/systemd1"
+mkdir -p "$SD1"
+touch "$SD1/pulse-desk.timer"   # pulse-dream.timer deliberately absent
+run "$GOOD" --systemd-dir "$SD1" --strict-units
+if [ "$RC" -ne 0 ]; then ok; else bad "UNIT (strict): missing unit must fail"; fi
+case "$OUT" in
+  *"UNIT:"*"pulse-dream"*) ok ;;
+  *) bad "UNIT (strict): expected a UNIT: violation naming pulse-dream, got: $OUT" ;;
+esac
+
+# 12. UNIT (default/warn): the SAME missing-unit fixture must NOT fail the
+# build, but must still say so (nothing silent) -- the whole point of the seam.
+run "$GOOD" --systemd-dir "$SD1"
+if [ "$RC" -eq 0 ]; then ok; else bad "UNIT (warn): must NOT block by default, got rc=$RC: $OUT"; fi
+case "$OUT" in
+  *"WARN"*"UNIT:"*"pulse-dream"*) ok ;;
+  *) bad "UNIT (warn): expected a WARN-prefixed UNIT: note naming pulse-dream, got: $OUT" ;;
+esac
+
+# 13. UNIT (strict, passing): both units installed -> must pass.
+touch "$SD1/pulse-dream.timer"
+run "$GOOD" --systemd-dir "$SD1" --strict-units
+if [ "$RC" -eq 0 ]; then ok; else bad "UNIT (strict): both units installed must pass: $OUT"; fi
+
+# 14. UNIT-ORPHAN (strict): an ENABLED pulse-* timer nobody's schedule claims
+# and that is not in unit_allowlist -> must fail, tagged.
+SD2="$BASE/systemd2"
+mkdir -p "$SD2/timers.target.wants"
+touch "$SD2/pulse-desk.timer" "$SD2/pulse-dream.timer" "$SD2/pulse-orphan.timer"
+touch "$SD2/timers.target.wants/pulse-desk.timer" \
+      "$SD2/timers.target.wants/pulse-dream.timer" \
+      "$SD2/timers.target.wants/pulse-orphan.timer"
+run "$GOOD" --systemd-dir "$SD2" --strict-units
+if [ "$RC" -ne 0 ]; then ok; else bad "UNIT-ORPHAN (strict): unclaimed enabled timer must fail"; fi
+case "$OUT" in
+  *"UNIT-ORPHAN:"*"pulse-orphan"*) ok ;;
+  *) bad "UNIT-ORPHAN (strict): expected that tag naming pulse-orphan, got: $OUT" ;;
+esac
+
+# 15. UNIT-ORPHAN (strict, passing via unit_allowlist): the SAME enabled
+# orphan, but now recorded in the roster's unit_allowlist: -> must pass.
+F="$BASE/unit-allowlist.yml"
+{ cat "$GOOD"; echo "unit_allowlist: [pulse-orphan]"; } > "$F"
+run "$F" --systemd-dir "$SD2" --strict-units
+if [ "$RC" -eq 0 ]; then ok; else bad "UNIT-ORPHAN (strict, allowlisted): must pass: $OUT"; fi
 
 # --- Summary ---
 TOTAL=$((PASS + FAIL))
