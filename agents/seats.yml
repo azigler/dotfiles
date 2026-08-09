@@ -351,31 +351,31 @@ seats:
       - unit: pulse-di-monday
         tap: work
         window: di-monday
-        session: work
+        session: zig-computer
       - unit: pulse-di-tuesday
         tap: work
         window: di-tuesday
-        session: work
+        session: zig-computer
       - unit: pulse-di-wednesday
         tap: work
         window: di-wednesday
-        session: work
+        session: zig-computer
       - unit: pulse-di-thursday
         tap: work
         window: di-thursday
-        session: work
+        session: zig-computer
       - unit: pulse-di-friday
         tap: work
         window: di-friday
-        session: work
+        session: zig-computer
       - unit: pulse-weekly-report
         tap: work
         window: weekly-report
-        session: work
+        session: zig-computer
       - unit: pulse-biweekly-content
         tap: work
         window: biweekly-content
-        session: work
+        session: zig-computer
 
   # --- Ad-hoc umbrellas seated 2026-08-09 (dotfiles-th3e) -------------------
 

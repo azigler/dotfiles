@@ -280,7 +280,7 @@ pending_lines() {
   local f k s w
   for f in "$QUEUE_DIR"/*.json; do
     [ -f "$f" ] || continue
-    s=$(jq -r '.session // "work"' "$f" 2>/dev/null) || continue
+    s=$(jq -r '.session // "zig-computer"' "$f" 2>/dev/null) || continue
     w=$(jq -r '.window  // "pulse"' "$f" 2>/dev/null) || continue
     [ -n "$F_SESSION" ] && [ "$F_SESSION" != "$s" ] && continue
     [ -n "$F_WINDOW"  ] && [ "$F_WINDOW"  != "$w" ] && continue
@@ -328,7 +328,7 @@ fi
 # indexed. Declare with a distinct name, then fill.
 declare -A BY_TARGET
 for f in "${PENDING[@]}"; do
-  s=$(jq -r '.session // "work"' "$f" 2>/dev/null); w=$(jq -r '.window // "pulse"' "$f" 2>/dev/null)
+  s=$(jq -r '.session // "zig-computer"' "$f" 2>/dev/null); w=$(jq -r '.window // "pulse"' "$f" 2>/dev/null)
   key="${s}|${w}"
   BY_TARGET["$key"]="${BY_TARGET[$key]:-}${f}"$'\n'
 done

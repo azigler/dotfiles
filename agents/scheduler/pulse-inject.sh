@@ -15,13 +15,15 @@
 #
 # Usage:
 #   pulse-inject.sh --dir <project-path> --cmd "<prompt or /skill>" \
-#                   [--session work] [--window pulse] [--launch claude] [--loop <id>] \
+#                   [--session zig-computer] [--window pulse] [--launch claude] [--loop <id>] \
 #                   [--config-dir <claude-seat>]
 #
 #   --dir      project directory the Claude session anchors in (required)
 #   --cmd      the text typed into the session, submitted with Enter (required)
-#   --session  tmux session name (default: work — created detached if absent,
-#              so timers still work after a reboot before Andrew attaches)
+#   --session  tmux session name (default: zig-computer — ONE session per server,
+#              named for the host; Zig's ruling 2026-08-09 abolished the separate
+#              `work` session. Created detached if absent, so timers still work
+#              after a reboot before Andrew attaches)
 #   --window   dedicated window name (default: pulse). Matching strips any
 #              leading lexicon glyph (🧠/✅/🔔/🌀) so the status hook's renames
 #              don't break window discovery.
@@ -187,7 +189,7 @@ if [ -z "$TMUX_BIN" ]; then
   [ -x "${TMUX_BIN:-}" ] || TMUX_BIN=/usr/bin/tmux
 fi
 
-SESSION="work"
+SESSION="zig-computer"
 WINDOW="pulse"
 LAUNCH="claude"
 # Process name to expect in the pane once the launcher is live (liveness/reuse
