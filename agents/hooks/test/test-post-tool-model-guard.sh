@@ -452,6 +452,37 @@ else
   bad "C25 re-read wins the cold-start race: a real verdict on the first tool round" "exit=$EXITC out=$STDERR row=$(ledger | tail -n 1)"
 fi
 
+# --- C26: the re-read ceiling is paid at most ONCE per cooldown per session --
+# The header claims it; this is the case that makes the claim testable. A
+# persistently blind shape (empty transcript) with the production retry budget
+# must cost ~1s on the first call inside a cooldown window and ~nothing on the
+# next — otherwise the hottest hook in the fleet sleeps a second on EVERY tool
+# call for as long as the shape lasts. Asserted on an `off` seat too, because
+# the spend is recorded BEFORE the off/undeclared bails and would otherwise
+# never be rate-limited at all (that seat writes no ledger row to gate on).
+# Ungated, all four calls measured ~1.2s.
+mg_timed() {   # mg_timed <session> <expected> -> elapsed ms
+  local sid=$1 exp=$2 t0 t1
+  mkdir -p "$T/tp"; : > "$T/tp/$sid.jsonl"
+  t0=$(date +%s%N)
+  env HARNESS_STATE_DIR="$T/state-$sid" MODEL_GUARD_USE_PROC=0 MODEL_GUARD_USE_SETTINGS=0 \
+      MODEL_GUARD_COOLDOWN_SECS=3600 MODEL_GUARD_EXPECTED="$exp" \
+      MODEL_GUARD_RETRIES=4 MODEL_GUARD_RETRY_SLEEP=0.25 \
+      "$HOOK" >/dev/null 2>&1 <<EOF
+{"session_id":"$sid","transcript_path":"$T/tp/$sid.jsonl","cwd":"$T"}
+EOF
+  t1=$(date +%s%N)
+  printf '%d' $(( (t1 - t0) / 1000000 ))
+}
+D1=$(mg_timed c26 claude-fable-5); D2=$(mg_timed c26 claude-fable-5)
+O1=$(mg_timed c26off off);         O2=$(mg_timed c26off off)
+if [ "$D1" -ge 800 ] && [ "$D2" -lt 700 ] && [ "$O1" -ge 800 ] && [ "$O2" -lt 700 ]; then
+  ok "C26 re-read budget is cooldown-gated: paid once, not on every tool call"
+else
+  bad "C26 re-read budget is cooldown-gated: paid once, not on every tool call" \
+      "declared: ${D1}ms then ${D2}ms (want >=800 then <700); off-seat: ${O1}ms then ${O2}ms"
+fi
+
 echo
 printf 'PASS: %d  FAIL: %d\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then

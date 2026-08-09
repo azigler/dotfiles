@@ -184,10 +184,20 @@
 #                                      assistant batch at 21:53:09.686 (14 lines,
 #                                      2 assistant rows) — the hook fires
 #                                      somewhere inside that ~1.5s gap, so it
-#                                      wins on some rounds and not others. The
-#                                      ceiling is paid at most once per cooldown
-#                                      per session and only when the read is
-#                                      blind; a mid-session round finds an
+#                                      wins on some rounds and not others.
+#                                      THE CEILING IS COOLDOWN-GATED, and that is
+#                                      a mechanism (the `retry` key in the state
+#                                      file), not an aspiration: it is paid only
+#                                      when the read is blind, and then at most
+#                                      once per MODEL_GUARD_COOLDOWN_SECS per
+#                                      session — including on seats that turn out
+#                                      to be `off` or undeclared, whose spend is
+#                                      recorded before those bails. Ungated, a
+#                                      persistently blind shape paid it on EVERY
+#                                      tool call: measured 1193/1155/1160ms on a
+#                                      declared seat and 1228/1254/1220ms on an
+#                                      `off` one, three consecutive calls inside
+#                                      one cooldown. A mid-session round finds an
 #                                      earlier assistant row on the first look
 #                                      and never sleeps at all.
 #
@@ -229,7 +239,7 @@ TAIL_LINES="${MODEL_GUARD_TAIL:-500}"
 NOW=$(date +%s)
 
 # --- state ------------------------------------------------------------------
-TRIES=0; PENDING=0; LAST_EMIT=0; LAST_CFAIL=0; DERIVED=""
+TRIES=0; PENDING=0; LAST_EMIT=0; LAST_CFAIL=0; LAST_RETRY=0; DERIVED=""
 if [ -f "$STATE_FILE" ]; then
   while IFS='=' read -r k v; do
     case "$k" in
@@ -237,6 +247,7 @@ if [ -f "$STATE_FILE" ]; then
       pending) PENDING=$v ;;
       emit)    LAST_EMIT=$v ;;
       cfail)   LAST_CFAIL=$v ;;
+      retry)   LAST_RETRY=$v ;;
       derived) DERIVED=$v ;;
     esac
   done < "$STATE_FILE"
@@ -245,6 +256,7 @@ case "$TRIES"     in ''|*[!0-9]*) TRIES=0 ;; esac
 case "$PENDING"   in ''|*[!0-9]*) PENDING=0 ;; esac
 case "$LAST_EMIT" in ''|*[!0-9]*) LAST_EMIT=0 ;; esac
 case "$LAST_CFAIL" in ''|*[!0-9]*) LAST_CFAIL=0 ;; esac
+case "$LAST_RETRY" in ''|*[!0-9]*) LAST_RETRY=0 ;; esac
 
 # Atomic: write a temp beside the target and rename. A truncate-write here is
 # observable — a reader can see a half-written file, and two writers can lose an
@@ -253,8 +265,8 @@ case "$LAST_CFAIL" in ''|*[!0-9]*) LAST_CFAIL=0 ;; esac
 write_state() {
   mkdir -p "$STATE_DIR" || return 0
   local tmp="$STATE_FILE.tmp.$$"
-  printf 'tries=%s\npending=%s\nemit=%s\ncfail=%s\nderived=%s\n' \
-    "$TRIES" "$PENDING" "$LAST_EMIT" "$LAST_CFAIL" "$DERIVED" > "$tmp" || { rm -f "$tmp"; return 0; }
+  printf 'tries=%s\npending=%s\nemit=%s\ncfail=%s\nretry=%s\nderived=%s\n' \
+    "$TRIES" "$PENDING" "$LAST_EMIT" "$LAST_CFAIL" "$LAST_RETRY" "$DERIVED" > "$tmp" || { rm -f "$tmp"; return 0; }
   mv -f "$tmp" "$STATE_FILE" || rm -f "$tmp"
   return 0
 }
@@ -372,6 +384,18 @@ while : ; do
   read_facts
   { [ -z "$READ_FAIL" ] && [ -n "$SERVED" ]; } && break
   [ "$MG_ATTEMPT" -ge "$MG_RETRIES" ] && break
+  # THE COOLDOWN GATE. Without it the ceiling is paid on EVERY tool call of a
+  # persistently blind shape (unreadable path, all-sidechain or all-synthetic
+  # tail) — measured at ~1.2s per call, three calls in a row, on the hottest
+  # hook in the fleet. `retry` is its OWN timestamp and not `cfail`, because the
+  # two rate limits gate different things and must not consume each other: the
+  # spend is recorded here, before the `off` / undeclared bails below, so a seat
+  # that emits no ledger row at all is still charged at most once per cooldown.
+  if [ "$MG_ATTEMPT" -eq 0 ]; then
+    [ $(( NOW - LAST_RETRY )) -ge "$COOLDOWN" ] || break
+    LAST_RETRY=$NOW
+    write_state
+  fi
   MG_ATTEMPT=$((MG_ATTEMPT + 1))
   sleep "${MODEL_GUARD_RETRY_SLEEP:-0.25}"
 done

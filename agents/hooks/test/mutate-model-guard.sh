@@ -302,6 +302,17 @@ mutate '    ledger_row "$1" "$2" "${EXPECTED:-}" ""' \
        '    ledger_row "$1" "$2" "" ""'
 check "M12 blind-row-no-longer-names-the-seat" "C24" "C1 C2 C11 C12 C25"
 
+# M13 — the cooldown gate on the re-read budget disarmed, so a persistently blind
+# shape sleeps the full ceiling on EVERY tool call instead of once per cooldown.
+# That is a real second of latency per tool call in the hottest hook on the
+# machine, and the header's claim about the cost becomes false — this repo's
+# rule-2 defect class, a measured claim that stopped being true. C26 is its sole
+# detector.
+fresh_copy
+mutate '    [ $(( NOW - LAST_RETRY )) -ge "$COOLDOWN" ] || break' \
+       '    [ $(( NOW - LAST_RETRY )) -ge 0 ] || break'
+check "M13 re-read-budget-no-longer-cooldown-gated" "C26" "C1 C2 C24 C25"
+
 echo
 if [ "$HARNESS_ERR" -ne 0 ]; then
   echo "RESULT: HARNESS ERROR — at least one mutation did not apply. That is not a"
