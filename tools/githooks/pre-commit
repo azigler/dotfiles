@@ -267,6 +267,18 @@ mapped_suites_for() { # <staged path> -> newline-separated suite paths
     # budget against a fixture db.
     agents/scheduler/marshal.conf)
       printf '%s\n' agents/scheduler/test-marshal-drain.sh ;;
+    # escalate.conf is DATA in the same sense as marshal.conf — and what it
+    # configures is WHAT AN UNATTENDED LOOP DOES TO ZIG'S PHONE. `loops=` is the
+    # whole opt-in gate (a seat absent from it is never escalated at all), and the
+    # grace / cooldown numbers decide how soon and how often the ladder fires a
+    # push notification. The convention loop below maps SCRIPTS only, so before
+    # this arm a hand-edit here — deleting a loop, zeroing a cooldown, fixing a
+    # "typo" in a key the parser refuses — ran NOTHING (the dotfiles-dijt shape).
+    # The suite drives the real parser against fixture confs and covers the
+    # refusal path, so a conf the parser would reject is caught here rather than
+    # at 03:00 by a loop that escalates to nobody.
+    agents/scheduler/escalate.conf)
+      printf '%s\n' agents/scheduler/test-pulse-escalate.sh ;;
     # THE MOLT THRESHOLD PAIR (dotfiles-9060): one constant in
     # agents/lib/molt-thresholds.sh, two consumers in two different dirs. The
     # convention finds each consumer's OWN suite, and each of those stays green
@@ -695,6 +707,96 @@ fi
 # ==  here so the next append has an unambiguous, distinctive landmark.)  ==
 # ==========================================================================
 #
+# --- the ESCALATION LADDER -> prove IT still bites -------------------------
+# Same argument as every block below, on the loop that decides WHEN TO WAKE ZIG
+# and WHAT TO TYPE INTO A SEAT THAT IS ALREADY BLOCKED (dotfiles-9z3o). Its two
+# directions are both silent: fail shy (grace never expires, the cooldown never
+# clears, a loop absent from escalate.conf) and a stuck seat escalates to nobody
+# for as long as it is stuck — the exact failure the ladder was built for; fail
+# eager and it renames a LIVE 🔔 window, injects into the seneschal's own modal,
+# or re-fires a loop that pulse-retry already owns (the two-owner race measured
+# live on 2026-08-09, two seconds apart, a stale '/clear + /marshal night' pair
+# landing in a running composer). Measured on this box:
+#
+#     test-pulse-escalate.sh (26 cases, fake tmux + systemctl)    6s
+#     mutate-pulse-escalate.sh (15 mutants + baseline)           84s
+#
+# 84s is why this fires on four files rather than every scheduler edit. The test
+# file is a trigger on purpose: case 19 is the SOLE detector for a wrapped modal
+# being renamed, case 2b for the reconciler not re-firing the loop, and case 20
+# for chrome-absence not being evidence — so deleting one case loses the bite
+# while the suite stays green. escalate.conf is a trigger for the reason the map
+# entry above gives: it is the file that says which seats the ladder may touch.
+if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(pulse-escalate\.sh|escalate\.conf|test-pulse-escalate\.sh|mutate-pulse-escalate\.sh)$'; then
+  echo "pre-commit: staged changes touch the escalation ladder -> running mutation harness (~85s)"
+  if [ -f "$ROOT/agents/scheduler/mutate-pulse-escalate.sh" ]; then
+    bash "$ROOT/agents/scheduler/mutate-pulse-escalate.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/scheduler/mutate-pulse-escalate.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
+# --- the GATEWAY-HEALTH probe + recovery -> prove IT still bites -----------
+# Same argument as every block below, on the guard that decides WHETHER TO
+# SIGKILL THE FLEET'S ONE DOOR, unattended, every two minutes (dotfiles-nhc8).
+# Too eager and a merely-slow gateway is `kickstart -k`ed out from under every
+# in-flight fleet request, again and again for as long as the latency lasts; too
+# shy and the 2026-08-09 outage repeats — 12:36–15:08Z, every seat without
+# claude — with a green timer the whole time. Neither direction turns anything
+# red. Measured on this box:
+#
+#     test-gateway-health.sh (25 cases, fake curl + ssh)     2s
+#     mutate-gateway-health.sh (10 mutants + baseline)      21s
+#
+# The convention arm above already runs the 2s suite for these files; this adds
+# ~19s, to commits touching THREE files. The test file is a trigger on purpose:
+# case 1b is the SOLE detector for the healthy signature being narrowed to 401,
+# case 1c/1e for slow-is-not-dead, case 4's probe COUNT for the re-probe budget
+# (the verdict is identical either way), and case 8 is the only thing that can
+# ever see this guard gaining a call to gateway-switch.sh — so deleting one case
+# loses the bite while the suite stays green.
+if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(gateway-health\.sh|test-gateway-health\.sh|mutate-gateway-health\.sh)$'; then
+  echo "pre-commit: staged changes touch the gateway-health guard -> running mutation harness (~20s)"
+  if [ -f "$ROOT/agents/scheduler/mutate-gateway-health.sh" ]; then
+    bash "$ROOT/agents/scheduler/mutate-gateway-health.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/scheduler/mutate-gateway-health.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
+# --- the API-STALL recovery's refusals -> prove THEY still bite ------------
+# Same argument as every block below, on the guard that decides WHICH PANE ON
+# THE BOX GETS TYPED INTO, unattended, every two minutes — and what it types is
+# a paragraph of English (dotfiles-r3sm). Fail shy and the 2026-08-09 outage
+# repeats: four seats idle for 2.5h with no bell, no retry, no signal at all.
+# Fail eager and that paragraph goes into a raw shell, which RUNS it (the
+# reviewer demonstrated exactly this against the script on 2026-08-09, which is
+# where the pane-identity gate came from), or into Zig's open modal, where the
+# follow-up Enter answers his question with the default. Measured on this box:
+#
+#     test-api-stall-recover.sh (35 cases, real outage fixtures)   3s
+#     mutate-api-stall-recover.sh (14 mutants + baseline)         45s
+#
+# The convention arm above already runs the 3s suite for these files; this adds
+# ~42s, to commits touching THREE files. The test file is a trigger on purpose:
+# the `zero captures` assertion is the SOLE detector for identity being checked
+# BEFORE content, the constructed 503 for 3-digit precedence (the real 529
+# fixture is skipped by the whitelist and proves nothing about it), the stacked
+# fixtures for last-block-not-first, and the `! grep ' Enter$'` on the first
+# send-keys for the text/Enter separation — which counting cannot see, because
+# the combined burst still makes two calls.
+if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(api-stall-recover\.sh|test-api-stall-recover\.sh|mutate-api-stall-recover\.sh)$'; then
+  echo "pre-commit: staged changes touch the api-stall recovery -> running mutation harness (~45s)"
+  if [ -f "$ROOT/agents/scheduler/mutate-api-stall-recover.sh" ]; then
+    bash "$ROOT/agents/scheduler/mutate-api-stall-recover.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/scheduler/mutate-api-stall-recover.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
 # --- the ASKUSERQUESTION SEAT GUARD -> prove IT still bites ----------------
 # Same argument as every block below, on a hook that gates a tool EVERY session
 # on the machine uses (dotfiles-9i39). Its two failure directions are both
