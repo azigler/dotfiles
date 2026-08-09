@@ -141,6 +141,16 @@ mapped_suites_for() { # <staged path> -> newline-separated suite paths
     agents/scheduler/pulse-surface-queue.sh)
       printf '%s\n' \
         agents/scheduler/test-pulse-ledger-watch.sh ;;
+    # seat-resolve.sh and handoff-path.sh are producer and consumer, and the
+    # convention only finds each one's own test-<n>.sh. The seat guard that
+    # handoff-path.sh gained (dotfiles-tzfr) is covered by test-seat-resolve.sh
+    # — an edit that silently disarms it passes test-handoff-path.sh, because
+    # the pre-seat cases are exactly the ones the guard must NOT disturb. Name
+    # both directions, same argument as lib/portable.sh above.
+    agents/lib/handoff-path.sh)
+      printf '%s\n' agents/lib/test-seat-resolve.sh ;;
+    agents/lib/seat-resolve.sh)
+      printf '%s\n' agents/lib/test-handoff-path.sh ;;
     # Not under agents/, so no convention arm below reaches it — and its bug was
     # an ORDERING bug (dotfiles-v26x), the kind an unrun suite is written for.
     mac.upgrade.sh)
