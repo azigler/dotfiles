@@ -79,16 +79,31 @@ Beads with no activity for 2+ weeks. Decide per bead:
 - **Done but forgotten** → close
 - **Still relevant but blocked** → declare the dep via `br dep add`
   so it shows in `br blocked`, not `br stale`
-- **Not now, but yes someday** → `br defer --until <date> <id>...`
-  (e.g. `br defer --until 2026-09-01 bd-aaa bd-bbb`). Removes from
-  `br ready`; list them again with **`br list --status deferred`**.
-  ⚠️ `br defer` takes IDs as positionals and has **no reason argument** —
-  a trailing `"reason"` string is parsed as another ID and the command
-  fails with `Error: Issue not found: <reason>`. Put the rationale in
-  `br update <id> --notes` (or the triage commit message) instead.
-  There is also **no `br defer --list`** (`error: unexpected argument`).
-  Both wrong forms were documented here until 2026-08-01 and both fail
-  outright — verified against br v1 in `~/aaif`.
+- **Not now, but yes someday** — the trigger is what to check, not what
+  form it takes:
+  - **A date** → `br defer --until <date> <id>...`
+    (e.g. `br defer --until 2026-09-01 bd-aaa bd-bbb`). Removes from
+    `br ready`; list them again with **`br list --status deferred`**.
+    ⚠️ `br defer` takes IDs as positionals and has **no reason argument** —
+    a trailing `"reason"` string is parsed as another ID and the command
+    fails with `Error: Issue not found: <reason>`. Put the rationale in
+    `br update <id> --notes` (or the triage commit message) instead.
+    There is also **no `br defer --list`** (`error: unexpected argument`).
+    Both wrong forms were documented here until 2026-08-01 and both fail
+    outright — verified against br v1 in `~/aaif`.
+  - **An event** (a bead close, a cutover, a verification landing —
+    anything that isn't a calendar date) → **not** `br defer`. Mint a
+    real edge instead: `br dep add <bead> <trigger-bead> -t waits-for`
+    (e.g. `br dep add bd-aaa bd-cutover-epic -t waits-for`). This is a
+    mechanical upgrade over the older convention of a dated `# defer
+    until X happens` comment on the bead — a comment doesn't unblock
+    anything when X actually happens, and a bare `br defer --until
+    <date>` on an event-triggered bead just means re-triaging it every
+    time the date passes with the event still not true (see the
+    `defer-needs-trigger` memory finding). If no bead exists yet for the
+    trigger event, don't force a defer either way — leave it commented
+    and note in the triage summary that the trigger has no bead to hang
+    the edge on.
 - **Won't happen** → `br close <id>` with a `--notes` reason
   ("won't fix: superseded by bd-YYYY")
 
