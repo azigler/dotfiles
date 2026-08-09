@@ -247,6 +247,24 @@ mapped_suites_for() { # <staged path> -> newline-separated suite paths
     # editing either the script or its suite triggers the suite.
     agents/bin/orphan-reaper.sh|agents/bin/test-orphan-reaper.sh)
       printf '%s\n' agents/bin/test-orphan-reaper.sh ;;
+    # marshal.conf is DATA in the same sense as pico-ports.manifest and
+    # demesne-sync.exclude — and it is the most expensive of the three to get
+    # wrong: every number in it is a knob on what an unattended 01:07 loop
+    # SPENDS overnight (the weekly cap, Zig's daytime reserve, the safety
+    # margin, the degraded floor, the opt-in repo list). The convention loop
+    # maps scripts only, so without this arm a hand-edit here would be gated on
+    # nothing. The suite reads the committed file's grammar and drives the
+    # budget against a fixture db.
+    agents/scheduler/marshal.conf)
+      printf '%s\n' agents/scheduler/test-marshal-drain.sh ;;
+    # THE MOLT THRESHOLD PAIR (dotfiles-9060): one constant in
+    # agents/lib/molt-thresholds.sh, two consumers in two different dirs. The
+    # convention finds each consumer's OWN suite, and each of those stays green
+    # while the pair silently drifts apart — a marshal molting twice as often as
+    # intended, or never. Only the binding suite sees it, so both consumers name
+    # it. (molt-thresholds.sh itself reaches its suite through the convention.)
+    agents/hooks/stop-context-guard.sh|agents/scheduler/marshal-drain.sh)
+      printf '%s\n' agents/lib/test-molt-thresholds.sh ;;
   esac
 }
 
@@ -605,6 +623,37 @@ fi
 # ==  here so the next append has an unambiguous, distinctive landmark.)  ==
 # ==========================================================================
 #
+# --- the FLEET DRAIN's budget + eligibility gates -> prove they still bite --
+# Same argument as every block below, on the script that decides WHAT AN
+# UNATTENDED LOOP SPENDS OVERNIGHT and WHICH BEADS IT HANDS TO A BUILDER
+# (dotfiles-69qr). Six ways it can silently stop working, and not one of them
+# turns anything red: the daytime reserve dropped from the budget (the night
+# eats Zig's day, every night, inside budget); the tap filter loosened (the
+# work tap's spend counted as personal); the `Fleet: yes` check disarmed
+# (opt-in becomes opt-out, and the drain grinds unspecified beads into
+# plausible-wrong code — the ONE failure scrutiny cannot catch); a decision
+# bead admitted (R10 inverted, the marshal starts authoring); the demesne
+# freeze ignored; and the degraded budget returning anything but the floor
+# ("I could not measure" becoming "spend freely"). Measured on this box:
+#
+#     test-marshal-drain.sh (76 cases, fixture db + fake br)     9s
+#     mutate-marshal-drain.sh (6 mutants + baseline)            62s
+#
+# 62s is why this fires on four files rather than every scheduler edit. The
+# test file and marshal.conf are triggers on purpose: T3b.3/T3b.4 are the SOLE
+# detectors for the reserve being subtracted, T14.1 for the type outranking the
+# marker, and T15.1 for the degrade staying conservative — so deleting one case
+# loses the bite while the suite stays green.
+if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(marshal-drain\.sh|marshal\.conf|test-marshal-drain\.sh|mutate-marshal-drain\.sh)$'; then
+  echo "pre-commit: staged changes touch the fleet drain -> running mutation harness (~60s)"
+  if [ -f "$ROOT/agents/scheduler/mutate-marshal-drain.sh" ]; then
+    bash "$ROOT/agents/scheduler/mutate-marshal-drain.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/scheduler/mutate-marshal-drain.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
 # --- the WORKTREE-REMOVE guard's refusal -> prove IT still bites -----------
 # Same argument as every block above, on a hook whose decision is WHETHER A
 # DIRECTORY HOLDING UNCOMMITTED, UNRECOVERABLE WORK GETS DELETED
