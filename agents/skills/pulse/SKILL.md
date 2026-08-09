@@ -106,11 +106,11 @@ hatch. A confabulated row name is worse than `unattributed`, and `null` is
 worse than both. (This example itself taught the bug: 23 null rows across three
 ledgers, 2026-06-14 → 2026-07-08, were copied verbatim from the line that used
 to sit here — `explore-qdo5`.) The mechanical guard is
-`~/dotfiles/agents/scheduler/pulse-ledger-lint.py` — run it against any pulse
+`~/.agents/agents/scheduler/pulse-ledger-lint.py` — run it against any pulse
 project, it discovers valid row names by parsing that project's `refs/pulse.md`:
 
 ```bash
-python3 ~/dotfiles/agents/scheduler/pulse-ledger-lint.py --project "$PULSE_DIR"
+python3 ~/.agents/agents/scheduler/pulse-ledger-lint.py --project "$PULSE_DIR"
 # exit 0 = clean · 1 = violations · 2 = usage/missing file
 ```
 
@@ -273,7 +273,7 @@ the daily cap.)
    start:
 
    ```bash
-   _HP="$HOME/dotfiles/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
+   _HP="$HOME/.agents/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
    type offboard_pending_path >/dev/null 2>&1 || offboard_pending_path() { printf '%s/.offboard-pending' "${1:-.}"; }
    PENDING=$(offboard_pending_path "$PULSE_DIR")
    [ -f "$PENDING" ] || [ -f "$PULSE_DIR/.offboard-pending" ]   # check BOTH, as /onboard does
@@ -303,7 +303,7 @@ the daily cap.)
    /onboard uses:
 
    ```bash
-   _HP="$HOME/dotfiles/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
+   _HP="$HOME/.agents/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
    type handoff_read_path >/dev/null 2>&1 || handoff_read_path() { printf '%s/refs/session-handoff.md' "${1:-.}"; }
    handoff_read_path "$PULSE_DIR"
    ```
@@ -362,13 +362,13 @@ the daily cap.)
    Under `--fresh` the *next* tick's `/clear` is sent by the injector before
    the command arrives — which makes the handoff note load-bearing, not
    optional, because nothing else survives into that tick. Resolve the path
-   with the shared helper — **`~/dotfiles/agents/lib/handoff-path.sh`**, the
+   with the shared helper — **`~/.agents/agents/lib/handoff-path.sh`**, the
    same one /onboard and /offboard source (it is under `agents/lib/`, NOT
    `agents/scheduler/` with the other pulse machinery; a tick that guesses from
    the "See also" list below gets exit 127):
 
    ```bash
-   _HP="$HOME/dotfiles/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
+   _HP="$HOME/.agents/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
    handoff_path "$PULSE_DIR"
    ```
 
@@ -596,9 +596,9 @@ deliberate: dialogs for staffed sessions, beads for unstaffed ticks.)
    call. Start with one row; grow after the first week of ledger.
 3. Install the per-project units from the templates:
    ```bash
-   cp ~/dotfiles/agents/scheduler/templates/pulse-example.service \
+   cp ~/.agents/agents/scheduler/templates/pulse-example.service \
       ~/.config/systemd/user/pulse-<project>.service
-   cp ~/dotfiles/agents/scheduler/templates/pulse-example.timer \
+   cp ~/.agents/agents/scheduler/templates/pulse-example.timer \
       ~/.config/systemd/user/pulse-<project>.timer
    # edit ExecStart (--dir, --cmd "/pulse tick") and OnCalendar, then:
    systemctl --user daemon-reload
@@ -619,7 +619,7 @@ deliberate: dialogs for staffed sessions, beads for unstaffed ticks.)
    `/daemon` skill carries the same rule for non-pulse timers.
 4. Dry-run the injector once by hand and watch the window:
    ```bash
-   ~/dotfiles/agents/scheduler/pulse-inject.sh \
+   ~/.agents/agents/scheduler/pulse-inject.sh \
      --dir /home/ubuntu/<project> --cmd "/pulse status"
    ```
 5. Commit `refs/pulse.md` in the project; the units stay machine-local.

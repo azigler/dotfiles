@@ -639,7 +639,7 @@ line.** This sentence said `work:dream` for two days after the units moved
 (`explore-6abm`), which is why it now points at the flag instead of restating it.
 
 It has fired 2026-07-13, 07-19 and 07-26 (all under the old name). Templates live
-at `~/dotfiles/agents/scheduler/templates/pulse-dream.{service,timer}`; the loop
+at `~/.agents/agents/scheduler/templates/pulse-dream.{service,timer}`; the loop
 is registered in `~/harnessd/refs/harness-manifest.json` (weekly, 180-minute
 grace) and declared in `~/explore/refs/pulse.md`.
 

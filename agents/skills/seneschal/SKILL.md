@@ -36,7 +36,7 @@ shape: **name the seat that owns it.**
 Assemble the brief, then talk to Zig about it. One command does the aggregation:
 
 ```bash
-~/dotfiles/agents/scheduler/seneschal-gather.py
+~/.agents/agents/scheduler/seneschal-gather.py
 ```
 
 It prints the brief and writes it to `refs/seneschal-brief.md` (overwritten each

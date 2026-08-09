@@ -45,7 +45,7 @@ owns the judgement between them.
 ### 1. Open the night
 
 ```bash
-~/dotfiles/agents/scheduler/marshal-drain.sh plan
+~/.agents/agents/scheduler/marshal-drain.sh plan
 ```
 
 `plan` does the whole opening sequence in one call — freeze check, budget,
@@ -105,7 +105,7 @@ filing. Its post-merge assertions have a mechanical form so a 3am loop cannot
 skip them:
 
 ```bash
-~/dotfiles/agents/scheduler/marshal-drain.sh verify \
+~/.agents/agents/scheduler/marshal-drain.sh verify \
   --repo <repo> --bead <id> --before <sha-before-merge> --agent-sha <agent-sha>
 ```
 
@@ -135,7 +135,7 @@ Past the pacing threshold the plan publishes (`molt_pacing_pct`), molt at the
 next bead boundary — never mid-bead:
 
 ```bash
-~/dotfiles/agents/scheduler/seat-molt.sh --self --mode auto --in-flight yes|no
+~/.agents/agents/scheduler/seat-molt.sh --self --mode auto --in-flight yes|no
 ```
 
 `--in-flight yes` when background builders are still out (compaction preserves
@@ -173,7 +173,7 @@ Close with the summary row — the script computes the tally off the ledger
 rather than trusting a session that has molted twice since the first dispatch:
 
 ```bash
-~/dotfiles/agents/scheduler/marshal-drain.sh record --outcome night-end --reason <why>
+~/.agents/agents/scheduler/marshal-drain.sh record --outcome night-end --reason <why>
 ```
 
 The ledger row and the brief's DRAIN section are the whole review surface.

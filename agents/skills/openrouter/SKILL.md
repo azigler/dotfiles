@@ -1,7 +1,7 @@
 ---
 description: Call the OpenRouter API for image generation (nano-banana / Gemini Flash Image) and text completion via any model OpenRouter aggregates. **Cost-aware** — every call spends credits, so the skill only fires when the user explicitly invokes it. Generated images are saved locally for use in repos / docs / brand assets / icon sets.
 when_to_use: User says "use nano-banana", "generate an image", "make a logo", "create icons via openrouter", or otherwise explicitly invokes image generation. NEVER fire autonomously, in loops, or as a "let me try a few" speculation.
-allowed-tools: Bash(curl *) Bash(jq *) Bash(base64 *) Bash(file *) Bash(python3 *) Bash(/home/ubuntu/dotfiles/agents/skills/openrouter/*)
+allowed-tools: Bash(curl *) Bash(jq *) Bash(base64 *) Bash(file *) Bash(python3 *) Bash(/home/ubuntu/.agents/agents/skills/openrouter/*)
 ---
 
 # /openrouter — OpenRouter API

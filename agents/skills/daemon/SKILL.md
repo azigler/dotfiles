@@ -47,7 +47,7 @@ proactive daemon whose trigger only fires when a session is already open isn't
 proactive — it's a manual tool with extra steps. The trigger must be able to
 **materialize the agent**, idempotently, from nothing.
 
-**The ideal form** (the `/pulse` scheduler primitive, `dotfiles/agents/scheduler/
+**The ideal form** (the `/pulse` scheduler primitive, `~/.agents/agents/scheduler/
 pulse-inject.sh`): no tmux server / no session → `new-session -d`; no window →
 `new-window`; the pane isn't running claude → launch it **and wait for the
 composer to be input-ready** (typing into a still-booting TUI drops the keystrokes

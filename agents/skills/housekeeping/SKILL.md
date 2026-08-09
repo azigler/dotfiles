@@ -320,7 +320,7 @@ with `--ours`). Don't paper over by hand-editing each clone.
 ### 9.2 Skill consistency check
 
 Paragon skills are canonical in dotfiles and surface as `~/.claude/skills/`
-(a symlink to `~/dotfiles/agents/skills/`). The old dotfiles→team distribute
+(a symlink to `~/.agents/agents/skills/`). The old dotfiles→team distribute
 flow is retired — the team now consumes skills via the hand-maintained
 `lb-marketing` plugin, and LinearB-native skills (apex, imc, linearb-*, the
 builders) are canonical in `~/linearb/.claude/skills/`. There is no longer an
@@ -569,17 +569,17 @@ pinning a model version, which silently misattributed every commit made under
 a newer one. Docs are the only artifact in the harness with no compiler, and
 agents execute them verbatim.
 
-`~/dotfiles/agents/doclint/doc-example-lint.py` replays every documented shell
+`~/.agents/agents/doclint/doc-example-lint.py` replays every documented shell
 statement against the machine's LIVE PreToolUse hooks, shellchecks the shell
 blocks, validates JSON examples through their real consumer, and resolves
 relative links.
 
 ```bash
-python3 ~/dotfiles/agents/doclint/doc-example-lint.py            # default roots
-python3 ~/dotfiles/agents/doclint/doc-example-lint.py --path ~/explore
+python3 ~/.agents/agents/doclint/doc-example-lint.py            # default roots
+python3 ~/.agents/agents/doclint/doc-example-lint.py --path ~/explore
 
 # ~/linearb and ~/cfp are CONFIDENTIAL_ROOTS and are SKIPPED without this flag:
-python3 ~/dotfiles/agents/doclint/doc-example-lint.py --path ~/linearb/<project> --include-confidential
+python3 ~/.agents/agents/doclint/doc-example-lint.py --path ~/linearb/<project> --include-confidential
 ```
 
 ⚠️ **`files_scanned=0` is a RESULT to investigate, never a pass.** `~/linearb`

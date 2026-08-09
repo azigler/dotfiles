@@ -21,7 +21,7 @@ pending marker; the check honors the scoped marker AND a legacy one (for the
 transition / non-opted-in projects):
 
 ```bash
-_HP="$HOME/dotfiles/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
+_HP="$HOME/.agents/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
 type offboard_pending_path >/dev/null 2>&1 || offboard_pending_path() { printf '%s/.offboard-pending' "${1:-.}"; }
 PENDING=$(offboard_pending_path .)
 if [ -f "$PENDING" ] || [ -f .offboard-pending ]; then
@@ -102,7 +102,7 @@ continuing:
    in resolves to the legacy single file:
 
    ```bash
-   _HP="$HOME/dotfiles/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
+   _HP="$HOME/.agents/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
    type handoff_read_path >/dev/null 2>&1 || handoff_read_path() { printf '%s/refs/session-handoff.md' "${1:-.}"; }
    HANDOFF=$(handoff_read_path .); echo "handoff <- $HANDOFF"; [ -f "$HANDOFF" ] && cat "$HANDOFF"
    ```
@@ -121,7 +121,7 @@ accumulated (`dotfiles-qnfk` R3; constitution Art. V — seats are named,
 remembered, recognized).
 
 ```bash
-_SH="$HOME/dotfiles/agents/lib/seat-history.sh"
+_SH="$HOME/.agents/agents/lib/seat-history.sh"
 [ -r "$_SH" ] && bash "$_SH" head --laurels 3 || true
 ```
 

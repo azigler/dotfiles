@@ -57,7 +57,7 @@ durable record"). Collect the ones created since the last offboard —
 compaction:
 
 ```bash
-_HP="$HOME/dotfiles/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
+_HP="$HOME/.agents/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
 type last_offboard_path >/dev/null 2>&1 || last_offboard_path() { printf '%s/.claude/last-offboard-session' "${1:-.}"; }
 # Pass data via env vars — NOT `br … | python3 - <<HEREDOC` (the pipe and the
 # heredoc both claim stdin, so python reads the JSON as its program). Verified.
@@ -294,7 +294,7 @@ it, never hardcode the filename:
 
 ```bash
 mkdir -p refs
-_HP="$HOME/dotfiles/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
+_HP="$HOME/.agents/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
 type handoff_path >/dev/null 2>&1 || handoff_path() { printf '%s/refs/session-handoff.md' "${1:-.}"; }
 HANDOFF=$(handoff_path .)            # refs/session-handoff.md  OR  refs/session-handoff--<window>.md
 # one-time legacy migration (pre-2026-06-09 location):
@@ -354,7 +354,7 @@ Write the markdown below to `$HANDOFF`:
 # Markers are window-scoped too (handoff-path.sh), so two durable sessions
 # in one project don't trip each other's safety net. Falls back to legacy
 # single-file when not opted in / not in tmux. (Both markers are gitignored.)
-_HP="$HOME/dotfiles/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
+_HP="$HOME/.agents/agents/lib/handoff-path.sh"; [ -f "$_HP" ] && . "$_HP"
 type handoff_path          >/dev/null 2>&1 || handoff_path()          { printf '%s/refs/session-handoff.md' "${1:-.}"; }
 type offboard_pending_path >/dev/null 2>&1 || offboard_pending_path() { printf '%s/.offboard-pending' "${1:-.}"; }
 type last_offboard_path    >/dev/null 2>&1 || last_offboard_path()    { printf '%s/.claude/last-offboard-session' "${1:-.}"; }

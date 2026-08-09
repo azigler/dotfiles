@@ -117,7 +117,7 @@ One commit per fix. Use :bug: gitmoji. Include `Bead: <BEAD_ID>`.
 ## Step 3: Merge + close
 
 After the subagent reports done, run the standard guarded merge sequence —
-**single owner: `~/dotfiles/agents/AGENTS.md`, "Delegation."** It is loaded in
+**single owner: `~/.agents/agents/AGENTS.md`, "Delegation."** It is loaded in
 every session: assert `$TARGET`, capture `BEFORE`, merge, prove the target
 actually moved and now contains the branch, `br close <BEAD_ID>`, commit
 `.beads/issues.jsonl`, then `git worktree remove --force --force` +
@@ -203,9 +203,9 @@ worktree. The `pre-tool-use-worktree-guard.sh` hook blocks Write/Edit
 on absolute paths outside the worktree by design. Affected file
 classes:
 
-- `~/dotfiles/agents/skills/<name>/SKILL.md` (global skills)
-- `~/dotfiles/agents/hooks/*.sh` (global hooks)
-- `~/dotfiles/agents/AGENTS.md`
+- `~/.agents/agents/skills/<name>/SKILL.md` (global skills)
+- `~/.agents/agents/hooks/*.sh` (global hooks)
+- `~/.agents/agents/AGENTS.md`
 - `~/.claude/settings.json`
 - `~/.config/systemd/user/*.service` (user services)
 - `/etc/systemd/system/*.service` (system services)
@@ -219,7 +219,7 @@ mandatory) — just no worktree dispatch:
 2. Read + Edit the file directly as the orchestrator
 3. Add a regression test to the file's own test directory if one
    exists. For dotfiles hooks specifically, the convention lives at
-   `~/dotfiles/agents/hooks/test/` — one `test-<hook>.sh` per hook,
+   `~/.agents/agents/hooks/test/` — one `test-<hook>.sh` per hook,
    executable bash, JSON payload + assertions via a `run_case`
    helper, prints `PASS: N/N test cases` on success. See
    `test-worktree-guard.sh` and `test-pre-bead-close.sh` as worked

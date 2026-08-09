@@ -2,7 +2,7 @@
 description: The research lab's EXECUTOR — dive ONE lead, bounded, surface and log it. Fetches a list of URLs in parallel and synthesizes a structured plaintext report into an Asana task, in **archival** (`~/explore/<topic>/`) or **publishing** (subtask + Zig-voice LinkedIn post + randomize-driven image) shape. Distinct from /grok (in-repo code reading) and /desk (which ALLOCATES rather than executes).
 when_to_use: User says "dive [topic / list of URLs]", "explore [topic]", "research these and put it on Asana", "look into [N URLs] and tell me what to learn", "do the same treatment for [task]"; or the `dive` pulse row fires. Anytime the user hands over multiple sources and an Asana destination.
 argument-hint: "<asana-task-gid> <url> [<url> ...]"
-allowed-tools: Bash(curl *) Bash(jq *) Bash(python3 *) Bash(openssl rand *) Bash(file *) Bash(/home/ubuntu/dotfiles/agents/skills/openrouter/*) WebFetch
+allowed-tools: Bash(curl *) Bash(jq *) Bash(python3 *) Bash(openssl rand *) Bash(file *) Bash(/home/ubuntu/.agents/agents/skills/openrouter/*) WebFetch
 ---
 
 # /dive — Multi-source research + Asana compile + optional post deliverable

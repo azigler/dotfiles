@@ -55,7 +55,7 @@ favor of this discipline).
 cd /home/ubuntu/<project>     # absolute path OR: cd "$(git -C <known> rev-parse --show-toplevel)"
 ```
 
-Then run the merge sequence — **single owner: `~/dotfiles/agents/AGENTS.md`,
+Then run the merge sequence — **single owner: `~/.agents/agents/AGENTS.md`,
 "Delegation"** (assert `$TARGET` → `BEFORE=$(git rev-parse HEAD)` → guarded
 merge → SHA-moved + `--is-ancestor` checks → `br close` → commit
 `.beads/issues.jsonl` → `git worktree remove --force --force` + `git branch -D`
