@@ -27,7 +27,13 @@ trap 'rm -rf "$STATE" "$PROJ"' EXIT
 SID="test-session-1234"
 
 guard() {
-  printf '%s' "$1" | CONTEXT_GUARD_STATE_DIR="$STATE" CONTEXT_GUARD_PCT="${2:-85}" "$GUARD" 2>/tmp/guard-stderr-$$
+  printf '%s' "$1" | CONTEXT_GUARD_STATE_DIR="$STATE" CONTEXT_GUARD_PCT="${2:-75}" "$GUARD" 2>/tmp/guard-stderr-$$
+}
+# The DEFAULT threshold, with no CONTEXT_GUARD_PCT in the environment. Separate
+# helper on purpose: guard() pins the threshold, so it can never observe the
+# default drifting — and the default is the number every real session gets.
+guard_default() {
+  printf '%s' "$1" | CONTEXT_GUARD_STATE_DIR="$STATE" "$GUARD" 2>/tmp/guard-stderr-$$
 }
 
 PAYLOAD_BASE=$(printf '{"hook_event_name":"Stop","session_id":"%s","cwd":"%s"}' "$SID" "$PROJ")
@@ -41,12 +47,44 @@ echo "40" > "$STATE/$SID"
 guard "$PAYLOAD_BASE"
 [ $? -eq 0 ] && ok || bad "below threshold is a no-op"
 
-# 3. At threshold → exit 2 with /offboard instruction
-echo "85" > "$STATE/$SID"
+# 3. At threshold → exit 2 with the two-step self-service instruction
+echo "80" > "$STATE/$SID"
 guard "$PAYLOAD_BASE"
 RC=$?
 [ $RC -eq 2 ] && ok || bad "at threshold exits 2 (got $RC)"
 grep -q "/offboard" /tmp/guard-stderr-$$ && ok || bad "stderr carries the offboard instruction"
+
+# 3b. THE MOLT (dotfiles-it06). The instruction must name the mechanical cycle,
+#     not "surface to Andrew" — a marshal running all night has no Andrew in the
+#     room, and a guard that can only escalate is a guard that stalls the seat.
+grep -q -- "seat-molt.sh --self --mode auto --in-flight" /tmp/guard-stderr-$$ && ok \
+  || bad "the instruction names seat-molt.sh --self --mode auto --in-flight"
+if grep -q "surface to Andrew" /tmp/guard-stderr-$$; then
+  bad "the old 'surface to Andrew' escalation is gone"
+else ok; fi
+
+# 3c. AND THE PATH IT NAMES MUST EXIST AND BE EXECUTABLE. A documented example is
+#     executable in a prompt-driven harness (this repo's rule 2): the agent runs
+#     this line verbatim, so a stale path here is a defect that replicates itself
+#     into every session that hits the ceiling.
+MOLT_PATH=$(grep -o '[^ ]*seat-molt\.sh' /tmp/guard-stderr-$$ | head -1)
+[ -n "$MOLT_PATH" ] && [ -x "$MOLT_PATH" ] && ok \
+  || bad "the seat-molt.sh path in the message is executable (got '${MOLT_PATH:-<none>}')"
+rm -f "$STATE/$SID.fired"
+
+# 3d. THE DEFAULT THRESHOLD IS 75, pinned from both sides (85 -> 75, it06). The
+#     old default left an /offboard — real work: note + commit + push — to be done
+#     in the last 15% of the window, with auto-compaction able to land mid-wrap.
+echo "75" > "$STATE/$SID"
+guard_default "$PAYLOAD_BASE"
+[ $? -eq 2 ] && ok || bad "the DEFAULT threshold fires at 75%"
+rm -f "$STATE/$SID.fired"
+echo "74" > "$STATE/$SID"
+guard_default "$PAYLOAD_BASE"
+[ $? -eq 0 ] && ok || bad "the DEFAULT threshold does NOT fire at 74% (it is 75, not lower)"
+rm -f "$STATE/$SID.fired"
+echo "80" > "$STATE/$SID"
+guard "$PAYLOAD_BASE"   # re-arm the fired marker for case 4
 
 # 4. Second fire same session → marker suppresses (no nag loop)
 guard "$PAYLOAD_BASE"
@@ -87,14 +125,14 @@ NOLIB="$STATE/nolib"
 mkdir -p "$NOLIB"
 cp "$GUARD" "$NOLIB/stop-context-guard.sh"
 NL_ERR=$(printf '%s' "$PAYLOAD_BASE" | CONTEXT_GUARD_STATE_DIR="$STATE" \
-  CONTEXT_GUARD_PCT=85 bash "$NOLIB/stop-context-guard.sh" 2>&1 >/dev/null)
+  CONTEXT_GUARD_PCT=75 bash "$NOLIB/stop-context-guard.sh" 2>&1 >/dev/null)
 NL_RC=$?
 [ "$NL_RC" -eq 2 ] && ok || bad "unreadable mtime must NOT grant the release (got $NL_RC)"
 echo "$NL_ERR" | grep -q "could not read the mtime" && ok \
   || bad "the fail-closed mtime path announces itself"
 rm -f "$STATE/$SID.fired" "$PROJ/.claude/last-offboard-session"
 
-# 7. Threshold env override: 90 → 85% no longer fires
+# 7. Threshold env override: 90 → 80% no longer fires
 rm -f "$STATE/$SID.fired"
 guard "$PAYLOAD_BASE" 90
 [ $? -eq 0 ] && ok || bad "CONTEXT_GUARD_PCT override respected"

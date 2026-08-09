@@ -9,9 +9,21 @@
 # /tmp/claude-context-pct/<session_id> and this hook reads it on Stop.
 #
 # Behavior:
-# - pct >= threshold (default 85, CONTEXT_GUARD_PCT to override):
+# - pct >= threshold (default 75, CONTEXT_GUARD_PCT to override):
 #   exit 2 — the agent keeps working WITH the stderr instruction, i.e.
-#   the session offboards itself.
+#   the session offboards itself AND THEN CYCLES ITSELF (the MOLT,
+#   dotfiles-it06). 85 -> 75 because the old number left no room: an
+#   /offboard is real work (handoff note + commit + push) and firing at
+#   85% meant doing it in the last 15% of the window, with auto-compaction
+#   able to land mid-wrap. 75 buys the headroom to offboard properly and
+#   then molt deliberately.
+# - The instruction is now SELF-SERVICE. It used to end "surface to
+#   Andrew that this session should be /compact'ed or /clear'ed" — which
+#   blocks autonomy by design: a marshal running all night has no Andrew
+#   in the room, so the seat stalled at the ceiling until morning. It now
+#   names agents/scheduler/seat-molt.sh, which does the cycle mechanically.
+#   This guard is the BACKSTOP, not the mechanism: a long-loop seat molts
+#   PROACTIVELY at work-item boundaries and should never reach this line.
 # - Fires ONCE per session (.fired marker) — never a nag loop.
 # - Released by a RECENT offboard: if <cwd>/.claude/last-offboard-session
 #   matches this session and was written within the last 30 min, the
@@ -41,8 +53,21 @@
 
 INPUT=$(cat 2>/dev/null || echo '{}')
 
-_CG_LIB="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/portable.sh"
+_CG_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+_CG_LIB="$_CG_DIR/lib/portable.sh"
 [ -r "$_CG_LIB" ] && . "$_CG_LIB"
+
+# The instruction below is an EXAMPLE, and in a prompt-driven harness an example
+# is EXECUTABLE (this repo's rule 2): the agent copies it verbatim. So the path
+# is resolved from this hook's own location and only printed as an absolute path
+# when it actually exists — never a guessed repo-relative string that resolves
+# against whatever cwd the session happens to be in.
+_CG_MOLT="$_CG_DIR/../scheduler/seat-molt.sh"
+if [ -x "$_CG_MOLT" ]; then
+  _CG_MOLT="$(cd "$(dirname "$_CG_MOLT")" && pwd)/seat-molt.sh"
+else
+  _CG_MOLT="agents/scheduler/seat-molt.sh (not found — check the agents tier)"
+fi
 
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
 [ -z "$SESSION_ID" ] && exit 0
@@ -58,7 +83,7 @@ PCT_FILE="$STATE_DIR/$SESSION_ID"
 PCT=$(tr -dc '0-9' < "$PCT_FILE")
 [ -n "$PCT" ] || exit 0
 
-THRESHOLD="${CONTEXT_GUARD_PCT:-85}"
+THRESHOLD="${CONTEXT_GUARD_PCT:-75}"
 [ "$PCT" -ge "$THRESHOLD" ] || exit 0
 
 # Fire once per session.
@@ -83,5 +108,5 @@ fi
 
 touch "$MARKER" 2>/dev/null
 
-echo "Context at ${PCT}% of the window — nearing auto-compaction. Run /offboard NOW (handoff note + commit + push), then surface to Andrew that this session should be /compact'ed or /clear'ed deliberately before taking new work. Do not start anything new first." >&2
+echo "Context at ${PCT}% of the window — nearing auto-compaction. Cycle this session YOURSELF, in two steps, before taking new work; do not start anything new first, and do not wait for Andrew. (1) Run /offboard NOW — handoff note + commit + push. (2) Then run: $_CG_MOLT --self --mode auto --in-flight <yes|no>   — pass yes if background tasks or an unfinishable arc are in flight (it /compacts, which preserves task handles) and no otherwise (it /clears + /onboards, which is cheaper and cleaner). It detaches and fires once you end this turn; it REFUSES unless step 1 really happened." >&2
 exit 2

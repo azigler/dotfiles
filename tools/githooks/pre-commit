@@ -110,6 +110,13 @@ mapped_suites_for() { # <staged path> -> newline-separated suite paths
       printf '%s\n' agents/hooks/test/test-secret-alert.sh ;;
     agents/hooks/lib/always-loaded.sh|agents/hooks/stop-always-loaded-check.sh)
       printf '%s\n' agents/hooks/test/test-always-loaded-staleness.sh ;;
+    # There is no test-pre-compact-observe.sh and there never was: the observer
+    # ships WITH the Stop-hook guard it backs up, and cases 9-11 of that suite
+    # drive this exact script. Before this entry, every edit to the PreCompact
+    # backstop was gated on NOTHING while its coverage sat one file away — the
+    # dotfiles-dijt shape, found again while landing dotfiles-it06.
+    agents/hooks/pre-compact-observe.sh)
+      printf '%s\n' agents/hooks/test/test-stop-context-guard.sh ;;
     agents/hooks/post-bash-beads-merge-check.sh)
       printf '%s\n' agents/hooks/test/test-beads-merge-check.sh ;;
     agents/hooks/pre-tool-use-require-isolation.sh)
@@ -147,6 +154,15 @@ mapped_suites_for() { # <staged path> -> newline-separated suite paths
     # — an edit that silently disarms it passes test-handoff-path.sh, because
     # the pre-seat cases are exactly the ones the guard must NOT disturb. Name
     # both directions, same argument as lib/portable.sh above.
+    # The MOLT is a producer/consumer pair across two dirs (dotfiles-it06):
+    # stop-context-guard.sh's instruction NAMES seat-molt.sh by resolved path,
+    # and its suite asserts that path is executable — the mechanical form of
+    # this repo's rule 2 (a documented example is executable). Moving or
+    # renaming seat-molt.sh therefore breaks the guard's message, and only the
+    # guard's suite can see it. Same argument as lib/portable.sh above: name the
+    # consumer in the same change as the producer.
+    agents/scheduler/seat-molt.sh)
+      printf '%s\n' agents/hooks/test/test-stop-context-guard.sh ;;
     agents/lib/handoff-path.sh)
       printf '%s\n' agents/lib/test-seat-resolve.sh ;;
     agents/lib/seat-resolve.sh)
@@ -358,6 +374,32 @@ if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(pulse-inject\.sh|test-
     bash "$ROOT/agents/scheduler/mutate-pulse-seat.sh" || FAILED=1
   else
     echo "pre-commit: FAIL — agents/scheduler/mutate-pulse-seat.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
+# --- the MOLT's safety rails -> prove THEY still bite ----------------------
+# Fourth instance of the same argument, on a script whose decision is WHETHER TO
+# DESTROY A LIVE SESSION'S CONTEXT (dotfiles-it06). Every rail fails silently:
+# a /clear into an un-offboarded session loses the arc and still reports
+# `molted`; a send-keys into an open dialog answers Zig's question with the
+# default; a missing rate limit is a molt loop made of successful-looking
+# cycles; a skipped idle-wait types into a pane mid-turn. Nothing there turns a
+# timer red, so suite-green is not evidence. Measured on this box:
+#
+#     test-seat-molt.sh (41 assertions, real tmux fixtures)   43s
+#     mutate-seat-molt.sh (5 mutants + baseline)             ~4.5 min
+#
+# The convention arm above already runs the 43s suite for these files; this adds
+# ~3.7 min, to commits touching THREE files. The test file is a trigger on
+# purpose — case 13 is the SOLE detector for the freshness WINDOW (M5), so
+# deleting one case loses the bite while the suite stays green.
+if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(seat-molt\.sh|test-seat-molt\.sh|mutate-seat-molt\.sh)$'; then
+  echo "pre-commit: staged changes touch the MOLT's safety rails -> running mutation harness (~4.5 min)"
+  if [ -f "$ROOT/agents/scheduler/mutate-seat-molt.sh" ]; then
+    bash "$ROOT/agents/scheduler/mutate-seat-molt.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/scheduler/mutate-seat-molt.sh is missing" >&2
     FAILED=1
   fi
 fi
