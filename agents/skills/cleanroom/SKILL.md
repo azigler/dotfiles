@@ -350,8 +350,10 @@ for i in $(seq 1 "$MAX_ITER"); do
     echo "iteration $i: no ITER_RESULT= marker — exit-0-without-a-marker is FAILURE (dotfiles-cxle)" >&2
     exit 1
   fi
-  grep -q '^ITER_RESULT=DONE$' <<<"$OUT" && { echo "done at iteration $i"; break; }
+  grep -q '^ITER_RESULT=DONE$' <<<"$OUT" && { echo "done at iteration $i"; exit 0; }
 done
+echo "cap $MAX_ITER reached without ITER_RESULT=DONE — exhaustion is FAILURE, not success" >&2
+exit 1
 ```
 
 Durable state between iterations:
