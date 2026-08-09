@@ -83,7 +83,7 @@ seats:
     office: "The Seneschal"
     sigil: "🗝"
     home: ~/dotfiles
-    model: sonnet
+    model: fable
     effort: high
     aliases: []
     history: refs/seats/seneschal.history.md
