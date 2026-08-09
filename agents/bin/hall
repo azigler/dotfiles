@@ -173,6 +173,95 @@ hall_trunc() {
   if [ "${#s}" -gt "$n" ]; then printf '%s.' "${s:0:$((n - 1))}"; else printf '%s' "$s"; fi
 }
 
+# hall_plain <string> -> the same string with the typographic characters roster
+# PROSE uses folded to something the court may print.  The rendering rule here
+# is ASCII + `·` only (see the discipline block), and `charter-line:` is free
+# text an author naturally writes with an em dash — every one of the roster's 18
+# charter lines has one today.  The em dash becomes the hall's own separator;
+# curly quotes become straight.
+#
+# It is applied to the CHARTER COLUMN ONLY, and that column is deliberately
+# LAST on the line: a residual multibyte character would make printf's byte
+# padding one cell short, and at the end of a row that costs nothing. If prose
+# ever arrives with a character not folded here, test-hall.sh's glyph scan over
+# the REAL roster is what says so.
+hall_plain() {
+  local s=$1
+  s=${s//—/·}; s=${s//–/·}
+  s=${s//’/\'}; s=${s//‘/\'}
+  s=${s//“/\"}; s=${s//”/\"}
+  printf '%s' "$s"
+}
+
+# hall_dashes <n> -> n ASCII hyphens (the rule under the header).
+hall_dashes() {
+  local n=$1 s=''
+  while [ "${#s}" -lt "$n" ]; do s="$s----------"; done
+  printf '%s' "${s:0:$n}"
+}
+
+# ---------------------------------------------------------------------------
+# RESPONSIVE WIDTH (dotfiles-hnhl)
+# ---------------------------------------------------------------------------
+# Zig, 2026-08-09: on his PHONE tmux said "height too large" and showed NOTHING
+# (the popup was hardcoded 84x32, bigger than the client — fixed in tmux.conf,
+# which now sizes in PERCENT); on the desktop the court felt "a little
+# squished". So the court reads the width it was actually given and renders one
+# of three layouts.  The breakpoints are Zig's, by looking:
+#
+#   compact  < 60   sigil · name · status.  A phone.  Nothing else fits, and a
+#                   wrapped row is worse than a missing column.
+#   medium   60-99  the v0 court: office, status, last, model, tap (~66 cells).
+#   wide     >=100  the room: a wider name and office, a full-width tap, and
+#                   the seat's CHARTER LINE filling whatever is left.
+#
+# COLUMNS is the seam (tests set it; bash does not export it), then the real
+# terminal via `tput cols`, then 80 — which is what a pipe or a cron gets, and
+# is why the suite's default-width cases still see the medium layout.
+hall_cols() {
+  local c="${COLUMNS:-}"
+  if [ -z "$c" ] && command -v tput >/dev/null 2>&1; then
+    c=$(tput cols 2>/dev/null)   # allow-suppress: query; no tty is not an error
+  fi
+  case "$c" in ''|*[!0-9]*) c=80 ;; esac
+  [ "$c" -lt 24 ] && c=24
+  printf '%s' "$c"
+}
+
+# hall_layout <cols> — sets HALL_MODE and the column widths for this render.
+# Every width is a byte count of an ASCII column, so printf's %-*s padding and
+# the terminal's cells are the same number (the sigil is the only glyph on the
+# line, and hall_glyph_audit asserts it is 2 cells).
+hall_layout() {
+  local cols=$1 fixed
+  if [ "$cols" -lt 60 ]; then
+    HALL_MODE=compact
+    # sigil(2) + 2 + name + 1 + st(2), and one cell of slack so a terminal that
+    # wraps at exactly $cols never wraps a row.
+    W_NAME=$(( cols - 8 )); W_OFFICE=0; W_MODEL=0; W_TAP=0; W_CHARTER=0
+    [ "$W_NAME" -gt 14 ] && W_NAME=14
+    [ "$W_NAME" -lt 8 ] && W_NAME=8
+  elif [ "$cols" -lt 100 ]; then
+    HALL_MODE=medium
+    W_NAME=11; W_MODEL=6; W_TAP=8; W_CHARTER=0
+    # The OFFICE column absorbs the slack: at 60 it is 19 ("The Master of
+    # Works" exactly), at 80 it is capped at 26 so the table does not sprawl
+    # ahead of the wide layout, which is where the extra room earns its keep.
+    fixed=$(( 2 + 2 + W_NAME + 1 + 1 + 2 + 1 + 4 + 1 + W_MODEL + 1 + W_TAP ))
+    W_OFFICE=$(( cols - fixed - 1 ))
+    [ "$W_OFFICE" -gt 26 ] && W_OFFICE=26
+    [ "$W_OFFICE" -lt 14 ] && W_OFFICE=14
+  else
+    HALL_MODE=wide
+    W_NAME=14; W_OFFICE=30; W_MODEL=6; W_TAP=10
+    # everything left after: sigil(2) + 2 + name + 1 + office + 1 + st(2) + 1 +
+    # last(4) + 1 + model + 1 + tap + 1 — minus one cell of slack, so a row is
+    # never exactly the terminal's width (where a wrap is one stray byte away).
+    W_CHARTER=$(( cols - (2 + 2 + W_NAME + 1 + W_OFFICE + 1 + 2 + 1 + 4 + 1 + W_MODEL + 1 + W_TAP + 1) - 1 ))
+    [ "$W_CHARTER" -lt 12 ] && W_CHARTER=12
+  fi
+}
+
 # hall_expand_home <roster home> -> absolute path (`~` and `~/x` only; the
 # roster never uses `~user`).
 hall_expand_home() {
@@ -310,17 +399,50 @@ court() {
     fi
   fi
 
-  printf 'THE HALL %s %s %s here: %s %s tap: %s\n' \
-    "$SEP" "$role" "$SEP" "$cur_seat" "$SEP" "$cur_tap"
+  local cols
+  cols=$(hall_cols)
+  hall_layout "$cols"
+
   # 4 leading spaces, not 3: the sigil column is one emoji (2 cells) plus 2
   # spaces. Every column below is byte-padded ASCII, so the header, the rule
   # and every row land on the same boundaries.
-  printf '    %-11s %-24s %-2s %-4s %-6s %s\n' seat office st last model tap
-  printf '    %s\n' '----------- ------------------------ -- ---- ------ ---'
+  case "$HALL_MODE" in
+    compact)
+      # A phone. The host and the tap do not survive the cut: on a 40-cell
+      # screen the question is "who is awake", and one wrapped row destroys
+      # more than a missing column does.
+      printf 'THE HALL %s here: %s\n' "$SEP" "$(hall_trunc "$cur_seat" 14)"
+      printf '    %-*s %-2s\n' "$W_NAME" seat st
+      printf '    %s %s\n' "$(hall_dashes "$W_NAME")" '--'
+      ;;
+    medium)
+      # The HOST, not the full estate role: "the KEEP (zig-computer)" costs 12
+      # cells this line does not have at 60, and the room to say it properly is
+      # exactly what the wide layout has.
+      printf 'THE HALL %s %s %s here: %s %s tap: %s\n' \
+        "$SEP" "$host" "$SEP" "$(hall_trunc "$cur_seat" 16)" "$SEP" "$cur_tap"
+      printf '    %-*s %-*s %-2s %-4s %-*s %s\n' \
+        "$W_NAME" seat "$W_OFFICE" office st last "$W_MODEL" model tap
+      printf '    %s %s %s %s %s %s\n' \
+        "$(hall_dashes "$W_NAME")" "$(hall_dashes "$W_OFFICE")" '--' '----' \
+        "$(hall_dashes "$W_MODEL")" "$(hall_dashes 3)"
+      ;;
+    *)
+      printf 'THE HALL %s %s %s here: %s %s tap: %s\n' \
+        "$SEP" "$role" "$SEP" "$cur_seat" "$SEP" "$cur_tap"
+      printf '    %-*s %-*s %-2s %-4s %-*s %-*s %s\n' \
+        "$W_NAME" seat "$W_OFFICE" office st last "$W_MODEL" model \
+        "$W_TAP" tap charter
+      printf '    %s %s %s %s %s %s %s\n' \
+        "$(hall_dashes "$W_NAME")" "$(hall_dashes "$W_OFFICE")" '--' '----' \
+        "$(hall_dashes "$W_MODEL")" "$(hall_dashes "$W_TAP")" \
+        "$(hall_dashes "$W_CHARTER")"
+      ;;
+  esac
 
   local seated=0 asleep=0
-  local name model home history office sigil
-  while IFS=$'\t' read -r _tag name model _effort home history office sigil _charter; do
+  local name model home history office sigil charter
+  while IFS=$'\t' read -r _tag name model _effort home history office sigil charter; do
     [ -n "${name:-}" ] || continue
     seated=$((seated + 1))
     local aliases hit glyph act row
@@ -337,10 +459,26 @@ court() {
     else
       glyph="$G_ASLEEP"; act='-'; asleep=$((asleep + 1))
     fi
-    printf '%s  %-11s %-24s %s %-4s %-6s %s\n' \
-      "$sigil" "$(hall_trunc "$name" 11)" "$(hall_trunc "$office" 24)" \
-      "$glyph" "$act" "$(hall_trunc "${model:--}" 6)" \
-      "$(hall_trunc "$(hall_tap_cell "$name" "$dump")" 8)"
+    case "$HALL_MODE" in
+      compact)
+        printf '%s  %-*s %s\n' "$sigil" "$W_NAME" "$(hall_trunc "$name" "$W_NAME")" "$glyph"
+        ;;
+      medium)
+        printf '%s  %-*s %-*s %s %-4s %-*s %s\n' \
+          "$sigil" "$W_NAME" "$(hall_trunc "$name" "$W_NAME")" \
+          "$W_OFFICE" "$(hall_trunc "$office" "$W_OFFICE")" \
+          "$glyph" "$act" "$W_MODEL" "$(hall_trunc "${model:--}" "$W_MODEL")" \
+          "$(hall_trunc "$(hall_tap_cell "$name" "$dump")" "$W_TAP")"
+        ;;
+      *)
+        printf '%s  %-*s %-*s %s %-4s %-*s %-*s %s\n' \
+          "$sigil" "$W_NAME" "$(hall_trunc "$name" "$W_NAME")" \
+          "$W_OFFICE" "$(hall_trunc "$office" "$W_OFFICE")" \
+          "$glyph" "$act" "$W_MODEL" "$(hall_trunc "${model:--}" "$W_MODEL")" \
+          "$W_TAP" "$(hall_trunc "$(hall_tap_cell "$name" "$dump")" "$W_TAP")" \
+          "$(hall_trunc "$(hall_plain "$charter")" "$W_CHARTER")"
+        ;;
+    esac
   done <<<"$(printf '%s\n' "$dump" | awk -F'\t' '$1=="seat"')"
 
   # 🚧 — live windows that match NO seat and no alias.  Never adopted silently
@@ -351,18 +489,52 @@ court() {
     [ -n "${bare:-}" ] || continue
     hall_seat_of_window "$bare" "$dump" >/dev/null && continue
     unreg=$((unreg + 1))
-    printf '%s  %-11s %-24s %s %-4s %-6s %s\n' \
-      "$G_UNREG" "$(hall_trunc "$bare" 11)" \
-      "$(hall_trunc "no seat in $sess" 24)" \
-      "$G_UNREG" "$(hall_rel "$act")" '-' '-'
+    case "$HALL_MODE" in
+      compact)
+        printf '%s  %-*s %s\n' "$G_UNREG" "$W_NAME" "$(hall_trunc "$bare" "$W_NAME")" "$G_UNREG"
+        ;;
+      medium)
+        printf '%s  %-*s %-*s %s %-4s %-*s %s\n' \
+          "$G_UNREG" "$W_NAME" "$(hall_trunc "$bare" "$W_NAME")" \
+          "$W_OFFICE" "$(hall_trunc "no seat in $sess" "$W_OFFICE")" \
+          "$G_UNREG" "$(hall_rel "$act")" "$W_MODEL" '-' '-'
+        ;;
+      *)
+        printf '%s  %-*s %-*s %s %-4s %-*s %-*s %s\n' \
+          "$G_UNREG" "$W_NAME" "$(hall_trunc "$bare" "$W_NAME")" \
+          "$W_OFFICE" "$(hall_trunc "no seat in $sess" "$W_OFFICE")" \
+          "$G_UNREG" "$(hall_rel "$act")" "$W_MODEL" '-' "$W_TAP" '-' \
+          "$(hall_trunc "not in the roster $SEP the hall never adopts silently" "$W_CHARTER")"
+        ;;
+    esac
   done <<<"$live"
 
-  printf '\n%s working %s %s needs Zig %s %s idle %s %s compacting\n' \
-    "$G_WORKING" "$SEP" "$G_NEEDS" "$SEP" "$G_IDLE" "$SEP" "$G_COMPACT"
-  printf '%s no window %s %s unregistered %s %s unread mail (v1)\n' \
-    "$G_ASLEEP" "$SEP" "$G_UNREG" "$SEP" "$G_MAIL"
-  printf '%s seats %s %s asleep %s %s unregistered %s hall <seat> to visit\n' \
-    "$seated" "$SEP" "$asleep" "$SEP" "$unreg" "$SEP"
+  # THE LEGEND, and THE FOOTER THAT TEACHES THE PROMPT (dotfiles-hnhl).
+  # "hall <seat> to visit" read as an instruction to type those exact words —
+  # Zig typed a bare seat name instead, which was the better instinct and is
+  # now what the prompt accepts (both forms do). So the footer says what to
+  # TYPE, not what to run.
+  if [ "$HALL_MODE" = compact ]; then
+    printf '\n%s working %s %s needs Zig %s %s idle\n' \
+      "$G_WORKING" "$SEP" "$G_NEEDS" "$SEP" "$G_IDLE"
+    printf '%s no window %s %s unregistered\n' "$G_ASLEEP" "$SEP" "$G_UNREG"
+    printf '%s seats %s %s asleep %s %s unreg\n' \
+      "$seated" "$SEP" "$asleep" "$SEP" "$unreg"
+    printf 'type a seat name %s Enter closes\n' "$SEP"
+  else
+    printf '\n%s working %s %s needs Zig %s %s idle %s %s compacting\n' \
+      "$G_WORKING" "$SEP" "$G_NEEDS" "$SEP" "$G_IDLE" "$SEP" "$G_COMPACT"
+    printf '%s no window %s %s unregistered %s %s unread mail (v1)\n' \
+      "$G_ASLEEP" "$SEP" "$G_UNREG" "$SEP" "$G_MAIL"
+    printf '%s seats %s %s asleep %s %s unregistered\n' \
+      "$seated" "$SEP" "$asleep" "$SEP" "$unreg"
+    if [ "$HALL_MODE" = wide ]; then
+      printf 'type a seat name (or %s) %s home is the front desk %s Enter or Esc closes\n' \
+        "'hall <seat>'" "$SEP" "$SEP"
+    else
+      printf 'type a seat name (or %s) %s Enter or Esc closes\n' "'hall <seat>'" "$SEP"
+    fi
+  fi
   if [ -z "$sock" ]; then
     printf 'no tmux server in view: roster only. The court still renders.\n'
   fi
@@ -498,8 +670,14 @@ hall — the court view of the estate (v0, bead dotfiles-sb6s)
   hall <seat|alias>    visit a seat: switch to its window, or materialize it
                        (roster session, roster home, canonical name)
   hall home            the front desk (alias for: hall seneschal)
-  hall --interactive   court + a seat> prompt (the popup mode: name visits, Enter closes)
+  hall --interactive   court + a seat> prompt (the popup mode). The prompt takes
+                       a bare seat name, 'hall <seat>', 'home' or 'hall home' —
+                       all the same thing. Enter or Esc closes.
   hall --help          this
+
+The court is RESPONSIVE: it reads its own width (COLUMNS, else tput cols, else
+80) and renders compact below 60 columns (a phone: sigil, name, status), the
+full table to 99, and at 100+ adds each seat's charter line.
 
 The roster (agents/seats.yml) is truth; windows are cache. v0 reads the roster
 and the live tmux server only — no harnessd, so the cockpit outlives the
@@ -507,20 +685,63 @@ daemon. Mail, brief, marshal queue, adopt/retire and tap failover are v1.
 EOF
 }
 
+# hall_prompt_seat <typed line> -> the seat to visit, on stdout.
+#
+# EVERY FORM ZIG MIGHT TYPE MEANS THE SAME THING (dotfiles-hnhl). The old
+# footer said "hall <seat> to visit", which reads as an instruction to type
+# those exact words; Zig typed a bare seat name instead. Both were right, so
+# both work, plus `home` and `hall home`. Surrounding whitespace is eaten
+# because a phone keyboard adds a trailing space after a word.
+#
+# It NEVER invents a seat: anything that is not one of these shapes comes back
+# unchanged and goes to visit(), which is the one place allowed to refuse.
+hall_prompt_seat() {
+  local s=$1
+  s=${s#"${s%%[![:space:]]*}"}          # ltrim
+  s=${s%"${s##*[![:space:]]}"}          # rtrim
+  case "$s" in
+    hall\ *) s=${s#hall }; s=${s#"${s%%[![:space:]]*}"} ;;
+  esac
+  case "$s" in home) s=seneschal ;; esac
+  printf '%s' "$s"
+}
+
 # The popup mode (Zig, 2026-08-09 — he typed a seat name into the court
 # expecting a visit; that instinct is the UX): render the court, then hold a
-# `seat>` prompt. A seat name (or alias, or `home`) visits it — switch-client
-# works from inside a display-popup because popups inherit the server's $TMUX
-# (the sessionizer pattern). Empty Enter, EOF, or an unknown name after the
-# retry just closes. Lives HERE and not in tmux.conf because tmux expands $vars
-# in double-quoted config strings at source time.
+# `seat>` prompt. A seat name (or alias, or `home`, or the `hall <seat>` form)
+# visits it — switch-client works from inside a display-popup because popups
+# inherit the server's $TMUX (the sessionizer pattern). Empty Enter, a single
+# ESC, EOF, or an unknown name after the retry just closes. Lives HERE and not
+# in tmux.conf because tmux expands $vars in double-quoted config strings at
+# source time.
+#
+# THE ESC KEY (Zig, live): a popup you cannot dismiss with the key everyone
+# reaches for is a trap. So the FIRST keystroke is read raw (-rsn1): ESC closes,
+# Enter closes, anything else is echoed back and becomes the first character of
+# the line. The tiny `read -t` drain after an ESC swallows the rest of an escape
+# SEQUENCE — an arrow key is ESC [ A, and without the drain its `[A` would land
+# in the next prompt as a typo.
+#
+# `read -rsn1` needs a tty. With stdin on a pipe or a here-string (tests, `echo
+# x | hall --interactive`) bash still returns the first byte, so the same path
+# works; only the terminal echo is missing, which is why we echo it ourselves.
 interactive() {
   court
+  local _c _rest _seat
   while :; do
     printf 'seat> '
-    IFS= read -r _seat || return 0
+    IFS= read -rsn1 _c || { printf '\n'; return 0; }
+    case "$_c" in
+      $'\e')
+        while IFS= read -rsn1 -t 0.01 _; do :; done
+        printf '\n'; return 0 ;;
+      ''|$'\n'|$'\r')
+        printf '\n'; return 0 ;;
+    esac
+    printf '%s' "$_c"
+    IFS= read -r _rest || _rest=""
+    _seat=$(hall_prompt_seat "$_c$_rest")
     [ -z "$_seat" ] && return 0
-    case "$_seat" in home) _seat=seneschal ;; esac
     # Subshell: visit exit-2s (die) on an unknown seat, which would close the
     # popup mid-typo — the subshell absorbs the exit so the prompt survives.
     if (visit "$_seat"); then return 0; fi

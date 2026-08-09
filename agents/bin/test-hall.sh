@@ -222,7 +222,8 @@ hasnt "the banned envelope U+2709"    "✉"  "$COURT"
 # also asserts the output really does contain emoji, so an all-ASCII regression
 # cannot pass by having nothing to reject.
 printf '%s' "$COURT" > "$OUTF"
-GLYPHCHECK=$(python3 - "$VALIDATOR" "$OUTF" <<'PY'
+glyph_check() {
+  python3 - "$VALIDATOR" "$1" <<'PY'
 import importlib.util, pathlib, sys
 spec = importlib.util.spec_from_file_location("_vs", sys.argv[1])
 vs = importlib.util.module_from_spec(spec)
@@ -241,7 +242,8 @@ elif len(emoji) < 4:
 else:
     print(f"CLEAN {len(emoji)} distinct emoji")
 PY
-)
+}
+GLYPHCHECK=$(glyph_check "$OUTF")
 case "$GLYPHCHECK" in
   CLEAN*) ok ;;
   *)      bad "GLYPHRULE every glyph in the court view must pass validate-seats.py's glyph rule ($GLYPHCHECK)" ;;
@@ -285,7 +287,8 @@ case "$HDR" in
 esac
 
 # --- width stability (this renders inside a display-popup) -------------------
-WIDE=$(python3 - "$VALIDATOR" "$OUTF" <<'PY'
+widest() {
+  python3 - "$VALIDATOR" "$1" <<'PY'
 import importlib.util, pathlib, sys
 spec = importlib.util.spec_from_file_location("_vs", sys.argv[1])
 vs = importlib.util.module_from_spec(spec)
@@ -293,7 +296,8 @@ spec.loader.exec_module(vs)
 print(max((vs.display_width(line) for line in
            pathlib.Path(sys.argv[2]).read_text().splitlines()), default=0))
 PY
-)
+}
+WIDE=$(widest "$OUTF")
 if [ "$WIDE" -le 78 ]; then ok; else bad "WIDTH court view must stay <=78 cells wide for the popup (widest: $WIDE)"; fi
 
 # --- THE PLANTED TEXT-PRESENTATION GLYPH (dotfiles-gl6z) --------------------
@@ -324,6 +328,71 @@ has "PLANTEDAUDIT the court still rendered"   "THE HALL"   "$PCOURT"
 # The good roster's audit is SILENT: a warning that always fires is noise.
 hasnt "PLANTEDQUIET a clean roster gets no glyph warning" "GLYPH RULE" "$(env -u TMUX -u TMUX_TMPDIR \
         SEATS_YML="$ROSTER" HALL_TMUX_SOCKET="$SOCK" bash "$HALL" 2>&1 >/dev/null)"
+
+# ===========================================================================
+# RESPONSIVE WIDTH (dotfiles-hnhl) — three breakpoints, one seam
+# ===========================================================================
+# Zig's phone showed NOTHING (tmux: "height too large") and his desktop felt
+# squished. COLUMNS is the seam the popup's real `tput cols` stands in for.
+# EVERY breakpoint has to keep the properties the default width has: the glyph
+# rule, the alignment, and now a budget — no line wider than the terminal it
+# was rendered for, because a wrapped row is exactly the stilt again.
+render_at() { # render_at <cols> [roster] -> writes $BASE/w<cols>.out, echoes it
+  local c=$1 roster=${2:-$ROSTER}
+  COLUMNS=$c env -u TMUX -u TMUX_TMPDIR -u HALL_SESSION -u HALL_ONLY_IF_ABSENT \
+    SEATS_YML="$roster" HALL_TMUX_SOCKET="$SOCK" bash "$HALL" 2>/dev/null \
+    | tee "$BASE/w$c.out"
+}
+for C in 40 80 120; do
+  OUT=$(render_at "$C")
+  G=$(glyph_check "$BASE/w$C.out")
+  case "$G" in CLEAN*) ok ;; *) bad "BP$C glyph rule at $C cols ($G)" ;; esac
+  A=$(align_report "$BASE/w$C.out")
+  if [ -z "$A" ]; then ok; else bad "BP$C alignment at $C cols ($A)"; fi
+  W=$(widest "$BASE/w$C.out")
+  if [ "$W" -le "$C" ]; then ok; else bad "BP$C at $C cols the court is $W wide — it will WRAP"; fi
+  has "BP$C every seat still renders at $C cols" "gamma" "$OUT"
+done
+
+# COMPACT (a phone): sigil, name, status — and deliberately NOT the office or
+# the tap. Asserting what is ABSENT is the half that catches a "responsive"
+# layout that just renders the wide table into a narrow terminal.
+COMPACT=$(cat "$BASE/w40.out")
+has   "BPCOMPACT keeps the name"     "seneschal"     "$COMPACT"
+has   "BPCOMPACT keeps the status"   "💤"            "$COMPACT"
+hasnt "BPCOMPACT drops the office"   "The Seneschal" "$COMPACT"
+hasnt "BPCOMPACT drops the tap"      "personal"      "$COMPACT"
+has   "BPCOMPACT teaches the prompt" "type a seat name" "$COMPACT"
+
+# MEDIUM (the default desktop popup): the v0 court, host and tap included.
+MEDIUM=$(cat "$BASE/w80.out")
+has "BPMEDIUM has the office" "The Seneschal"  "$MEDIUM"
+has "BPMEDIUM has the host"   "$(hostname -s)" "$MEDIUM"
+has "BPMEDIUM has the tap"    "work"           "$MEDIUM"
+
+# WIDE: the room is used — the charter line appears, and the estate role is
+# spelled out rather than abbreviated to the bare host.
+WIDEOUT=$(cat "$BASE/w120.out")
+has "BPWIDE adds the charter column" "charter"            "$WIDEOUT"
+has "BPWIDE prints a charter line"   "fixture seat alpha" "$WIDEOUT"
+has "BPWIDE keeps every medium column" "model"            "$WIDEOUT"
+# The wide layout is wider than the medium one — otherwise "responsive" is a
+# word for three names for the same table.
+if [ "$(widest "$BASE/w120.out")" -gt "$(widest "$BASE/w80.out")" ]; then ok
+else bad "BPWIDE the wide court must actually use the room it is given"; fi
+
+# THE REAL ROSTER, at every breakpoint. The fixture cannot see this: charter
+# lines are free PROSE, every one of the 18 real ones is written with an em
+# dash (U+2014, in the banned block), and the wide layout is the first thing
+# that ever printed them. hall_plain folds them; this is what says so.
+REAL_ROSTER="$ROOT/agents/seats.yml"
+for C in 40 80 120; do
+  render_at "$C" "$REAL_ROSTER" >/dev/null
+  G=$(glyph_check "$BASE/w$C.out")
+  case "$G" in CLEAN*) ok ;; *) bad "BPREAL$C the REAL roster at $C cols breaks the glyph rule ($G)" ;; esac
+  W=$(widest "$BASE/w$C.out")
+  if [ "$W" -le "$C" ]; then ok; else bad "BPREAL$C the REAL roster at $C cols is $W wide — it will WRAP"; fi
+done
 
 # ===========================================================================
 # VISIT — existing window
@@ -400,6 +469,56 @@ eq  "only-if-absent does not switch" "beta"   "$(cur_win_name sess-a)"
 has "only-if-absent says why"        "leaving it alone" "$(cat "$ERR")"
 
 # ===========================================================================
+# THE PROMPT (dotfiles-hnhl) — every form Zig might type means the same thing
+# ===========================================================================
+# The footer used to say "hall <seat> to visit", which reads as an instruction
+# to type those exact words; Zig typed a bare seat name. Both are right, so
+# both work — plus `home` and `hall home`. Driven end to end through
+# --interactive with the line on stdin, because the parse and the visit are one
+# behaviour, not two.
+# HALL_SESSION is pinned for the same reason the `hall home` case above pins
+# it: the seneschal has no roster binding, so without it the target session is
+# whatever the socket happens to answer with, and the fixture has three.
+prompt_with() { # prompt_with <stdin bytes> -> RC set, stdout returned
+  printf '%s' "$1" | env -u TMUX -u TMUX_TMPDIR -u HALL_ONLY_IF_ABSENT \
+    SEATS_YML="$ROSTER" HALL_TMUX_SOCKET="$SOCK" HALL_SESSION=sess-a \
+    bash "$HALL" --interactive 2>"$ERR"
+}
+for FORM in 'alpha' 'hall alpha' '  alpha  '; do
+  tm "$SOCK" select-window -t "$BETA_ID" 2>"$ERR"
+  OUT=$(prompt_with "$FORM
+"); RC=$?
+  eq "PROMPT [$FORM] rc"    0         "$RC"
+  eq "PROMPT [$FORM] visits" "🧠 alpha" "$(cur_win_name sess-a)"
+done
+for FORM in 'home' 'hall home'; do
+  tm "$SOCK" select-window -t "$BETA_ID" 2>"$ERR"
+  OUT=$(prompt_with "$FORM
+"); RC=$?
+  eq "PROMPTHOME [$FORM] rc"     0           "$RC"
+  eq "PROMPTHOME [$FORM] visits" "seneschal" "$(cur_win_name sess-a)"
+done
+
+# A bare Enter closes, and an unknown name retries rather than closing on the
+# typo — the two behaviours the raw-keystroke read must not have broken.
+tm "$SOCK" select-window -t "$BETA_ID" 2>"$ERR"
+OUT=$(prompt_with "
+"); RC=$?
+eq "PROMPTENTER rc"          0      "$RC"
+eq "PROMPTENTER stays put"   "beta" "$(cur_win_name sess-a)"
+
+# ESC closes on ONE keypress (Zig, live: a popup you cannot dismiss with the
+# key everyone reaches for is a trap). The escape SEQUENCE of an arrow key
+# (ESC [ A) must close too rather than leaving `[A` in the next prompt.
+for KEYS in $'\e' $'\e[A'; do
+  tm "$SOCK" select-window -t "$BETA_ID" 2>"$ERR"
+  OUT=$(prompt_with "$KEYS"); RC=$?
+  eq "PROMPTESC rc"        0      "$RC"
+  eq "PROMPTESC stays put" "beta" "$(cur_win_name sess-a)"
+  hasnt "PROMPTESC visits nothing" "materialized" "$OUT"
+done
+
+# ===========================================================================
 # REFUSALS
 # ===========================================================================
 OUT=$(hall nosuchseat 2>"$ERR"); RC=$?
@@ -456,6 +575,29 @@ else bad "the committed HALL block must parse ($(cat "$ERR"))"; fi
 BINDING=$(tm "$SOCK2" list-keys -T prefix | grep -E "^bind-key( -r)? +-T prefix +W ")
 has "prefix W opens the hall in a popup" "display-popup" "$BINDING"
 hasnt "prefix W no longer holds a plugin bind" "resize-pane" "$BINDING"
+
+# --- POPUP SIZING: percentages, never cells (dotfiles-hnhl) -----------------
+# On Zig's PHONE, `-w 84 -h 32` made tmux answer "height too large" and draw
+# NOTHING. An absolute size is a promise about a client you have not met; a
+# percentage is computed against the client that is actually opening the popup,
+# so NO client size can produce that error. Both halves are asserted: the
+# percentages are there, AND no bare cell count survives anywhere in the
+# binding.
+# tmux re-prints the binding with the size ARGUMENTS QUOTED (`-h "85%"`), so
+# match against what the SERVER says, not against the source line.
+if printf '%s\n' "$BINDING" | grep -qE ' -w "?[0-9]+%'; then ok
+else bad "POPUPW the popup width must be a PERCENTAGE (got: $BINDING)"; fi
+if printf '%s\n' "$BINDING" | grep -qE ' -h "?[0-9]+%'; then ok
+else bad "POPUPH the popup height must be a PERCENTAGE (got: $BINDING)"; fi
+if printf '%s\n' "$BINDING" | grep -qE ' -[wh] "?[0-9]+"? '; then
+  bad "POPUPABS an absolute cell size survives in the binding: $BINDING"
+else ok; fi
+# …and the percentages must actually leave room: 100% or more is a popup with
+# no border and, at -h, the same overflow by another name.
+PCTS=$(printf '%s\n' "$BINDING" | grep -oE ' -[wh] "?[0-9]+%' | grep -oE '[0-9]+')
+PCTBAD=""
+for p in $PCTS; do [ "$p" -ge 100 ] || [ "$p" -lt 50 ] && PCTBAD="$PCTBAD $p"; done
+if [ -z "$PCTBAD" ]; then ok; else bad "POPUPPCT popup percentage(s) out of the 50-99 range:$PCTBAD"; fi
 HBIND=$(tm "$SOCK2" list-keys -T prefix | grep -E "^bind-key( -r)? +-T prefix +H ")
 has "prefix H keeps pain-control's resize (nothing displaced)" "resize-pane" "$HBIND"
 
