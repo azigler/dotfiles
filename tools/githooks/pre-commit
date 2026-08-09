@@ -163,6 +163,13 @@ mapped_suites_for() { # <staged path> -> newline-separated suite paths
     # consumer in the same change as the producer.
     agents/scheduler/seat-molt.sh)
       printf '%s\n' agents/hooks/test/test-stop-context-guard.sh ;;
+    # pico-ports.manifest is DATA, and the convention loop below only maps
+    # SCRIPTS to test-<n>.sh suites — so a hand-edit to the expected-listener
+    # set (a duplicate, a stray word, a line deleted "because it was noisy")
+    # had no commit-time gate at all. Same posture as the seats.yml arm at the
+    # bottom of this file. Case 20 of the suite lints the real manifest.
+    agents/scheduler/pico-ports.manifest)
+      printf '%s\n' agents/scheduler/test-pico-health.sh ;;
     agents/lib/handoff-path.sh)
       printf '%s\n' agents/lib/test-seat-resolve.sh ;;
     # seat-resolve.sh has a THIRD consumer since dotfiles-sb6s: agents/bin/hall
@@ -446,6 +453,33 @@ if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(seat-molt\.sh|test-sea
     bash "$ROOT/agents/scheduler/mutate-seat-molt.sh" || FAILED=1
   else
     echo "pre-commit: FAIL — agents/scheduler/mutate-seat-molt.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
+# --- the WORKS WATCHER's finding logic -> prove IT still bites -------------
+# Fifth instance of the same argument, on a script whose decision is WHETHER THE
+# WORKS ARE FINE (dotfiles-kkpq). Every way it can be wrong is silent: a
+# suppressed finding, an unreachable host reported as ok, a manifest diff
+# ignored, a frozen state document read as fresh, a verdict never written to the
+# durable ledger. None of those turn a timer red — they turn it GREEN, which is
+# the whole failure mode: three com.zig.* jobs failed nightly for two months
+# behind exactly that shade of green. Suite-green is therefore not evidence here.
+# Measured on a 12-core box:
+#
+#     test-pico-health.sh (20 cases, hermetic behind the $PICO_SSH stub)   4s
+#     mutate-pico-health.sh (5 mutants + baseline)                        35s
+#
+# The convention arm above already runs the 4s suite for these files; this adds
+# ~31s. The test file and the MANIFEST are triggers on purpose: case 8 is the
+# sole detector for the unexpected-listener direction and case 15 for the
+# ledger, so deleting one case loses the bite while the suite stays green.
+if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(pico-health\.sh|test-pico-health\.sh|mutate-pico-health\.sh|pico-ports\.manifest)$'; then
+  echo "pre-commit: staged changes touch the pico-health finding logic -> running mutation harness (~35s)"
+  if [ -f "$ROOT/agents/scheduler/mutate-pico-health.sh" ]; then
+    bash "$ROOT/agents/scheduler/mutate-pico-health.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/scheduler/mutate-pico-health.sh is missing" >&2
     FAILED=1
   fi
 fi
