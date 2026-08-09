@@ -16,11 +16,18 @@
 # happened.
 #
 # The shims read $ASRT_FAKE (a per-case control dir):
-#   $ASRT_FAKE/panes        — `list-panes -a -F` output (pane<TAB>session<TAB>window)
+#   $ASRT_FAKE/panes        — `list-panes -a -F` output
+#                             (pane<TAB>session<TAB>window<TAB>current_command)
 #   $ASRT_FAKE/tails/<pane> — what `capture-pane -p -t <pane>` prints
 #   $ASRT_FAKE/sendkeys     — every send-keys invocation, one per line, IN ORDER
 #   $ASRT_FAKE/captures     — every capture-pane target, one per line
-#   $ASRT_FAKE/codes        — one HTTP code per curl call (000 = connect failure)
+#   $ASRT_FAKE/codes        — one probe outcome per curl call: `<code>` alone
+#                             (000 ⇒ rc 7, i.e. refused) or the explicit triple
+#                             `<code> <rc> <time_connect>`. The three real shapes,
+#                             measured with curl on 2026-08-09:
+#                               refused             000 7  0.000000
+#                               connect timeout     000 28 0.000000
+#                               connected-then-slow 000 28 0.000278
 
 set -u
 
@@ -178,11 +185,15 @@ cat >"$BIN/fake-curl" <<'EOCURL'
 #!/bin/bash
 printf '%s\n' "$*" >> "$ASRT_FAKE/curl-calls"
 n=$(wc -l < "$ASRT_FAKE/curl-calls" | tr -d ' ')
-code=$(sed -n "${n}p" "$ASRT_FAKE/codes")
-[ -n "$code" ] || code=$(tail -n 1 "$ASRT_FAKE/codes")
-printf '%s' "$code"
-[ "$code" = "000" ] && exit 7
-exit 0
+line=$(sed -n "${n}p" "$ASRT_FAKE/codes")
+[ -n "$line" ] || line=$(tail -n 1 "$ASRT_FAKE/codes")
+set -- $line
+code="$1"; rc="${2:-}"; tconn="${3:-}"
+if [ -z "$rc" ]; then
+  if [ "$code" = "000" ]; then rc=7; tconn=0.000000; else rc=0; tconn=0.001234; fi
+fi
+printf '%s %s' "$code" "$tconn"
+exit "$rc"
 EOCURL
 
 chmod +x "$BIN/fake-tmux" "$BIN/fake-curl"
@@ -207,10 +218,20 @@ setup_case() {
   unset TMUX_PANE
 }
 
-# pane <id> <session> <window> <tail-text>
+# pane <id> <session> <window> <tail-text> [pane_current_command]
+# The command defaults to `claude` — the ordinary seat. Pass `zsh` (or anything
+# else) to build a pane that is NOT a Claude Code session.
 pane() {
-  printf '%s\t%s\t%s\n' "$1" "$2" "$3" >>"$ASRT_FAKE/panes"
+  printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "${5:-claude}" >>"$ASRT_FAKE/panes"
   printf '%s\n' "$4" >"$ASRT_FAKE/tails/$1"
+}
+log_skips() { # how many per-pane skip reasons reached the log file
+  local f="$HARNESS_STATE_DIR/api-stall-recover.log"
+  [ -f "$f" ] && grep -c ' skip %' "$f" | tr -d ' ' || echo 0
+}
+log_verdicts() {
+  local f="$HARNESS_STATE_DIR/api-stall-recover.log"
+  [ -f "$f" ] && grep -c 'API_STALL_RESULT\|ok:nudged:' "$f" | tr -d ' ' || echo 0
 }
 
 run_asr() {
@@ -429,6 +450,118 @@ if [ "$(sendkeys_count)" = "0" ] && [ "$LAST" = "API_STALL_RESULT=ok:nudged:0:sk
 else
   bad "the guard's own pane is skipped (got '$LAST' keys=$(sendkeys_count))"
 fi
+
+# ---------------------------------------------------------------------------
+# Case 13: IDENTITY BEFORE CONTENT — the reviewer's demonstration, 2026-08-09.
+#   A plain zsh pane that is merely DISPLAYING captured error text (someone
+#   `cat`s api-error-captures.jsonl, or opens this suite's own fixtures) plus
+#   Zig's p10k `❯` prompt satisfies every content rule. Without the identity
+#   gate the guard types a paragraph of English into a raw shell, which RUNS it.
+setup_case
+pane '%1' work shell "$FIX_SENESCHAL" zsh
+run_asr
+if [ "$(sendkeys_count)" = "0" ] && [ "$LAST" = "API_STALL_RESULT=ok:nudged:0:skipped:1" ]; then
+  ok
+else
+  bad "a zsh pane displaying error text is NOT a claude pane ⇒ skipped (got '$LAST' keys=$(sendkeys_count))"
+fi
+if [ "$(grep -c . "$ASRT_FAKE/captures")" = "0" ]; then
+  ok
+else
+  bad "a non-claude pane is refused BEFORE capture-pane — its scrollback is none of the guard's business"
+fi
+# The paired control: byte-identical content, `claude` in the foreground ⇒ nudged.
+setup_case
+pane '%1' work seneschal "$FIX_SENESCHAL" claude
+run_asr
+if [ "$(sendkeys_count)" = "2" ]; then ok; else bad "control: the SAME content on a claude pane IS nudged"; fi
+# bwrap is the digest seat's launcher (the tick-jail) and digest was one of the
+# four seats that stalled on 2026-08-09 — excluding it would leave a victim of
+# the founding incident unprotected.
+setup_case
+pane '%1' work digest "$FIX_SENESCHAL" bwrap
+run_asr
+if [ "$(sendkeys_count)" = "2" ]; then ok; else bad "bwrap (the tick-jail launcher, digest's seat) counts as a claude pane"; fi
+# ...and the allow-list is a knob, not a hardcode.
+setup_case
+pane '%1' work weird "$FIX_SENESCHAL" mystery-launcher
+ASR_PANE_CMDS='claude mystery-launcher' run_asr
+if [ "$(sendkeys_count)" = "2" ]; then ok; else bad "ASR_PANE_CMDS extends the allow-list"; fi
+
+# ---------------------------------------------------------------------------
+# Case 14: SLOW IS NOT UP. curl prints 000 for a timeout as well as a refusal;
+#   a gateway that accepted the connection and then stalled is not somewhere to
+#   send four sessions — they would re-error and burn their cooldowns.
+setup_case '000 28 0.000278'
+pane '%1' work seneschal "$FIX_SENESCHAL"
+run_asr
+if [ "$LAST" = "API_STALL_RESULT=upstream-down" ] && [ "$(sendkeys_count)" = "0" ] && [ "$(grep -c . "$ASRT_FAKE/captures")" = "0" ]; then
+  ok
+else
+  bad "connected-but-slow upstream ⇒ upstream-down, no captures, no nudges (got '$LAST')"
+fi
+# A connect-phase timeout is likewise not cleanly up.
+setup_case '000 28 0.000000'
+pane '%1' work seneschal "$FIX_SENESCHAL"
+run_asr
+if [ "$LAST" = "API_STALL_RESULT=upstream-down" ] && [ "$(sendkeys_count)" = "0" ]; then
+  ok
+else
+  bad "connect-phase timeout ⇒ upstream-down, no nudges (got '$LAST')"
+fi
+# And the sharp one: a REAL HTTP code with a NON-ZERO curl exit — headers came
+# back and then the transfer timed out. The body says 401, which looks exactly
+# like health; only the exit code says the gateway is limping. Reading the code
+# alone would send every stalled seat into it.
+setup_case '401 28 0.001234'
+pane '%1' work seneschal "$FIX_SENESCHAL"
+run_asr
+if [ "$LAST" = "API_STALL_RESULT=upstream-down" ] && [ "$(sendkeys_count)" = "0" ]; then
+  ok
+else
+  bad "a 401 with curl rc 28 is NOT cleanly up ⇒ upstream-down, no nudges (got '$LAST')"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 15: FAIL-CLOSED ON ITS OWN CRASH. An unset HOME makes the config block's
+#   `${HARNESS_STATE_DIR:-$HOME/...}` an unbound expansion under `set -u`, which
+#   aborts the shell mid-flight — a real abort, not a simulated one. Because the
+#   verdict starts at checker-broken and the trap is armed FIRST, that reads as
+#   a failed unit instead of a silent green one.
+setup_case
+pane '%1' work seneschal "$FIX_SENESCHAL"
+OUT=$(env -u HOME -u HARNESS_STATE_DIR "$ASR" 2>&1)
+RC=$?
+LAST=$(printf '%s\n' "$OUT" | tail -n 1)
+if [ "$RC" = 1 ] && [ "$LAST" = "API_STALL_RESULT=checker-broken" ] && [ "$(sendkeys_count)" = "0" ]; then
+  ok
+else
+  bad "a mid-flight abort ⇒ checker-broken/exit1, nothing typed (rc=$RC last='$LAST')"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 16: THE LOG IS BOUNDED. ~30 panes × 720 runs/day of per-pane skip lines
+#   is ~20k lines a day saying nothing happened. Quiet runs log the verdict and
+#   not the skips; a run that nudged logs both; ASR_VERBOSE=1 logs both.
+setup_case
+pane '%1' work explore "$FIX_HEALTHY"
+pane '%2' work shell "$FIX_SENESCHAL" zsh
+run_asr
+if [ "$(log_skips)" = "0" ] && [ "$(log_verdicts)" -ge 1 ]; then
+  ok
+else
+  bad "a quiet run logs the verdict but no per-pane skips (skips=$(log_skips) verdicts=$(log_verdicts))"
+fi
+setup_case
+pane '%1' work explore "$FIX_HEALTHY"
+pane '%2' work shell "$FIX_SENESCHAL" zsh
+ASR_VERBOSE=1 run_asr
+if [ "$(log_skips)" = "2" ]; then ok; else bad "ASR_VERBOSE=1 logs every skip reason (got $(log_skips))"; fi
+setup_case
+pane '%1' work seneschal "$FIX_SENESCHAL"
+pane '%2' work explore "$FIX_HEALTHY"
+run_asr
+if [ "$(log_skips)" = "1" ]; then ok; else bad "a run that NUDGED flushes the skips too (got $(log_skips))"; fi
 
 # ---------------------------------------------------------------------------
 # Case 12: no cooldown state can be kept ⇒ CHECKER BROKEN (exit 1) and NOT ONE
