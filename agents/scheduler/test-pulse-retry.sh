@@ -107,6 +107,11 @@ setup_case() {
   mkdir -p "$PRT_FAKE/nextfire" "$PRT_FAKE/execstart" "$PRT_FAKE/windows"
   export HARNESS_STATE_DIR="$CASE_STATE"
   export PRT_FAKE
+  # The staleness check (dotfiles-t5fj) resolves a loop's ledger through the harnessd
+  # manifest. Point it at a per-case path that does NOT exist unless the case writes
+  # one: the real ~/harnessd manifest names real projects and real ledgers, and this
+  # suite must read neither.
+  export HARNESS_MANIFEST="$PRT_FAKE/manifest.json"
   cat > "$PRT_FAKE/surface-drain" <<'DRAINEOF'
 #!/bin/bash
 printf '%s\n' "$*" >> "$PRT_FAKE/drain-calls"
@@ -482,6 +487,260 @@ if [ "$RC" = 0 ] && [ "$(watch_calls)" = "1" ] && [ "$(drain_calls)" = "1" ]; th
   ok
 else
   bad "the retired PULSE_LEDGER_WATCH_ENABLE kill switch cannot turn the watcher off (rc=$RC watch=$(watch_calls) drains=$(drain_calls))"
+fi
+
+# ---------------------------------------------------------------------------
+# Cases 19-24 (dotfiles-t5fj): A BOUNCE IS A CLAIM ABOUT THE PAST. Before
+# re-firing, step 3d.5 re-verifies it against the present — a delivery row newer
+# than the bounce, a same-loop tick live in the target pane, or a ledger row newer
+# than the bounce, any of which means the bounce is SPENT.
+#
+# THE FIXTURE IS THE INCIDENT, to the second (2026-08-09):
+#   15:47:16Z  pulse-marshal bounces blocked_on_andrew
+#   15:48:32Z  it bounces again
+#   15:50:51Z  a supervising session clears the blockage and injects BY HAND;
+#              the drain writes its night-start row
+#   15:50:55Z  this watcher sees a cleared 🔔 and re-fires — 4 SECONDS LATE. The
+#              re-fired pulse-inject typed /clear + /marshal night into the now-🧠
+#              composer of the live run, where they QUEUED as a delayed wipe.
+# Everything below is that timeline as data.
+
+# Case 19: the LEDGER arm. The drain ledger's night-start row (15:50:51) is newer
+#   than the newest bounce (15:48:32) ⇒ resolved ⇒ NO re-fire, and the loop is
+#   marked ACTED so a spent bounce is not re-examined every 2 minutes.
+#
+#   Note the ledger SHAPE: the marshal's rows carry `outcome`, not `row`, and its
+#   manifest pin is `ledger_row: null` (match any row) — which is exactly why the
+#   discovery + query are shared with pulse-ledger-watch.sh rather than re-invented
+#   against the pulse-ledger row shape.
+setup_case
+{
+  printf '{"ts":"2026-08-09T15:47:16Z","loop":"pulse-marshal","reason":"blocked_on_andrew"}\n'
+  printf '{"ts":"2026-08-09T15:48:32Z","loop":"pulse-marshal","reason":"blocked_on_andrew"}\n'
+} > "$HARNESS_STATE_DIR/pulse-bounces.jsonl"
+printf '%s\n' "$FUTURE_US" > "$PRT_FAKE/nextfire/pulse-marshal.timer"
+printf 'ExecStart={ argv[]=x --loop pulse-marshal --dir /home/ubuntu/dotfiles --session zig-computer --window marshal --fresh --cmd "/marshal night" ; }\n' \
+  > "$PRT_FAKE/execstart/pulse-marshal.service"
+printf 'marshal\n' > "$PRT_FAKE/windows/zig-computer"      # 🔔 cleared by the supervisor
+mkdir -p "$PRT_FAKE/proj"
+printf '{"ts":"2026-08-09T15:50:51Z","night":"2026-08-09","outcome":"night-start","bead":null}\n' \
+  > "$PRT_FAKE/proj/drain-ledger.jsonl"
+cat > "$PRT_FAKE/manifest.json" <<MANEOF
+{"projects":[{"path":"$PRT_FAKE/proj","key":"dotfiles",
+  "loops":[{"timer":"pulse-marshal","ledger":"drain-ledger.jsonl","ledger_row":null}]}]}
+MANEOF
+"$RETRY"
+if [ "$(started_count)" = "0" ]; then
+  ok
+else
+  bad "t5fj-ledger-resolves: a ledger row NEWER than the bounce kills the re-fire (got $(started_count) starts)"
+fi
+if [ "$(state_acted_ts pulse-marshal)" = "2026-08-09T15:48:32Z" ]; then
+  ok
+else
+  bad "t5fj-ledger-acted: a resolved bounce is marked ACTED (got '$(state_acted_ts pulse-marshal)')"
+fi
+if grep -q 'RESOLVED — resolved by ledger row 2026-08-09T15:50:51Z' "$HARNESS_STATE_DIR/pulse-retry.log"; then
+  ok
+else
+  bad "t5fj-ledger-log: the log names the OBSERVED ledger row, not a cause"
+fi
+
+# Case 20: the DELIVERY arm, with NO manifest at all. pulse-inject.sh recorded a
+#   delivery of this loop at 15:50:51 — newer than the bounce — so the bounce is
+#   spent whoever delivered it (a supervisor by hand, an earlier retry, the natural
+#   timer). This is the signal that covers every loop, registered or not.
+setup_case
+{
+  printf '{"ts":"2026-08-09T15:47:16Z","loop":"pulse-marshal","reason":"blocked_on_andrew"}\n'
+  printf '{"ts":"2026-08-09T15:48:32Z","loop":"pulse-marshal","reason":"blocked_on_andrew"}\n'
+} > "$HARNESS_STATE_DIR/pulse-bounces.jsonl"
+printf '{"ts":"2026-08-09T15:50:51Z","loop":"pulse-marshal","session":"zig-computer","window":"marshal","pane":"@7.0","fresh":1}\n' \
+  > "$HARNESS_STATE_DIR/pulse-injections.jsonl"
+printf '%s\n' "$FUTURE_US" > "$PRT_FAKE/nextfire/pulse-marshal.timer"
+printf 'ExecStart={ argv[]=x --session zig-computer --window marshal ; }\n' \
+  > "$PRT_FAKE/execstart/pulse-marshal.service"
+printf 'marshal\n' > "$PRT_FAKE/windows/zig-computer"
+"$RETRY"
+if [ "$(started_count)" = "0" ] && [ "$(state_acted_ts pulse-marshal)" = "2026-08-09T15:48:32Z" ]; then
+  ok
+else
+  bad "t5fj-delivery-resolves: a delivery NEWER than the bounce kills the re-fire (starts=$(started_count) acted='$(state_acted_ts pulse-marshal)')"
+fi
+if grep -q 'RESOLVED — already delivered at 2026-08-09T15:50:51Z' "$HARNESS_STATE_DIR/pulse-retry.log"; then
+  ok
+else
+  bad "t5fj-delivery-log: the log names the OBSERVED delivery ts"
+fi
+# …and the ledger was never consulted at all: the delivery signal already resolved
+# it, so no 'unavailable' line is written for a decision that did not need one.
+if grep -q 'LEDGER signal unavailable' "$HARNESS_STATE_DIR/pulse-retry.log"; then
+  bad "t5fj-delivery-short-circuits: a delivery-resolved bounce does not also consult the ledger"
+else
+  ok
+fi
+
+# Case 21: the RUNNING arm — the sharpest one, and the only one that catches the
+#   incident's second half. Here the delivery row is OLDER than the bounce (so the
+#   'newer than the bounce' test does NOT fire), but it names this session+window
+#   and the window is 🧠: a tick of THIS loop is live in the very pane a re-fire
+#   would inject into. Re-firing would queue /clear behind it.
+setup_case
+printf '{"ts":"2026-08-09T15:48:32Z","loop":"pulse-marshal","reason":"blocked_on_andrew"}\n' \
+  > "$HARNESS_STATE_DIR/pulse-bounces.jsonl"
+printf '{"ts":"2026-08-09T15:40:00Z","loop":"pulse-marshal","session":"zig-computer","window":"marshal","pane":"@7.0","fresh":1}\n' \
+  > "$HARNESS_STATE_DIR/pulse-injections.jsonl"
+printf '%s\n' "$FUTURE_US" > "$PRT_FAKE/nextfire/pulse-marshal.timer"
+printf 'ExecStart={ argv[]=x --session zig-computer --window marshal ; }\n' \
+  > "$PRT_FAKE/execstart/pulse-marshal.service"
+printf '🧠 marshal\n' > "$PRT_FAKE/windows/zig-computer"    # mid-turn, NOT 🔔
+"$RETRY"
+if [ "$(started_count)" = "0" ] && [ "$(state_acted_ts pulse-marshal)" = "2026-08-09T15:48:32Z" ]; then
+  ok
+else
+  bad "t5fj-running-resolves: a live same-loop tick in the target pane kills the re-fire (starts=$(started_count) acted='$(state_acted_ts pulse-marshal)')"
+fi
+if grep -q 'RESOLVED — tick already running' "$HARNESS_STATE_DIR/pulse-retry.log"; then
+  ok
+else
+  bad "t5fj-running-log: the log says 'tick already running' and names what was observed"
+fi
+
+# Case 22: THE NON-VACUITY GUARD. Everything above proves the watcher can be
+#   stopped; this proves it still FIRES. Same fixture shape, with every staleness
+#   input strictly OLDER than the bounce and the window idle — a genuinely live
+#   bounce must still produce exactly one re-fire. Without this case a mutant that
+#   resolves EVERYTHING (i.e. disables the retry entirely) would pass 19-21.
+setup_case
+printf '{"ts":"2026-08-09T15:48:32Z","loop":"pulse-marshal","reason":"blocked_on_andrew"}\n' \
+  > "$HARNESS_STATE_DIR/pulse-bounces.jsonl"
+printf '{"ts":"2026-08-09T15:00:00Z","loop":"pulse-marshal","session":"zig-computer","window":"marshal","pane":"@7.0","fresh":1}\n' \
+  > "$HARNESS_STATE_DIR/pulse-injections.jsonl"
+printf '%s\n' "$FUTURE_US" > "$PRT_FAKE/nextfire/pulse-marshal.timer"
+printf 'ExecStart={ argv[]=x --session zig-computer --window marshal ; }\n' \
+  > "$PRT_FAKE/execstart/pulse-marshal.service"
+printf 'marshal\n' > "$PRT_FAKE/windows/zig-computer"       # idle: no 🧠, no 🔔
+mkdir -p "$PRT_FAKE/proj"
+printf '{"ts":"2026-08-09T15:00:01Z","night":"2026-08-09","outcome":"night-end"}\n' \
+  > "$PRT_FAKE/proj/drain-ledger.jsonl"                     # older than the bounce
+cat > "$PRT_FAKE/manifest.json" <<MANEOF
+{"projects":[{"path":"$PRT_FAKE/proj","key":"dotfiles",
+  "loops":[{"timer":"pulse-marshal","ledger":"drain-ledger.jsonl","ledger_row":null}]}]}
+MANEOF
+"$RETRY"
+if [ "$(started_count)" = "1" ] && grep -qx "pulse-marshal.service" "$PRT_FAKE/started"; then
+  ok
+else
+  bad "t5fj-live-bounce-refires: a bounce with NO newer delivery, NO newer ledger row and an idle window still re-fires (got $(started_count) starts)"
+fi
+
+# Case 23: the delivery signal is SCOPED. A row for a different LOOP is not this
+#   loop's delivery, and a row for this loop in a DIFFERENT session/window does not
+#   make the local pane's live turn ours. Both fixtures are 'running'-shaped (the
+#   window is 🧠 and the rows are newer than nothing) yet must NOT resolve.
+setup_case
+printf '{"ts":"2026-08-09T15:48:32Z","loop":"pulse-marshal","reason":"blocked_on_andrew"}\n' \
+  > "$HARNESS_STATE_DIR/pulse-bounces.jsonl"
+{
+  printf '{"ts":"2026-08-09T15:40:00Z","loop":"pulse-dive","session":"zig-computer","window":"marshal","pane":"@7.0","fresh":1}\n'
+  printf '{"ts":"2026-08-09T15:41:00Z","loop":"pulse-marshal","session":"zig-computer","window":"dive","pane":"@9.0","fresh":1}\n'
+} > "$HARNESS_STATE_DIR/pulse-injections.jsonl"
+printf '%s\n' "$FUTURE_US" > "$PRT_FAKE/nextfire/pulse-marshal.timer"
+printf 'ExecStart={ argv[]=x --session zig-computer --window marshal ; }\n' \
+  > "$PRT_FAKE/execstart/pulse-marshal.service"
+printf '🧠 marshal\n' > "$PRT_FAKE/windows/zig-computer"
+"$RETRY"
+if [ "$(started_count)" = "1" ]; then
+  ok
+else
+  bad "t5fj-delivery-scoped: another loop's delivery, and this loop's delivery to another window, do not resolve the bounce (got $(started_count) starts)"
+fi
+
+# Case 24: a MISSING/CORRUPT manifest is not a resolution. The ledger signal is
+#   simply unavailable, the delivery signal decides, and a live bounce still
+#   re-fires — a discovery failure must never present as 'already handled'.
+setup_case
+printf '{"ts":"2026-08-09T15:48:32Z","loop":"pulse-marshal","reason":"blocked_on_andrew"}\n' \
+  > "$HARNESS_STATE_DIR/pulse-bounces.jsonl"
+printf 'not json at all\n' > "$PRT_FAKE/manifest.json"
+printf '%s\n' "$FUTURE_US" > "$PRT_FAKE/nextfire/pulse-marshal.timer"
+printf 'ExecStart={ argv[]=x --session zig-computer --window marshal ; }\n' \
+  > "$PRT_FAKE/execstart/pulse-marshal.service"
+printf 'marshal\n' > "$PRT_FAKE/windows/zig-computer"
+"$RETRY"; RC=$?
+if [ "$RC" = 0 ] && [ "$(started_count)" = "1" ]; then
+  ok
+else
+  bad "t5fj-manifest-broken: an unreadable manifest leaves the retry working (rc=$RC starts=$(started_count))"
+fi
+# NOT "no completions" — "no way to look", and it is SAID. A signal that silently
+# never fires is indistinguishable from one that fired negative, which is the whole
+# defect class this bead sits in.
+if grep -q 'LEDGER signal unavailable' "$HARNESS_STATE_DIR/pulse-retry.log"; then
+  ok
+else
+  bad "t5fj-unavailable-said: an unusable ledger signal is logged as UNAVAILABLE, not read as 'nothing completed'"
+fi
+
+# Case 25: a loop that is genuinely UNREGISTERED (valid manifest, no entry for it)
+#   is distinguished from a broken manifest — the two need different fixes, so they
+#   get different sentences.
+setup_case
+printf '{"ts":"2026-08-09T15:48:32Z","loop":"pulse-marshal","reason":"blocked_on_andrew"}\n' \
+  > "$HARNESS_STATE_DIR/pulse-bounces.jsonl"
+printf '{"projects":[{"path":"/tmp/nope","key":"other","loops":[{"timer":"pulse-other","ledger":"refs/pulse-ledger.jsonl","ledger_row":"other"}]}]}\n' \
+  > "$PRT_FAKE/manifest.json"
+printf '%s\n' "$FUTURE_US" > "$PRT_FAKE/nextfire/pulse-marshal.timer"
+printf 'ExecStart={ argv[]=x --session zig-computer --window marshal ; }\n' \
+  > "$PRT_FAKE/execstart/pulse-marshal.service"
+printf 'marshal\n' > "$PRT_FAKE/windows/zig-computer"
+"$RETRY"
+if grep -q 'LEDGER signal unavailable (pulse-marshal has no loops\[\] entry' "$HARNESS_STATE_DIR/pulse-retry.log" \
+   && [ "$(started_count)" = "1" ]; then
+  ok
+else
+  bad "t5fj-unregistered-named: an unregistered loop is named as such and still re-fires (starts=$(started_count))"
+fi
+
+# Case 26 (t5fj adversarial review): THE ALREADY-RUNNING BRANCH IS TTL-BOUNDED.
+#   That branch is the only one in step 3d.5 that compares nothing against the
+#   bounce — it reads a delivery row plus a GLYPH, and a glyph can lie (a session
+#   that died mid-turn leaves 🧠 standing). Unbounded, one ancient row (the file
+#   retains ~1000, i.e. weeks) plus one stale 🧠 would keep a genuine bounce
+#   marked acted FOREVER, outliving even the injector's own 24h bound on the same
+#   claim. Fixture: the row names this session+window and the window IS 🧠 — only
+#   the row's AGE differs from case 21 — so this isolates the TTL alone.
+setup_case
+printf '{"ts":"2026-08-09T15:48:32Z","loop":"pulse-marshal","reason":"blocked_on_andrew"}\n' \
+  > "$HARNESS_STATE_DIR/pulse-bounces.jsonl"
+printf '{"ts":"2020-01-01T00:00:00Z","loop":"pulse-marshal","session":"zig-computer","window":"marshal","pane":"@7.0","fresh":1}\n' \
+  > "$HARNESS_STATE_DIR/pulse-injections.jsonl"
+printf '%s\n' "$FUTURE_US" > "$PRT_FAKE/nextfire/pulse-marshal.timer"
+printf 'ExecStart={ argv[]=x --session zig-computer --window marshal ; }\n' \
+  > "$PRT_FAKE/execstart/pulse-marshal.service"
+printf '🧠 marshal\n' > "$PRT_FAKE/windows/zig-computer"    # the lying glyph
+"$RETRY"
+if [ "$(started_count)" = "1" ]; then
+  ok
+else
+  bad "t5fj-running-ttl: a delivery row older than PULSE_SAME_LOOP_TTL cannot claim the live turn — a genuine bounce still re-fires (got $(started_count) starts)"
+fi
+# …and the TTL is the SHARED knob, not a second private one: widening
+# PULSE_SAME_LOOP_TTL past the row's age must bring the resolution back.
+setup_case
+printf '{"ts":"2026-08-09T15:48:32Z","loop":"pulse-marshal","reason":"blocked_on_andrew"}\n' \
+  > "$HARNESS_STATE_DIR/pulse-bounces.jsonl"
+printf '{"ts":"2020-01-01T00:00:00Z","loop":"pulse-marshal","session":"zig-computer","window":"marshal","pane":"@7.0","fresh":1}\n' \
+  > "$HARNESS_STATE_DIR/pulse-injections.jsonl"
+printf '%s\n' "$FUTURE_US" > "$PRT_FAKE/nextfire/pulse-marshal.timer"
+printf 'ExecStart={ argv[]=x --session zig-computer --window marshal ; }\n' \
+  > "$PRT_FAKE/execstart/pulse-marshal.service"
+printf '🧠 marshal\n' > "$PRT_FAKE/windows/zig-computer"
+PULSE_SAME_LOOP_TTL=99999999999 "$RETRY"
+if [ "$(started_count)" = "0" ] && grep -q 'within the 99999999999s TTL' "$HARNESS_STATE_DIR/pulse-retry.log"; then
+  ok
+else
+  bad "t5fj-running-ttl-knob: PULSE_SAME_LOOP_TTL is the knob this branch reads, and the resolved line states the row's age (starts=$(started_count))"
 fi
 
 # --- Summary ---
