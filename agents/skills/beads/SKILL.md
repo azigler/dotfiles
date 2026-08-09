@@ -166,6 +166,21 @@ that note says *audit before adding a type*; this says *derive the
 type from the action, not the aspiration.* (Borrowed from Portent's
 PORT/ENTP split — see `~/explore/portent/`.)
 
+## Labels — orthogonal to type, for cross-cutting queries
+
+A **label** is not a type. Type answers "what kind of work is this"
+(one per bead, drives the pipeline); a label answers "what cross-cutting
+set does this belong to" (zero or more per bead, drives a query). Set
+one with `br create -l <label>` or `br update <id> --add-label <label>`;
+filter with `br list --label <label>`.
+
+Convention: **`friction`** marks a bead filed from a session's Friction
+section (see `/offboard` Step 2.7) — real work (usually `-t bug` or
+`-t task`), just tagged so the harness-friction seam can pull the set
+without grepping titles: `br list --label friction`. Don't invent a
+`friction` type for this; the bead's type is still whatever kind of
+work it is — the label is the cross-cutting marker.
+
 ## Stages vs. gates — not all pipeline work gets a bead
 
 A skill in the orchestration pipeline is either a **stage** or a
