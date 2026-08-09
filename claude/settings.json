@@ -138,6 +138,16 @@
         ]
       },
       {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/pre-ask-user-question-seat-guard.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
         "matcher": "Bash",
         "hooks": [
           {
