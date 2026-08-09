@@ -1,0 +1,30 @@
+# Timer: the front-desk brief — daily 06:44 America/Los_Angeles.
+#
+# 06:44 AND NOT 06:45. Round minutes are where every hand-written timer lands, and
+# a pileup on the same second means several ticks contend for the tmux server and
+# the same subscription at once. The neighbours are 06:23 and 07:00, so this slot
+# is clear on both sides. It sits BEFORE the 07:00 digest deliberately: the brief
+# answers "what needs you" and should be the first thing waiting, not the second.
+#
+# ⚠️ TIMER-RENAME / FIRST-ENABLE GOTCHA (agents/infra.md, and the comment history
+# in pulse-desk.timer). systemd's persistence state lives in
+# ~/.local/share/systemd/timers/stamp-<unit>.timer, NOT in the unit file. A unit
+# name that has never run has no stamp, which `Persistent=true` reads as a MISSED
+# slot — so `enable --now` fires the tick immediately, at whatever hour you
+# happen to be installing. Touch the stamp first:
+#
+#   touch ~/.local/share/systemd/timers/stamp-pulse-seneschal.timer
+#   systemctl --user daemon-reload && systemctl --user enable --now pulse-seneschal.timer
+#   systemctl --user list-timers | grep seneschal    # LAST column must be empty/past
+#
+# Persistent=true is still right: a brief missed to a reboot is worth catching up
+# once, and a stamped unit catches up at most one slot.
+[Unit]
+Description=Pulse timer: daily /seneschal brief at 06:44 PT
+
+[Timer]
+OnCalendar=*-*-* 06:44:00 America/Los_Angeles
+Persistent=true
+
+[Install]
+WantedBy=timers.target
