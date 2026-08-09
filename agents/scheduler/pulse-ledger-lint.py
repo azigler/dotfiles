@@ -78,6 +78,31 @@ WHAT IT ASSERTS, per non-blank line:
   The whole cap/day-boundary correctness argument in ``pulse-cap.py`` rests on
   ts being UTC; a naive-local ts would silently mis-bucket.
 
+ADDITIVE fleet-row keys (``dotfiles-iyhh``): the ``/dream`` skill's fleet-scope
+run (``dream.py collect`` with no ``--slug``) writes a ``slug``/``n_slugs``/
+``denied`` shape documented in ``agents/skills/dream/SKILL.md`` §"Ledger +
+dedupe" — e.g. ``"slug":"(fleet)","n_slugs":12,"denied":30``. These keys are
+OPTIONAL (a plain per-slug row never carries them) but, when present, ARE
+validated — the whole point of this addition is that "additive" must not mean
+"unchecked":
+
+* ``slug``, if present, is a non-empty string.
+* ``n_slugs``, if present, is a non-negative integer — the run's real slug
+  breadth; a bool or negative value is nonsensical here.
+* ``denied``, if present, is a non-negative integer — the COUNT, never names.
+  ``agents/skills/dream/dream.py`` and its SKILL.md are explicit that a denied
+  slug must never be NAMED in a pushed artifact (the confidential-project
+  guard); a list or dict here is exactly that leak, one level up from the
+  `collect` JSON that intentionally nests it as ``denied.count`` before the
+  tick flattens it into the ledger row. Before this fix the lint did not look
+  at ``denied`` at all, so a leaking list silently verdict-CLEANed (proven in
+  the bead's before/after: see ``test-pulse-ledger-lint.sh``).
+* if ``slug`` equals the fleet pseudo-slug (``"(fleet)"``), ``n_slugs`` AND
+  ``denied`` must both be present — the SKILL.md contract ("Fleet runs also
+  carry n_slugs and denied") is that a fleet row without them is exactly the
+  silently-narrower-than-it-claims failure the breadth counter exists to
+  surface.
+
 Exit code is the gate (like ``pulse-cap.py`` / ``pulse-stall.py``):
   * exit 0  → clean.
   * exit 1  → violations found.
@@ -123,6 +148,12 @@ ALLOWED_OUTCOMES = frozenset({"done", "quiet", "blocked", "stalled"})
 #: The one row name that is valid without appearing in any routing table: the
 #: honest "we could not recover which row this tick belonged to" marker.
 UNATTRIBUTED = "unattributed"
+
+#: The pseudo-slug a fleet-scope run writes (``agents/skills/dream/dream.py``'s
+#: ``FLEET_SLUG``). Declared here rather than imported — this gate lints the
+#: LEDGER SHAPE, not the tool that wrote it, and has no import dependency on
+#: dream.py (or any other producer).
+FLEET_SLUG = "(fleet)"
 
 
 # --------------------------------------------------------------------------- #
@@ -194,6 +225,19 @@ def _ts_violation(ts: object) -> str | None:
     return None
 
 
+def _nonneg_int_violation(key: str, value: object) -> str | None:
+    """None if ``value`` is a non-negative int, else the violation text.
+
+    ``bool`` is explicitly excluded even though it subclasses ``int`` in
+    Python — ``True``/``False`` are never a meaningful slug count.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        return f"{key} is not an integer ({value!r})"
+    if value < 0:
+        return f"{key} is negative ({value!r})"
+    return None
+
+
 def check_record(rec: object, valid_rows: set[str]) -> list[str]:
     """All violations for one parsed ledger record (empty list = clean)."""
     if not isinstance(rec, dict):
@@ -234,6 +278,43 @@ def check_record(rec: object, valid_rows: set[str]) -> list[str]:
         ts_problem = _ts_violation(rec["ts"])
         if ts_problem:
             problems.append(ts_problem)
+
+    # -- ADDITIVE fleet-row keys: optional, but validated when present -----
+    # (dotfiles-iyhh — see the module docstring for the schema these keys
+    # come from: agents/skills/dream/SKILL.md "Ledger + dedupe".)
+    if "slug" in rec:
+        slug = rec["slug"]
+        if not isinstance(slug, str) or not slug.strip():
+            problems.append(f"slug is not a non-empty string ({slug!r})")
+
+    if "n_slugs" in rec:
+        p = _nonneg_int_violation("n_slugs", rec["n_slugs"])
+        if p:
+            problems.append(p)
+
+    if "denied" in rec:
+        denied = rec["denied"]
+        if isinstance(denied, (list, dict)):
+            # The exact leak this key exists to prevent: a denied slug must
+            # be a COUNT, never named. See dream.py / SKILL.md's "never
+            # names" guard on this same field, one level up.
+            problems.append(
+                f"denied must be a COUNT, never a list/dict of names ({denied!r})"
+            )
+        else:
+            p = _nonneg_int_violation("denied", denied)
+            if p:
+                problems.append(p)
+
+    if rec.get("slug") == FLEET_SLUG:
+        if "n_slugs" not in rec:
+            problems.append(
+                f'slug is {FLEET_SLUG!r} (fleet scope) but "n_slugs" is missing'
+            )
+        if "denied" not in rec:
+            problems.append(
+                f'slug is {FLEET_SLUG!r} (fleet scope) but "denied" is missing'
+            )
 
     return problems
 
@@ -344,9 +425,60 @@ Some prose, and an unrelated table that must NOT contribute row names:
     assert [v["line"] for v in violations] == [2, 4], violations
     assert "malformed JSON" in violations[0]["problem"]
 
+    # -- fleet dream row shape (dotfiles-iyhh) -----------------------------
+    # Modeled on the real row shape from agents/skills/dream/SKILL.md's
+    # "Ledger + dedupe" example — the first fleet-shaped row a real /dream
+    # tick writes must be ACCEPTED, and its additive keys VALIDATED, not
+    # ignored.
+    fleet_good = dict(
+        good,
+        slug=FLEET_SLUG,
+        n_slugs=12,
+        denied=30,
+        scanned_sessions=12,
+        window_sessions=3,
+        candidates=4,
+        proposals=2,
+        proposal_beads=["explore-ab1", "explore-ab2"],
+        note="2 memory proposals filed",
+    )
+    assert problems(fleet_good) == [], problems(fleet_good)
+
+    # A per-slug row (not fleet scope) still carries a bare "slug" with none
+    # of the fleet-only keys — must stay accepted (additive, not required).
+    assert problems(dict(good, slug="-home-ubuntu-explore")) == []
+
+    # THE LEAK GUARD: denied must be a COUNT, never names. Before this fix,
+    # the lint didn't look at "denied" at all, so this verdict-CLEANed.
+    leaky = dict(fleet_good, denied=["explore-secret-proj", "other-hidden"])
+    assert any("never a list/dict of names" in p for p in problems(leaky)), (
+        problems(leaky)
+    )
+
+    assert any(
+        "n_slugs is not an integer" in p
+        for p in problems(dict(fleet_good, n_slugs="12"))
+    )
+    assert any(
+        "denied is negative" in p for p in problems(dict(fleet_good, denied=-1))
+    )
+    assert any(
+        "slug is not a non-empty string" in p
+        for p in problems(dict(good, slug=""))
+    )
+
+    # A fleet-scope row missing either breadth key is exactly the
+    # silently-narrower-than-it-claims failure the SKILL.md contract exists
+    # to surface.
+    no_n_slugs = {k: v for k, v in fleet_good.items() if k != "n_slugs"}
+    assert any('"n_slugs" is missing' in p for p in problems(no_n_slugs))
+    no_denied = {k: v for k, v in fleet_good.items() if k != "denied"}
+    assert any('"denied" is missing' in p for p in problems(no_denied))
+
     print(
         "pulse-ledger-lint selftest: PASS "
-        "(null row, missing key, unknown row, bad outcome/ts, malformed line)"
+        "(null row, missing key, unknown row, bad outcome/ts, malformed line, "
+        "fleet row shape)"
     )
     return 0
 
