@@ -23,7 +23,7 @@ still stands and everything below it is still one week stale.
 | **pico** | tailnet only | macOS, **no systemd** (launchd) | **where most user-facing production runs**; home, behind NAT |
 | metis | tailnet (DERP-relayed) · **`ssh metis` works from the keep** — key-based, BatchMode, no password (`hostname -s`=`metis`) | macOS **26.6.1** (Tahoe) | Zig's secondary Mac. Claude Code v2.1.220 installed but **idle** (last used 2026-08-02); **sends ZERO traffic to pico's gateway** (0 rows in 112k requests). Its `claude()` wrapper is invoked only via `tmuxa` and is **stale** (lacks `X-Machine-Origin`), so traffic it did send would land unattributed — but it currently sends none |
 | iphone-15-pro | tailnet | iOS | Termius client |
-| homeassistant | tailnet, **tag:server** | HAOS rpi5 | "948 Palm" install (`ssh hassio@homeassistant`, key `~/.ssh/id_ha`); managed from `~/picod` |
+| homeassistant | tailnet, **tag:server** | HAOS rpi5 | "948 Palm" install (`ssh hassio@homeassistant`, key `~/.ssh/id_ha`); managed from `~/picod`. **Core version** readable read-only via `GET /core/info` with the SSH add-on's own `$SUPERVISOR_TOKEN` (login shell) — **no long-lived token to mint**; `picod-health.sh` now logs `core=<v>` + staleness every 15 min (`dotfiles-ys6x`). Core **2026.8.1**, up-to-date as of 2026-08-09 |
 
 **DECOMMISSIONED — `marketing-vps`** (the LinearB company seat, OVH; called
 `vps-8a9eb245` until the 2026-08-03 rename). Retreat completed **2026-08-07**: timers
