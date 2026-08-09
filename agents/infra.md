@@ -83,7 +83,14 @@ Verified live **2026-08-01** (`dotfiles-5da3`). Reach it: `ssh pico` → resolve
 intercepts :22 on the tailnet IP and Tailscale SSH has no grammar for tag-src → user-owned-dst
 (`com.zig.sshd-alt-port`, `dotfiles-wzh`).
 
-- **hostname `pico`** — macOS 14.4 (23E214), arm64 (T6000), user `pico` (uid 501, admin).
+- **hostname `pico`** — macOS **26.6.1 Tahoe** (25G76, upgraded 2026-08-09 from 14.4 per
+  `dotfiles-xh18`; patch posture: re-check `softwareupdate -l` monthly — the 14.4→26.6.1 gap
+  was ~5 security rounds on the prod host), arm64 (T6000), user `pico` (uid 501, admin).
+  ⚠️ **Tahoe background-task management pends launchd user agents at boot** — after the
+  26.6.1 restart, launchd spawned ZERO `com.zig.*` agents AND `homebrew.mxcl.postgresql@17`
+  ("pended nondemand spawn = speculative"); everything needed manual `launchctl kickstart`.
+  Autostart-after-reboot is BROKEN until the hardening-seat fix lands — after any pico
+  restart, verify the agents actually spawned; do not assume KeepAlive brought them back.
   Uptime 64 d. Disk 175 GiB used / 724 GiB free.
 - Tailscale **`100.72.47.4`** (`pico.tailfb4637.ts.net`), tailscale 1.98.3. Home LAN behind
   `192.168.1.1`; WAN egress `172.88.172.160` as of 2026-08-04 (was `172.116.51.187`;
