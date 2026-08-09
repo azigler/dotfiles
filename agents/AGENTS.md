@@ -11,6 +11,11 @@ tier that propagates; per-slug memory doesn't.
 - Zig works over **SSH + tmux**: clickable links, inline images, and file-send (SendUserFile)
   blocks do NOT render for him. Deliver content **inline or as file paths**, and paste **plain
   full URLs** — never a markdown link as the only reference.
+- **Glyphs: emoji-presentation codepoints only.** Zig's client font hands classic-symbol
+  codepoints (U+2000–U+2BFF: ⚔ ⚒ ○ ⏸ …) and a few others to a nerdfont, not the emoji font —
+  they render as thin monochrome glyphs. Use U+1F300+ emoji (plus proven U+2xxx exceptions
+  like ✅ 🔔). Never rely on VS16. Empirical denylist so far: U+1F3A4 (🎤). Check before
+  rendering a table/sigil: any char in U+2000–U+2BFF outside the proven set is a fallback risk.
 - **Commit AND push as you go**, in every project — never infer hold-back from unpushed state.
   Only an explicit "don't push yet" holds back.
 
