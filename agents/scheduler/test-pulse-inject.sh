@@ -66,7 +66,7 @@ assert_verdict() {
 # would otherwise pay ~60s of unrelated cases each time:
 #
 #   seat   -> only the --config-dir cases (18-22)   caller: mutate-pulse-seat.sh
-#   model  -> only the --model cases (23-31)        caller: mutate-pulse-model.sh
+#   model  -> only the --model cases (23-32)        caller: mutate-pulse-model.sh
 #
 # Each is a SUBSET, never a substitute — tools/githooks/pre-commit runs the FULL
 # suite on every staged edit to the injector, and each mutation harness asserts
@@ -862,7 +862,7 @@ fi   # ↑↑↑ end of cases 18-22 (skipped by PULSE_TEST_ONLY=model)
 
 if [ "$RUN_MODEL" = 1 ]; then
 # ===========================================================================
-# 23-31. --model: RUNNING A ROW ON THE MODEL ITS SEAT PINS
+# 23-32. --model: RUNNING A ROW ON THE MODEL ITS SEAT PINS
 #        (dotfiles-pulse-row-model-seat-d0bk).
 # ===========================================================================
 #
@@ -905,12 +905,14 @@ if [ ! -f "$SEATLIB" ]; then
   bad "MD00 the seat resolver is reachable at $SEATLIB (every model case depends on it)"
 fi
 
-# A FIXTURE roster — never agents/seats.yml. Two seats: one pinned, one that
+# A FIXTURE roster — never agents/seats.yml. Three seats: one pinned, one that
 # declares no model at all (the roster-drift case a valid roster cannot express,
 # since validate-seats.py requires `model:` — but seat-resolve happily returns an
-# empty one, and "empty" must mean "no pin", not "pin the empty string").
-# Neither seat declares schedules, so the resolver's R7 session check is not in
-# play and these cases are about the MODEL lookup, nothing else.
+# empty one, and "empty" must mean "no pin", not "pin the empty string"), and one
+# (`jailseat`) that mirrors `dive`'s real shape — pinned, launched through
+# tick-jailed.sh — for case 32 (dotfiles-o9vi). No seat declares schedules, so
+# the resolver's R7 session check is not in play and these cases are about the
+# MODEL lookup, nothing else.
 MROSTER="$DIR/seats-model.yml"
 cat > "$MROSTER" <<'EOS'
 schema: 1
@@ -941,6 +943,16 @@ seats:
     effort: high
     aliases: []
     history: refs/seats/unpinnedseat.history.md
+    schedules: []
+  jailseat:
+    charter-line: "fixture seat mirroring dive: pinned, launched through the jail"
+    office: "The Jail"
+    sigil: "🔒"
+    home: ~/
+    model: opus
+    effort: high
+    aliases: []
+    history: refs/seats/jailseat.history.md
     schedules: []
 EOS
 
@@ -973,6 +985,48 @@ chmod +x "$MCLAUDE"
 # A NON-claude launcher, same recording behaviour (case 31).
 MNOTCLAUDE="$DIR/bin/goose-ish"
 cp "$MCLAUDE" "$MNOTCLAUDE"
+
+# --- the tick-jailed.sh chain (case 32, dotfiles-o9vi) -----------------------
+# Three fixtures standing in for the real chain read in pulse-inject.sh's
+# is_claude_launcher() comment: tick-jailed.sh execs bwrap, which execs the
+# inner claude, and pulse-inject's `--model` splice must survive all of it.
+#
+# MINNER_CLAUDE — the innermost "claude": literally the SAME recording fixture
+# as MCLAUDE/MNOTCLAUDE above ($1=REC, shift, record "$*", hold the pane).
+MINNER_CLAUDE="$DIR/bin/inner-claude"
+cp "$MCLAUDE" "$MINNER_CLAUDE"
+
+# MBWRAP_STUB — stands in for bwrap: strips everything up to the LITERAL "--"
+# (bwrap's own sandbox flags, unexercised here) and execs the remainder,
+# mirroring how the real `exec bwrap ${BWRAP_ARGS[@]} -- claude …` hands off
+# once its own args are consumed.
+MBWRAP_STUB="$DIR/bin/stub-bwrap"
+cat > "$MBWRAP_STUB" <<'EOS'
+#!/bin/bash
+# fixture: stands in for bwrap in the tick-jailed.sh chain (case 32).
+while [ $# -gt 0 ]; do
+  arg="$1"; shift
+  [ "$arg" = "--" ] && break
+done
+exec "$@"
+EOS
+chmod +x "$MBWRAP_STUB"
+
+# MJAIL — stands in for tools/tick-jail/tick-jailed.sh. Its basename MUST be
+# `tick-jailed.sh` (is_claude_launcher() matches on basename, not path). Takes
+# a REC path as $1 (same launch-string idiom as MCLAUDE — `"$MJAIL $REC32"`),
+# then forwards its OWN remaining argv (whatever pulse-inject spliced onto the
+# launch string, e.g. `--model opus`) through the bwrap stub into the recording
+# inner claude — the exact shape of the real script's last line:
+#   exec bwrap "${BWRAP_ARGS[@]}" -- claude --dangerously-skip-permissions "$@"
+MJAIL="$DIR/bin/tick-jailed.sh"
+cat > "$MJAIL" <<EOS
+#!/bin/bash
+# fixture: stands in for tools/tick-jail/tick-jailed.sh (case 32).
+REC="\$1"; shift
+exec "$MBWRAP_STUB" --unshare-all -- "$MINNER_CLAUDE" "\$REC" --dangerously-skip-permissions "\$@"
+EOS
+chmod +x "$MJAIL"
 
 model_pane() {   # <session> <window> -> pane id on the private server
   MTMUX list-panes -a -F '#{session_name} #{window_name} #{pane_id}' 2>/dev/null \
@@ -1209,11 +1263,50 @@ else
   ok
 fi
 
+# --- 32. THE PIN SURVIVES THE tick-jailed.sh -> bwrap -> INNER-claude CHAIN --
+#     (dotfiles-o9vi, incident dotfiles-3135.) is_claude_launcher() admits
+#     `tick-jailed.sh` because it PROVES the real script forwards its own argv
+#     verbatim into `claude` (tools/tick-jail/tick-jailed.sh's last line). This
+#     case proves the SAME thing end-to-end against a fixture chain that mirrors
+#     it exactly: pulse-inject splices `--model opus` onto the launch string ->
+#     MJAIL (named tick-jailed.sh) receives it in its own "$@" -> MBWRAP_STUB
+#     (standing in for bwrap) strips its sandbox args at the literal "--" and
+#     execs the remainder -> MINNER_CLAUDE (the fixture "claude") records the
+#     argv it was actually started with. `jailseat` (roster pin `opus`) mirrors
+#     `dive`'s real shape on purpose.
+S32SESSION="model32-$$"
+REC32="$DIR/rec32"
+ST32=$(mktemp -d)
+V_OUT=$(inject_model "$ST32" --session "$S32SESSION" --window jailseat --dir "$DIR" \
+  --launch "$MJAIL $REC32" --launch-detect bash --cmd "jail-tick-32" 2>/dev/null); V_RC=$?
+assert_verdict "MD32a" injected 0 "$V_RC" "$V_OUT"
+if grep -q -- '--model opus' "$REC32" 2>/dev/null; then
+  ok
+else
+  bad "MD32b the INNERMOST claude was started with --model opus, through the jail chain (argv: '$(cat "$REC32" 2>/dev/null)')"
+fi
+PANE32=$(model_pane "$S32SESSION" jailseat)
+sleep 1
+if MTMUX capture-pane -p -t "$PANE32" 2>/dev/null | grep -q "jail-tick-32"; then
+  ok
+else
+  bad "MD32c the tick is still injected through the jail chain"
+fi
+if grep -q '"model":"opus"' "$(MLEDGER "$ST32")" 2>/dev/null \
+   && grep -q '"source":"roster"' "$(MLEDGER "$ST32")" 2>/dev/null \
+   && grep -q '"seat":"jailseat"' "$(MLEDGER "$ST32")" 2>/dev/null \
+   && grep -q '"mismatch":false' "$(MLEDGER "$ST32")" 2>/dev/null \
+   && grep -q '"result":"injected"' "$(MLEDGER "$ST32")" 2>/dev/null; then
+  ok
+else
+  bad "MD32d the ledger row records the jail-chain pin (model/source/seat/mismatch/result) (got: $(cat "$(MLEDGER "$ST32")" 2>/dev/null))"
+fi
+
 env -u TMUX -u TMUX_TMPDIR "$TMUX_BIN" -L "$MPRIV" kill-server 2>/dev/null
 rm -f "$MPRIV_SOCKDIR/$MPRIV"
-rm -rf "$ST23" "$ST24" "$ST25" "$ST26" "$ST27" "$ST28" "$ST29" "$ST30" "$ST31" "$ST31B"
+rm -rf "$ST23" "$ST24" "$ST25" "$ST26" "$ST27" "$ST28" "$ST29" "$ST30" "$ST31" "$ST31B" "$ST32"
 
-fi   # ↑↑↑ end of cases 23-31 (skipped by PULSE_TEST_ONLY=seat)
+fi   # ↑↑↑ end of cases 23-32 (skipped by PULSE_TEST_ONLY=seat)
 
 # --- Summary ---
 TOTAL=$((PASS + FAIL))

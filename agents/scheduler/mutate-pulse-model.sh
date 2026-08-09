@@ -77,7 +77,7 @@ export PULSE_SEAT_RESOLVE="$SEATLIB"
 # The model-only subset's exact case count. If you add or remove a model case,
 # update this number — that is the point: a drifting count must stop the harness
 # rather than quietly shrink what it proves.
-EXPECT_CASES=45
+EXPECT_CASES=51
 
 FAILED=0
 HARNESS_ERR=0
@@ -226,16 +226,19 @@ echo "=== mutants ==============================================================
 # This is precisely the shape a test that only checked "the flag was accepted"
 # would miss. The must-PASS set is the backward-compatibility half: rows with no
 # pin are not supposed to change, so a mutant that reddens them broke something
-# other than the pin.
+# other than the pin. MD32b/MD32d must fail too (dotfiles-o9vi): the jail-chain
+# case pins through the SAME splice, so disabling it silently unpins `dive` too
+# — the injection itself still succeeds (MD32a/MD32c untouched), only the pin
+# vanishes, exactly the shape M1 exists to catch.
 fresh_copy
 mutate "$INJ" \
   'if [ -n "$MODEL" ]; then
-  if [ "$LAUNCH_BASE" = "claude" ]; then' \
+  if is_claude_launcher "$LAUNCH_BASE"; then' \
   'if false; then
-  if [ "$LAUNCH_BASE" = "claude" ]; then'
+  if is_claude_launcher "$LAUNCH_BASE"; then'
 check "M1 pin-never-spliced (every pinned row silently runs the default)" \
-      "MD23b MD23d MD26a MD27c MD27d MD28a MD29b" \
-      "MD24a MD24b MD24c MD25a MD25b MD30b MD30c MD31a MD31b MD31c MD31d MD31e MD31f"
+      "MD23b MD23d MD26a MD27c MD27d MD28a MD29b MD32b MD32d" \
+      "MD24a MD24b MD24c MD25a MD25b MD30b MD30c MD31a MD31b MD31c MD31d MD31e MD31f MD32a MD32c"
 
 # M2 — THE REUSE PATH STOPS CHECKING. The nastier half, same as the seat's: a
 # durable window already holds a launcher, so the branch that applies the pin
@@ -269,23 +272,42 @@ check "M3 pin-token-guard-removed (a roster value becomes keystrokes in a shell)
       "MD23a MD23b MD23c MD23d MD24b MD25b MD27c MD27d MD28a MD29b"
 
 # M4 — THE NON-VACUITY MUTANT, and the scope one. Everything above breaks the
-# pin; this one breaks its SCOPE, by pinning launchers that are not claude.
-# dive's launcher is tick-jailed.sh, which execs bwrap: `--model` would be
-# swallowed as bwrap's own argument and the jailed launch would break — a pin
-# turning a working row into a broken one. It also answers the fair question
-# about the cases above: are they detecting the PIN, or merely detecting that a
-# flag exists? MD31b/MD31c are a pinned SEAT with a non-claude launcher, and
-# every other case must keep passing, which makes this a probe of the guard's
-# scope rather than of its existence.
+# pin; this one breaks its SCOPE, by pinning EVERY launcher, is_claude_launcher()
+# included or not. A goose-ish (or any other unproven) launcher would take
+# `--model` as its own argument and the launch would break — a pin turning a
+# working row into a broken one. It also answers the fair question about the
+# cases above: are they detecting the PIN, or merely detecting that a flag
+# exists? MD31b/MD31c are a pinned SEAT with a non-claude launcher, and every
+# other case must keep passing — including MD32a-d, since `true` still admits
+# tick-jailed.sh (this mutant widens the guard, it does not narrow it away from
+# the jail), which makes this a probe of the guard's UPPER bound rather than of
+# its existence.
 fresh_copy
 mutate "$INJ" \
-  'if [ "$LAUNCH_BASE" = "claude" ]; then
+  'if is_claude_launcher "$LAUNCH_BASE"; then
     LAUNCH="$LAUNCH --model $MODEL"' \
   'if true; then
     LAUNCH="$LAUNCH --model $MODEL"'
-check "M4 pin-applied-to-launchers-that-are-not-claude (the jail breaks)" \
+check "M4 pin-applied-to-launchers-that-are-not-recognized (an unproven launcher breaks)" \
       "MD31b MD31c" \
-      "MD23a MD23b MD23c MD23d MD24a MD24b MD24c MD25a MD25b MD26a MD27a MD27c MD27d MD28a MD29a MD29b MD30b MD30c"
+      "MD23a MD23b MD23c MD23d MD24a MD24b MD24c MD25a MD25b MD26a MD27a MD27c MD27d MD28a MD29a MD29b MD30b MD30c MD32a MD32b MD32c MD32d"
+
+# M5 — THE ALLOWLIST DROPS THE ONE ENTRY THAT WAS THE WHOLE POINT (dotfiles-o9vi).
+# is_claude_launcher() shrinks back to `claude` alone, i.e. the guard this bead
+# replaces. Case 32 is the ONLY thing that proves tick-jailed.sh is admitted —
+# if this mutant survives, the case named in the acceptance criteria is
+# decorative, not load-bearing. MD32a/MD32c must keep passing: the jail chain
+# still LAUNCHES fine with no --model (that is the pre-o9vi behavior this bead
+# fixes, not a crash), so only the pin itself (MD32b) and its ledger row
+# (MD32d) may go red. Every other case is untouched: `claude` itself is still
+# recognized, so MD23-MD31 do not move.
+fresh_copy
+mutate "$INJ" \
+  'claude|tick-jailed.sh) return 0 ;;' \
+  'claude) return 0 ;;'
+check "M5 jail-launcher-dropped-from-allowlist (dive silently unpins again)" \
+      "MD32b MD32d" \
+      "MD23a MD23b MD23c MD23d MD24a MD24b MD24c MD25a MD25b MD26a MD27a MD27c MD27d MD28a MD29a MD29b MD30b MD30c MD31a MD31b MD31c MD31d MD31e MD31f MD32a MD32c"
 
 echo
 if [ "$HARNESS_ERR" -ne 0 ]; then

@@ -98,15 +98,22 @@
 #              that never had a pin keep inheriting the machine default exactly
 #              as before; the only trace is one line in $LOG.
 #
-#              LAUNCHER SCOPE: the flag is only ever appended when the launcher
-#              is `claude` (same guard as the wrapper re-source below). A jailed
-#              launcher (tick-jailed.sh -> bwrap) or any other program gets NO
-#              --model — passing an unknown flag to a jail wrapper would break
-#              the launch, and a pin that silently changed a jail's argv would be
-#              worse than an unpinned tick. A pin that cannot be applied is
-#              logged as a WARN and NOT recorded as requested; `dive` (roster pin
-#              `opus`, launcher tick-jailed.sh) is the live instance and needs the
-#              jail to forward the flag before its pin can bite.
+#              LAUNCHER SCOPE (dotfiles-o9vi): the flag is appended for `claude`
+#              AND for any launcher `is_claude_launcher()` recognizes as one that
+#              forwards its own argv verbatim into `claude` — today that is only
+#              `tick-jailed.sh`, whose final line execs `bwrap ${BWRAP_ARGS[@]} --
+#              claude --dangerously-skip-permissions "$@"` (read, not assumed;
+#              see tools/tick-jail/tick-jailed.sh). `--model <pin>` typed onto the
+#              LAUNCH STRING therefore arrives as one of tick-jailed.sh's own
+#              "$@" and rides that exec straight into the real claude's argv. Any
+#              OTHER program gets NO --model — passing an unknown flag to an
+#              unproven launcher would break the launch, and a pin that silently
+#              changed unrecognized argv would be worse than an unpinned tick. A
+#              pin that cannot be applied is logged as a WARN and NOT recorded as
+#              requested. `dive` (roster pin `opus`, launcher tick-jailed.sh) was
+#              the live instance this closes: before dotfiles-o9vi the jail
+#              swallowed the pin at this same guard and every dive tick ran
+#              unpinned despite a roster that claimed otherwise.
 #
 #              ⚠️ WARM-PANE RULE, AND WHY IT IS NOT `failed-wrong-seat`. A warm
 #              pane's launcher CANNOT change model mid-flight — the process is
@@ -768,18 +775,44 @@ PANE="$WIN_ID.0"
 # 3. Ensure the launch program is running in the pane.
 LAUNCH_BASE=$(basename "${LAUNCH%% *}")
 
+# is_claude_launcher <basename> — true iff LAUNCH_BASE names a program the
+# --model splice may safely rewrite (dotfiles-o9vi). Two members, both proven
+# by reading the source they run, never assumed:
+#   * `claude`         — the real binary; the flag is its own documented arg.
+#   * `tick-jailed.sh` — tools/tick-jail/tick-jailed.sh's LAST line is
+#     `exec bwrap ${BWRAP_ARGS[@]} -- claude --dangerously-skip-permissions
+#     "$@"`, i.e. it forwards its own argv VERBATIM into the inner claude's
+#     argv. `--model <pin>` typed onto the launch string therefore arrives as
+#     one of tick-jailed.sh's OWN "$@" and rides that exec straight through —
+#     it is never interpreted by tick-jailed.sh or by bwrap itself (bwrap only
+#     sees the flags BWRAP_ARGS names, plus whatever follows the script's own
+#     literal `--`).
+# Deliberately NOT a wildcard/pattern match: only launchers this file has
+# verified forward their argv belong here. Adding a third one means reading
+# its source the same way and saying so in this comment, not loosening the
+# case pattern.
+is_claude_launcher() {
+  case "$1" in
+    claude|tick-jailed.sh) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # 3.1 Splice the model pin into the LAUNCH STRING — the same delivery the seat
 #     gets, for the same reason: what a launched process was actually started
 #     with is verifiable from /proc, and an ambient env is not (see the header).
-#     Guarded to a `claude` launcher, exactly like the wrapper re-source below:
-#     tick-jailed.sh execs bwrap and would take `--model` as its own argument.
+#     Guarded by is_claude_launcher(), NOT the bare `claude` check the wrapper
+#     re-source below still uses (that guard is unrelated — see its own
+#     comment) — tick-jailed.sh is proven to forward the flag, so it is
+#     admitted here; an unproven launcher would take `--model` as its own
+#     argument and the splice must not risk that blindly.
 if [ -n "$MODEL" ]; then
-  if [ "$LAUNCH_BASE" = "claude" ]; then
+  if is_claude_launcher "$LAUNCH_BASE"; then
     LAUNCH="$LAUNCH --model $MODEL"
     MODEL_ACTIVE=1
     note "model: launch string pinned -> $LAUNCH"
   else
-    note "WARN: model pin '$MODEL' (source=$MODEL_SOURCE) NOT applied — launcher '$LAUNCH_BASE' is not claude. The tick runs on the launcher's own model; nothing is recorded as requested."
+    note "WARN: model pin '$MODEL' (source=$MODEL_SOURCE) NOT applied — launcher '$LAUNCH_BASE' is not a recognized claude launcher. The tick runs on the launcher's own model; nothing is recorded as requested."
   fi
 fi
 # EXPECT = the process name that means "the launcher is live in this pane".
