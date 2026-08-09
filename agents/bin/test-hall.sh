@@ -85,7 +85,8 @@ trap cleanup EXIT
 # with a session-qualified binding (alpha), a schedule-less seat whose home is
 # `~` so home-expansion is actually exercised (beta), and a work-tap seat
 # (gamma) so the tap column has something to differ on.
-mkdir -p "$BASE/deskhome" "$BASE/alphahome" "$BASE/gammahome"
+mkdir -p "$BASE/deskhome" "$BASE/alphahome" "$BASE/gammahome" "$BASE/claude-work" \
+         "$BASE/deltahome" "$BASE/epsilonhome" "$BASE/zetahome"
 ROSTER="$BASE/seats.yml"
 cat > "$ROSTER" <<'EOF'
 schema: 1
@@ -98,7 +99,7 @@ taps:
     failover: [work]
   work:
     type: claude
-    config_dir: ~/.claude-work
+    config_dir: __BASE__/claude-work
     failover: []
 seats:
   seneschal:
@@ -153,6 +154,56 @@ seats:
         tap: work
         window: gamma
         session: sess-a
+  # The LAUNCH seats (dotfiles-dsbl). Their own session (sess-b) keeps their
+  # windows out of every court/visit case above, and each has a binding so the
+  # target session is the ROSTER's answer rather than "whichever session the
+  # socket named first" — three fixtures materializing into an ambiguous
+  # session is a flaky suite waiting to happen.
+  delta:
+    charter-line: "fixture launch seat, work tap"
+    office: "The Delta"
+    sigil: "🧱"
+    home: __BASE__/deltahome
+    model: sonnet
+    effort: high
+    tap: work
+    aliases: []
+    history: refs/seats/delta.history.md
+    schedules:
+      - unit: pulse-delta
+        tap: work
+        window: delta
+        session: sess-b
+  epsilon:
+    charter-line: "fixture launch seat, personal tap"
+    office: "The Epsilon"
+    sigil: "🪙"
+    home: __BASE__/epsilonhome
+    model: sonnet
+    effort: high
+    tap: personal
+    aliases: []
+    history: refs/seats/epsilon.history.md
+    schedules:
+      - unit: pulse-epsilon
+        tap: personal
+        window: epsilon
+        session: sess-b
+  zeta:
+    charter-line: "fixture launch seat, never launched"
+    office: "The Zeta"
+    sigil: "🔧"
+    home: __BASE__/zetahome
+    model: sonnet
+    effort: high
+    tap: personal
+    aliases: []
+    history: refs/seats/zeta.history.md
+    schedules:
+      - unit: pulse-zeta
+        tap: personal
+        window: zeta
+        session: sess-b
 EOF
 sed -i "s|__BASE__|$BASE|g" "$ROSTER"
 
@@ -166,9 +217,16 @@ else bad "fixture roster must pass validate-seats.py ($(cat "$ERR"))"; fi
 
 # hall <args…> — the script under test, pinned to the fixture roster and the
 # fixture socket, with every seam this suite does not mean to use scrubbed.
+#
+# ⚠️ HALL_NO_LAUNCH=1 IS THE DEFAULT HERE, and it is a safety rail: since
+# dotfiles-dsbl a visit LAUNCHES the seat through pulse-inject.sh, and the
+# default launcher is `claude`. A suite that materializes five fixture windows
+# would otherwise start five real Claude sessions and spend a tap per run. The
+# LAUNCH section below opts in explicitly, with an inert launcher.
 hall() {
   env -u TMUX -u TMUX_TMPDIR -u HALL_SESSION -u HALL_ONLY_IF_ABSENT \
-      SEATS_YML="$ROSTER" HALL_TMUX_SOCKET="$SOCK" bash "$HALL" "$@"
+      SEATS_YML="$ROSTER" HALL_TMUX_SOCKET="$SOCK" HALL_NO_LAUNCH=1 \
+      bash "$HALL" "$@"
 }
 wins() { tm "$SOCK" list-windows -a -F '#{session_name}	#{window_name}	#{window_id}'; }
 win_count() { wins | grep -c . ; }
@@ -207,7 +265,7 @@ TAPCOL=$(printf '%s\n' "$COURT" | grep -E '^.  (beta|seneschal) ' | sed 's/.*  /
 has  "TAPCOL a schedule-less seat still shows its tap" "personal" \
      "$(printf '%s\n' "$COURT" | grep ' beta ')"
 hasnt "TAPCOL a schedule-less seat never shows a dash" " -$" "$TAPCOL"
-has "court counts the seats"   "4 seats"       "$COURT"
+has "court counts the seats"   "7 seats"       "$COURT"
 
 # Status glyphs come from the LIVE window name, and 💤 from its absence.
 ALPHA_ROW=$(printf '%s\n' "$COURT" | grep ' alpha ')
@@ -441,8 +499,9 @@ eq "materialize selects the new window" "beta" "$(cur_win_name sess-a)"
 # home: ~ in the roster -> the window's cwd is $HOME, expanded.
 eq "materialize expands ~ in the roster home" "$HOME" \
    "$(tm "$SOCK" display-message -p -t "$BETA_ID" '#{pane_current_path}')"
-# v0 launches NOTHING: an empty shell at the right address is the whole job.
-hasnt "v0 does not launch claude" "claude" "$(tm "$SOCK" display-message -p -t "$BETA_ID" '#{pane_current_command}')"
+# --no-launch (the helper's default here) materializes and starts NOTHING: an
+# empty shell at the right address. The launching path is the LAUNCH section.
+hasnt "no-launch starts nothing" "claude" "$(tm "$SOCK" display-message -p -t "$BETA_ID" '#{pane_current_command}')"
 
 # Materialization happens at the ROSTER's address, never in the caller's
 # session: `other` is the newest (so the most likely "current") session, and
@@ -479,6 +538,103 @@ OUT=$(env -u TMUX -u TMUX_TMPDIR SEATS_YML="$ROSTER" HALL_TMUX_SOCKET="$SOCK" \
 eq  "only-if-absent rc"              0        "$RC"
 eq  "only-if-absent does not switch" "beta"   "$(cur_win_name sess-a)"
 has "only-if-absent says why"        "leaving it alone" "$(cat "$ERR")"
+
+# ===========================================================================
+# LAUNCH (dotfiles-dsbl) — a visit starts the seat, through the INJECTOR
+# ===========================================================================
+# Zig, after the first live visit: "it opened the hevyd window but didn't start
+# the claude session." So a materializing visit now shells out to the real
+# agents/scheduler/pulse-inject.sh, which types `/onboard` into a window it
+# launched — the hall itself still never send-keys, and the STRUCTURE section
+# below still proves it.
+#
+# The injector is driven through ITS OWN seams, not a stand-in: `--launch cat`
+# (an inert launcher, exactly as test-pulse-inject.sh does it) via HALL_LAUNCH,
+# and PULSE_READY_MARKER='' to disable the composer readiness gate that `cat`
+# could never satisfy. The EVIDENCE is the pane itself — what the injector
+# typed into it — plus its verdict line, not the hall's own report of what it
+# meant to do.
+LAUNCHLOG="$BASE/launch.log"
+hall_launching() { # same hall, but with the launch path ARMED
+  env -u TMUX -u TMUX_TMPDIR -u HALL_SESSION -u HALL_ONLY_IF_ABSENT \
+      -u CLAUDE_CONFIG_DIR \
+      SEATS_YML="$ROSTER" HALL_TMUX_SOCKET="$SOCK" \
+      HALL_INJECT="$ROOT/agents/scheduler/pulse-inject.sh" \
+      HALL_LAUNCH=cat HALL_LAUNCH_LOG="$LAUNCHLOG" \
+      PULSE_READY_MARKER='' PULSE_CONFIG_CRED_FILE='' \
+      bash "$HALL" "$@"
+}
+wait_for_launch() { # wait_for_launch <n verdicts expected> -> 0 if seen
+  local want=$1 i
+  for i in $(seq 1 60); do
+    [ "$(grep -c 'PULSE_INJECT_RESULT=' "$LAUNCHLOG" 2>/dev/null)" -ge "$want" ] && return 0
+    sleep 0.5
+  done
+  return 1
+}
+pane_text() { tm "$SOCK" capture-pane -p -t "$1" 2>/dev/null; }
+
+# --- ABSENT window -> materialize AND launch --------------------------------
+# `delta` is a work-tap seat with no window anywhere yet.
+tm "$SOCK" new-session -d -s sess-b -c "$BASE" 2>"$ERR"
+OUT=$(hall_launching delta 2>"$ERR"); RC=$?
+eq  "LAUNCH rc"                0              "$RC"
+has "LAUNCH materialized"      "materialized" "$OUT"
+has "LAUNCH says it launched"  "launching"    "$(cat "$ERR")"
+if wait_for_launch 1; then ok; else bad "LAUNCHVERDICT the injector never reported a verdict ($(cat "$LAUNCHLOG"))"; fi
+has "LAUNCHVERDICT the injector injected" "PULSE_INJECT_RESULT=injected" "$(cat "$LAUNCHLOG")"
+DELTA_ID=$(wins | awk -F'\t' '$2=="delta"{print $3}')
+if [ -n "$DELTA_ID" ]; then ok; else bad "LAUNCHWIN the seat's window must exist"; fi
+eq  "LAUNCH ran the launcher"  "cat" "$(tm "$SOCK" display-message -p -t "$DELTA_ID" '#{pane_current_command}')"
+has "LAUNCH typed /onboard"    "/onboard" "$(pane_text "$DELTA_ID")"
+# TAP CORRECTNESS: delta's tap is `work`, whose config_dir is NOT the default
+# seat, so the injector exports it into the pane before launching.
+has "LAUNCHTAP work seat gets the config dir" "export CLAUDE_CONFIG_DIR=" "$(pane_text "$DELTA_ID")"
+has "LAUNCHTAP and it is the WORK one"        "claude-work"               "$(pane_text "$DELTA_ID")"
+
+# --- a PERSONAL seat gets NO --config-dir ----------------------------------
+# The flag's job is to move a launch OFF the default seat. Asserting the
+# default one only buys failure modes (exit 78 on a missing credential file,
+# failed-wrong-seat on a warm pane), so the hall does not pass it.
+OUT=$(hall_launching epsilon 2>"$ERR"); RC=$?
+eq "LAUNCHPERSONAL rc" 0 "$RC"
+if wait_for_launch 2; then ok; else bad "LAUNCHPERSONAL no verdict ($(cat "$LAUNCHLOG"))"; fi
+EPS_ID=$(wins | awk -F'\t' '$2=="epsilon"{print $3}')
+has   "LAUNCHPERSONAL typed /onboard"     "/onboard"                  "$(pane_text "$EPS_ID")"
+hasnt "LAUNCHPERSONAL exports no seat"    "export CLAUDE_CONFIG_DIR=" "$(pane_text "$EPS_ID")"
+
+# --- an EXISTING window is switched to and NOTHING else --------------------
+# A warm seat is not re-onboarded: /onboard into a live session is a context
+# reset nobody asked for. Two verdicts have been logged so far; a third would
+# mean this visit launched.
+BEFORE_V=$(grep -c 'PULSE_INJECT_RESULT=' "$LAUNCHLOG")
+BEFORE_TEXT=$(pane_text "$DELTA_ID")
+OUT=$(hall_launching delta 2>"$ERR"); RC=$?
+sleep 2
+eq    "LAUNCHWARM rc"                 0              "$RC"
+hasnt "LAUNCHWARM did not materialize" "materialized" "$OUT"
+hasnt "LAUNCHWARM did not say launching" "launching"  "$(cat "$ERR")"
+eq    "LAUNCHWARM no new injector run" "$BEFORE_V"    "$(grep -c 'PULSE_INJECT_RESULT=' "$LAUNCHLOG")"
+eq    "LAUNCHWARM the pane is untouched" "$BEFORE_TEXT" "$(pane_text "$DELTA_ID")"
+
+# --- --no-launch: the escape hatch, and the attach hook's choice ------------
+BEFORE_V=$(grep -c 'PULSE_INJECT_RESULT=' "$LAUNCHLOG")
+OUT=$(hall_launching --no-launch zeta 2>"$ERR"); RC=$?
+eq  "NOLAUNCH rc"              0              "$RC"
+has "NOLAUNCH materialized"    "materialized" "$OUT"
+has "NOLAUNCH says why"        "nothing started" "$(cat "$ERR")"
+sleep 1
+eq  "NOLAUNCH ran no injector" "$BEFORE_V" "$(grep -c 'PULSE_INJECT_RESULT=' "$LAUNCHLOG")"
+ZETA_ID=$(wins | awk -F'\t' '$2=="zeta"{print $3}')
+hasnt "NOLAUNCH the pane is a bare shell" "cat" \
+      "$(tm "$SOCK" display-message -p -t "$ZETA_ID" '#{pane_current_command}')"
+
+# The tmux.conf attach hook must USE that escape hatch: it fires on a machine
+# event (boot, a resurrect restore), and starting a Claude session — spending a
+# tap — off a machine event rather than a human's request is what the hall's
+# charter avoids. This is the DECISION, asserted rather than commented.
+has "NOLAUNCHHOOK the attach hook passes HALL_NO_LAUNCH" "HALL_NO_LAUNCH=1" \
+    "$(awk '/# HALL-BLOCK-BEGIN/{f=1; next} /# HALL-BLOCK-END/{f=0} f' "$ROOT/tmux/tmux.conf" | grep session-created)"
 
 # ===========================================================================
 # THE PROMPT (dotfiles-hnhl) — every form Zig might type means the same thing

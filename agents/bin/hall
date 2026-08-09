@@ -22,9 +22,16 @@
 #   hall                the COURT VIEW (also `hall court`)
 #   hall <seat|alias>   VISIT: switch to the seat's window, or MATERIALIZE it
 #                       correctly (roster session, roster home as cwd, canonical
-#                       name) and then switch.  v0 does NOT launch claude — an
-#                       empty shell in the right place is the correct v0 answer;
-#                       launching is the injector's job (and Zig's).
+#                       name), LAUNCH it through pulse-inject.sh with /onboard,
+#                       and then switch.  A window that already exists is
+#                       switched to and NOTHING else — a warm seat is never
+#                       re-onboarded.  (v0 launched nothing: "an empty shell in
+#                       the right place is the correct v0 answer".  Zig
+#                       overruled that from the first live visit —
+#                       dotfiles-dsbl.  The hall still never types; the INJECTOR
+#                       types, into a window it launched.)
+#   hall --no-launch <seat>
+#                       materialize/switch only.  Same as HALL_NO_LAUNCH=1.
 #   hall home           the front desk: an alias for `hall seneschal`
 #                       (ratified 2026-08-09 — attach lands at the desk).
 #   hall --help
@@ -611,6 +618,86 @@ hall_find_window() {
       done
 }
 
+# ---------------------------------------------------------------------------
+# LAUNCH (dotfiles-dsbl) — materialize, THEN hand the window to the injector
+# ---------------------------------------------------------------------------
+# Zig, after the first live visit: "it opened the hevyd window but didn't start
+# the claude session. i feel like it should start the session and onboard too."
+# That overrides v0's no-launch decision (sb6s), and the way it lands matters:
+#
+# THE HALL STILL NEVER TYPES. It shells out to agents/scheduler/pulse-inject.sh
+# — the fleet's one injection primitive — and the INJECTOR types, into a window
+# it launched. test-hall.sh's no-send-keys assertion is unchanged and still
+# passes, because it is still true.
+#
+# Reusing the injector rather than growing a second launcher buys, for free:
+# the tap export plus /proc verification (never silently on the wrong seat),
+# the d0bk roster model pin, the readiness gate and bounce discipline, and the
+# ledger. Everything that has already been argued and tested once.
+#
+# ONLY ON MATERIALIZATION. A warm window is switched to and nothing else: a
+# seat that is already running is NOT re-onboarded, because /onboard into a
+# live session is a context reset nobody asked for.
+#
+# DETACHED, because the injector waits for the composer to report input-ready
+# (up to 90s) and a popup that hangs that long is a broken popup. The verdict
+# line goes to $HALL_LAUNCH_LOG, which is where to look when a launch does not
+# land.
+#
+# THE SOCKET travels in $TMUX. pulse-inject.sh has no -S flag (it is a caller
+# here, not a thing to edit), and tmux reads the socket path from $TMUX when no
+# -S is given — measured. So the launch is bound to the same server the hall is
+# acting on, rather than to whatever the ambient default server happens to be.
+#
+# Seams: HALL_NO_LAUNCH=1 / --no-launch (materialize only), HALL_INJECT (the
+# injector path), HALL_LAUNCH (forwarded as the injector's own --launch, which
+# is how the suite runs an inert launcher), HALL_LAUNCH_LOG.
+hall_launch() {
+  local seat=$1 home=$2 sess=$3 dump=$4
+  local inject log tap cfg default_cfg args
+
+  [ "${HALL_NO_LAUNCH:-0}" = 1 ] && {
+    printf 'hall: --no-launch: %s materialized, nothing started.\n' "$seat" >&2
+    return 0
+  }
+
+  inject=${HALL_INJECT:-"$HERE/../scheduler/pulse-inject.sh"}
+  [ -f "$inject" ] || {
+    printf 'hall: cannot find pulse-inject.sh at %s — %s materialized but NOT launched.\n' \
+      "$inject" "$seat" >&2
+    return 1
+  }
+  log=${HALL_LAUNCH_LOG:-/tmp/hall-launch.log}
+
+  args=(--dir "$home" --session "$sess" --window "$seat" --cmd '/onboard'
+        --loop "hall-visit-$seat")
+
+  # THE TAP, and why a personal seat gets NO --config-dir. The flag's job is to
+  # move a launch OFF the default seat; asserting the default one only adds
+  # failure modes (a missing credential file becomes exit 78, and a warm pane
+  # on no explicit seat becomes failed-wrong-seat) in exchange for nothing.
+  # So: pass it when the seat's tap points somewhere else, never otherwise.
+  tap=$(printf '%s\n' "$dump" | awk -F'\t' -v s="$seat" '$1=="seat" && $2==s {print $10; exit}')
+  if [ -n "$tap" ]; then
+    cfg=$(hall_expand_home "$(_seat_tap_config_dir "$tap" "$dump")")
+    default_cfg=$(hall_expand_home "${CLAUDE_CONFIG_DIR:-~/.claude}")
+    if [ -n "$cfg" ] && [ "$cfg" != "$default_cfg" ]; then
+      args+=(--config-dir "$cfg")
+    fi
+  fi
+  [ -n "${HALL_LAUNCH:-}" ] && args+=(--launch "$HALL_LAUNCH")
+
+  {
+    printf '=== %s hall visit: seat=%s session=%s window=%s tap=%s\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$seat" "$sess" "$seat" "${tap:--}"
+  } >> "$log"
+  # nohup + & : the hall returns to the popup immediately; the injector lives
+  # on past it. Its stdout carries the PULSE_INJECT_RESULT verdict line.
+  nohup env TMUX="$5,0,0" bash "$inject" "${args[@]}" >> "$log" 2>&1 &
+  printf 'hall: launching %s (%s) — verdict in %s\n' "$seat" "${tap:-personal}" "$log" >&2
+  return 0
+}
+
 visit() {
   local want=$1 dump hit match seat row sock sess home office sigil win_id created=0
   dump=$(_seat_dump) || die 3 "roster could not be read (see the parse error above)."
@@ -652,10 +739,11 @@ visit() {
     win_id=$(tmux_e "$sock" new-window -d -P -F '#{window_id}' -t "=$sess" -n "$seat" -c "$home") \
       || die 1 "could not create the window for seat '$seat' in session '$sess'"
     created=1
-    # v0 deliberately launches NOTHING here.  An empty shell at the seat's home
-    # is the correct materialization; starting claude is the injector's job
-    # (pulse-inject.sh) or Zig's, and doing it from a popup would spend a tap
-    # nobody asked to spend.
+    # …and now it is launched, through the injector (dotfiles-dsbl). v0 stopped
+    # here on purpose — "an empty shell in the right place is the correct v0
+    # answer" — and Zig overruled that from the first live visit: a seat you
+    # visit should be a seat that is awake.
+    hall_launch "$seat" "$home" "$sess" "$dump" "$sock" || true
   fi
 
   tmux_e "$sock" select-window -t "$win_id" >/dev/null 2>&1 || true
@@ -679,7 +767,10 @@ hall — the court view of the estate (v0, bead dotfiles-sb6s)
   hall                 the COURT VIEW: every seat, its office, status, last
                        activity, model and tap, plus any UNREGISTERED window
   hall <seat|alias>    visit a seat: switch to its window, or materialize it
-                       (roster session, roster home, canonical name)
+                       (roster session, roster home, canonical name) and LAUNCH
+                       it — claude + /onboard, through pulse-inject.sh. A window
+                       that already exists is switched to and left alone.
+  hall --no-launch <s> materialize/switch only (also: HALL_NO_LAUNCH=1)
   hall home            the front desk (alias for: hall seneschal)
   hall --interactive   court + a seat> prompt (the popup mode). The prompt takes
                        a bare seat name, 'hall <seat>', 'home' or 'hall home' —
@@ -761,6 +852,12 @@ interactive() {
 }
 
 main() {
+  # --no-launch is a MODIFIER, not a verb: it may precede any of them, and it
+  # is the same switch as HALL_NO_LAUNCH=1 (the env form is what the attach
+  # hook uses, since a tmux hook line cannot pass flags through as readably).
+  if [ "${1:-}" = --no-launch ]; then
+    HALL_NO_LAUNCH=1; export HALL_NO_LAUNCH; shift
+  fi
   case "${1:-}" in
     ''|court)        court ;;
     -h|--help|help)  usage ;;
