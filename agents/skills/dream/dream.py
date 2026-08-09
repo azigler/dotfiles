@@ -14,12 +14,15 @@ Three entry points
 ``dream.py [flags]``            legacy single-seam mode (session-recall only,
                                 legacy JSON shape, legacy exit contract). Kept
                                 byte-compatible for existing callers/tests.
-``dream.py collect [flags]``    the full pipeline: every enabled **seam**, merged
-                                and deduped, plus a ``memory_digest`` read from
-                                the recurrence store.
+``dream.py collect [flags]``    the full pipeline: every enabled **seam** over
+                                every permitted slug in the FLEET, merged and
+                                deduped, plus a ``memory_digest`` read from the
+                                recurrence store, plus a ``filing_plan``.
 ``dream.py remember --observations FILE``
                                 merge a tick's observations back into the
                                 recurrence store (phase two of collect→remember).
+``dream.py slugs``              what fleet scope would iterate, after the
+                                denylist and the caps. Reads nothing else.
 
 Seams
 -----
@@ -29,37 +32,69 @@ so "found nothing" is always distinguishable from "could not look" (the positive
 control per seam). Seams degrade to empty rather than raising when their source
 is absent.
 
-  ``session-recall``        the original seam: ``recall.py`` over the current
-                            slug's transcripts, one pass per learning-signal regex.
-  ``offboard-history``      ``git log -p`` over ``refs/session-handoff*.md`` in the
-                            CURRENT repo. ``/offboard`` overwrites rather than
-                            appends, so the friction it recorded lives only in git.
-  ``memory-history``        ``git log -p`` over the CURRENT slug's
+  ``session-recall``        PER-SLUG. ``recall.py`` over the slug's transcripts,
+                            one pass per learning-signal regex.
+  ``offboard-history``      PER-SLUG (via its repo). ``git log -p`` over
+                            ``refs/session-handoff*.md``. ``/offboard`` overwrites
+                            rather than appends, so the friction it recorded lives
+                            only in git.
+  ``memory-history``        PER-SLUG. ``git log -p`` over the slug's
                             ``memory/*.md`` in the claude-vault memory repo —
                             what we believed, then unbelieved.
-  ``skill-history``         ``git log -p`` over ``agents/skills/*/SKILL.md`` in
+  ``skill-history``         GLOBAL — runs ONCE per collect, not once per slug.
+                            ``git log -p`` over ``agents/skills/*/SKILL.md`` in
                             the harness repo — which prompt wording keeps getting
-                            re-fixed, i.e. harness rot.
-  ``findings-corrections``  ``## Corrections`` / ``## Scrutiny`` blocks in the
-                            current repo's ``*/FINDINGS.md``.
+                            re-fixed, i.e. harness rot. There is exactly one
+                            harness repo, so a per-slug run would emit N identical
+                            candidate sets at N times the git cost.
+  ``findings-corrections``  PER-SLUG (via its repo). ``## Corrections`` /
+                            ``## Scrutiny`` blocks in ``*/FINDINGS.md``.
 
-Recurrence memory
------------------
+Recurrence memory — ONE GLOBAL STORE, never one per slug
+--------------------------------------------------------
 ``refs/dream-memory.jsonl`` (path via ``--memory``) records what has been observed
 before: ``key``, ``gist``, ``count``, ``first_seen``, ``last_seen``, ``runs[]``,
-``seams[]``, ``disposition``. ``collect`` emits it as ``memory_digest`` so the
-TICK — a model, not a regex — can match a fresh observation to an existing key
+``seams[]``, ``slugs[]``, ``disposition``. It is resolved ONCE per run and shared
+across every slug — that is what makes cross-slug recurrence observable at all.
+A learning seen in ``>= 2`` distinct slugs clears the bar on that ground alone
+and says so in ``qualify_reason`` ("CROSS-SLUG …"), which is the text a proposal
+bead quotes. ``collect`` emits the store as ``memory_digest`` so the TICK — a
+model, not a regex — can match a fresh observation to an existing key
 semantically. ``remember`` merges the tick's observations back. The **recurrence
 bar** (``qualifies``) says when an entry has earned a proposal.
 
-Confidentiality
----------------
-**CURRENT SLUG / CURRENT REPO ONLY.** ``linearb*`` / ``cfp*`` content must never
-reach a pushed artifact (``feedback_linearb_beads_confidential``), and a proposal
-bead is pushed. Every path a seam touches goes through :func:`guard_path`; a
-confidential slug is a hard refusal. There is no ``--all`` / cross-slug mode and
-one must not be added here. Set ``DREAM_PATH_AUDIT=<file>`` to record every
-guarded path — that audit is how the test suite proves non-traversal.
+Confidentiality — a DENYLIST, not a narrow scope
+------------------------------------------------
+``linearb*`` / ``cfp*`` content must never reach a pushed artifact
+(``feedback_linearb_beads_confidential``), and a proposal bead is pushed.
+
+Until ``dotfiles-xicr`` that was enforced by NARROWNESS — the helper looked at
+the current slug and nothing else — which cost the loop the entire rest of the
+fleet to protect two projects. The mechanism is now the denylist
+:data:`CONFIDENTIAL_PREFIXES` and nothing else: fleet mode enumerates every slug
+under the projects root, drops every denied one **before** it is opened, globbed
+or handed to git, and every surviving path still goes through :func:`guard_path`
+(defence in depth). A denied slug is never named in stdout — only counted — so
+even the *existence* of a confidential project stays out of the pushed artifact.
+An explicit ``--slug`` naming a denied project is a hard exit 2, as before.
+
+Set ``DREAM_PATH_AUDIT=<file>`` to record every guarded path (and every
+``REFUSED:`` one, including denylisted slugs); that audit is how the test suite
+proves the negative, with permitted paths in the same file as the positive
+control.
+
+Filing — each repo's own bead store
+-----------------------------------
+``collect`` emits a ``filing_plan``: for every slug in scope, the repo its
+proposals belong to, that repo's bead store, and a preview of what a proposal
+would look like. Bead-location discipline reaches the dream loop — a learning
+mined from ``~/hevyd`` is filed in ``~/hevyd``, not in whatever repo the tick
+happens to run in. A repo with NO bead store is a LOUD SKIP (stderr + a named
+``skip_reason``), never a silent redirect into the tick's own store.
+
+``collect --dry-run`` runs the whole pipeline against the real fleet, prints the
+plan it WOULD file, and writes nothing at all (enforced by a write guard, not by
+inspection).
 
 Exit codes
 ----------
@@ -67,6 +102,7 @@ legacy mode: 0 = ran and emitted JSON; 2 = error.
 ``collect``: 0 = found candidates; 1 = searched and found nothing;
              3 = could not search (no seam was able to look); 2 = error/refusal.
 ``remember``: 0 = merged; 2 = error.
+``slugs``:    0 = at least one permitted slug; 1 = none; 2 = error.
 """
 
 from __future__ import annotations
@@ -116,6 +152,29 @@ DEFAULT_MEMORY_GIT_DIR = Path.home() / ".claude" / "vaults" / "memory.git"
 DEFAULT_SKILLS_REPO = Path.home() / "dotfiles"
 DEFAULT_SKILL_PATHSPEC = "agents/skills/*/SKILL.md"
 DEFAULT_HANDOFF_PATHSPEC = "refs/session-handoff*.md"
+
+# --- fleet caps ------------------------------------------------------------ #
+# Fleet scope multiplies cost by the number of slugs, so the caps are the thing
+# that keeps a weekly tick a weekly tick. Both are deliberately CONSERVATIVE and
+# both are call-site overridable (--max-slugs / --max-per-slug); the live corpus
+# held 108 slugs on 2026-08-09, most of them long-dead worktrees and one-off
+# scratch dirs. Slugs are ordered MOST-RECENTLY-ACTIVE FIRST before the cap, so
+# truncation drops the stale tail rather than an arbitrary alphabetical slice
+# (the explore-j2p9 defect, one level up).
+DEFAULT_MAX_SLUGS = 12
+DEFAULT_MAX_PER_SLUG = 60  # merged candidates kept per slug, pre global cap
+DEFAULT_PLAN_PREVIEW = 3  # proposals previewed per repo in the filing plan
+PROPOSAL_BODY_PREVIEW = 700  # chars of rendered proposal body in the plan
+
+# The pseudo-slug the GLOBAL seams' candidates carry. Not a real slug: it never
+# indexes a projects dir, and it maps to the harness repo in the filing plan
+# (a skill-hardening proposal belongs in ~/dotfiles, not in a project).
+FLEET_SLUG = "(fleet)"
+
+# Seam scoping. PER-SLUG seams run once per slug in scope; GLOBAL seams run
+# exactly once per collect. See the module docstring for why skill-history is
+# global — one harness repo, so N runs is N identical candidate sets.
+GLOBAL_SEAMS = frozenset({"skill-history"})
 
 # Only conversational turns carry durable learnings. tool-result / unrenderable /
 # structural-type hits are dropped up front — a user correction or stated
@@ -201,14 +260,23 @@ class ConfidentialPathError(DreamError):
 
 
 # --------------------------------------------------------------------------- #
-# Confidentiality guard
+# THE CONFINEMENT DENYLIST — the confidentiality mechanism
 # --------------------------------------------------------------------------- #
-# `linearb*` / `cfp*` content must never reach a pushed artifact
+# This tuple IS the confidentiality mechanism of the whole loop. `linearb*` /
+# `cfp*` content must never reach a pushed artifact
 # (feedback_linearb_beads_confidential), and every proposal bead this loop's tick
-# files IS pushed. The seam sizes quoted in dotfiles-jx71 were measured
-# FLEET-WIDE; that was a measurement, not a licence to traverse. So every path any
-# seam touches funnels through guard_path() before it is opened, globbed, or
-# handed to git.
+# files IS pushed.
+#
+# Before dotfiles-xicr the mechanism was NARROWNESS — the helper read the current
+# slug and nothing else — so protecting two projects cost the loop the other
+# hundred. Fleet scope trades that for this list: enumerate everything, deny
+# these, and keep guard_path() underneath as defence in depth. That makes the
+# rule auditable in one place instead of implied by an absence.
+#
+# ADDING A PROJECT: add its prefix here. Prefix matching is deliberately
+# over-broad (`linearb-notes`, `cfp2026`, the slug `-home-ubuntu-cfp` all match) —
+# a false positive costs one skipped slug, a false negative pushes confidential
+# content off-box.
 CONFIDENTIAL_PREFIXES = ("linearb", "cfp")
 
 
@@ -298,6 +366,32 @@ def safe_paths(values: Iterable[object], kind: str = "read") -> list[str]:
 
 
 # --------------------------------------------------------------------------- #
+# Write guard (--dry-run is a MECHANISM, not a promise)
+# --------------------------------------------------------------------------- #
+_NO_WRITE = False
+
+
+class WriteRefused(DreamError):
+    """A write was attempted while the no-write guard was armed."""
+
+
+def arm_no_write() -> None:
+    """Arm the guard: every write path in this module raises from here on.
+
+    ``--dry-run`` is the merge gate for fleet scope, so "it writes nothing" has
+    to be enforced rather than asserted by reading the code. Every function that
+    touches the filesystem for real calls :func:`refuse_writes` first.
+    """
+    global _NO_WRITE
+    _NO_WRITE = True
+
+
+def refuse_writes(what: object) -> None:
+    if _NO_WRITE:
+        raise WriteRefused(f"--dry-run: refusing to write {what}")
+
+
+# --------------------------------------------------------------------------- #
 # Time + slug helpers
 # --------------------------------------------------------------------------- #
 def parse_since(value: str) -> datetime:
@@ -377,6 +471,206 @@ def resolve_recall(arg_recall: str | None) -> Path:
     if env_recall:
         return Path(env_recall)
     return DEFAULT_RECALL_PATH
+
+
+# --------------------------------------------------------------------------- #
+# Fleet scope: slug enumeration, slug -> repo, repo -> bead store
+# --------------------------------------------------------------------------- #
+def slugify_name(name: str) -> str:
+    """The same transform Claude applies to a cwd to key a project directory."""
+    return re.sub(r"[^A-Za-z0-9]", "-", name)
+
+
+def slug_mtime(slug_dir: Path) -> float:
+    """Newest interesting mtime under ``slug_dir``, ONE level deep.
+
+    Recency ordering decides which slugs survive ``--max-slugs``, so it has to be
+    cheap: a full rglob over 108 slugs is a real cost on a weekly tick, and the
+    top-level ``*.jsonl`` session logs already move whenever a session runs.
+    """
+    newest = 0.0
+    try:
+        newest = slug_dir.stat().st_mtime
+    except OSError:
+        return 0.0
+    try:
+        with os.scandir(slug_dir) as it:
+            for entry in it:
+                try:
+                    m = entry.stat(follow_symlinks=False).st_mtime
+                except OSError:
+                    continue
+                if m > newest:
+                    newest = m
+    except OSError:
+        pass
+    return newest
+
+
+class SlugScan(NamedTuple):
+    """What fleet enumeration found. ``denied`` is a COUNT, never names.
+
+    Naming a denied slug in the emitted JSON would put the *existence* of a
+    confidential project into a pushed artifact. The count is what a run needs
+    to prove the denylist fired; the names go only to the audit log (which is a
+    local test artifact) and to stderr.
+    """
+
+    slugs: list[str]
+    denied: int
+    total: int
+
+
+def discover_slugs(roots: Sequence[Path]) -> SlugScan:
+    """Every slug under ``roots``, denylisted ones removed, newest first.
+
+    This is the function that lifted CURRENT-SLUG-ONLY. The confinement it
+    replaced lives entirely in the ``is_confidential_path`` call below — a denied
+    slug is dropped BEFORE its directory is ever opened.
+    """
+    seen: dict[str, float] = {}
+    denied: set[str] = set()
+    for root in roots:
+        r = Path(root)
+        if not r.is_dir():
+            continue
+        try:
+            entries = sorted(os.scandir(r), key=lambda e: e.name)
+        except OSError:
+            continue
+        for entry in entries:
+            if not entry.is_dir(follow_symlinks=False):
+                continue
+            slug = entry.name
+            if is_confidential_path(slug):
+                # Audited as a REFUSAL so a test can prove the denylist FIRED
+                # rather than the slug merely being absent from the fixture.
+                audit_path(slug, f"{AUDIT_REFUSED}:slug-denylist")
+                denied.add(slug)
+                continue
+            m = slug_mtime(Path(entry.path))
+            if m > seen.get(slug, 0.0):
+                seen[slug] = m
+    ordered = sorted(seen, key=lambda s: (-seen[s], s))
+    return SlugScan(ordered, len(denied), len(seen) + len(denied))
+
+
+_SLUG_PATH_CACHE: dict[str, tuple[Path | None, Path | None]] = {}
+
+
+def _slug_paths(
+    slug: str, max_depth: int = 12
+) -> tuple[Path | None, Path | None]:
+    """``(exact, deepest_ancestor)`` for ``slug``. Both may be ``None``.
+
+    The forward transform is LOSSY — every non-alphanumeric char becomes ``-`` —
+    so ``slug.replace("-", "/")`` is wrong the moment a directory name itself
+    contains a dash or a dot (``local-coding-models``, ``.claude``). This walks
+    the real filesystem instead, matching each directory entry by its *slugified*
+    name, which is exact by construction.
+
+    ``deepest_ancestor`` exists for ONE measured case: a subagent worktree
+    (``…-dotfiles--claude-worktrees-agent-XXXX``) whose tree has since been
+    removed. Its transcripts are still real material, and the repo those
+    learnings belong to is the worktree's parent — so the walk reports how far
+    it got and the caller files there rather than nowhere.
+
+    Confidential components can never be entered: the whole slug is checked
+    first, and every child considered is checked again.
+    """
+    cached = _SLUG_PATH_CACHE.get(slug)
+    if cached is not None:
+        return cached
+    exact: Path | None = None
+    best: list[Path | None] = [None]
+    if not is_confidential_path(slug):
+        exact = _resolve_slug_segments(Path("/"), slug, max_depth, best)
+    result = (exact, best[0])
+    _SLUG_PATH_CACHE[slug] = result
+    return result
+
+
+def slug_to_path(slug: str, max_depth: int = 12) -> Path | None:
+    """The directory ``slug`` was derived from, or ``None`` if it is gone."""
+    return _slug_paths(slug, max_depth)[0]
+
+
+def slug_to_nearest_path(slug: str, max_depth: int = 12) -> Path | None:
+    """The exact directory, else the deepest ancestor that still exists."""
+    exact, best = _slug_paths(slug, max_depth)
+    return exact if exact is not None else best
+
+
+def _resolve_slug_segments(
+    base: Path, remainder: str, depth: int, best: list[Path | None]
+) -> Path | None:
+    if depth <= 0 or not remainder:
+        return None
+    try:
+        entries = sorted(os.scandir(base), key=lambda e: e.name)
+    except OSError:
+        return None
+    for entry in entries:
+        if not entry.is_dir(follow_symlinks=True):
+            continue
+        piece = "-" + slugify_name(entry.name)
+        if not remainder.startswith(piece):
+            continue
+        if is_confidential_path(entry.name):
+            continue
+        here = Path(entry.path)
+        if best[0] is None or len(here.parts) > len(best[0].parts):
+            best[0] = here
+        rest = remainder[len(piece) :]
+        if not rest:
+            return here
+        found = _resolve_slug_segments(here, rest, depth - 1, best)
+        if found is not None:
+            return found
+    return None
+
+
+class BeadStore(NamedTuple):
+    """Where a repo's proposals belong, and why they cannot go there if not.
+
+    ``db`` is populated ONLY when exactly one ``.beads/*.db`` exists. Several
+    repos hold two (``beads.db`` beside ``issues.db``), and guessing which one
+    ``br --db`` should take is precisely the kind of silent misfiling
+    bead-location discipline exists to prevent — so the ROBUST option is the
+    other one: run ``br`` with ``cwd`` set to the repo and let it auto-discover.
+    """
+
+    ok: bool
+    directory: str | None
+    db: str | None
+    reason: str
+
+
+def bead_store_for(repo: Path | None) -> BeadStore:
+    if repo is None:
+        return BeadStore(False, None, None, "no repo resolved for this slug")
+    beads = Path(repo) / ".beads"
+    if not beads.is_dir():
+        return BeadStore(
+            False, None, None, f"no .beads store under {repo} (storeless repo)"
+        )
+    dbs = sorted(str(p) for p in beads.glob("*.db"))
+    jsonl = (beads / "issues.jsonl").is_file()
+    if not dbs and not jsonl:
+        return BeadStore(
+            False,
+            str(beads),
+            None,
+            f"{beads} exists but holds no *.db and no issues.jsonl",
+        )
+    db = dbs[0] if len(dbs) == 1 else None
+    reason = ""
+    if db is None and dbs:
+        reason = (
+            f"{len(dbs)} *.db files in {beads} — ambiguous; file with cwd="
+            f"{repo} and let br auto-discover"
+        )
+    return BeadStore(True, str(beads), db, reason)
 
 
 # --------------------------------------------------------------------------- #
@@ -768,15 +1062,23 @@ def _candidate(
     ts: str,
     source: str,
     detail: dict | None = None,
+    slug: str = "",
 ) -> dict:
-    """The canonical cross-seam candidate shape."""
+    """The canonical cross-seam candidate shape.
+
+    ``slugs`` is a LIST from the start, even though one collector only ever
+    contributes one: the fleet merge unions it, and ``>= 2`` entries is exactly
+    the cross-slug recurrence signal that fleet scope exists to surface.
+    """
     return {
         "seams": [seam],
+        "slugs": [slug] if slug else [],
         "signals": sorted(set(signals)),
         "ts": ts or "",
         "text": _trim(text),
         "source": source,
         "n_sources": 1,
+        "cross_slug": False,
         "detail": detail or {},
     }
 
@@ -837,6 +1139,7 @@ def seam_session_recall(ctx: SeamContext) -> SeamResult:
                 "role": c.get("role"),
                 "line": c.get("line"),
             },
+            slug=ctx.slug,
         )
         for c in cands
     ]
@@ -889,6 +1192,7 @@ def collect_git_history(
     base: GitBase,
     pathspecs: Sequence[str],
     churn_min: int | None = None,
+    slug: str | None = None,
 ) -> SeamResult:
     """Mine a git history for durable-learning signal.
 
@@ -899,7 +1203,12 @@ def collect_git_history(
       * **churn** — a file revised >= ``churn_min`` times in-window. Nothing in a
         single revision says "this keeps getting re-fixed"; the count does. That
         is harness rot, stated directly.
+
+    ``slug`` attributes the candidates. It defaults to ``ctx.slug`` (a per-slug
+    seam); a GLOBAL seam passes :data:`FLEET_SLUG` so its findings are not
+    misattributed to whichever slug happened to be iterated first.
     """
+    cand_slug = ctx.slug if slug is None else slug
     if not git_available():
         return SeamResult([], False, "git not on PATH")
     if not git_repo_ok(base):
@@ -948,6 +1257,7 @@ def collect_git_history(
                     ts or "",
                     f"{short} (commit subject)",
                     {"commit": sha, "kind": "subject"},
+                    slug=cand_slug,
                 )
             else:
                 entry["detail"]["occurrences"] = (
@@ -980,6 +1290,7 @@ def collect_git_history(
                         "kind": "diff-line",
                         "occurrences": 1,
                     },
+                    slug=cand_slug,
                 )
             else:
                 entry["detail"]["occurrences"] = (
@@ -1003,6 +1314,7 @@ def collect_git_history(
                 "revisions": len(subjects),
                 "subjects": subjects[:12],
             },
+            slug=cand_slug,
         )
 
     cands = sorted(
@@ -1037,12 +1349,13 @@ def seam_offboard_history(ctx: SeamContext) -> SeamResult:
 
 # --- seam 3: memory-history ------------------------------------------------- #
 def seam_memory_history(ctx: SeamContext) -> SeamResult:
-    """Git history of the CURRENT slug's memory files.
+    """Git history of ONE slug's memory files (``ctx.slug``).
 
     Scoped by pathspec to ``<slug>/memory`` — the vault holds every slug, and
-    walking it unscoped is exactly the cross-slug sweep the confidentiality rule
-    forbids. The pathspec goes through the guard too, so a confidential slug can
-    never be built into one.
+    walking it unscoped would sweep the denied ones in with the rest. Fleet mode
+    calls this once per PERMITTED slug, so breadth comes from the iteration, not
+    from widening the pathspec. The pathspec still goes through the guard, so a
+    denied slug can never be built into one.
     """
     git_dir = ctx.memory_git_dir or DEFAULT_MEMORY_GIT_DIR
     work_trees = [Path(r) for r in ctx.roots]
@@ -1071,13 +1384,26 @@ def seam_memory_history(ctx: SeamContext) -> SeamResult:
     return last
 
 
-# --- seam 4: skill-history -------------------------------------------------- #
+# --- seam 4: skill-history (GLOBAL — runs once per collect) ----------------- #
 def seam_skill_history(ctx: SeamContext) -> SeamResult:
+    """The harness repo's SKILL.md churn. Slug-independent by construction.
+
+    There is exactly ONE harness repo, so this seam is in :data:`GLOBAL_SEAMS`:
+    fleet mode runs it once and attributes its candidates to
+    :data:`FLEET_SLUG`. Running it per slug would emit N identical candidate
+    sets at N times the git cost, and every one of them would dedupe back into
+    the first — inflating ``n_sources`` with self-corroboration, which is
+    exactly the evidence the recurrence bar reads.
+    """
     repo = ctx.skills_repo or DEFAULT_SKILLS_REPO
     if not Path(repo).is_dir():
         return SeamResult([], False, f"skills repo not found: {repo}")
     return collect_git_history(
-        ctx, "skill-history", repo_base(Path(repo)), [ctx.skill_pathspec]
+        ctx,
+        "skill-history",
+        repo_base(Path(repo)),
+        [ctx.skill_pathspec],
+        slug=FLEET_SLUG,
     )
 
 
@@ -1133,6 +1459,7 @@ def seam_findings_corrections(ctx: SeamContext) -> SeamResult:
                     "",
                     f"{rel} :: {heading}",
                     {"file": rel, "heading": heading, "kind": "findings-block"},
+                    slug=ctx.slug,
                 )
             )
     truncated = len(cands) > ctx.max_candidates
@@ -1169,6 +1496,90 @@ def parse_seams(value: str | None) -> list[str]:
     return [n for n in SEAM_ORDER if n in set(names)]
 
 
+def merge_into(
+    merged: dict[str, dict], order: list[str], cands: Iterable[dict]
+) -> None:
+    """Fold ``cands`` into a ``(key -> candidate)`` accumulator, in place.
+
+    One merge for two jobs, deliberately: ACROSS SEAMS within a slug (the
+    cross-seam corroboration the recurrence bar's ">= 2 distinct seams in one
+    run" clause reads) and ACROSS SLUGS within a run (the cross-slug recurrence
+    fleet scope exists to surface). Both are "the same lesson, a second
+    independent source", so both union the same way.
+    """
+    for cand in cands:
+        key = _norm_key(cand["text"])
+        existing = merged.get(key)
+        if existing is None:
+            merged[key] = cand
+            order.append(key)
+            continue
+        existing["seams"] = sorted(set(existing["seams"]) | set(cand["seams"]))
+        existing["slugs"] = sorted(
+            set(existing.get("slugs") or []) | set(cand.get("slugs") or [])
+        )
+        existing["signals"] = sorted(
+            set(existing["signals"]) | set(cand["signals"])
+        )
+        existing["n_sources"] += int(cand.get("n_sources") or 1)
+        existing["detail"].setdefault("also_seen", []).append(cand["source"])
+
+
+def drop_confidential_text(
+    candidates: Sequence[dict],
+) -> tuple[list[dict], int]:
+    """Drop candidates whose TEXT names a denied project. Returns ``(kept, n)``.
+
+    The third layer, and the one fleet scope made necessary. ``guard_path``
+    stops denied *paths*; the slug denylist stops denied *slugs*. Neither stops
+    a line inside a PERMITTED repo that happens to mention one — and fleet scope
+    is the first version where such a line can MOVE: a candidate seen in two
+    slugs is offered to both repos' filing plans, so text that was only ever in
+    repo A can be filed into repo B.
+
+    Measured on the first live dry-run (2026-08-09): one candidate, a
+    ``refs/session-handoff.md`` diff line reading "…LinearB seat
+    (`~/.claude-work`)…", cross-slug across two dotfiles scopes.
+
+    The cost is real and accepted: a genuine harness learning that merely NAMES
+    a denied project is lost with it. That is the standing trade — a false
+    positive costs one candidate, a false negative pushes confidential content
+    off-box — and it is what lets the merge gate assert ZERO mechanically
+    instead of reading the output and hoping.
+    """
+    kept = [
+        c for c in candidates if not is_confidential_path(c.get("text", ""))
+    ]
+    dropped = len(candidates) - len(kept)
+    if dropped:
+        sys.stderr.write(
+            f"dream: DENYLIST — dropped {dropped} candidate(s) whose text names "
+            f"a denied project {CONFIDENTIAL_PREFIXES}\n"
+        )
+    return kept, dropped
+
+
+def flag_cross_slug(candidates: Iterable[dict]) -> int:
+    """Mark every candidate seen in >= 2 slugs, and return how many.
+
+    THE SELF-FLAG. A lesson that shows up in two independent projects is not a
+    project fact, it is a harness fact — the single strongest evidence this loop
+    can produce that something belongs in the always-loaded tier. The flag rides
+    on the candidate so it reaches the proposal text without the tick having to
+    re-derive it (and it is rendered verbatim into the filing plan's preview).
+    """
+    n = 0
+    for c in candidates:
+        slugs = [s for s in (c.get("slugs") or []) if s and s != FLEET_SLUG]
+        if len(set(slugs)) >= 2:
+            c["cross_slug"] = True
+            c["detail"]["cross_slug_slugs"] = sorted(set(slugs))
+            n += 1
+        else:
+            c["cross_slug"] = False
+    return n
+
+
 def run_seams(
     ctx: SeamContext, names: Sequence[str]
 ) -> tuple[dict[str, dict], list[dict]]:
@@ -1195,50 +1606,50 @@ def run_seams(
             "found": len(res.candidates),
             "note": res.note,
         }
-        for cand in res.candidates:
-            key = _norm_key(cand["text"])
-            existing = merged.get(key)
-            if existing is None:
-                merged[key] = cand
-                order.append(key)
-                continue
-            # Same text, second seam: this is the cross-seam corroboration the
-            # recurrence bar's ">= 2 distinct seams in one run" clause reads.
-            existing["seams"] = sorted(
-                set(existing["seams"]) | set(cand["seams"])
-            )
-            existing["signals"] = sorted(
-                set(existing["signals"]) | set(cand["signals"])
-            )
-            existing["n_sources"] += 1
-            existing["detail"].setdefault("also_seen", []).append(
-                cand["source"]
-            )
+        merge_into(merged, order, res.candidates)
 
     return report, [merged[k] for k in order]
+
+
+def _bucket_key(cand: dict) -> tuple[str, str]:
+    slugs = cand.get("slugs") or [""]
+    return (str(slugs[0]), str(cand["seams"][0]))
 
 
 def interleave_by_seam(
     candidates: list[dict], cap: int
 ) -> tuple[list[dict], bool]:
-    """Round-robin across seams, THEN cap — never sort-then-truncate.
+    """Round-robin across (slug, seam), THEN cap — never sort-then-truncate.
 
     Same defect class as ``explore-j2p9``: truncating a concatenated list keeps
-    whichever seam happens to run first and silently drops the rest, while
-    reporting a clean run.
+    whichever bucket happens to run first and silently drops the rest, while
+    reporting a clean run. Fleet scope adds a second axis to collapse along —
+    with 12 slugs feeding one 200-candidate cap, a seam-only round robin would
+    hand the tick the freshest slug's whole week and nothing from the other
+    eleven — so the bucket is ``(slug, seam)``, not ``seam``.
     """
-    buckets: dict[str, list[dict]] = {}
+    buckets: dict[tuple[str, str], list[dict]] = {}
+    slug_rank: dict[str, int] = {}
     for c in candidates:
-        buckets.setdefault(c["seams"][0], []).append(c)
-    order = [s for s in SEAM_ORDER if s in buckets] + [
-        s for s in buckets if s not in SEAM_ORDER
-    ]
+        k = _bucket_key(c)
+        buckets.setdefault(k, []).append(c)
+        slug_rank.setdefault(k[0], len(slug_rank))
+
+    def rank(k: tuple[str, str]) -> tuple[int, int, str]:
+        # Slugs keep their FIRST-APPEARANCE order, which is the caller's
+        # recency order — sorting them alphabetically here would quietly undo
+        # the newest-first selection --max-slugs made.
+        slug, seam = k
+        seam_i = SEAM_ORDER.index(seam) if seam in SEAM_ORDER else len(SEAMS)
+        return (slug_rank[slug], seam_i, seam)
+
+    order = sorted(buckets, key=rank)
     out: list[dict] = []
     idx = 0
     while len(out) < len(candidates):
         added = False
-        for s in order:
-            b = buckets[s]
+        for k in order:
+            b = buckets[k]
             if idx < len(b):
                 out.append(b[idx])
                 added = True
@@ -1249,9 +1660,13 @@ def interleave_by_seam(
     if truncated:
         kept = out[:cap]
         kept_seams = {c["seams"][0] for c in kept}
+        kept_slugs = {_bucket_key(c)[0] for c in kept}
+        all_seams = {k[1] for k in buckets}
+        all_slugs = {k[0] for k in buckets}
         sys.stderr.write(
             f"dream: TRUNCATED to {cap} candidates — "
-            f"{len(kept_seams)} of {len(buckets)} seams represented\n"
+            f"{len(kept_seams)} of {len(all_seams)} seams represented, "
+            f"{len(kept_slugs)} of {len(all_slugs)} slug(s) represented\n"
         )
         out = kept
     return out, truncated
@@ -1264,6 +1679,14 @@ DISPOSITIONS = ("observed", "proposed", "promoted", "rejected")
 
 
 def default_memory_path(repo: Path | None) -> Path:
+    """The ONE store for the whole run — resolved once, never per slug.
+
+    Fleet scope files PROPOSALS per repo (bead-location discipline) but keeps
+    RECURRENCE MEMORY global, and the asymmetry is the point: a per-slug store
+    could never see that the same lesson surfaced in three projects, which is
+    the strongest signal this loop produces. Resolution is unchanged from the
+    single-slug era so an existing store keeps its history.
+    """
     root = Path(repo) if repo is not None else Path.cwd()
     return root / "refs" / "dream-memory.jsonl"
 
@@ -1294,6 +1717,7 @@ def save_memory(path: Path, entries: Sequence[dict]) -> None:
     """Atomic rewrite (temp + os.replace) — a half-written store is worse than none."""
     p = Path(path)
     guard_path(p, "memory-store-write")
+    refuse_writes(p)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(p.suffix + ".tmp")
     with open(tmp, "w", encoding="utf-8") as fh:
@@ -1305,7 +1729,10 @@ def save_memory(path: Path, entries: Sequence[dict]) -> None:
 def qualifies(entry: dict) -> tuple[bool, str]:
     """The RECURRENCE BAR — when has an observation earned a proposal?
 
-    Qualifies when EITHER:
+    Qualifies when ANY of:
+      * it has been observed in ``>= 2`` **distinct slugs** (CROSS-SLUG
+        recurrence — the same lesson in two independent projects is a harness
+        fact, not a project fact; only reachable since fleet scope landed), OR
       * it has been seen in ``>= 2`` **distinct runs** (recurrence over time), OR
       * it was seen in ``>= 2`` **distinct seams within one run** (corroboration
         across independent sources).
@@ -1330,6 +1757,17 @@ def qualifies(entry: dict) -> tuple[bool, str]:
                 f"rejected at count {at}; suppressed until count >= {at * 2} (now {count})",
             )
         return True, f"rejected at count {at} but has since doubled to {count}"
+
+    # Checked FIRST among the positive clauses so the reason names the strongest
+    # evidence available. The reason string is quoted verbatim into proposal
+    # beads — "CROSS-SLUG" is the self-flag the fleet-scope design asked for.
+    slugs = {s for s in (entry.get("slugs") or []) if s and s != FLEET_SLUG}
+    if len(slugs) >= 2:
+        return (
+            True,
+            f"CROSS-SLUG: observed in {len(slugs)} distinct slugs "
+            f"({', '.join(sorted(slugs))})",
+        )
 
     runs = [r for r in (entry.get("runs") or []) if r]
     if len(set(runs)) >= 2:
@@ -1375,9 +1813,19 @@ def memory_digest(
                 "qualify_reason": why,
             }
         )
+    # The ROW SHAPE IS FROZEN (keys + gists + counts, never bodies) — the
+    # cross-slug fact rides in `qualify_reason`, which already carries the
+    # "CROSS-SLUG: observed in N distinct slugs (…)" sentence a proposal quotes.
+    # Only the summary gains a field.
     return {
         "n_entries": len(entries),
         "n_qualified": sum(1 for r in rows if r["qualified"]),
+        "n_cross_slug": sum(
+            1
+            for e in entries
+            if len({s for s in (e.get("slugs") or []) if s and s != FLEET_SLUG})
+            >= 2
+        ),
         "truncated": len(entries) > limit,
         "entries": rows,
     }
@@ -1401,6 +1849,17 @@ def merge_observations(
         if not key:
             raise DreamError(f"observation missing 'key': {obs!r}")
         seams = [s for s in (obs.get("seams") or []) if s]
+        # Where the tick SAW it. Accepts `slug` (one) or `slugs` (many); the
+        # union across runs is what the CROSS-SLUG clause of the bar reads.
+        # Each goes through the guard, so a denied slug cannot be written into
+        # the store by a mis-typed observation — a store is a durable artifact.
+        obs_slugs = [
+            s
+            for s in [obs.get("slug"), *(obs.get("slugs") or [])]
+            if isinstance(s, str) and s
+        ]
+        for s in obs_slugs:
+            guard_path(s, "observation-slug")
         disposition = obs.get("disposition")
         if disposition is not None and disposition not in DISPOSITIONS:
             raise DreamError(
@@ -1435,6 +1894,10 @@ def merge_observations(
             runs.append(run_id)
         entry["runs"] = runs
         entry["seams"] = sorted(set(entry.get("seams") or []) | set(seams))
+        if obs_slugs or entry.get("slugs"):
+            entry["slugs"] = sorted(
+                set(entry.get("slugs") or []) | set(obs_slugs)
+            )
         rs = dict(entry.get("run_seams") or {})
         rs[run_id] = sorted(set(rs.get(run_id) or []) | set(seams))
         entry["run_seams"] = rs
@@ -1472,6 +1935,192 @@ def merge_observations(
 
 
 # --------------------------------------------------------------------------- #
+# Fleet scope: one context per slug, one filing target per repo
+# --------------------------------------------------------------------------- #
+@dataclass
+class SlugScope:
+    """One slug in scope: where it came from and where its proposals go."""
+
+    slug: str
+    path: Path | None = None
+    repo: Path | None = None
+    store: BeadStore = field(
+        default_factory=lambda: BeadStore(False, None, None, "not resolved")
+    )
+    seams: dict = field(default_factory=dict)
+    stats: dict = field(default_factory=dict)
+    n_candidates: int = 0
+
+
+def resolve_slug_scope(slug: str) -> SlugScope:
+    """Map a slug to its directory, its git repo, and that repo's bead store.
+
+    Falls back to the deepest surviving ancestor when the exact directory is
+    gone (a removed subagent worktree), so its learnings are filed in the repo
+    they came from rather than being dropped for want of a directory.
+    """
+    path = slug_to_nearest_path(slug)
+    repo = git_toplevel(path) if path is not None else None
+    return SlugScope(
+        slug=slug, path=path, repo=repo, store=bead_store_for(repo)
+    )
+
+
+def _proposal_title(cand: dict) -> str:
+    kind = cand["detail"].get("kind")
+    seam = cand["seams"][0] if cand["seams"] else ""
+    prefix = "propose-harden" if seam == "skill-history" else "propose-memory"
+    text = re.sub(r"\s+", " ", cand["text"]).strip()
+    if kind == "churn":
+        text = f"{cand['detail'].get('file', '?')} keeps getting re-fixed"
+    return f"{prefix}: {text[:70]}"
+
+
+def render_proposal_preview(cand: dict) -> str:
+    """The proposal-bead body this candidate WOULD produce, abbreviated.
+
+    Mirrors the shape /dream's SKILL.md prescribes (Proposed / Evidence / Why
+    durable / Review) so a dry-run shows the real artifact rather than a
+    summary of one. The CROSS-SLUG banner is emitted here, from the candidate's
+    own flag — that is the "self-flags in the proposal text" requirement, made
+    mechanical instead of left to the tick to remember.
+    """
+    lines: list[str] = []
+    if cand.get("cross_slug"):
+        slugs = cand["detail"].get("cross_slug_slugs") or cand.get("slugs")
+        lines.append(
+            f"⚠️ CROSS-SLUG RECURRENCE — this lesson surfaced in "
+            f"{len(slugs)} independent slugs ({', '.join(slugs)}). A learning "
+            "that recurs across projects is a HARNESS fact, not a project fact."
+        )
+        lines.append("")
+    lines.append("## Proposed MEMORY entry")
+    lines.append(f"- {re.sub(r'[ \t]+', ' ', cand['text']).strip()}")
+    lines.append("")
+    lines.append("## Evidence")
+    lines.append(f"- slugs: {', '.join(cand.get('slugs') or ['(none)'])}")
+    lines.append(f"- seams: {', '.join(cand['seams'])}")
+    lines.append(f"- signals: {', '.join(cand['signals'])}")
+    lines.append(f"- source: {cand['source']}")
+    lines.append(f"- n_sources: {cand['n_sources']}")
+    lines.append("")
+    lines.append("## Review")
+    lines.append(
+        "Zig / orchestrator: PROMOTE (by hand) or REJECT (close). "
+        "NEVER auto-applied."
+    )
+    body = "\n".join(lines)
+    if len(body) > PROPOSAL_BODY_PREVIEW:
+        body = body[:PROPOSAL_BODY_PREVIEW] + "…"
+    return body
+
+
+def build_filing_plan(
+    scopes: Sequence[SlugScope],
+    candidates: Sequence[dict],
+    skills_repo: Path | None,
+    preview: int = DEFAULT_PLAN_PREVIEW,
+) -> list[dict]:
+    """Where each slug's proposals go — and a LOUD SKIP where they cannot.
+
+    Bead-location discipline reaches the dream loop here: a learning mined from
+    a slug is filed in THAT slug's repo, not in whichever repo the tick happens
+    to be running in. The robust invocation is ``cwd=<repo>`` + plain ``br``
+    (let it auto-discover its store); ``--db`` is offered only when exactly one
+    ``.beads/*.db`` exists, because guessing between two is how a proposal lands
+    in the wrong ledger.
+    """
+    by_slug: dict[str, list[dict]] = {}
+    for c in candidates:
+        for s in c.get("slugs") or []:
+            by_slug.setdefault(s, []).append(c)
+
+    plan: list[dict] = []
+    entries = list(scopes)
+    if FLEET_SLUG in by_slug:
+        # Global-seam findings (skill hardening) belong in the harness repo.
+        fleet_repo = Path(skills_repo) if skills_repo else DEFAULT_SKILLS_REPO
+        entries.append(
+            SlugScope(
+                slug=FLEET_SLUG,
+                path=fleet_repo,
+                repo=git_toplevel(fleet_repo),
+                store=bead_store_for(git_toplevel(fleet_repo)),
+            )
+        )
+
+    for sc in entries:
+        cands = by_slug.get(sc.slug, [])
+        store = sc.store
+        row = {
+            "slug": sc.slug,
+            "repo": str(sc.repo) if sc.repo else None,
+            "store": store.directory,
+            "store_ok": bool(store.ok),
+            "db": store.db,
+            "br_cwd": str(sc.repo) if (store.ok and sc.repo) else None,
+            "n_candidates": len(cands),
+            "n_cross_slug": sum(1 for c in cands if c.get("cross_slug")),
+            "skip_reason": None if store.ok else store.reason,
+            "note": store.reason if store.ok and store.reason else "",
+            "proposals": [
+                {
+                    "title": _proposal_title(c),
+                    "cross_slug": bool(c.get("cross_slug")),
+                    "body_preview": render_proposal_preview(c),
+                }
+                for c in cands[:preview]
+            ],
+        }
+        plan.append(row)
+    return plan
+
+
+def announce_loud_skips(plan: Sequence[dict]) -> int:
+    """A repo that cannot receive its own proposals says so on stderr.
+
+    LOUD, because the quiet alternative — filing them into the tick's own repo
+    instead — is the bead-location violation this plan exists to prevent, and it
+    would look exactly like success.
+    """
+    n = 0
+    for row in plan:
+        if row["store_ok"] or not row["n_candidates"]:
+            continue
+        n += 1
+        sys.stderr.write(
+            f"dream: LOUD SKIP — {row['n_candidates']} candidate(s) from "
+            f"{row['slug']} have nowhere to be filed: {row['skip_reason']}. "
+            "They are NOT redirected to another repo's store.\n"
+        )
+    return n
+
+
+def render_plan_text(plan: Sequence[dict]) -> str:
+    """Human-readable dry-run rendering: repo, title, body preview."""
+    out: list[str] = ["", "=== dream --dry-run: WOULD FILE ==="]
+    for row in plan:
+        head = f"[{row['slug']}] -> {row['repo'] or '(no repo)'}"
+        if not row["store_ok"]:
+            out.append(f"{head}   SKIP: {row['skip_reason']}")
+            continue
+        out.append(
+            f"{head}   store={row['store']}"
+            + (f" db={row['db']}" if row["db"] else "")
+        )
+        out.append(
+            f"    candidates={row['n_candidates']} "
+            f"cross_slug={row['n_cross_slug']}"
+        )
+        for p in row["proposals"]:
+            out.append(f"    - {p['title']}")
+            for line in p["body_preview"].splitlines():
+                out.append(f"        | {line}")
+    out.append("=== end plan (nothing was written) ===")
+    return "\n".join(out) + "\n"
+
+
+# --------------------------------------------------------------------------- #
 # collect output
 # --------------------------------------------------------------------------- #
 def build_collect_output(
@@ -1484,9 +2133,10 @@ def build_collect_output(
     truncated: bool,
     digest: dict,
     stats: dict,
+    fleet: dict | None = None,
 ) -> dict:
     searched = [n for n, r in seam_report.items() if r["searched"]]
-    return {
+    out = {
         "since": iso_z(since_dt),
         "history_since": iso_z(history_since),
         "slug": slug,
@@ -1501,20 +2151,24 @@ def build_collect_output(
         "candidates": candidates,
         "memory_digest": digest,
     }
+    if fleet is not None:
+        out.update(fleet)
+    return out
 
 
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
-SUBCOMMANDS = ("collect", "remember", "seams")
+SUBCOMMANDS = ("collect", "remember", "seams", "slugs")
 
 
 def _add_common_scope_flags(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--slug",
         default=None,
-        help="slug to scan (bind with '=': slugs start with '-'). Default: current "
-        "slug from cwd. Confidential-safe: current slug ONLY, no cross-slug mode.",
+        help="ONE slug to scan (bind with '=': slugs start with '-'). Passing it "
+        "narrows collect to that slug; omitting it means FLEET scope (every "
+        "permitted slug under --root). A denylisted slug is a hard exit 2.",
     )
     p.add_argument(
         "--root",
@@ -1570,8 +2224,9 @@ def build_collect_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="dream.py collect",
         description=(
-            "Run every enabled seam over the CURRENT slug / CURRENT repo, merge + "
-            "dedupe, and emit candidates plus the recurrence memory_digest. "
+            "Run every enabled seam over every PERMITTED slug in the fleet "
+            "(--slug narrows to one), merge + dedupe, and emit candidates, a "
+            "filing_plan, and the recurrence memory_digest. "
             "Exit 0 = found, 1 = searched and empty, 3 = could not search."
         ),
     )
@@ -1606,10 +2261,45 @@ def build_collect_parser() -> argparse.ArgumentParser:
         help="explicit ISO-8601 start for the git-history seams (overrides --history-days)",
     )
     p.add_argument(
+        "--fleet",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="iterate every permitted slug (default when --slug is omitted). "
+        "--no-fleet restores the pre-dotfiles-xicr current-slug-only behaviour.",
+    )
+    p.add_argument(
+        "--max-slugs",
+        type=int,
+        default=DEFAULT_MAX_SLUGS,
+        help=f"cap slugs iterated in fleet mode, newest-active first "
+        f"(default {DEFAULT_MAX_SLUGS})",
+    )
+    p.add_argument(
+        "--max-per-slug",
+        type=int,
+        default=DEFAULT_MAX_PER_SLUG,
+        help=f"cap merged candidates kept per slug before the global "
+        f"--max-candidates (default {DEFAULT_MAX_PER_SLUG})",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="run the whole pipeline, print the filing plan that WOULD be "
+        "filed (repo, title, body preview), and write NOTHING (enforced)",
+    )
+    p.add_argument(
+        "--plan-preview",
+        type=int,
+        default=DEFAULT_PLAN_PREVIEW,
+        help=f"proposals previewed per repo in the filing plan "
+        f"(default {DEFAULT_PLAN_PREVIEW})",
+    )
+    p.add_argument(
         "--repo",
         default=None,
-        help="current repo for offboard-history / findings-corrections "
-        "(default: git toplevel of cwd)",
+        help="repo for the current slug's offboard-history / "
+        "findings-corrections (default: git toplevel of cwd; in fleet mode "
+        "each slug resolves its OWN repo and this is ignored)",
     )
     p.add_argument(
         "--skills-repo",
@@ -1784,8 +2474,63 @@ def cmd_legacy(argv: list[str]) -> int:
     return 0
 
 
+def _fleet_seam_split(names: Sequence[str]) -> tuple[list[str], list[str]]:
+    """Split the requested seams into (per-slug, global). See GLOBAL_SEAMS."""
+    per_slug = [n for n in names if n not in GLOBAL_SEAMS]
+    globals_ = [n for n in names if n in GLOBAL_SEAMS]
+    return per_slug, globals_
+
+
+def _merge_seam_reports(
+    reports: Sequence[tuple[str, dict[str, dict]]],
+) -> dict[str, dict]:
+    """Fold per-slug seam reports into one, preserving searched-vs-found.
+
+    ``searched`` is ANY (one slug that could look proves the instrument works);
+    ``found`` is the SUM; the note says how many slugs could look, so a seam
+    that searched 1 of 12 slugs cannot read as a healthy seam.
+    """
+    out: dict[str, dict] = {}
+    n_scopes: dict[str, int] = {}
+    for _slug, rep in reports:
+        for name, r in rep.items():
+            cur = out.setdefault(
+                name, {"searched": False, "found": 0, "note": ""}
+            )
+            n_scopes[name] = n_scopes.get(name, 0) + 1
+            cur["searched"] = cur["searched"] or bool(r["searched"])
+            cur["found"] += int(r["found"])
+            if r["searched"]:
+                cur["_ok"] = cur.get("_ok", 0) + 1
+            elif not cur["note"]:
+                cur["note"] = r["note"]
+            if n_scopes[name] == 1:
+                cur["_solo_note"] = r["note"]
+    for name, cur in out.items():
+        ok = int(cur.pop("_ok", 0))
+        solo = cur.pop("_solo_note", "")
+        total = n_scopes.get(name, 0)
+        if total <= 1:
+            # ONE scope: keep the seam's own note verbatim. An aggregate
+            # "1/1 scope(s) searched" would throw away exactly the diagnostic
+            # ("recall.py not found at …") that tells a broken instrument from
+            # a quiet week.
+            cur["note"] = solo
+            continue
+        first = cur["note"]
+        cur["note"] = f"{ok}/{total} scope(s) searched" + (
+            f"; first failure: {first}" if first and ok < total else ""
+        )
+    return out
+
+
 def cmd_collect(argv: list[str]) -> int:
     args = build_collect_parser().parse_args(argv)
+
+    if args.dry_run:
+        # Armed before anything else runs: --dry-run is the fleet-scope merge
+        # gate, so "writes nothing" is enforced, not asserted.
+        arm_no_write()
 
     slug = args.slug or current_slug_from_cwd()
     if is_confidential_path(slug):
@@ -1794,6 +2539,7 @@ def cmd_collect(argv: list[str]) -> int:
             "must never reach a pushed artifact (feedback_linearb_beads_confidential)\n"
         )
         return 2
+    fleet = args.slug is None if args.fleet is None else bool(args.fleet)
 
     try:
         since_dt = _resolve_since(args.since, args.lookback_days)
@@ -1818,25 +2564,94 @@ def cmd_collect(argv: list[str]) -> int:
         sys.stderr.write(f"dream: {exc}\n")
         return 2
 
-    ctx = SeamContext(
-        slug=slug,
-        roots=_resolve_live_roots(args.root),
-        since_dt=since_dt,
-        history_since=history_since,
-        recall_path=resolve_recall(args.recall),
-        max_candidates=args.max_candidates,
-        max_commits=args.max_commits,
-        churn_min=args.churn_min,
-        repo=repo,
-        skills_repo=Path(args.skills_repo) if args.skills_repo else None,
-        memory_git_dir=(
-            Path(args.memory_git_dir) if args.memory_git_dir else None
-        ),
+    roots = _resolve_live_roots(args.root)
+    skills_repo = Path(args.skills_repo) if args.skills_repo else None
+
+    def make_ctx(s: str, r: Path | None) -> SeamContext:
+        return SeamContext(
+            slug=s,
+            roots=roots,
+            since_dt=since_dt,
+            history_since=history_since,
+            recall_path=resolve_recall(args.recall),
+            max_candidates=args.max_candidates,
+            max_commits=args.max_commits,
+            churn_min=args.churn_min,
+            repo=r,
+            skills_repo=skills_repo,
+            memory_git_dir=(
+                Path(args.memory_git_dir) if args.memory_git_dir else None
+            ),
+        )
+
+    per_slug_names, global_names = _fleet_seam_split(seam_names)
+    scopes: list[SlugScope] = []
+    reports: list[tuple[str, dict[str, dict]]] = []
+    merged: dict[str, dict] = {}
+    order: list[str] = []
+    stats = {"scanned_sessions": 0, "window_sessions": 0}
+    denied = 0
+    total_slugs = 0
+
+    if fleet and per_slug_names:
+        scan = discover_slugs(roots)
+        denied, total_slugs = scan.denied, scan.total
+        chosen = scan.slugs[: max(0, args.max_slugs)]
+        if denied:
+            sys.stderr.write(
+                f"dream: DENYLIST — {denied} slug(s) excluded by "
+                f"CONFIDENTIAL_PREFIXES {CONFIDENTIAL_PREFIXES}; they are "
+                "neither traversed nor named in the output\n"
+            )
+        if len(scan.slugs) > len(chosen):
+            sys.stderr.write(
+                f"dream: --max-slugs={args.max_slugs} — iterating "
+                f"{len(chosen)} of {len(scan.slugs)} permitted slug(s), "
+                "newest-active first\n"
+            )
+        for s in chosen:
+            scopes.append(resolve_slug_scope(s))
+    elif fleet:
+        pass  # only GLOBAL seams requested — no slug iteration to do
+    else:
+        scopes.append(
+            SlugScope(
+                slug=slug,
+                path=repo,
+                repo=repo,
+                store=bead_store_for(repo),
+            )
+        )
+
+    for sc in scopes:
+        ctx = make_ctx(sc.slug, sc.repo)
+        rep, cands = run_seams(ctx, per_slug_names)
+        # Per-slug cap BEFORE the global merge, so one loud slug cannot spend
+        # the whole global budget (and so the global cap degrades breadth
+        # gracefully rather than by slug-order accident).
+        cands, _ = interleave_by_seam(cands, max(0, args.max_per_slug))
+        sc.seams = rep
+        sc.stats = dict(ctx.stats)
+        sc.n_candidates = len(cands)
+        stats["scanned_sessions"] += int(ctx.stats.get("scanned_sessions", 0))
+        stats["window_sessions"] += int(ctx.stats.get("window_sessions", 0))
+        reports.append((sc.slug, rep))
+        merge_into(merged, order, cands)
+
+    if global_names:
+        gctx = make_ctx(FLEET_SLUG, repo)
+        grep, gcands = run_seams(gctx, global_names)
+        reports.append((FLEET_SLUG, grep))
+        merge_into(merged, order, gcands)
+
+    report = _merge_seam_reports(reports)
+    all_cands, n_denied_text = drop_confidential_text(
+        [merged[k] for k in order]
     )
+    n_cross_slug = flag_cross_slug(all_cands)
+    candidates, truncated = interleave_by_seam(all_cands, args.max_candidates)
 
-    report, merged = run_seams(ctx, seam_names)
-    candidates, truncated = interleave_by_seam(merged, args.max_candidates)
-
+    # ONE store for the whole run — never one per slug (see default_memory_path).
     mem_path = Path(args.memory) if args.memory else default_memory_path(repo)
     try:
         entries = load_memory(mem_path)
@@ -1847,8 +2662,13 @@ def cmd_collect(argv: list[str]) -> int:
     digest["path"] = str(mem_path)
     digest["exists"] = Path(mem_path).is_file()
 
+    plan = build_filing_plan(
+        scopes, candidates, skills_repo, preview=args.plan_preview
+    )
+    n_skipped = announce_loud_skips(plan)
+
     out = build_collect_output(
-        slug,
+        FLEET_SLUG if fleet else slug,
         repo,
         since_dt,
         history_since,
@@ -1856,9 +2676,40 @@ def cmd_collect(argv: list[str]) -> int:
         candidates,
         truncated,
         digest,
-        ctx.stats,
+        stats,
+        fleet={
+            "fleet": fleet,
+            "dry_run": bool(args.dry_run),
+            "slugs": [
+                {
+                    "slug": sc.slug,
+                    "repo": str(sc.repo) if sc.repo else None,
+                    "store_ok": bool(sc.store.ok),
+                    "n_candidates": sc.n_candidates,
+                    "seams_searched": sum(
+                        1 for r in sc.seams.values() if r["searched"]
+                    ),
+                }
+                for sc in scopes
+            ],
+            "n_slugs": len(scopes),
+            # COUNT ONLY — naming a denied slug would put the existence of a
+            # confidential project into a pushed artifact.
+            "denied": {
+                "count": denied,
+                "total_slugs_seen": total_slugs,
+                "candidates_dropped": n_denied_text,
+                "mechanism": "CONFIDENTIAL_PREFIXES denylist",
+            },
+            "n_cross_slug": n_cross_slug,
+            "filing_plan": plan,
+            "filing_skipped": n_skipped,
+        },
     )
     sys.stdout.write(json.dumps(out) + "\n")
+
+    if args.dry_run:
+        sys.stderr.write(render_plan_text(plan))
 
     searched_any = any(r["searched"] for r in report.values())
     for name, r in report.items():
@@ -1925,7 +2776,9 @@ def cmd_remember(argv: list[str]) -> int:
         )
         summary["memory"] = str(mem_path)
         summary["dry_run"] = bool(args.dry_run)
-        if not args.dry_run:
+        if args.dry_run:
+            arm_no_write()
+        else:
             save_memory(mem_path, merged)
     except DreamError as exc:
         sys.stderr.write(f"dream: {exc}\n")
@@ -1939,9 +2792,73 @@ def cmd_seams(argv: list[str]) -> int:
     p = argparse.ArgumentParser(
         prog="dream.py seams", description="List the available input seams."
     )
-    p.parse_args(argv)
-    sys.stdout.write(json.dumps({"seams": SEAM_ORDER}) + "\n")
+    p.add_argument(
+        "--scope",
+        action="store_true",
+        help="also report which seams are per-slug and which are global",
+    )
+    args = p.parse_args(argv)
+    out: dict = {"seams": SEAM_ORDER}
+    if args.scope:
+        out["global_seams"] = sorted(GLOBAL_SEAMS)
+        out["per_slug_seams"] = [s for s in SEAM_ORDER if s not in GLOBAL_SEAMS]
+    sys.stdout.write(json.dumps(out) + "\n")
     return 0
+
+
+def cmd_slugs(argv: list[str]) -> int:
+    """What fleet scope WOULD iterate. The cheap pre-flight for a merge gate.
+
+    Emits permitted slugs (newest-active first, capped), each with its resolved
+    repo and bead store, plus the denied COUNT — never a denied name.
+    """
+    p = argparse.ArgumentParser(
+        prog="dream.py slugs",
+        description=(
+            "List the slugs fleet scope would iterate, after the "
+            "CONFIDENTIAL_PREFIXES denylist and --max-slugs."
+        ),
+    )
+    p.add_argument("--root", default=None)
+    p.add_argument("--max-slugs", type=int, default=DEFAULT_MAX_SLUGS)
+    p.add_argument(
+        "--resolve",
+        action="store_true",
+        help="also resolve each slug's repo + bead store (slower)",
+    )
+    args = p.parse_args(argv)
+
+    roots = _resolve_live_roots(args.root)
+    scan = discover_slugs(roots)
+    chosen = scan.slugs[: max(0, args.max_slugs)]
+    rows: list[dict] = []
+    for s in chosen:
+        row: dict = {"slug": s}
+        if args.resolve:
+            sc = resolve_slug_scope(s)
+            row["path"] = str(sc.path) if sc.path else None
+            row["repo"] = str(sc.repo) if sc.repo else None
+            row["store_ok"] = bool(sc.store.ok)
+            row["store"] = sc.store.directory
+            row["skip_reason"] = None if sc.store.ok else sc.store.reason
+        rows.append(row)
+    sys.stdout.write(
+        json.dumps(
+            {
+                "roots": [str(r) for r in roots],
+                "n_permitted": len(scan.slugs),
+                "n_iterated": len(rows),
+                "denied": {
+                    "count": scan.denied,
+                    "total_slugs_seen": scan.total,
+                    "mechanism": "CONFIDENTIAL_PREFIXES denylist",
+                },
+                "slugs": rows,
+            }
+        )
+        + "\n"
+    )
+    return 0 if rows else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1952,6 +2869,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_collect(rest)
         if sub == "remember":
             return cmd_remember(rest)
+        if sub == "slugs":
+            return cmd_slugs(rest)
         return cmd_seams(rest)
     return cmd_legacy(args)
 
