@@ -39,7 +39,7 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 **Job:** Task tracking with `br` (beads-rust) — typed beads, full lifecycle, one bead = one commit.
 **Fire when:** Constant reference throughout any project; lifecycle mandatory for spec/test/impl pipelines.
 **Prereqs/side-effects:** `br` binary + `.beads/`; commits carry `Bead: <id>` trailer; JSONL flushed via `br sync --flush-only`.
-**Anti-pattern:** Subagent mutating bead state (orchestrator-only); `br update --notes` in a loop — notes are REPLACE-only, read-then-rewrite.
+**Anti-pattern:** Subagent mutating bead state (orchestrator-only); `br update --notes` in a loop — notes are REPLACE-only, read-then-rewrite; chaining bead mutations behind another command (`br update X && br close Y`) — a PreToolUse block kills the whole compound, run each as a standalone call.
 
 ### /cdn
 **Job:** Upload a local file to Cloudflare R2 → stable PUBLIC url (`cdn.zig.computer`). Full lifecycle: `up`/`get`/`ls`/`rm`/`purge`. Content-addressed keys => idempotent, immutable urls. Hosts published/AAIF/blog images (Zig won't put images in his site folder) + kills the scp->view review loop.
@@ -171,7 +171,7 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 **Job:** Session exit — handoff note to refs/session-handoff.md, optional cost row, clear markers, commit.
 **Fire when:** Session end, before compaction, any handoff point. Orchestrator-only (skip in worktrees).
 **Prereqs/side-effects:** Overwrites the handoff note (snapshot, not log); writes the last-offboard marker so session-end.sh knows offboard ran; migrates legacy .claude/plans paths via git mv. Paths resolve through `agents/lib/handoff-path.sh`: a project that runs >1 durable session opts in with `refs/.handoff-per-window` → handoff + markers are window-scoped (`session-handoff--<window>.md`, keyed by the tmux window name) so parallel sessions (e.g. ~/explore's pulse + elevate windows) don't clobber each other; single-session projects keep the plain single file.
-**Anti-pattern:** Skipping short sessions — a two-line honest note beats no note. Hardcoding `refs/session-handoff.md` instead of going through `handoff_path`/`handoff_read_path` (breaks per-window scoping).
+**Anti-pattern:** Skipping short sessions — a two-line honest note beats no note. Hardcoding `refs/session-handoff.md` instead of going through `handoff_path`/`handoff_read_path` (breaks per-window scoping). A Friction bullet with no destination (`→ bd-xxxx` / `→ filed bd-yyyy` / `→ one-off`, Step 2.6.5) — a noted friction is still an unfiled friction.
 
 ### /onboard
 **Job:** Session entry — honor pending offboard, read foundation + TOOLKIT digest, discover live state, classify, route.

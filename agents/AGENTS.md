@@ -252,6 +252,17 @@ with a pointer.*
 ```bash
 cd /home/ubuntu/<project>        # standalone, its own call. /orchestrator step 0.
 ```
+
+Step 0.5: a dirty `.beads/issues.jsonl` aborts the guarded merge below (explore
+07-27, twice in one session) — commit it first if dirty, before touching the
+worktree branch:
+
+```bash
+[ -n "$(git status --porcelain -- .beads/issues.jsonl)" ] && {
+  git add .beads/issues.jsonl
+  git commit -m ":card_file_box: beads: sync before merge"
+}
+```
 ```bash
 TARGET=main
 CUR=$(git rev-parse --abbrev-ref HEAD)
@@ -290,6 +301,11 @@ no setup needed.
 The orchestrator owns the full lifecycle — create, claim, close. Subagents never run
 `br update` or `br close`; they only carry `Bead: <id>` in the commit trailer. Pass
 the ID in the dispatch prompt.
+
+A PreToolUse hook block kills the ENTIRE Bash call, not just the flagged
+command — never chain bead mutations behind another command (`br update X &&
+br close Y` runs neither on block); run each as its own standalone call (see
+`/beads`).
 
 ### ⚠️ Never write an open-bead list into a doc — `br ready` owns that fact
 

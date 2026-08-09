@@ -58,6 +58,16 @@ this skill documents.
 - Never batch multiple bead closures into one commit
 - Pre-commit hook warns if the `Bead:` trailer is missing
 
+**A hook block kills the WHOLE Bash call — never chain bead mutations.**
+A PreToolUse rejection (`pre-bead-create.sh`, `pre-bead-close.sh`, …)
+aborts the entire Bash invocation, not just the flagged command — so
+`br update X && br close Y` runs **neither** when the gate fires on
+either half. Run each bead mutation (`br create`, `br update`,
+`br close`) as its own standalone Bash call, never chained behind
+another command with `&&`, `;`, or a pipe. Measured recurrence: 4
+repos, ~12 sessions, 2026-06-19 → 2026-08-04, still recurring (Audit N,
+bead `dotfiles-fdvs`).
+
 ## Bead fields (use the right field, not just description)
 
 `br update` accepts these as separate fields. Putting design notes in
@@ -165,6 +175,21 @@ This is the positive form of the taxonomy-simplification note above:
 that note says *audit before adding a type*; this says *derive the
 type from the action, not the aspiration.* (Borrowed from Portent's
 PORT/ENTP split — see `~/explore/portent/`.)
+
+## Labels — orthogonal to type, for cross-cutting queries
+
+A **label** is not a type. Type answers "what kind of work is this"
+(one per bead, drives the pipeline); a label answers "what cross-cutting
+set does this belong to" (zero or more per bead, drives a query). Set
+one with `br create -l <label>` or `br update <id> --add-label <label>`;
+filter with `br list --label <label>`.
+
+Convention: **`friction`** marks a bead filed from a session's Friction
+section (see `/offboard` Step 2.7) — real work (usually `-t bug` or
+`-t task`), just tagged so the harness-friction seam can pull the set
+without grepping titles: `br list --label friction`. Don't invent a
+`friction` type for this; the bead's type is still whatever kind of
+work it is — the label is the cross-cutting marker.
 
 ## Stages vs. gates — not all pipeline work gets a bead
 

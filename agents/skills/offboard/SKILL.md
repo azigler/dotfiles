@@ -228,6 +228,36 @@ session."
 lived in one loop's handoff for a day, was never promoted, and survived only
 because the next run happened to read the note.)
 
+## Step 2.6.5: Give every Friction bullet a destination
+
+Same failure as Step 2.6, one section over: a friction noted only in the
+handoff is a friction the NEXT session either re-discovers cold or never
+sees again — Audit N found the same YAML trap warned three times across
+three separate handoffs, each one pleading "worth filing as a bead," each
+one overwritten before it became one. A noted friction is still an unfiled
+friction.
+
+Before writing the Friction section (Step 3), give every bullet a
+destination:
+
+| The friction… | Ends with |
+|---|---|
+| already has a bead | `→ bd-xxxx` |
+| is new and worth tracking | `→ filed bd-yyyy` (label it `friction` — see `/beads`) |
+| is genuinely one-off | `→ one-off` |
+
+**The `one-off` valve is load-bearing, not an escape hatch to abuse.**
+Without it, every trivial hiccup would need a bead and the channel trains
+itself to stop reporting friction at all — that failure mode is worse than
+a few unfiled one-offs. The bar for real recurrence: **it recurred this
+session or a prior one, or you predict it will** → `→ filed bd-yyyy`. A
+single freak occurrence you don't expect again → `→ one-off`.
+
+No blocking hook enforces this — a mechanical gate here just produces
+empty sections instead of honest ones. This is a discipline, same as
+Step 2.6; recurrence detection across handoffs (dream fleet-scope) is the
+machine-side half.
+
 ## Step 3: Write the session handoff note
 
 Write the handoff note (overwrite, don't append — it's a snapshot, not a
@@ -273,7 +303,10 @@ Write the markdown below to `$HANDOFF`:
 ## Friction
 - <what fought you this session — hook rejections, retries, workarounds you
   had to reach for. This is for the NEXT reader and for /dream's
-  harness-friction seam, not a complaint box.>
+  harness-friction seam, not a complaint box. End every bullet with its
+  destination (Step 2.6.5): `→ bd-xxxx` (existing bead), `→ filed bd-yyyy`
+  (new, labeled `friction`), or `→ one-off` (it did NOT recur and you don't
+  predict it will).>
 - <"nothing notable" is a legitimate entry — an empty section is a datum too>
 
 ## Decisions made this session (autonomous decide-and-proceed calls)
