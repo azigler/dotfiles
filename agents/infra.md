@@ -21,7 +21,7 @@ still stands and everything below it is still one week stale.
 |---|---|---|---|
 | **zig-computer** | public IP + tailnet | Linux VPS | the **harness host** — Claude Code, skills, beads, `/pulse` systemd timers, nginx edge |
 | **pico** | tailnet only | macOS, **no systemd** (launchd) | **where most user-facing production runs**; home, behind NAT |
-| metis | tailnet | macOS | — |
+| metis | tailnet (DERP-relayed) · **`ssh metis` works from the keep** — key-based, BatchMode, no password (`hostname -s`=`metis`) | macOS **26.6.1** (Tahoe) | Zig's secondary Mac. Claude Code v2.1.220 installed but **idle** (last used 2026-08-02); **sends ZERO traffic to pico's gateway** (0 rows in 112k requests). Its `claude()` wrapper is invoked only via `tmuxa` and is **stale** (lacks `X-Machine-Origin`), so traffic it did send would land unattributed — but it currently sends none |
 | iphone-15-pro | tailnet | iOS | Termius client |
 | homeassistant | tailnet, **tag:server** | HAOS rpi5 | "948 Palm" install (`ssh hassio@homeassistant`, key `~/.ssh/id_ha`); managed from `~/picod` |
 
@@ -145,6 +145,15 @@ like one — the first field is the tmux SESSION. zig-computer and metis both ru
 called `work` (marketing-vps did too, before it was decommissioned), so the namespace
 collides across machines. That is why `group` exists. `src.addr` cannot substitute:
 tunnelled traffic arrives as zig-computer's tailnet IP.
+
+⚠️ **The `unknown` group bucket is NOT metis — it is the keep itself** (settled
+2026-08-09, `dotfiles-7zk1`). All 1216 `unknown`-group rows resolve by user to
+`zig-computer:*` (676+25+13), `work:di` (492) and `unkeyed` (10) — i.e. the keep's
+own sessions that omitted the `X-Machine-Origin` header, most recent
+`zig-computer:harnessd` at 2026-08-08 21:59. metis contributes **zero** rows across
+all 112k logged requests. The hypothesis "metis on a stale wrapper corrupts
+attribution" is false at the traffic level (metis sends nothing) even though its
+wrapper *is* stale; the real gap was the keep's own header-less sessions.
 
 ⚠️ **Querying that DB — two traps, both paid for on 2026-08-04 (`dotfiles-9o46`).** The
 table is **`request_logs`** (not `requests`) and the time column is **`started_at`** (not
