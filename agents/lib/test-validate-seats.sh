@@ -143,7 +143,14 @@ run "$F"
 if [ "$RC" -ne 0 ]; then ok; else bad "SIGIL (denylist): must fail"; fi
 case "$OUT" in *"SIGIL:"*) ok ;; *) bad "SIGIL (denylist): expected that tag, got: $OUT" ;; esac
 
-# --- 9. the REAL agents/seats.yml must pass its own validator --------------
+# --- 9. WINDOW: schedule window doesn't resolve to a seat name or alias ----
+F="$BASE/window.yml"
+sed 's/window: desk/window: nonexistent-window/' "$GOOD" > "$F"
+run "$F"
+if [ "$RC" -ne 0 ]; then ok; else bad "WINDOW: must fail"; fi
+case "$OUT" in *"WINDOW:"*) ok ;; *) bad "WINDOW: expected that tag, got: $OUT" ;; esac
+
+# --- 10. the REAL agents/seats.yml must pass its own validator --------------
 REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 if [ -f "$REPO_ROOT/agents/seats.yml" ]; then
   run "$REPO_ROOT/agents/seats.yml"

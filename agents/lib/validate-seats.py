@@ -17,6 +17,9 @@ Checks enforced (each has a dedicated fixture in test-validate-seats.sh):
   R1c  alias-vs-alias uniqueness: an alias must not repeat across seats
   R4   one-tap-per-window: every schedule binding to the same
        (session, window) pair must name the same tap
+  WINDOW every schedule's window: must resolve to a seat name or a
+        listed alias (dotfiles-bi2i) — an unlisted window has no
+        resolvable seat and R5 would refuse it
   TAP  every tap declares a `type`, and it is one of the known types
   MODEL every seat's `model` is one of the pinned aliases
   SIGIL every seat's `sigil` is emoji-presentation: reject U+2000-U+2BFF
@@ -326,6 +329,20 @@ def validate(doc: dict) -> list:
             errors.append(
                 f"SIGIL: seat '{seat_name}' sigil rejected — {reason}"
             )
+
+    # --- WINDOW: schedule window must resolve to a seat name or alias --------
+    resolvable = seat_name_set | set(alias_owner.keys())
+    for seat_name, seat in seats.items():
+        seat = seat or {}
+        for sched in seat.get("schedules") or []:
+            sched = sched or {}
+            window = sched.get("window")
+            unit = sched.get("unit", "<unnamed>")
+            if window not in resolvable:
+                errors.append(
+                    f"WINDOW: seat '{seat_name}/{unit}' schedule window "
+                    f"{window!r} is not a seat name or a listed alias"
+                )
 
     # --- R4: one-tap-per-window (qualified by session, per R7) ---------------
     # window_key -> {tap: [ "seat/unit", ... ]}
