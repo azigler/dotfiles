@@ -1,0 +1,64 @@
+# Pulse tick: `/marshal night` — THE FLEET DRAIN (dotfiles-69qr).
+#
+# The estate's only CONSUMER loop. Every other pulse row produces (research,
+# digests, briefs, writing) and `br ready` grows all week; this one drains it:
+# it computes the night's token budget, selects fleet-MARKED beads across the
+# opt-in repos, dispatches worktree builders, merges each landing under
+# AGENTS.md's guarded sequence, and leaves an explainable ledger at
+# ~/.local/state/harness/drain-ledger.jsonl.
+#
+# ⚠️ NOT INSTALLED, NOT ENABLED — DELIBERATELY (Zig's OQ1 resolution,
+# 2026-08-09). The MAIDEN RUN IS SUPERVISED and hand-launched after the
+# demesne cutover, at whatever hour that cutover completes; a timer is what
+# this becomes once a supervised night has been watched end to end. The
+# roster's marshal row records this schedule with the same caveat, and
+# validate-seats.py's UNIT rule is WARN-by-default for exactly this ordering
+# (you write the schedule row, THEN lay the timer down).
+#
+# THE MAIDEN LAUNCH, by hand, in the marshal window, with Zig watching:
+#
+#   ~/dotfiles/agents/scheduler/pulse-inject.sh --loop pulse-marshal \
+#     --dir ~/dotfiles --session zig-computer --window marshal --fresh \
+#     --cmd "/marshal night"
+#
+# (That is the ExecStart below with %h expanded and %p written out. It is not
+# run by any test — running it IS the maiden run — so its flags were checked
+# one by one against pulse-inject.sh's own argument parser instead.)
+#
+# TO INSTALL LATER, once the maiden night has been reviewed — and touch the
+# stamp FIRST or Persistent= reads a never-run unit as a MISSED slot and fires
+# the drain immediately, at whatever hour you happen to be installing:
+#
+#   touch ~/.local/share/systemd/timers/stamp-pulse-marshal.timer
+#   systemctl --user daemon-reload && systemctl --user enable --now pulse-marshal.timer
+#
+# --session zig-computer: ONE session per server, named for the host (Zig's
+# ruling 2026-08-09 — session:window == host:seat universally).
+#
+# --fresh: warm process, COLD CONTEXT. A drain has no dependence on last
+# night's transcript, and it is the one loop that MUST start with the whole
+# window available to it — the seat molts on its own pacing threshold all
+# night, and starting half-full wastes the first molt.
+#
+# NO --model FLAG ON PURPOSE. The pin is resolved from the roster
+# (agents/seats.yml -> marshal: model: fable) by pulse-inject itself
+# (dotfiles-pulse-row-model-seat-d0bk). Passing --model here would SKIP the
+# roster and fork the fact. The marshal PLANS and REVIEWS on fable; the
+# BUILDERS it dispatches run sonnet (or opus where a bead's `Fleet-Model:`
+# marker says so) — a different model for review is the point, not an
+# inconsistency. ⚠️ The pin activates on a COLD LAUNCH only: a warm `marshal`
+# pane keeps whatever model it was launched with and pulse-inject logs that as
+# a WARN. For the maiden run, launch into a fresh window.
+#
+# NO --config-dir: OQ5 (Zig, 2026-08-09) puts the marshal on the PERSONAL tap
+# — no dedicated tap in v1 — which is the default, so nothing is exported.
+# The budget calculator measures that same tap's spend, so this must stay in
+# agreement with `tap=personal` in agents/scheduler/marshal.conf.
+#
+# Inspect runs: journalctl --user -u pulse-marshal.service -n 20
+[Unit]
+Description=Pulse tick: /marshal night (the fleet drain — the estate's overnight consumer)
+
+[Service]
+Type=oneshot
+ExecStart=%h/dotfiles/agents/scheduler/pulse-inject.sh --loop %p --dir %h/dotfiles --session zig-computer --window marshal --fresh --cmd "/marshal night"

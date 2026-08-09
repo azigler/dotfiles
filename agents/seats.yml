@@ -136,9 +136,32 @@ seats:
     tap: personal
     aliases: []
     history: refs/seats/marshal.history.md
-    # Design-only until the fleet-drain spec (dotfiles-69qr) is checked
-    # (dotfiles-4d57) — no unit exists yet.
-    schedules: []
+    # SHIPPED, PENDING THE MAIDEN RUN (dotfiles-69qr, 2026-08-09). The drain
+    # itself is built — agents/scheduler/marshal-drain.sh (budget/plan/record/
+    # verify), agents/scheduler/marshal.conf (the knobs), and the /marshal
+    # skill — and pulse-marshal.{service,timer} exist as TEMPLATES under
+    # agents/scheduler/templates/ (nightly 01:07 PT, --fresh, no --model so
+    # this row's `fable` pin is what resolves).
+    #
+    # ⚠️ The unit is NOT installed and NOT enabled: Zig's OQ1 resolution makes
+    # the maiden night SUPERVISED and hand-launched after the demesne cutover
+    # (the launch line is in the .service template's header). The row is
+    # recorded anyway, per picod's and autonoveld's convention — the roster's
+    # job is to say what schedule this seat HAS, and a row that appears only
+    # after install is a roster that learns about its own seats last (son4).
+    #
+    # This does mean validate-seats.py's UNIT rule reports one finding until
+    # the install: "schedule names unit 'pulse-marshal', which has no installed
+    # pulse-marshal.timer". That is WARN-by-default and NOT allowlisted — the
+    # unit_allowlist above is the OTHER direction (an enabled timer no seat
+    # claims), and using it here would be lying about the state to silence a
+    # warning that is telling the truth. It clears when the timer is installed.
+    # Check with: systemctl --user list-timers 'pulse-marshal*' --all
+    schedules:
+      - unit: pulse-marshal
+        tap: personal
+        window: marshal
+        session: zig-computer
 
   dotfiles:
     charter-line: "harness orchestrator — owns the always-loaded instruction tier"

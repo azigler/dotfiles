@@ -1,0 +1,44 @@
+# Timer: the fleet drain — nightly 01:07 America/Los_Angeles (dotfiles-69qr).
+#
+# ⚠️ NOT INSTALLED, NOT ENABLED. The maiden run is SUPERVISED and hand-launched
+# post-cutover (Zig's OQ1 resolution); see the launch line in
+# pulse-marshal.service. This file exists so the schedule is REVIEWABLE before
+# it is live, and so installing it later is a copy, not a design decision made
+# at install time.
+#
+# 01:07 AND NOT 01:00. Round minutes are where every hand-written timer lands,
+# and a pileup on the same second means several ticks contend for the tmux
+# server and the same subscription at once. The drain's window is 01:00-06:00
+# PT (OQ1), so it starts seven minutes inside it — late enough to be clear of
+# anything on the hour, early enough to leave the full five hours. The
+# neighbours on this box are 04:13 (dream, Sundays) and 06:44 (the seneschal
+# brief); the drain ENDS before the brief starts, deliberately: the brief's
+# DRAIN section is how Zig reviews the night, and it must read a finished
+# ledger, not a live one.
+#
+# ⚠️ Persistent=FALSE, and this is the one row where that is right. Every other
+# pulse unit sets Persistent=true because a missed brief or digest is worth
+# catching up once. A missed DRAIN is not: catch-up fires at boot or at
+# whatever hour the machine came back, which is precisely the daytime the
+# budget's zig_daytime_reserve exists to protect — builders swarming through
+# Zig's own working hours, spending the tap he is trying to use. A missed night
+# is a night the queue simply waits; the next 01:07 drains it.
+#
+# ⚠️ TIMER-RENAME / FIRST-ENABLE GOTCHA (agents/infra.md). systemd's
+# persistence state lives in ~/.local/share/systemd/timers/stamp-<unit>.timer,
+# NOT in the unit file — a unit name that has never run has no stamp. With
+# Persistent=false that cannot fire an immediate catch-up, but touch the stamp
+# anyway before the first enable so the unit's history starts clean:
+#
+#   touch ~/.local/share/systemd/timers/stamp-pulse-marshal.timer
+#   systemctl --user daemon-reload && systemctl --user enable --now pulse-marshal.timer
+#   systemctl --user list-timers | grep marshal    # LAST column empty/past
+[Unit]
+Description=Pulse timer: nightly fleet drain at 01:07 PT (SUPERVISED maiden run first)
+
+[Timer]
+OnCalendar=*-*-* 01:07:00 America/Los_Angeles
+Persistent=false
+
+[Install]
+WantedBy=timers.target

@@ -309,7 +309,14 @@
       "home": "~/dotfiles",
       "model": "fable",
       "office": "The Marshal",
-      "schedules": [],
+      "schedules": [
+        {
+          "session": "zig-computer",
+          "tap": "personal",
+          "unit": "pulse-marshal",
+          "window": "marshal"
+        }
+      ],
       "sigil": "🪖",
       "tap": "personal"
     },
