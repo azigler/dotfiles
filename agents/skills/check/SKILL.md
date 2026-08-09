@@ -10,8 +10,8 @@ dependencies** declared in a spec bead's Section 6, recording each
 decision on the same bead so `/test` and `/impl` get a clean handoff.
 
 This skill is paired with `/spec`. It reads the spec bead's
-`--description` and writes resolutions to the spec bead's `--notes`
-(or to a child decisions bead — see Output below).
+`--description` and logs resolutions to the spec bead via
+`br comments add` (or to a child decisions bead — see Output below).
 
 ## Inputs
 
@@ -30,9 +30,11 @@ br dep tree <spec-bead-id>       # related beads
 br search <related-scope>        # adjacent specs / decisions
 ```
 
-Read `CLAUDE.md` and any related specs the bead references. If the
-spec bead has existing `--notes`, read those too — earlier `/check`
-sessions may have already resolved some items.
+Read `CLAUDE.md` and any related specs the bead references. Also run
+`br comments list <spec-bead-id>` and read existing `--notes` — earlier
+`/check` sessions may have already resolved some items (per-decision
+entries live in comments; a prior Readiness summary, if any, lives in
+`--notes`).
 
 ## Step 2: Present each item with expert analysis
 
@@ -95,20 +97,19 @@ Keep analysis concrete. Cite docs, code, RFCs. No hand-waving.
 
 ## Step 3: Record decisions on the bead
 
-When the user decides, **append** the resolution to the spec bead's
-`--notes`. The `--notes` field is intended as an append-only working
-log — but **`br update --notes` itself is REPLACE-only** (verified
-br 0.2.5 → 0.2.15). Calling it twice in succession wipes the prior
-content. To "append" you must read the existing notes first and
-re-submit the full body in a single update.
+When the user decides, **log** the resolution to the spec bead via
+`br comments add` — genuinely append-only, no read-before-write. This
+replaced a `--notes`-based running log: `br update --notes` is
+REPLACE-only (verified br 0.2.5 → 0.2.15), so calling it per-decision
+wiped prior content, and the read-then-rewrite workaround it forced
+is what clobbered a 4,722-character bead body on 2026-07-26 (a
+`br show --json` list-vs-object mismatch collapsed the "existing"
+half of the concat to empty; see `/beads` "Running/investigation logs
+go to `br comments add`" for the mechanics). Comments sidestep the
+whole failure class.
 
 ```bash
-# Read existing --notes verbatim first:
-EXISTING=$(br show <spec-bead-id> | awk '/^Notes:/{flag=1; next} flag')
-
-# Compose the new full body = existing + your new decision block:
-NEW_BLOCK=$(cat <<'EOF'
-
+br comments add <spec-bead-id> "$(cat <<'EOF'
 ## Decision: OQ-03 — DECIDED 2026-04-26
 
 **Question:** Should sessions support concurrent writes from multiple agents?
@@ -116,22 +117,15 @@ NEW_BLOCK=$(cat <<'EOF'
 **Rationale:** Avoid SQLite WAL contention; agents serialize via fleet proxy.
 **Spec impact:** spec bead bd-XXXX Section 4 — add note that the API rejects
 concurrent writes with `ConcurrentSessionError`.
-
----
 EOF
-)
-
-# Single update with full body (existing + new):
-br update <spec-bead-id> --notes "$EXISTING$NEW_BLOCK"
+)"
 ```
 
-**Anti-pattern**: calling `br update --notes "<just the new block>"`
-in a loop. Each call wipes the prior content. If you do this, you
-silently lose every earlier decision note on that bead.
-
-If you need to walk multiple OQs in one session, compose the FULL
-post-walk notes body in memory first, then write it once at the end.
-Filed as `bd-otl8` (tracked there pending a `br` upstream fix).
+Walking multiple OQs in one session is now safe to do one comment at a
+time — each `br comments add` is independent, nothing to lose by
+interleaving them with the conversation. `--notes` is reserved for the
+**curated** Implementation Readiness summary (Step 5), written once at
+the end of the walk, not per-decision.
 
 If the decision **affects the spec content**, the orchestrator should
 re-dispatch `/spec` to revise the spec bead's `--description`. Do NOT
@@ -144,7 +138,7 @@ the decisions trail).
 If you find a gap not in Section 6:
 
 1. Propose: "This looks like a new OQ. Want me to add it?"
-2. If yes, add it via `br update <spec-bead-id> --notes "## New OQ: <title>..."` (don't edit `--description`; that's the spec agent's job)
+2. If yes, log it via `br comments add <spec-bead-id> "## New OQ: <title>..."` (don't edit `--description`; that's the spec agent's job)
 3. Continue with the walk
 
 ## Step 4: Batch mode
@@ -170,7 +164,11 @@ When the user says "check all on bd-XXXX":
 ## Step 5: Implementation Readiness summary
 
 When ALL P1 OQs are DECIDED and ALL conflicts are RESOLVED, write the
-Readiness summary to the spec bead's `--notes`:
+Readiness summary to the spec bead's `--notes`. This is the one place
+in `/check` that legitimately uses `--notes`: it's a single curated
+digest written once (not per-decision), the intended role for that
+field — see `/beads` "Running/investigation logs go to `br comments
+add`."
 
 ```bash
 br update <spec-bead-id> --notes "$(cat <<'EOF'
@@ -222,7 +220,7 @@ Bead: <your-check-bead-id>"
 - [ ] Each decision has rationale (not just a yes/no)
 - [ ] Spec impact noted for decisions that change spec content
 - [ ] All P1 OQs touched (decided or deferred — never silently skipped)
-- [ ] New OQs discovered are written to `--notes`, not `--description`
+- [ ] New OQs discovered are logged via `br comments add`, not `--description`
 - [ ] Implementation Readiness summary written when blockers clear
 
 ## Pre-existing spec FILES

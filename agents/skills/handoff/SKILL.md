@@ -1,5 +1,5 @@
 ---
-description: Explicit "I'm done with my piece, here's what the next agent needs" wrap-up. Verifies the bead is genuinely handed-off-ready (acceptance criteria checked, --notes carry forward investigation, design decisions captured) before the orchestrator merges and dispatches the next wave. Subagents fire this BEFORE their final commit.
+description: Explicit "I'm done with my piece, here's what the next agent needs" wrap-up. Verifies the bead is genuinely handed-off-ready (acceptance criteria checked, comments carry forward investigation, design decisions captured) before the orchestrator merges and dispatches the next wave. Subagents fire this BEFORE their final commit.
 when_to_use: A subagent is wrapping up its work. Run before the final commit, not after — the handoff verification IS part of the work. Orchestrators can also fire this on themselves before /offboard to ensure the session leaves clean state for the next.
 ---
 
@@ -28,7 +28,7 @@ working tree.
 | `--description` | Is the WHY still accurate? | Update if scope shifted |
 | `--acceptance-criteria` | Is every box checked? | Check via `br update --acceptance "..."` |
 | `--design` | Are interface / data-structure decisions captured? | Append if missing |
-| `--notes` | What did you learn that the next agent needs? | Append findings, gotchas, suspect areas |
+| running log | What did you learn that the next agent needs? | Log findings, gotchas, suspect areas via `br comments add` as you go — not `--notes` (see `/beads` "Running/investigation logs go to `br comments add`") |
 | `--external-ref` | Is the upstream issue / Slack thread linked? | Add if missing |
 
 If any acceptance-criteria box is unchecked, you're not done.
@@ -112,21 +112,26 @@ the next wave.
 `/handoff` was **unmeasurable** until this step existed: its output was
 structurally indistinguishable from an agent that merely filled the bead in
 well, so no audit could tell a run from a non-run. Leave a signature, exactly
-the way `/scrutinize` leaves `## Scrutiny — <date>`:
+the way `/scrutinize` leaves a `## Scrutiny — <date>` entry — as a
+**comment**, not a `--notes` rewrite. A signature is logged once per handoff
+(and a bead can be handed off more than once across its life), which makes
+it a running-log entry, not a curated summary — the same reasoning that
+moved `/check`'s per-decision entries and `/scrutinize`'s verdicts off
+`--notes` (see `/beads` "Running/investigation logs go to `br comments
+add`"). `br comments add` is genuinely append-only, so there is no
+read-existing-first step to get wrong:
 
 ```bash
-EXISTING=$(br show <your-bead-id> | awk '/^Notes:/{flag=1; next} flag')
-br update <your-bead-id> --notes "$EXISTING
-
-## Handoff — $(date +%F): 4 criteria verified, 1 split"
+br comments add <your-bead-id> "## Handoff — $(date +%F): 4 criteria verified, 1 split"
 ```
 
 One line. `<n> criteria verified` is the count you actually checked in Step 2;
 `<n> split` is how many unchecked items you moved to a follow-up bead (`0 split`
-when none). Read-then-rewrite because `br update --notes` is replace-only.
+when none).
 
-The test this has to pass: `grep -c '^## Handoff — ' .beads/issues.jsonl` over a
-quarter of history returns a real tally. If you can't count it, it didn't happen.
+The test this has to pass: `jq -r '.comments[]?.text' .beads/issues.jsonl | grep -c '^## Handoff — '`
+over a quarter of history returns a real tally. If you can't count it, it
+didn't happen.
 
 ## Step 5: Commit
 
@@ -171,8 +176,9 @@ when you want a sanity-check before context compaction.
   hand off cleanly
 - ❌ **Push from a worktree subagent** — orchestrator merges; pushing
   from worktrees creates stale remote branches
-- ❌ **Empty `--notes`** when you encountered surprises — those are the
-  bytes the next agent needs most
+- ❌ **No `br comments add` entries** when you encountered surprises —
+  those are the bytes the next agent needs most; don't stuff them into
+  `--notes` either (see `/beads` on the curated-vs-running-log split)
 - ❌ **Closing the bead inside `/handoff`** — `/handoff` is for the
   subagent; the orchestrator closes the bead after merge
 

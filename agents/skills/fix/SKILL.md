@@ -88,6 +88,12 @@ Two-phase work:
 2. Reproduce the bug locally if possible.
 3. Identify the actual root cause. Append your diagnosis to bead --notes.
 4. Apply the minimum fix that resolves it. Don't refactor adjacent code.
+5. If diagnosis surfaces a NEW, distinct bug (not the one this bead
+   describes) — don't fix it here. File it as its own `-t bug` bead
+   (Step 1 template) and wire its provenance back to this one so a
+   reviewer can trace where it was found:
+   `br dep add <new-bug-bead-id> <BEAD_ID> -t discovered-from`. Name it
+   in your final summary as an Open follow-up (see /handoff).
 
 ### Phase B: regression guard
 - If a TEST EXISTS that should have caught this (but didn't) — UPDATE it

@@ -216,10 +216,10 @@ composed. Do not merge; route it as FIX-FIRST for a wiring wave.
 |---|---|---|
 | **SHIP** | No load-bearing defect found | Proceed to the quality gate |
 | **FIX-FIRST** | Real defects, scoped and fixable | Dispatch a fix wave for the named findings; then re-scrutinize |
-| **REJECT** | The wave did not deliver what the bead claims | Re-open the impl bead with the findings in `--notes`; re-dispatch impl |
+| **REJECT** | The wave did not deliver what the bead claims | Re-open the impl bead with the findings logged via `br comments add`; re-dispatch impl. If the findings instead warrant a FRESH bead (the rejected wave is unsalvageable, or a distinct defect deserves its own `bug` bead rather than folding into a reopen) — mint `br dep add <new-bead-id> <impl-bead-id> -t discovered-from` so the new bead's ancestry traces back to the rejected wave |
 
-Record the verdict + findings on the impl bead's `--notes`. The gate
-is not cleared until the verdict is SHIP — or the orchestrator
+Record the verdict + findings on the impl bead via `br comments add`. The
+gate is not cleared until the latest verdict is SHIP — or the orchestrator
 explicitly overrides with a documented, honest reason. Overrides
 should be rare.
 
@@ -233,17 +233,24 @@ new artifact — see [/beads](../beads/SKILL.md) "Stages vs. gates."
   no worktree, no bead, no `Bead:` trailer — it commits nothing. It
   returns the verdict + findings **in its final message**, the way
   `/spec`'s Interrogator returns questions.
-- The orchestrator appends a `## Scrutiny — <date>` block (verdict +
-  findings with file:line) to the **`impl` bead's `--notes`**, using
-  the read-then-rewrite append pattern from [/check](../check/SKILL.md)
-  Step 3 (`br update --notes` is replace-only).
+- The orchestrator logs a `## Scrutiny — <date>` block (verdict +
+  findings with file:line) as a **comment on the `impl` bead**:
+  `br comments add <impl-bead-id> "## Scrutiny — <date>\n<verdict + findings>"`.
+  A gate can run more than once (FIX-FIRST → fix wave → re-scrutinize),
+  so this is a running log by nature — genuinely append-only via
+  `br comments add`, unlike `--notes` (`br update --notes` is
+  replace-only; see [/beads](../beads/SKILL.md) "Running/investigation
+  logs go to `br comments add`" for why that distinction matters — a
+  `--notes` read-then-rewrite is what clobbered a bead body on
+  2026-07-26).
 - The `impl` bead stays open across the gate and closes **only on a
   SHIP verdict**. FIX-FIRST / REJECT routes into existing types —
   `bug` beads via `/fix`, or the `impl` bead reopened — never a new
   type.
 
 The verdict lives on the bead it gates; the scrutiny never needs a
-type of its own.
+type of its own. To check the latest verdict before merge/close:
+`br comments list <impl-bead-id>` (most recent `## Scrutiny —` entry wins).
 
 ## What it is NOT
 

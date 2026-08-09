@@ -81,26 +81,25 @@ br update <id> \
 
 ## Process
 For each open question, present analysis + recommendation,
-then record decision via `br update <id> --notes "..."`.
+then record decision via `br comments add <id> "..."` (running log —
+see /check SKILL Step 3). --notes holds only the final curated
+Implementation Readiness summary.
 EOF
 )" \
   --acceptance-criteria "$(cat <<'EOF'
 - [ ] Every P1 OQ from spec has a DECIDED status
 - [ ] Cross-spec conflicts marked RESOLVED
-- [ ] Implementation Readiness summary appended to --notes
+- [ ] Implementation Readiness summary written to --notes (curated, once)
 EOF
 )"
 
-# As decisions land, append to --notes:
-br update <id> --notes "$(cat <<'EOF'
-## Decisions
-
+# As each decision lands, log it as a comment (append-only, no
+# read-before-write needed):
+br comments add <id> "$(cat <<'EOF'
 OQ-01: DECIDED 2026-MM-DD
   Answer: <one sentence>
   Rationale: <brief>
   Spec impact: <field/section that changes>
-
-OQ-02: DECIDED ...
 EOF
 )"
 ```
@@ -192,7 +191,8 @@ br update <id> \
   --description "$(cat <<'EOF'
 ## Spec under test
 - Spec bead: <spec-bead-id> (read its Section 5 for cases)
-- Decisions bead: <check-bead-id> (read --notes for resolved OQs)
+- Decisions bead: <check-bead-id> (`br comments list` for per-OQ
+  decisions, `--notes` for the curated Implementation Readiness summary)
 - Test output path: <project convention — see /test SKILL>
 
 ## Task
