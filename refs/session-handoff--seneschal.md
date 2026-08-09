@@ -33,10 +33,10 @@
 
 ## What's next
 1. Next tick: normal `/seneschal brief` (pulse-seneschal.timer 06:44 PT).
-2. Brief inputs to watch: `dotfiles-udhm` closing → next dream laurel arrives committed; `dotfiles-uttn` closing → laurel lines stop truncating mid-clause; `dotfiles-k6wq` — if still open at brief time, present it to Zig as "likely superseded, close?" rather than as a live blocked-on-Zig item.
+2. Brief inputs to watch: `dotfiles-udhm` closing → next dream laurel arrives committed; `dotfiles-uttn` closing → laurel lines stop truncating mid-clause.
 3. Open fork unchanged: mail-on-active is a `dotfiles-7fik` R3 amendment (push vs delivery-at-wake) — route to 7fik's check walk, don't relitigate at this desk.
 
 ## Warnings / watch-outs
 - Do not overwrite plain `refs/session-handoff.md` from this window, ever — it is the dotfiles seat's.
 - The marshal drain may be running or imminent under `dotfiles-sbv2` (unsupervised grant, Zig away). Expect heavy overnight commit/closure volume in the morning brief — that's the drain working, not an anomaly. Merges should trace to the guarded sequence and the drain ledger (`~/.local/state/harness/drain-ledger.jsonl`).
-- Prior session's pico watch-out is CORRECTED: xh18 closed, Tahoe 26.6.1 live. Only k6wq lingers, and it's flagged.
+- Prior session's pico watch-out is fully RESOLVED: xh18 closed (Tahoe 26.6.1 live) AND k6wq closed post-offboard (86da7d8) — the dotfiles seat re-ran post-reboot-verify.sh, 36/0/0 green, six boot-transition ACs now measured facts. Honest residual on that close: Keycloak was port+page verified, not login-flow exercised. Nothing pico-related is blocked on Zig.
