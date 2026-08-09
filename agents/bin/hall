@@ -325,6 +325,11 @@ hall_tap_cell() {
 # named, not a reason for the cockpit to refuse to draw.  Silent when clean.
 hall_glyph_audit() {
   local validator name sigil
+  # ONCE per process. The interactive court repaints every couple of seconds
+  # (dotfiles-hnhl), and a warning that repeats every two seconds is a warning
+  # nobody reads — the roster cannot change mid-watch anyway.
+  [ "${_HALL_AUDITED:-0}" = 1 ] && return 0
+  _HALL_AUDITED=1
   validator=$(_seat_validator) || return 0
   command -v python3 >/dev/null 2>&1 || return 0
   # argv, not stdin: `python3 - <<'PY'` already spends stdin on the script
@@ -827,12 +832,61 @@ hall_prompt_seat() {
 # `read -rsn1` needs a tty. With stdin on a pipe or a here-string (tests, `echo
 # x | hall --interactive`) bash still returns the first byte, so the same path
 # works; only the terminal echo is missing, which is why we echo it ourselves.
+#
+# ---------------------------------------------------------------------------
+# IT REFRESHES WHILE IT IS OPEN (Zig, 2026-08-09: "immensely better for
+# watching").  The prompt loop is a WATCH loop: the keystroke read carries a
+# timeout, and a timeout repaints.  The two sources are the two cheap ones the
+# court already reads — the roster and `list-windows` — so a tick costs a
+# fraction of a second, and 🧠 -> ✅ -> 🔔 becomes something you can watch
+# happen.
+#
+# NO FLICKER: the frame is built OFF-SCREEN into a string, then written in ONE
+# printf, positioned with ANSI home.  Each line clears to end-of-line and the
+# frame ends with clear-to-end-of-screen, so a court that SHRINKS (a window
+# closed, an unregistered row gone) does not leave the old rows behind.  A
+# clear-then-draw would flicker; this cannot, because the terminal never sees a
+# blank state.
+#
+# REFRESH SUSPENDS THE MOMENT TYPING STARTS, and the mechanism is the one that
+# was already here: only the FIRST keystroke read has a timeout, the rest of
+# the line is read blocking.  Zig's note offered two options — reprint the
+# typed prefix after each frame, or suspend on the first character — and this
+# is the second, because the first has a race it cannot win (a repaint between
+# the keystroke and the reprint eats the character) and because a court that
+# freezes while you are naming a seat is the correct behaviour anyway: you are
+# no longer watching, you are steering.
+#
+# HALL_REFRESH_SECS tunes it; 0 or empty disables the refresh entirely and the
+# loop goes back to a plain blocking read.
+hall_paint() {
+  local frame=$1 out line
+  out=$'\033[H'
+  while IFS= read -r line; do out+="$line"$'\033[K\n'; done <<<"$frame"
+  out+=$'\033[J'
+  printf '%s' "$out"
+}
+
 interactive() {
-  court
-  local _c _rest _seat
+  local _c _rest _seat _rc _refresh
+  _refresh=${HALL_REFRESH_SECS-2}
+  case "$_refresh" in ''|0|*[!0-9.]*) _refresh='' ;; esac
+  hall_paint "$(court)"
   while :; do
     printf 'seat> '
-    IFS= read -rsn1 _c || { printf '\n'; return 0; }
+    if [ -n "$_refresh" ]; then
+      IFS= read -rsn1 -t "$_refresh" _c; _rc=$?
+      # bash: >128 is the TIMEOUT, 1 is EOF. Only the timeout repaints; EOF
+      # still closes, or a `printf x | hall --interactive` would spin forever.
+      if [ "$_rc" -gt 128 ]; then
+        printf '\r'
+        hall_paint "$(court)"
+        continue
+      fi
+      [ "$_rc" -eq 0 ] || { printf '\n'; return 0; }
+    else
+      IFS= read -rsn1 _c || { printf '\n'; return 0; }
+    fi
     case "$_c" in
       $'\e')
         while IFS= read -rsn1 -t 0.01 _; do :; done

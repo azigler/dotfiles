@@ -686,6 +686,55 @@ for KEYS in $'\e' $'\e[A'; do
   hasnt "PROMPTESC visits nothing" "materialized" "$OUT"
 done
 
+# --- LIVE REFRESH (dotfiles-hnhl, Zig: "immensely better for watching") -----
+# The prompt loop is a watch loop: a keystroke that does not arrive within
+# HALL_REFRESH_SECS repaints the court. Driven for real — a window appears on
+# the fixture server WHILE the popup is open, and the frames must show it.
+# The writer holds the FIFO open for the whole run (a `printf > fifo` at the
+# end would block hall's own open until then, and the first frame would never
+# paint).
+FIFO="$BASE/watchfifo"; mkfifo "$FIFO"
+(
+  exec 3>"$FIFO"
+  sleep 2
+  tm "$SOCK" new-window -d -t "=sess-a" -n watchme -c "$BASE" 2>/dev/null
+  sleep 3
+  printf '\033' >&3
+  exec 3>&-
+) &
+WATCH=$(env -u TMUX -u TMUX_TMPDIR -u HALL_ONLY_IF_ABSENT \
+          SEATS_YML="$ROSTER" HALL_TMUX_SOCKET="$SOCK" HALL_SESSION=sess-a \
+          HALL_NO_LAUNCH=1 COLUMNS=80 HALL_REFRESH_SECS=1 \
+          bash "$HALL" --interactive < "$FIFO" 2>/dev/null); RC=$?
+wait
+eq "REFRESH rc" 0 "$RC"
+# Strip the ANSI positioning so the frames can be read as text.
+WCLEAN=$(printf '%s' "$WATCH" | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | tr -d '\r')
+FRAMES=$(printf '%s\n' "$WCLEAN" | grep -c 'THE HALL')
+if [ "$FRAMES" -ge 3 ]; then ok
+else bad "REFRESHFRAMES the court must repaint while open (frames: $FRAMES)"; fi
+FIRSTFRAME=$(printf '%s\n' "$WCLEAN" | awk '/THE HALL/{n++} n==1')
+LASTFRAME=$(printf '%s\n' "$WCLEAN" | awk 'BEGIN{RS="THE HALL"} END{print}')
+hasnt "REFRESHLIVE the first frame predates the window" "watchme" "$FIRSTFRAME"
+has   "REFRESHLIVE a later frame shows it"              "watchme" "$LASTFRAME"
+# FRAME STABILITY: every repaint is a whole court at the same width, with the
+# same column boundaries — a partial or shifted frame is what a naive
+# clear-and-redraw produces under a state change.
+printf '%s' "$WCLEAN" > "$BASE/watch.out"
+WA=$(align_report "$BASE/watch.out")
+if [ -z "$WA" ]; then ok; else bad "REFRESHALIGN repainted frames must stay aligned ($WA)"; fi
+WW=$(widest "$BASE/watch.out")
+if [ "$WW" -le 80 ]; then ok; else bad "REFRESHWIDTH a repaint must respect the width ($WW)"; fi
+# The glyph audit is ONCE per process, not once per frame: a warning that
+# repeats every second is a warning nobody reads.
+WERR=$(env -u TMUX -u TMUX_TMPDIR SEATS_YML="$PLANTED" HALL_TMUX_SOCKET="$SOCK" \
+         HALL_SESSION=sess-a HALL_NO_LAUNCH=1 COLUMNS=80 HALL_REFRESH_SECS=1 \
+         bash "$HALL" --interactive 2>&1 >/dev/null <<< "$(printf '\033')")
+eq "REFRESHAUDIT the glyph warning fires once" 1 "$(printf '%s\n' "$WERR" | grep -c 'GLYPH RULE')"
+# `watchme` is deliberately LEFT on the fixture server: no case after this one
+# counts windows, and a kill-window here would be the one destructive verb in a
+# suite whose whole hygiene rule is that it has none.
+
 # ===========================================================================
 # REFUSALS
 # ===========================================================================
