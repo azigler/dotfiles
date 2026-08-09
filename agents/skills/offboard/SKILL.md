@@ -243,8 +243,15 @@ destination:
 | The friction… | Ends with |
 |---|---|
 | already has a bead | `→ bd-xxxx` |
-| is new and worth tracking | `→ filed bd-yyyy` (label it `friction` — see `/beads`) |
+| is new and worth tracking | `→ filed bd-yyyy` (label it `friction` at CREATE time — `br create -t bug -l friction "scope: title"` — see `/beads` Labels) |
 | is genuinely one-off | `→ one-off` |
+
+The label is what makes this mechanical rather than prose: `br list --label
+friction` is how the harness-friction seam (and `/triage`) pulls the set,
+not a title grep. A friction bead filed without the label is invisible to
+that query even though it reads exactly like one — dotfiles-iypf found zero
+beads using this convention despite it being documented, which is what
+"prose, not mechanical" looks like in practice.
 
 **The `one-off` valve is load-bearing, not an escape hatch to abuse.**
 Without it, every trivial hiccup would need a bead and the channel trains

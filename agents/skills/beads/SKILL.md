@@ -191,18 +191,54 @@ without grepping titles: `br list --label friction`. Don't invent a
 `friction` type for this; the bead's type is still whatever kind of
 work it is — the label is the cross-cutting marker.
 
+### Label taxonomy (dotfiles-iypf, 2026-08-09)
+
+Three label families, applied at create time, not backfilled after the
+fact — the point of a label is that `br list --label <x>` and `bv -l <x>`
+already have signal the moment the bead exists:
+
+| Label | Marks | Example |
+|---|---|---|
+| `friction` | A bug/gotcha caught mid-session — the `/offboard` Step 2.7 Friction section, made mechanical | `br create -t bug -l friction "guard: false-positives on non-git commands"` |
+| `epic:<name>` | A bead belonging to a named multi-bead campaign, keyed to the epic's short name (not its bead ID — the name outlives any one bead) | `br create -l epic:hall "hall: responsive court — mobile layout"` |
+| `area:<area>` | The subsystem a piece of DESIGNED work (feature, spec, validator) touches — orthogonal to `friction`, which marks HOW it was found, not WHERE it lives | `br create -t feature -l area:hall "roster: emit agents/seats.json"` |
+
+`friction` and `area:<x>` are not mutually exclusive in principle (a
+friction bead can also name its area), but in practice pick the label
+that answers the sharper question for that bead: "was this caught as a
+gotcha" (`friction`) or "what part of the estate does this touch"
+(`area:<x>`). Don't force both onto every bead — that's over-labeling,
+not signal.
+
+`area:<x>` values are decided per-project as the estate's subsystems
+stabilize, not a fixed enum — dotfiles' first cohort (dotfiles-iypf
+backfill) used `hall` (the roster/seats/court UI), `drain` (the
+overnight fleet-claim machinery, 69qr/htqt), `works` (general
+build/cutover/infra machinery with no sharper home), `attribution`
+(gateway-spend-to-seat mapping), and `comms` (mail/channels/broadcasts).
+Add a new `area:<x>` when a real cluster of beads needs one; don't
+pre-declare areas nobody has beads for yet.
+
 ## Markers — `fleet:`, `fleet-model:`, `outward:` (fleet/outward eligibility)
 
 69qr (the fleet drain spec) and htqt (the outward gate spec) both name
 markers on beads — `fleet: yes`, `fleet-model: opus`, `outward: yes` — that
 control machine behavior: whether the overnight drain may claim a bead at
 all, which model it dispatches on, and whether the outward gate must be
-consulted. These are **not** the same mechanism as a label. br 0.2.16 has no
-key/value metadata verb (`--agent-context` is a different subsystem's
-governing-instructions JSON, not a general marker store; `br label` is real
-but flat/valueless — right shape for `friction`, wrong shape for a marker
-that needs a VALUE). So a marker is a plain-text line inside the bead's
-`--description`, one marker per line, **strict grammar**:
+consulted. br 0.2.16 has no key/value metadata verb — `--agent-context` sets
+a schema-v11 governing-instructions JSON blob that is DB-ONLY, never
+exported to JSONL at all (field census on this repo's own `issues.jsonl`:
+zero rows carry it), so a marker stored there would not survive clone or
+machine transfer. That leaves two real mechanisms, split by shape:
+
+- **`fleet` and `outward` are booleans** — presence IS the value — so as of
+  dotfiles-pcdq they are **label-backed**: `br label add <id> -l fleet` /
+  `-l outward`. This is the canonical, current form: `br list --label
+  fleet`, `bv -l fleet` scoping, and `BV_ROBOT_NOT_READY_LABELS`
+  claimability gating all read it directly, no marker parsing needed.
+- **`fleet-model` needs an arbitrary VALUE** (`opus`, `sonnet`, …), so a
+  flat label is the wrong shape for it — it stays a plain-text line inside
+  the bead's `--description`, one marker per line, **strict grammar**:
 
 ```
 <Key>: <token>
@@ -213,10 +249,17 @@ that needs a VALUE). So a marker is a plain-text line inside the bead's
 `Fleet:`). `<token>` is `[A-Za-z0-9_-]+` — no spaces. Boolean markers
 (`fleet`, `outward`) are true iff the token is EXACTLY `yes`
 (case-insensitive) — `fleet: yesterday` is a well-formed line with a real
-value, it is just not a *true* one. Full grammar + implementation:
+value, it is just not a *true* one.
+
+The description-line form for `fleet`/`outward` is **read-fallback only**,
+kept so beads marked before the migration (or by a writer that hasn't moved
+to labels yet) still resolve — `marker_is_fleet` / `marker_is_outward` check
+the label first and only consult the description line if the label is
+absent. Full grammar + implementation:
 [`agents/lib/bead-markers.sh`](../../lib/bead-markers.sh) (`marker_get`,
-`marker_set`, `marker_is_fleet` — the ONE shared implementation the drain and
-the outward guard both import; do not hand-roll a second grep for this).
+`marker_set`, `marker_is_fleet`, `marker_is_outward` — the ONE shared
+implementation the drain and the outward guard both import; do not
+hand-roll a second grep or label check for this).
 
 **Who may set each marker** (the contract; the library only implements the
 grammar, it does not enforce authorship):
@@ -414,12 +457,19 @@ Before creating, ask: **can one agent complete this in one session?**
 
 ### Orchestrator at start
 ```bash
-br create -p 2 "scope: title"
+br create -p 2 -l friction "scope: title"    # add -l friction / epic:<name> / area:<x> at CREATE time — see Labels above
 br update <id> --description "..." --acceptance-criteria "..."
 br update <id> --claim          # atomic assignee + in_progress
 ```
 Pass `<id>` to the subagent prompt with: *"Your bead is `<id>`. Include
 `Bead: <id>` in your commit trailer."*
+
+Label at create time, not as a later backfill pass — a label decided in
+the moment (was this a Friction-section catch? does it belong to a
+named epic or subsystem?) is cheap and accurate; a label applied weeks
+later is a guess from the title alone. dotfiles-iypf backfilled ~30
+unlabeled beads from a single founding session precisely because none
+of them were labeled going in.
 
 ### Subagent during work
 - Reads the bead via `br show <id>`
