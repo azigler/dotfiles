@@ -18,14 +18,30 @@
 # reference retargeted paths — two of them hourly writers
 # (claude-vault-sync.timer, lb-granola-commit.timer). So the set is derived
 # LIVE, every run:
-#   grep -rl 'dotfiles/agents' $SYSTEMD_UNIT_DIR/*.service $SYSTEMD_UNIT_DIR/*.timer
+#   grep -rl -e 'dotfiles/agents' -e '\.agents/agents' \
+#        $SYSTEMD_UNIT_DIR/*.service $SYSTEMD_UNIT_DIR/*.timer
 #   -> each hit mapped to its OWN .timer unit (a .service with no sibling
 #      .timer — e.g. an OnFailure=-only unit — contributes nothing to the
 #      freeze; there is nothing to stop)
 #   -> PLUS restart-loop-check.timer explicitly, belt-and-suspenders against
 #      the grep ever drifting off it (it currently also matches via grep).
-# Verified 2026-08-08 against the live fleet: 31 raw file matches -> 28
-# distinct .timer units (`status` prints both counts every run).
+#
+# BOTH PATH FORMS, AND THE DOT IS ESCAPED (dotfiles-ypbc)
+# The kvrl retarget moved the fleet's units from %h/dotfiles/agents to
+# %h/.agents/agents. A single-form grep for 'dotfiles/agents' therefore went
+# blind to almost the whole fleet — measured 2026-08-09 at the cutover
+# unfreeze, 4 raw matches where 31 had been found the day before. Unfreeze was
+# unaffected (it restores from the recorded snapshot FILE and never
+# re-derives), but the NEXT freeze would have left ~28 timers running through
+# a flip window. Both forms are matched now; the old one stays for stragglers
+# (two units still reference it). The `\.` is escaped deliberately — an
+# unescaped dot is grep's any-char and would also match e.g. 'xagents/agents'.
+# Verified 2026-08-09 against the live fleet, post-kvrl and post-fix: 38 raw
+# file matches -> 32 distinct .timer units (`status` prints both every run),
+# and that 32 is byte-identical to the derived-set FILE recorded by the last
+# pre-kvrl freeze — i.e. the fix restores exactly the set that was frozen,
+# nothing added, nothing lost. (Pre-kvrl, 2026-08-08, the same derivation read
+# 31 raw -> 28; broken post-kvrl, 2026-08-09, it read 4 raw -> 2.)
 #
 # E5 — THE ORCHESTRATOR RUNNING THIS IS ITSELF PRE-FLIP
 # The session invoking `freeze` / the flip / `unfreeze` is loaded from the
@@ -116,7 +132,7 @@ derive_set() {
         *) continue ;;
       esac
       [ -e "$dir/$timer" ] && timers["$timer"]=1
-    done < <(grep -rl 'dotfiles/agents' "$dir"/*.service "$dir"/*.timer 2>/dev/null)
+    done < <(grep -rl -e 'dotfiles/agents' -e '\.agents/agents' "$dir"/*.service "$dir"/*.timer 2>/dev/null)
     [ -e "$dir/restart-loop-check.timer" ] && timers["restart-loop-check.timer"]=1
   fi
   if [ "${#timers[@]}" -gt 0 ]; then
@@ -131,7 +147,7 @@ derive_set() {
 raw_match_count() {
   local dir="$1" n
   if [ -d "$dir" ]; then
-    n=$(grep -rl 'dotfiles/agents' "$dir"/*.service "$dir"/*.timer 2>/dev/null | wc -l)
+    n=$(grep -rl -e 'dotfiles/agents' -e '\.agents/agents' "$dir"/*.service "$dir"/*.timer 2>/dev/null | wc -l)
   else
     n=0
   fi

@@ -12,6 +12,9 @@
 #   - derivation is grep-DERIVED, never pulse-prefix-matched (Scrutiny-L E3):
 #     a non-pulse unit that references the retargeted path is in-scope, and a
 #     .service with no sibling .timer contributes nothing to freeze.
+#   - derivation matches BOTH path forms — the pre-kvrl 'dotfiles/agents' and
+#     the post-kvrl '.agents/agents' — with the dot ESCAPED (dotfiles-ypbc:
+#     greping only the old form collapsed the live set from 31 files to 4).
 #   - the snapshot is written to a FILE before anything is stopped, and
 #     unfreeze restores from that FILE, never recomputed, never from memory.
 #   - a ledger that looks mid-tick BLOCKS freeze unless --force.
@@ -126,10 +129,21 @@ export PATH="$BIN:$PATH"
 # --- Fixture builders -----------------------------------------------------
 
 # write_unit_fixture DIR — the standard derivation fixture:
-#   foo.service (matches, has sibling foo.timer)          -> IN derived set
+#   foo.service (matches OLD dotfiles/agents form, has sibling foo.timer)
+#                                                          -> IN derived set
 #   foo.timer
 #   bar.service (matches, NO sibling bar.timer)            -> excluded (no timer)
 #   baz.timer   (matches directly, no baz.service needed)  -> IN derived set
+#   newpath.service (matches the POST-kvrl .agents/agents form, sibling timer)
+#                                                          -> IN derived set
+#   newpath.timer      (dotfiles-ypbc: the fleet's units were retargeted from
+#                    %h/dotfiles/agents to %h/.agents/agents; a derivation that
+#                    only greps the old form collapses the freeze set to a
+#                    handful and leaves the rest running through a flip window)
+#   notdot.service + notdot.timer (xagents/agents — the SAME bytes as
+#                    .agents/agents with the dot standing in for 'x')
+#                                                          -> excluded
+#                    (proves the dot is escaped, not an any-char wildcard)
 #   qux.service + qux.timer (does NOT reference the path)  -> excluded entirely
 #   restart-loop-check.timer + .service (does NOT match)   -> IN derived set anyway
 #     (the explicit floor — proves it survives even if the grep ever misses it)
@@ -151,6 +165,22 @@ EOF
   cat > "$dir/baz.timer" <<'EOF'
 [Timer]
 # references /home/ubuntu/dotfiles/agents/scheduler/baz.sh
+OnCalendar=daily
+EOF
+  cat > "$dir/newpath.service" <<'EOF'
+[Service]
+ExecStart=%h/.agents/agents/scheduler/newpath.sh
+EOF
+  cat > "$dir/newpath.timer" <<'EOF'
+[Timer]
+OnCalendar=hourly
+EOF
+  cat > "$dir/notdot.service" <<'EOF'
+[Service]
+ExecStart=/home/ubuntu/xagents/agents/scheduler/notdot.sh
+EOF
+  cat > "$dir/notdot.timer" <<'EOF'
+[Timer]
 OnCalendar=daily
 EOF
   cat > "$dir/qux.service" <<'EOF'
@@ -181,13 +211,16 @@ setup_case() {
   FAKE="$CASE/fake"
   mkdir -p "$UNITS" "$STATE" "$LEDGERS" "$FAKE/state" "$FAKE/stuck" "$FAKE/start-fail"
   write_unit_fixture "$UNITS"
-  # Standard snapshot table: foo.timer + restart-loop-check.timer enabled,
-  # baz.timer disabled, qux.timer enabled (untouched — not in derived set).
+  # Standard snapshot table: foo.timer + newpath.timer + restart-loop-check.timer
+  # enabled, baz.timer disabled, qux.timer/notdot.timer enabled (untouched —
+  # neither is in the derived set).
   cat > "$FAKE/list-unit-files.txt" <<'EOF'
 foo.timer                    enabled  enabled
 baz.timer                    disabled enabled
+newpath.timer                enabled  enabled
 restart-loop-check.timer     enabled  enabled
 qux.timer                    enabled  enabled
+notdot.timer                 enabled  enabled
 EOF
   export SYSTEMD_UNIT_DIR="$UNITS"
   export HARNESS_STATE_DIR="$STATE"
@@ -212,10 +245,12 @@ eq   "1a status exits 0" "$RC" 0
 has  "1b derived set includes foo.timer (matched service + sibling timer)" "$OUT" "foo.timer"
 has  "1c derived set includes baz.timer (matched directly)" "$OUT" "baz.timer"
 has  "1d derived set includes restart-loop-check.timer (explicit floor)" "$OUT" "restart-loop-check.timer"
+has  "1d2 derived set includes newpath.timer (post-kvrl .agents/agents form)" "$OUT" "newpath.timer"
 not_has "1e derived set excludes bar (service matched, no sibling timer)" "$OUT" "bar.timer"
 not_has "1f derived set excludes qux (no path reference at all)" "$OUT" "qux.timer"
-has  "1g raw grep match count reported" "$OUT" "raw grep matches:   3 file(s)"
-has  "1h derived count reported" "$OUT" "derived timer set:  3 unit(s)"
+not_has "1f2 derived set excludes notdot (xagents/agents — the dot is escaped, not a wildcard)" "$OUT" "notdot.timer"
+has  "1g raw grep match count reported" "$OUT" "raw grep matches:   4 file(s)"
+has  "1h derived count reported" "$OUT" "derived timer set:  4 unit(s)"
 assert_verdict "1i status verdict is status-unfrozen (nothing frozen yet)" "$OUT" '^DEMESNE_FREEZE_RESULT=status-unfrozen$'
 
 # =========================================================================
@@ -238,13 +273,14 @@ setup_case
 run freeze
 eq   "3a freeze succeeds" "$RC" 0
 assert_verdict "3b verdict is frozen" "$OUT" '^DEMESNE_FREEZE_RESULT=frozen$'
-eq   "3c stopped exactly {baz,foo,restart-loop-check}.timer" \
-  "$(calls_of stopped)" "baz.timer,foo.timer,restart-loop-check.timer,"
+eq   "3c stopped exactly {baz,foo,newpath,restart-loop-check}.timer" \
+  "$(calls_of stopped)" "baz.timer,foo.timer,newpath.timer,restart-loop-check.timer,"
 not_has "3d qux.timer was never stopped" "$(calls_of stopped)" "qux.timer"
+not_has "3d2 notdot.timer was never stopped" "$(calls_of stopped)" "notdot.timer"
 eq   "3e snapshot file was written before any stop (content preserved verbatim)" \
   "$(cat "$STATE/demesne-freeze-snapshot.txt")" "$(cat "$FAKE/list-unit-files.txt")"
 eq   "3f derived-set file records exactly the frozen set" \
-  "$(sort "$STATE/demesne-freeze-derived.txt" | tr '\n' ',')" "baz.timer,foo.timer,restart-loop-check.timer,"
+  "$(sort "$STATE/demesne-freeze-derived.txt" | tr '\n' ',')" "baz.timer,foo.timer,newpath.timer,restart-loop-check.timer,"
 eq   "3g marker file exists after a successful freeze" "$([ -f "$STATE/demesne-freeze-active" ] && echo yes)" "yes"
 
 # status while frozen
@@ -260,8 +296,8 @@ has  "3j status says the derived set matches the snapshot (unit dir unchanged)" 
 run unfreeze
 eq   "4a unfreeze succeeds" "$RC" 0
 assert_verdict "4b verdict is unfrozen" "$OUT" '^DEMESNE_FREEZE_RESULT=unfrozen$'
-eq   "4c started exactly {foo,restart-loop-check}.timer (the enabled ones)" \
-  "$(calls_of started)" "foo.timer,restart-loop-check.timer,"
+eq   "4c started exactly {foo,newpath,restart-loop-check}.timer (the enabled ones)" \
+  "$(calls_of started)" "foo.timer,newpath.timer,restart-loop-check.timer,"
 not_has "4d baz.timer (disabled at snapshot time) was never restarted" "$(calls_of started)" "baz.timer"
 eq   "4e marker file removed after a successful unfreeze" "$([ -f "$STATE/demesne-freeze-active" ] && echo yes || echo no)" "no"
 
