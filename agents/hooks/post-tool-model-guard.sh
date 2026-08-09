@@ -87,6 +87,12 @@
 # (default 180) since the last instruction — that lapse IS "the restore did not
 # take". Inside the cooldown the hook is silent, so it instructs rather than nags.
 #
+# ── SUBAGENT CONTEXT ────────────────────────────────────────────────────────
+# A subagent's invocation of this hook carries the PARENT's session_id and the
+# SUBAGENT's transcript_path, and is bailed on SILENTLY — no ledger row, no
+# state write. Measured, with the numbers, at THE SUBAGENT BAIL below; that
+# block is the authority, not this pointer.
+#
 # ── FAIL-OPEN ───────────────────────────────────────────────────────────────
 # A broken guard must never block normal work. Missing/unreadable transcript, no
 # parseable assistant model, no jq: one rate-limited `check-failed` ledger row
@@ -168,10 +174,17 @@ case "$PENDING"   in ''|*[!0-9]*) PENDING=0 ;; esac
 case "$LAST_EMIT" in ''|*[!0-9]*) LAST_EMIT=0 ;; esac
 case "$LAST_CFAIL" in ''|*[!0-9]*) LAST_CFAIL=0 ;; esac
 
+# Atomic: write a temp beside the target and rename. A truncate-write here is
+# observable — a reader can see a half-written file, and two writers can lose an
+# update. The SUBAGENT BAIL below removes the second writer, but "only one writer
+# today" is not a reason to leave a torn read on the table.
 write_state() {
   mkdir -p "$STATE_DIR" || return 0
+  local tmp="$STATE_FILE.tmp.$$"
   printf 'tries=%s\npending=%s\nemit=%s\ncfail=%s\nderived=%s\n' \
-    "$TRIES" "$PENDING" "$LAST_EMIT" "$LAST_CFAIL" "$DERIVED" > "$STATE_FILE" || return 0
+    "$TRIES" "$PENDING" "$LAST_EMIT" "$LAST_CFAIL" "$DERIVED" > "$tmp" || { rm -f "$tmp"; return 0; }
+  mv -f "$tmp" "$STATE_FILE" || rm -f "$tmp"
+  return 0
 }
 
 _json_esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
@@ -220,6 +233,36 @@ same_model() {
 
 # --- read the transcript ----------------------------------------------------
 TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
+
+# ── THE SUBAGENT BAIL ───────────────────────────────────────────────────────
+# A SUBAGENT's PostToolUse invocation carries the PARENT's session_id but the
+# SUBAGENT's transcript_path. Measured on this very bead's own agent, 2026-08-09:
+#
+#   transcript  …/-home-ubuntu-dotfiles/538b7ef4-…/subagents/agent-a75fc3d9….jsonl
+#   session_id  538b7ef4-…                       <- the PARENT's
+#   117 assistant rows, isSidechain:true on 100% of them, model claude-opus-5
+#   meta.json    {"agentType":"subagent","model":"opus","spawnDepth":1}
+#
+# Every part of this hook is wrong in that context, three ways:
+#   1. the sidechain filter empties SERVED -> a steady drip of `check-failed`
+#      rows, one per cooldown per delegating session, burying real read errors;
+#   2. the state file is keyed on session_id, i.e. the PARENT's — a second
+#      writer stomping the parent's tries/pending/derived mid-episode;
+#   3. that subagent is on claude-opus-5 ON PURPOSE (AGENTS.md: "Fable plans
+#      and reviews, Opus/Sonnet implement"), so there is nothing to detect.
+#
+# So: bail SILENTLY. No ledger row, no state write — a delegating session is a
+# normal condition, not a detection error, and ledgering it would poison the
+# very counts dotfiles-7pbn is meant to surface. The test is structural: a main
+# session's transcript is `<session_id>.jsonl`, a subagent's is
+# `subagents/agent-<id>.jsonl`, so basename-minus-suffix == session_id iff this
+# is the session's own transcript. A subagent's own degradation is out of scope
+# here by construction — it has no /model to run and no pane to molt.
+if [ -n "$TRANSCRIPT" ]; then
+  _TB=$(basename "$TRANSCRIPT"); _TB=${_TB%.jsonl}
+  [ "$_TB" = "$SESSION_ID" ] || exit 0
+fi
+
 [ -n "$TRANSCRIPT" ] && [ -r "$TRANSCRIPT" ] || check_failed "no-transcript"
 
 # ONE jq pass over the tail, emitting two tagged facts. jq aborts on a partially
@@ -228,7 +271,8 @@ TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 FACTS=$(tail -n "$TAIL_LINES" "$TRANSCRIPT" 2>/dev/null | jq -r '
   if .type == "assistant" and (.isSidechain // false | not) then
     (.message.model // empty) | select(. != "<synthetic>") | "S" + .
-  elif .type == "system" and .subtype == "model_refusal_fallback" then
+  elif .type == "system" and .subtype == "model_refusal_fallback"
+       and (.isSidechain // false | not) then
     "O" + (.originalModel // "")
   else empty end' 2>/dev/null)
 

@@ -590,16 +590,19 @@ fi
 # hides the downgrade, a guard that over-fires gets switched off by the person
 # it interrupts. Measured on this box:
 #
-#     test-post-tool-model-guard.sh (22 cases, hermetic)   ~2s
-#     mutate-model-guard.sh (7 mutants + baseline)         ~16s
+#     test-post-tool-model-guard.sh (24 cases, hermetic)   ~2s
+#     mutate-model-guard.sh (9 mutants + baseline)         ~20s
 #
 # The convention arm above already runs the suite for these files; this adds
-# ~14s. The test file and the FIXTURE are triggers on purpose: C13/C15/C14/C4/C9
-# are each the SOLE detector for one mutant, and the fixture is the only real-byte
-# evidence in the suite — regenerating it from anything but a genuine transcript
-# would quietly turn every case into a test of a guess.
-if printf '%s\n' "$STAGED" | grep -qE '^agents/hooks/(post-tool-model-guard\.sh|test/test-post-tool-model-guard\.sh|test/mutate-model-guard\.sh|test/model-guard-transcript\.fixture\.jsonl)$'; then
-  echo "pre-commit: staged changes touch the model-degradation guard -> running mutation harness (~16s)"
+# ~18s. The test files and BOTH FIXTURES are triggers on purpose:
+# C13/C15/C14/C4/C9/C22/C23 are each the SOLE detector for one mutant, and the
+# fixtures are the only real-byte evidence in the suite — regenerating either
+# from anything but a genuine transcript would quietly turn every case into a
+# test of a guess. The subagent fixture in particular encodes a RUNTIME FACT
+# (parent session_id + subagents/agent-*.jsonl + 100% isSidechain) that no
+# amount of reading the hook can re-derive.
+if printf '%s\n' "$STAGED" | grep -qE '^agents/hooks/(post-tool-model-guard\.sh|test/test-post-tool-model-guard\.sh|test/mutate-model-guard\.sh|test/model-guard-(transcript|subagent)\.fixture\.jsonl)$'; then
+  echo "pre-commit: staged changes touch the model-degradation guard -> running mutation harness (~20s)"
   if [ -f "$ROOT/agents/hooks/test/mutate-model-guard.sh" ]; then
     bash "$ROOT/agents/hooks/test/mutate-model-guard.sh" || FAILED=1
   else

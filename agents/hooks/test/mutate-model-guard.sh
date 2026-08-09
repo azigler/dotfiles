@@ -53,6 +53,7 @@ trap 'rm -rf "$WORK"' EXIT
 HOOK="post-tool-model-guard.sh"
 SUITE="test-post-tool-model-guard.sh"
 FIXTURE="model-guard-transcript.fixture.jsonl"
+FIXTURE2="model-guard-subagent.fixture.jsonl"
 
 FAILED=0
 HARNESS_ERR=0
@@ -61,7 +62,7 @@ MUTANT_OK=0
 mkdir -p "$WORK/hooks/test" "$WORK/pristine"
 [ -f "$HOOKS/$HOOK" ] || { echo "HARNESS ERROR: $HOOKS/$HOOK does not exist" >&2; exit 2; }
 cp -a "$HOOKS/$HOOK" "$WORK/pristine/$HOOK"
-for f in "$SUITE" "$FIXTURE"; do
+for f in "$SUITE" "$FIXTURE" "$FIXTURE2"; do
   [ -f "$SRC/$f" ] || { echo "HARNESS ERROR: $SRC/$f does not exist" >&2; exit 2; }
   cp -a "$SRC/$f" "$WORK/hooks/test/$f"
 done
@@ -243,6 +244,30 @@ fresh_copy
 mutate 'if .type == "assistant" and (.isSidechain // false | not) then' \
        'if .type == "assistant" then'
 check "M7 sidechain-subagent-model-read-as-the-session-model" "C14" "C1 C2"
+
+# M8 — THE SUBAGENT BAIL removed. This is the one that was live: a subagent's
+# invocation carries the PARENT's session_id and the SUBAGENT's transcript_path,
+# whose rows are 100% isSidechain — so SERVED empties, every delegating session
+# drips `check-failed` rows into the ledger that dotfiles-7pbn is meant to count,
+# and the subagent writes the PARENT's state file behind its back. Measured on
+# this bead's own agent (117 rows, all sidechain, claude-opus-5, parent
+# session_id 538b7ef4). C22 is its sole detector.
+fresh_copy
+mutate '  [ "$_TB" = "$SESSION_ID" ] || exit 0' \
+       '  [ "$_TB" = "$SESSION_ID" ] || true'
+check "M8 guard-runs-in-subagent-context" "C22" "C1 C2"
+
+# M9 — the isSidechain filter dropped from the REFUSAL-ROW extraction. A refusal
+# inside an opus-dispatched subagent then caches originalModel into the parent's
+# expectation, and a perfectly healthy fable session is instructed to /model
+# itself onto the subagent's model and walked up the ladder. C23 is its sole
+# detector, and it is a different filter from M7's — that one guards SERVED,
+# this one guards EXPECTED.
+fresh_copy
+mutate '  elif .type == "system" and .subtype == "model_refusal_fallback"
+       and (.isSidechain // false | not) then' \
+       '  elif .type == "system" and .subtype == "model_refusal_fallback" then'
+check "M9 sidechain-refusal-row-poisons-the-expected-model" "C23" "C1 C2 C3"
 
 echo
 if [ "$HARNESS_ERR" -ne 0 ]; then

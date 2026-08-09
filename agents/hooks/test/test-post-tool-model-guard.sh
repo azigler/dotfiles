@@ -64,6 +64,15 @@ NOFB="$T/nofb.jsonl"; cp "$CLEAN" "$NOFB"; tail -n 1 "$FIXTURE" >> "$NOFB"
 SIDE="$T/side.jsonl"; cp "$CLEAN" "$SIDE"
 printf '%s\n' '{"type":"assistant","isSidechain":true,"message":{"model":"claude-opus-4-8","role":"assistant","content":[]}}' >> "$SIDE"
 
+# SIDEFB: a MAIN-session transcript (healthy fable tail) that happens to contain
+# a SIDECHAIN refusal-fallback row naming a different originalModel. Without an
+# isSidechain filter on the O extraction, a dispatched subagent's refusal poisons
+# the parent's cached expectation and the healthy session gets walked up the
+# ladder toward the wrong model. The row is the real one, re-tagged sidechain.
+SIDEFB="$T/sidefb.jsonl"
+sed -n '5p' "$FIXTURE" | sed 's/"isSidechain":false/"isSidechain":true/; s/"originalModel":"claude-fable-5\[1m\]"/"originalModel":"claude-opus-5[1m]"/' > "$SIDEFB"
+cat "$CLEAN" >> "$SIDEFB"
+
 SETTINGS="$T/settings.json"
 printf '%s\n' '{"model":"claude-fable-5[1m]"}' > "$SETTINGS"
 
@@ -71,9 +80,19 @@ printf '%s\n' '{"model":"claude-fable-5[1m]"}' > "$SETTINGS"
 # Every case gets its own state root. MODEL_GUARD_USE_PROC=0 by default because
 # this suite runs INSIDE a real claude process: without it the /proc ancestry
 # walk would read the harness's own --model and make cases environment-dependent.
+#
+# The transcript is COPIED to <session_id>.jsonl before each run, because that
+# is the real shape of a main session's transcript and the hook's subagent bail
+# keys on it (basename-minus-.jsonl == session_id). A case that wants the
+# subagent shape builds its own path — see C22.
 STDERR=""; EXITC=0; STATE=""
-runh() {   # runh <transcript> <session> [extra env assignments...]
-  local tp=$1 sid=$2; shift 2
+runh() {   # runh <transcript-source> <session> [extra env assignments...]
+  local src=$1 sid=$2; shift 2
+  local tp
+  mkdir -p "$T/tp"
+  tp="$T/tp/$sid.jsonl"
+  rm -f "$tp"
+  [ -e "$src" ] && cp "$src" "$tp"     # a nonexistent src leaves tp absent, on purpose
   STATE="$T/state-$sid"
   STDERR=$(env HARNESS_STATE_DIR="$STATE" \
                MODEL_GUARD_USE_PROC=0 \
@@ -312,6 +331,37 @@ if printf '%s' "$STDERR" | grep -q '/model' \
   ok "C21 restore instruction names /model, the target id, and the settings dead end"
 else
   bad "C21 restore instruction names /model, the target id, and the settings dead end" "out=$STDERR"
+fi
+
+# --- C22: the REAL subagent shape — silent bail, nothing written ------------
+# Parent session_id + subagents/agent-*.jsonl transcript + 100% isSidechain
+# rows on claude-opus-5. This is the shape measured on this bead's own agent
+# (see the fixture note); the hook must treat it as a normal condition, not as
+# a detection error — no instruction, NO ledger row, no state file.
+PARENT=parent-538b7ef4
+SUBDIR="$T/proj/$PARENT/subagents"
+mkdir -p "$SUBDIR"
+cp "$HERE/model-guard-subagent.fixture.jsonl" "$SUBDIR/agent-a75fc3d9dbfee0c92.jsonl"
+STATE="$T/state-c22"
+STDERR=$(env HARNESS_STATE_DIR="$STATE" MODEL_GUARD_USE_PROC=0 MODEL_GUARD_USE_SETTINGS=0 \
+             MODEL_GUARD_EXPECTED=claude-fable-5 \
+         "$HOOK" 2>&1 >/dev/null <<EOF
+{"session_id":"$PARENT","transcript_path":"$SUBDIR/agent-a75fc3d9dbfee0c92.jsonl","cwd":"$T"}
+EOF
+); EXITC=$?
+if [ "$EXITC" -eq 0 ] && [ -z "$STDERR" ] && [ ! -d "$STATE" ]; then
+  ok "C22 subagent context (parent session_id + subagents/agent-*.jsonl): silent bail, nothing written"
+else
+  bad "C22 subagent context (parent session_id + subagents/agent-*.jsonl): silent bail, nothing written" \
+      "exit=$EXITC out=$STDERR ledger=$(ledger)"
+fi
+
+# --- C23: a sidechain refusal row must not poison the cached expectation ----
+runh "$SIDEFB" c23 MODEL_GUARD_EXPECTED=""
+if [ "$EXITC" -eq 0 ] && [ -z "$STDERR" ]; then
+  ok "C23 a SIDECHAIN model_refusal_fallback row does not become the expected model"
+else
+  bad "C23 a SIDECHAIN model_refusal_fallback row does not become the expected model" "exit=$EXITC out=$STDERR"
 fi
 
 echo
