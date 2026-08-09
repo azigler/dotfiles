@@ -236,6 +236,68 @@ else
   bad "REAL-ROSTER agents/seats.yml not found at $REPO_ROOT/agents/seats.yml"
 fi
 
+# --- 11. EMIT-JSON: --emit-json succeeds and round-trips verbatim ----------
+# (dotfiles-btw8) The whole contract in one check: every key the parser
+# produced from the GOOD fixture must reappear in the emitted JSON with the
+# SAME spelling and the SAME value — nothing renamed, nothing dropped, one
+# thing added (`_generated`, and only at the top level).
+run_emit() { # run_emit <yml> <out> -> sets EOUT, ERC
+  EOUT=$(python3 "$VALIDATOR" "$1" --emit-json "$2" 2>&1)
+  ERC=$?
+}
+
+EMIT_OUT="$BASE/emit.json"
+run_emit "$GOOD" "$EMIT_OUT"
+if [ "$ERC" -eq 0 ]; then ok; else bad "EMIT-JSON emit from GOOD fixture must succeed (rc=$ERC): $EOUT"; fi
+
+RT=$(python3 - "$VALIDATOR" "$GOOD" "$EMIT_OUT" <<'PY'
+import importlib.util, json, sys
+validator, yml, out = sys.argv[1:4]
+spec = importlib.util.spec_from_file_location("_vs", validator)
+vs = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(vs)
+doc = vs.load_seats_yaml(open(yml).read())
+emitted = json.load(open(out))
+if "_generated" not in emitted:
+    print("EMIT-ROUNDTRIP missing _generated key")
+    sys.exit()
+gen = dict(emitted)
+del gen["_generated"]
+meta = emitted["_generated"]
+for key in ("source", "generator", "warning"):
+    if key not in meta:
+        print(f"EMIT-ROUNDTRIP _generated missing field {key!r}")
+        sys.exit()
+if "DO NOT EDIT" not in meta["warning"]:
+    print("EMIT-ROUNDTRIP _generated.warning is missing DO NOT EDIT")
+    sys.exit()
+if gen != doc:
+    print("EMIT-ROUNDTRIP emitted JSON (minus _generated) != parsed YAML")
+    sys.exit()
+if "charter-line" not in emitted["seats"]["desk"]:
+    print("EMIT-ROUNDTRIP charter-line key was renamed or dropped")
+    sys.exit()
+print("OK")
+PY
+)
+if [ "$RT" = "OK" ]; then ok; else bad "$RT"; fi
+
+# --- 12. EMIT-JSON is deterministic: two emissions are byte-identical -------
+EMIT_OUT2="$BASE/emit2.json"
+run_emit "$GOOD" "$EMIT_OUT2"
+if cmp -s "$EMIT_OUT" "$EMIT_OUT2"; then
+  ok
+else
+  bad "EMIT-DETERMINISM two emissions from the same input must be byte-identical"
+fi
+
+# --- 13. EMIT-JSON: the real agents/seats.yml emits cleanly too ------------
+if [ -f "$REPO_ROOT/agents/seats.yml" ]; then
+  REAL_EMIT="$BASE/real.json"
+  run_emit "$REPO_ROOT/agents/seats.yml" "$REAL_EMIT"
+  if [ "$ERC" -eq 0 ]; then ok; else bad "EMIT-REAL-ROSTER real seats.yml must emit cleanly (rc=$ERC): $EOUT"; fi
+fi
+
 # --- Summary ---
 TOTAL=$((PASS + FAIL))
 if [ "$FAIL" -eq 0 ]; then

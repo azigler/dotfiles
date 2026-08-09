@@ -228,6 +228,20 @@ check "M4 seat-tap-presence-optional" \
   "SEATTAP-MISSING" \
   "SEATTAP-UNKNOWN SIGIL-EPRES-GOOD REAL-ROSTER"
 
+# M5 -- the PLANTED-RENAME mutant (dotfiles-btw8): `_identity`, the emitter's
+# only key-spelling seam, starts renaming ONE key on its way into
+# agents/seats.json. This is the exact defect the bead exists to refuse — a
+# second roster parser with its own key-rename seam — landing inside the
+# supposedly-verbatim emitter itself. Only the round-trip check can see it:
+# nothing else in the suite reads emitted JSON back against the parsed YAML.
+fresh_copy
+mutate "$SCRIPT_NAME" \
+  '    return key' \
+  '    return "charter_line" if key == "charter-line" else key'
+check "M5 emit-json-planted-key-rename" \
+  "EMIT-ROUNDTRIP" \
+  "SIGIL-EPRES-GOOD REAL-ROSTER EMIT-DETERMINISM"
+
 echo
 if [ "$HARNESS_ERR" -ne 0 ]; then
   echo "=== RESULT: HARNESS ERROR -- at least one mutation never applied. ========"

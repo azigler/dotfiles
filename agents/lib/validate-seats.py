@@ -36,8 +36,18 @@ Checks enforced (each has a dedicated fixture in test-validate-seats.sh):
         checksum matches its own body, so a HAND-EDITED history — the self-award
         this validator exists to catch — blocks the commit carrying it.
 
+--emit-json OUT (dotfiles-btw8): after the checks above all pass, write the
+        parsed roster to OUT as JSON — the VERBATIM sidecar harnessd relays
+        (its own digest-sidecar precedent: dotfiles emits, harnessd relays,
+        neither restates). This is the ONE parser; a second emitter script
+        would be parser number three, the exact defect this bead refuses.
+        Deterministic (`sort_keys=True`), every key/value copied unchanged —
+        `charter-line` stays `charter-line` — plus one addition: a top-level
+        `_generated` key naming the source, the generator, and DO NOT EDIT
+        (JSON has no comments, so the marker is data instead).
+
 Usage:
-  validate-seats.py [path] [--histories DIR]
+  validate-seats.py [path] [--histories DIR] [--emit-json OUT]
                                  # default path: agents/seats.yml relative to
                                  # CWD, or the path passed positionally
 Exit 0 + "OK" on success. Exit 1 + one line per violation on failure.
@@ -46,6 +56,7 @@ Exit 0 + "OK" on success. Exit 1 + one line per violation on failure.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import sys
 from pathlib import Path
@@ -688,12 +699,81 @@ def validate(doc: dict) -> list:
     return errors
 
 
+# --------------------------------------------------------------------------
+# JSON sidecar (dotfiles-btw8) — agents/seats.json, the VERBATIM relay
+# --------------------------------------------------------------------------
+# Governing rule (the bead's own words): seats.yml DECLARES, state.json
+# OBSERVES, neither restates the other. This function is the boundary of
+# "declares": it copies the parsed roster into JSON and adds exactly one
+# thing JSON can't express any other way — the DO NOT EDIT marker — and
+# renames NOTHING. harnessd relays this file verbatim; any enrichment (e.g.
+# live_windows) is the fleet JOIN outside the relay, not this emitter's job.
+
+GENERATED_SOURCE = "agents/seats.yml"
+GENERATED_GENERATOR = "agents/lib/validate-seats.py --emit-json (dotfiles-btw8)"
+GENERATED_WARNING = (
+    "DO NOT EDIT — this file is generated. Regenerate with: "
+    "python3 agents/lib/validate-seats.py agents/seats.yml "
+    "--emit-json agents/seats.json"
+)
+
+
+def _identity(key: str) -> str:
+    """Key-spelling passthrough — the ONLY seam a rename could enter through.
+
+    `_rename_keys` calls this on every key it copies and nothing else touches
+    key spelling, so this one-line function is exactly what a "helpfully"
+    renamed key (e.g. `charter-line` -> `charter_line`) would have to go
+    through. The planted-rename mutant (mutate-validate-seats.sh M5) flips
+    this line; the round-trip test (test-validate-seats.sh EMIT-ROUNDTRIP)
+    is what has to catch it.
+    """
+    return key
+
+
+def _rename_keys(node):
+    """Deep-copies `node`, running every dict key through `_identity`."""
+    if isinstance(node, dict):
+        return {_identity(k): _rename_keys(v) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_rename_keys(v) for v in node]
+    return node
+
+
+def render_seats_json(doc: dict) -> str:
+    """Deterministic JSON text for the parsed roster `doc`.
+
+    `sort_keys=True` gives byte-stable output across runs (roster's own key
+    spellings are preserved VERBATIM by `_rename_keys`/`_identity`; sorting
+    only orders them, it never renames them). The one addition is the
+    top-level `_generated` marker — JSON has no comment syntax, so DO NOT
+    EDIT has to be a real key instead of a header comment.
+    """
+    payload = _rename_keys(doc)
+    if "_generated" in payload:
+        raise ValueError(
+            "seats.yml already declares a top-level '_generated' key — "
+            "collision with the sidecar's own generated-marker key"
+        )
+    payload["_generated"] = {
+        "source": GENERATED_SOURCE,
+        "generator": GENERATED_GENERATOR,
+        "warning": GENERATED_WARNING,
+    }
+    # ensure_ascii=False: sigils are the whole point of the roster, and an
+    # escaped \uXXXX diff on every git-tracked emoji change is unreadable.
+    return (
+        json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    )
+
+
 def main(argv: list) -> int:
     # Hand-parsed, argparse-free, for the same reason the YAML parser is
     # hand-written: this runs as a pre-commit gate on every box, and its only
     # dependency is python3 itself.
     positional: list = []
     histories: Path | None = None
+    emit_json_path: Path | None = None
     rest = list(argv[1:])
     while rest:
         arg = rest.pop(0)
@@ -707,6 +787,16 @@ def main(argv: list) -> int:
             histories = Path(rest.pop(0))
         elif arg.startswith("--histories="):
             histories = Path(arg[len("--histories=") :])
+        elif arg == "--emit-json":
+            if not rest:
+                print(
+                    "validate-seats: FAIL — --emit-json needs an output path",
+                    file=sys.stderr,
+                )
+                return 1
+            emit_json_path = Path(rest.pop(0))
+        elif arg.startswith("--emit-json="):
+            emit_json_path = Path(arg[len("--emit-json=") :])
         else:
             positional.append(arg)
 
@@ -739,6 +829,14 @@ def main(argv: list) -> int:
         for e in errors:
             print(f"  - {e}", file=sys.stderr)
         return 1
+
+    if emit_json_path is not None:
+        emit_json_path.write_text(render_seats_json(doc))
+        print(
+            f"validate-seats: emitted {emit_json_path} from {path} "
+            f"({len(doc.get('seats') or {})} seats)"
+        )
+        return 0
 
     n_retired = len(doc.get("retired") or {})
     extra = f", {n_retired} retired" if n_retired else ""
