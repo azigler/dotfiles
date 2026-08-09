@@ -565,16 +565,29 @@ unset CLAUDE_CONFIG_DIR
 
 PRIV="pulseseat-$$"
 PRIV2="pulseseatleak-$$"
-PTMUX() { "$TMUX_BIN" -L "$PRIV" "$@"; }
-trap '"$TMUX_BIN" -L "$PRIV" kill-server 2>/dev/null; "$TMUX_BIN" -L "$PRIV2" kill-server 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION2" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION3" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION4" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION5" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION6" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION7" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION8" 2>/dev/null; rm -rf "$DIR"' EXIT
+# Env hygiene (dotfiles-2v8h, the 2026-08-09 incident): -L already overrides an
+# inherited $TMUX (verified empirically — see pre-tmux-kill-guard.sh's header),
+# but every invocation below also strips TMUX/TMUX_TMPDIR so nothing here can
+# EVER be read as depending on ambient env for its socket. Belt + suspenders.
+#
+# `kill-server` alone is NOT enough to keep /tmp/tmux-1000/ clean — measured
+# live (dotfiles-2v8h): a successful kill-server on this box regularly exits
+# WITHOUT unlinking its own socket special file, so the dead file lingers and
+# accumulates across runs (this is how 26 pulseseat-*/pulseseatleak-* sockets
+# built up despite this trap already killing the server every time). `rm -f`
+# the socket path explicitly — it's a plain unlink, never touches a live
+# server on a DIFFERENT name, and is a no-op if tmux happened to clean up.
+PRIV_SOCKDIR="/tmp/tmux-$UID"
+PTMUX() { env -u TMUX -u TMUX_TMPDIR "$TMUX_BIN" -L "$PRIV" "$@"; }
+trap 'env -u TMUX -u TMUX_TMPDIR "$TMUX_BIN" -L "$PRIV" kill-server 2>/dev/null; env -u TMUX -u TMUX_TMPDIR "$TMUX_BIN" -L "$PRIV2" kill-server 2>/dev/null; rm -f "$PRIV_SOCKDIR/$PRIV" "$PRIV_SOCKDIR/$PRIV2"; "$TMUX_BIN" kill-session -t "=$SESSION" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION2" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION3" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION4" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION5" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION6" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION7" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION8" 2>/dev/null; rm -rf "$DIR"' EXIT
 
 # The injector must drive the SAME private server, and PULSE_TMUX_BIN is the
 # existing test seam for that.
 PRIV_TMUX="$DIR/tmux-private.sh"
-printf '#!/bin/bash\nexec %s -L %s "$@"\n' "$TMUX_BIN" "$PRIV" > "$PRIV_TMUX"
+printf '#!/bin/bash\nexec env -u TMUX -u TMUX_TMPDIR %s -L %s "$@"\n' "$TMUX_BIN" "$PRIV" > "$PRIV_TMUX"
 chmod +x "$PRIV_TMUX"
 PRIV_TMUX2="$DIR/tmux-private2.sh"
-printf '#!/bin/bash\nexec %s -L %s "$@"\n' "$TMUX_BIN" "$PRIV2" > "$PRIV_TMUX2"
+printf '#!/bin/bash\nexec env -u TMUX -u TMUX_TMPDIR %s -L %s "$@"\n' "$TMUX_BIN" "$PRIV2" > "$PRIV_TMUX2"
 chmod +x "$PRIV_TMUX2"
 
 # Start the private server NOW, from this (seat-less) environment. Ordering is
@@ -826,8 +839,9 @@ else
   bad "S22d --config-dir wins over an ambient CLAUDE_CONFIG_DIR (recorded: '$(cat "$REC22C" 2>/dev/null)')"
 fi
 
-"$TMUX_BIN" -L "$PRIV" kill-server 2>/dev/null
-"$TMUX_BIN" -L "$PRIV2" kill-server 2>/dev/null
+env -u TMUX -u TMUX_TMPDIR "$TMUX_BIN" -L "$PRIV" kill-server 2>/dev/null
+env -u TMUX -u TMUX_TMPDIR "$TMUX_BIN" -L "$PRIV2" kill-server 2>/dev/null
+rm -f "$PRIV_SOCKDIR/$PRIV" "$PRIV_SOCKDIR/$PRIV2"
 
 # --- Summary ---
 TOTAL=$((PASS + FAIL))

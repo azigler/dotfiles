@@ -6,9 +6,7 @@
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5[1m]"
   },
   "permissions": {
-    "allow": [
-      "Read(/home/ubuntu/.local/state/harness/conduit/**)"
-    ],
+    "allow": ["Read(/home/ubuntu/.local/state/harness/conduit/**)"],
     "defaultMode": "default"
   },
   "hooks": {
@@ -165,6 +163,11 @@
             "type": "command",
             "command": "~/.claude/hooks/pre-shared-tree-guard.sh",
             "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/pre-tmux-kill-guard.sh",
+            "timeout": 5
           }
         ]
       },
