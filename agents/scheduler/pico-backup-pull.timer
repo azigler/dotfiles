@@ -1,0 +1,32 @@
+[Unit]
+Description=pull pico's un-backed-up state to the keep (daily, off-box)
+Documentation=file:///home/ubuntu/dotfiles/agents/scheduler/pico-backup-pull.sh
+
+[Timer]
+# 04:37 UTC = 21:37 America/Los_Angeles. The window is picked, not rounded:
+#
+#   20:15 PT  pico's own vacation_station pg dump fires (03:15 UTC) and finishes
+#             in about a second
+#   21:37 PT  THIS pull — an hour and change later, so a late or retried dump has
+#             settled before it is copied off the box
+#   ~04:30 PT pico's daily restart. Nowhere near this window; if a run ever does
+#             collide with a restart, the verdict is `unreachable`, the unit goes
+#             into --failed, and Persistent=true catches it up.
+#   06:23 UTC vs14d-backup-health checks the dumps ON pico. Independent of this
+#             — that one asks "did the dump happen", this one asks "is it off
+#             the disk yet". Both answers are needed and neither implies the
+#             other.
+#
+# Off-round-minute like everything else in the fleet, so a dozen timers do not
+# all wake on the hour.
+OnCalendar=*-*-* 04:37:00
+RandomizedDelaySec=180
+
+# Persistent=true, same argument as vs14d-backup-health.timer. A missed run means
+# the ONLY off-box copy of pico's secrets, gateway config and dumps is a day
+# staler than anyone thinks. Catch it up on boot.
+Persistent=true
+Unit=pico-backup-pull.service
+
+[Install]
+WantedBy=timers.target

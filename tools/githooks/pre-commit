@@ -484,6 +484,33 @@ if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(pico-health\.sh|test-p
   fi
 fi
 
+# --- the BACKUP-PULL guards -> prove THEY still bite -----------------------
+# Sixth instance of the same argument, on a script whose decision is WHETHER THE
+# ONLY OFF-BOX COPY OF PICO'S STATE ACTUALLY EXISTS (dotfiles-1x4g). Both of its
+# post-pull guards fail silently when removed: rsync exits 0 for a long list of
+# empty outcomes, the suite stays green on a healthy fixture, and the verdict
+# reads `ok` over an archive holding nothing. That silence is precisely the one
+# the works audit found — and the one you discover on the day you need a restore.
+# Measured on this box:
+#
+#     test-pico-backup-pull.sh (19 cases, real rsync + real sqlite)   12s
+#     mutate-pico-backup-pull.sh (2 mutants + baseline)               45s
+#
+# The convention arm above already runs the 12s suite for these files; this adds
+# ~33s, to commits touching THREE files. The test file is a trigger on purpose:
+# case 19 is the SOLE HONEST detector for the count/byte guard (case 8's empty
+# destination trips the checksum guard too), so deleting one case loses the bite
+# while the suite stays green.
+if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(pico-backup-pull\.sh|test-pico-backup-pull\.sh|mutate-pico-backup-pull\.sh)$'; then
+  echo "pre-commit: staged changes touch the pico backup-pull guards -> running mutation harness (~45s)"
+  if [ -f "$ROOT/agents/scheduler/mutate-pico-backup-pull.sh" ]; then
+    bash "$ROOT/agents/scheduler/mutate-pico-backup-pull.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/scheduler/mutate-pico-backup-pull.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
 # --- the banned git verbs, in EXECUTABLE examples (dotfiles-mjln) ----------
 # AGENTS.md is always-loaded and its "Two writers, one working tree" table is
 # measured; /commit's SKILL.md nonetheless shipped `git pull --rebase origin
