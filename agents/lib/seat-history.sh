@@ -26,6 +26,15 @@
 #      file and appends gets EACCES from the shell (`>>` on a 0444 file), and
 #      if it works around that by rewriting the file, it lands in (2).
 #
+#      ⚠️ MEASURED LIMIT, stated rather than glossed: git records only the
+#      EXEC bit, so a file committed at 0444 checks out 0644 (`create mode
+#      100644` in this arc's own commit). The 0444 barrier therefore holds for
+#      a file this lib wrote on THIS box and NOT for one that arrived by
+#      clone or checkout until `history_init`/a placement rewrites it. That
+#      makes (1) a speed bump, not a wall — which is why (2) is the load-
+#      bearing mechanism and why the commit gate, not the file mode, is where
+#      a forged entry is actually stopped.
+#
 #   2. THE BODY CARRIES ITS OWN CHECKSUM. `integrity: sha256:<hex>` in the
 #      frontmatter covers every byte after the closing `---`. A hand-added
 #      LAUREL entry does not update it, so `history_verify` fails and
