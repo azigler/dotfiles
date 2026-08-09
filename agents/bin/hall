@@ -11,12 +11,20 @@
 # ---------------------------------------------------------------------------
 # WHAT V0 IS, AND IS NOT
 #
-# v0 is DUMB GLASS over two sources that are always there: the ROSTER and the
-# LIVE TMUX SERVER.  There is deliberately NO harnessd dependency — the cockpit
-# must not die with the daemon (sb6s AC3).  The state.json join (unread mail,
-# marshal queue, tap headroom) is v1; so are `hall mail/brief/queue/adopt/
-# retire` and TAP FAILOVER.  Where a v1 field would go, this file has a
+# v0 is DUMB GLASS over sources that are always there and always LOCAL: the
+# ROSTER, the LIVE TMUX SERVER, and (since v1a) agents/scheduler/taps.conf.
+# There is deliberately NO harnessd dependency — the cockpit must not die with
+# the daemon (sb6s AC3) — and no network, no ssh and no ledger read from the
+# renderer, because the court repaints every couple of seconds.  The state.json
+# join (unread mail, marshal queue, tap HEADROOM) is v1; so are `hall
+# mail/brief/queue/adopt/retire`.  Where a v1 field would go, this file has a
 # reserved cell and a comment, never an invented value.
+#
+# WHAT V1A ADDED (dotfiles-oq4n): the tap column's POLICY layer — epoch-3 tap
+# names and the per-seat `seat_home` override, both derived from taps.conf,
+# both still local files.  What a live pane is ACTUALLY serving after a
+# ceiling rollover is v1b and needs a source this renderer does not have; see
+# the tap-column block below.
 #
 # VERBS
 #   hall                the COURT VIEW (also `hall court`)
@@ -57,15 +65,31 @@
 # * EVERY GLYPH IN THE OUTPUT passes validate-seats.py's glyph rule —
 #   Emoji_Presentation=Yes (the PROPERTY, dotfiles-gl6z), no U+2000-U+2BFF
 #   outside the small proven allowlist, no denylisted glyph, no VS16.  That
-#   means NO em dash, NO box drawing, NO arrows anywhere in the rendering —
-#   `·` (U+00B7) and ASCII only.  test-hall.sh runs the court view's real
-#   output through validate-seats.py's own checker.
+#   means NO em dash and NO box drawing anywhere in the rendering — `·`
+#   (U+00B7) and ASCII only.  test-hall.sh runs the court view's real output
+#   through validate-seats.py's own checker.
+#
+#   ONE EXCEPTION, and it is Zig's own: `→` U+2192, the TAP COLUMN's override
+#   separator (dotfiles-oq4n).  He picked it explicitly over the hall's
+#   sketched `>` while ruling the statusline's rollover surface
+#   (dotfiles-kcto: `🔌primary→secondary`), and the two surfaces say the same
+#   thing, so they say it the same way.  The glyph rule is not weakened by it:
+#   U+2192 is Emoji_Presentation=No, i.e. it is TEXT, and it is rendered ONLY
+#   inside the tap column's text — never in a glyph column, never as a sigil,
+#   never padded as 2 cells.  test-hall.sh allows exactly this codepoint and
+#   nothing else, and asserts its measured width rather than assuming one.
 # * THE COLUMN MATH ASSUMES EVERY GLYPH IS 2 CELLS, and hall_glyph_audit
 #   ASSERTS it rather than hoping.  A text-presentation glyph (🗝 U+1F5DD and
 #   friends: emoji-range, Emoji_Presentation=No) measures ONE cell, so its row
 #   loses a column and the table stilts — which is exactly what Zig saw on
 #   2026-08-09.  The audit names the offending seat on STDERR and the court
 #   still renders: a cockpit that refuses to draw is worse than a crooked one.
+# * printf PADS BY BYTES, the terminal draws CELLS, and the two are the same
+#   number only for ASCII.  Every padded column here is ASCII except the tap
+#   column, whose arrow is 3 bytes and ONE cell — so a `%-*s` field carrying
+#   it must be handed a width that carries the excess bytes (hall_fieldw), or
+#   every column to its right shifts left by 2.  Measured, not assumed: a
+#   19-byte / 17-cell string in `%-20s` gets ONE space of padding, not three.
 #
 # Environment seams (all optional; they exist for the attach hook and tests,
 # which must never touch the live tmux server):
@@ -93,6 +117,20 @@ fi
 # shellcheck source=../lib/seat-resolve.sh
 . "$LIB/seat-resolve.sh"
 
+# THE TAP POLICY comes from agents/scheduler/taps.conf, read through the ONE
+# parser that owns that file (tap-headroom.sh's th_conf_get) — the same
+# discipline as the roster's one parser above.  Sourcing it is free: the file
+# defines functions and reads nothing until asked, and it detects being sourced
+# so th_main never runs here.
+#
+# OPTIONAL ON PURPOSE.  If the library (or the conf) is missing, every tap cell
+# falls back to the roster's own value, unchanged — a cockpit that cannot read
+# the tap policy still draws the court.
+if [ -f "$LIB/tap-headroom.sh" ]; then
+  # shellcheck source=../lib/tap-headroom.sh
+  . "$LIB/tap-headroom.sh"
+fi
+
 # --- the glyph set ---------------------------------------------------------
 # Emoji_Presentation=Yes codepoints only (AGENTS.md glyph rule).  📬 is PINNED by
 # Zig, 2026-08-09: the unread-mail glyph is 📬 (U+1F4EC) and NEVER U+2709 ✉,
@@ -109,6 +147,16 @@ G_MAIL='📬'      # unread mail (v1 — needs harnessd state.json)
 
 SEP='·'          # U+00B7, NOT an em dash: U+2014 is in the banned block.
 
+# THE TAP COLUMN's override separator (Zig, 2026-08-09 — dotfiles-kcto, and see
+# the glyph-rule exception in the discipline block).  TEXT, not a glyph: 3
+# bytes, ONE cell.  It is the only non-ASCII character the hall ever prints
+# inside a PADDED column, which is what hall_fieldw exists for.
+TAP_ARROW='→'
+
+# The pool table for THIS render: "<pool>\t<taps csv>\t<groups csv>" per line.
+# Empty means "no tap policy in view" and the cells fall back to the roster.
+_HALL_POOLTAB=''
+
 TMUX_BIN=$(command -v tmux 2>/dev/null); [ -x "${TMUX_BIN:-}" ] || TMUX_BIN=/usr/bin/tmux
 
 die() { local rc=$1; shift; printf 'hall: %s\n' "$*" >&2; exit "$rc"; }
@@ -120,7 +168,8 @@ tmux_e() { local sock=$1; shift; env -u TMUX "$TMUX_BIN" -S "$sock" "$@"; }
 hall_socket() {
   if [ -n "${HALL_TMUX_SOCKET:-}" ]; then printf '%s' "$HALL_TMUX_SOCKET"; return 0; fi
   if [ -n "${TMUX:-}" ]; then printf '%s' "${TMUX%%,*}"; return 0; fi
-  local d="/tmp/tmux-$(id -u)"
+  local d
+  d="/tmp/tmux-$(id -u)"
   [ -S "$d/default" ] && { printf '%s' "$d/default"; return 0; }
   return 1
 }
@@ -180,6 +229,50 @@ hall_trunc() {
   if [ "${#s}" -gt "$n" ]; then printf '%s.' "${s:0:$((n - 1))}"; else printf '%s' "$s"; fi
 }
 
+# hall_fieldw <string> <cells> -> the width to hand printf's `%-*s` so that the
+# field occupies <cells> TERMINAL CELLS.
+#
+# printf pads by BYTES; the terminal draws CELLS. For ASCII those are the same
+# number and every column here relied on that. The tap column's arrow is 3
+# bytes and 1 cell, so a field holding one is 2 bytes "wide" that the terminal
+# never draws — and everything to its right slides left by 2 per arrow.
+#
+# The byte count is taken by re-reading ${#s} under LC_ALL=C, which is the same
+# expansion the padding itself is measured in; no fork, and nothing here has to
+# know how many bytes any particular character costs.
+hall_fieldw() {
+  local s=$1 n=$2 chars=${#1}
+  local LC_ALL=C
+  printf '%s' "$(( n + ${#s} - chars ))"
+}
+
+# hall_trunc_tap <cell> <width> — the tap cell, truncated so the OVERRIDE
+# survives.
+#
+# A plain cell truncates from the right like every other column. An
+# `<home>→<override>` cell does not: the override is the only thing in that
+# cell that can surprise you (it is why the column was rebuilt at all), so it
+# keeps its full width and the home tap gives up the room —
+# `pr.→secondary`, never `primary→seco.`.
+hall_trunc_tap() {
+  local s=$1 n=$2 left right keep
+  [ "${#s}" -le "$n" ] && { printf '%s' "$s"; return 0; }
+  case "$s" in
+    *"$TAP_ARROW"*)
+      left=${s%%"$TAP_ARROW"*}; right=${s#*"$TAP_ARROW"}
+      keep=$(( n - ${#right} - 1 ))            # -1: the arrow is one cell
+      if [ "$keep" -lt 2 ]; then
+        # Not even room for `x.` on the left: the arrow and the override alone,
+        # right-truncated. The cell is at its floor here, not lying.
+        hall_trunc "$TAP_ARROW$right" "$n"
+      else
+        printf '%s.%s%s' "${left:0:$((keep - 1))}" "$TAP_ARROW" "$right"
+      fi
+      ;;
+    *) hall_trunc "$s" "$n" ;;
+  esac
+}
+
 # hall_plain <string> -> the same string with the typographic characters roster
 # PROSE uses folded to something the court may print.  The rendering rule here
 # is ASCII + `·` only (see the discipline block), and `charter-line:` is free
@@ -235,12 +328,21 @@ hall_cols() {
   printf '%s' "$c"
 }
 
-# hall_layout <cols> — sets HALL_MODE and the column widths for this render.
-# Every width is a byte count of an ASCII column, so printf's %-*s padding and
-# the terminal's cells are the same number (the sigil is the only glyph on the
-# line, and hall_glyph_audit asserts it is 2 cells).
+# hall_layout <cols> [widest tap cell] — sets HALL_MODE and the column widths
+# for this render.  Every width is a count of TERMINAL CELLS; printf pads by
+# bytes, so any field that can hold the tap arrow goes through hall_fieldw
+# (the sigil is the only glyph on the line, and hall_glyph_audit asserts it is
+# 2 cells).
+#
+# THE TAP COLUMN IS SIZED TO ITS CONTENT (dotfiles-oq4n).  A fixed 8 was right
+# while every cell was one word; an override cell is `primary→secondary`, 17,
+# and a fixed 8 would truncate away the exact thing the cell was rebuilt to
+# show.  So the caller measures the widest cell it is about to draw and the
+# layout gives it that, bounded at both ends — never below the old 8/10, never
+# above TAP_MAX.
+TAP_MAX=20
 hall_layout() {
-  local cols=$1 fixed
+  local cols=$1 tapw=${2:-0} fixed room
   if [ "$cols" -lt 60 ]; then
     HALL_MODE=compact
     # sigil(2) + 2 + name + 1 + st(2), and one cell of slack so a terminal that
@@ -250,17 +352,33 @@ hall_layout() {
     [ "$W_NAME" -lt 8 ] && W_NAME=8
   elif [ "$cols" -lt 100 ]; then
     HALL_MODE=medium
-    W_NAME=11; W_MODEL=6; W_TAP=8; W_CHARTER=0
-    # The OFFICE column absorbs the slack: at 60 it is 19 ("The Master of
-    # Works" exactly), at 80 it is capped at 26 so the table does not sprawl
-    # ahead of the wide layout, which is where the extra room earns its keep.
-    fixed=$(( 2 + 2 + W_NAME + 1 + 1 + 2 + 1 + 4 + 1 + W_MODEL + 1 + W_TAP ))
-    W_OFFICE=$(( cols - fixed - 1 ))
+    W_NAME=11; W_MODEL=6; W_CHARTER=0
+    W_TAP=$tapw
+    [ "$W_TAP" -lt 8 ] && W_TAP=8
+    [ "$W_TAP" -gt "$TAP_MAX" ] && W_TAP=$TAP_MAX
+    # The OFFICE column absorbs the slack: at 80 it is capped at 26 so the
+    # table does not sprawl ahead of the wide layout, which is where the extra
+    # room earns its keep.
+    fixed=$(( 2 + 2 + W_NAME + 1 + 1 + 2 + 1 + 4 + 1 + W_MODEL + 1 ))
+    room=$(( cols - fixed - 1 ))            # office + tap, together
+    W_OFFICE=$(( room - W_TAP ))
     [ "$W_OFFICE" -gt 26 ] && W_OFFICE=26
-    [ "$W_OFFICE" -lt 14 ] && W_OFFICE=14
+    if [ "$W_OFFICE" -lt 14 ]; then
+      # Near the 60-cell floor the two columns cannot both have what they want.
+      # THE TAP GIVES UP LAST, down to its old 8: a truncated OFFICE still
+      # names the seat's job and the seat column above it is intact, while a
+      # truncated TAP hides the override — the one thing in that cell that can
+      # surprise you.
+      W_OFFICE=14
+      W_TAP=$(( room - W_OFFICE ))
+      [ "$W_TAP" -lt 8 ] && W_TAP=8
+    fi
   else
     HALL_MODE=wide
-    W_NAME=14; W_OFFICE=30; W_MODEL=6; W_TAP=10
+    W_NAME=14; W_OFFICE=30; W_MODEL=6
+    W_TAP=$tapw
+    [ "$W_TAP" -lt 10 ] && W_TAP=10
+    [ "$W_TAP" -gt "$TAP_MAX" ] && W_TAP=$TAP_MAX
     # everything left after: sigil(2) + 2 + name + 1 + office + 1 + st(2) + 1 +
     # last(4) + 1 + model + 1 + tap + 1 — minus one cell of slack, so a row is
     # never exactly the terminal's width (where a wrap is one stray byte away).
@@ -271,6 +389,13 @@ hall_layout() {
 
 # hall_expand_home <roster home> -> absolute path (`~` and `~/x` only; the
 # roster never uses `~user`).
+#
+# The escaped `~` in the strip below is a PATTERN, not a path: it must stay
+# literal so it matches the roster's own `~/`. shellcheck reads it as a failed
+# tilde expansion (SC2088); it is the opposite, hence the directive — which has
+# to sit in front of the whole `case`, since a directive on one case BRANCH is
+# a parse error (SC1124).
+# shellcheck disable=SC2088
 hall_expand_home() {
   case "$1" in
     '~')    printf '%s' "$HOME" ;;
@@ -286,29 +411,152 @@ hall_taps_of() {
   printf '%s\n' "$2" | awk -F'\t' -v s="$1" '$1=="sched" && $2==s {print $4}' | sort -u | paste -sd, -
 }
 
-# hall_tap_cell <seat> <dump> -> the TAP COLUMN's contents.
-#
+# ---------------------------------------------------------------------------
+# THE TAP COLUMN — v1a, THE POLICY LAYER (dotfiles-oq4n)
+# ---------------------------------------------------------------------------
 # THE SEAT'S OWN `tap:` (Zig, 2026-08-09, off this very column): it used to be
 # DERIVED from the seat's schedules, so the seven schedule-less seats rendered
 # `-` — and `-` read as "no tap" when the truth was "personal, like everything
-# else".  The roster now states it, the validator requires it, and this cell
-# just reports it.  A `-` here now means one thing only: an UNREGISTERED
-# window, where emptiness is the honest answer.  The schedule-derived value
-# survives as the FALLBACK for a roster older than the rule.
+# else".  The roster now states it, the validator requires it.  A `-` here
+# means one thing only: an UNREGISTERED window, where emptiness is the honest
+# answer.  The schedule-derived value survives as the FALLBACK for a roster
+# older than the rule.
 #
-# ⚠️ THE V1 SEAM (sb6s "Tap failover", explicitly NOT v0).  When taps gain an
-# ordered failover list and a headroom check, the SERVING tap can differ from
-# the PREFERRED one, and this cell is where that shows up — as `work>tick`,
-# preferred first.  Everything upstream of this function already passes the
-# seat through, so v1 changes this function and the column width, and nothing
-# else in the renderer.  v0 prints the preferred tap alone because that is the
-# only tap it can honestly know.
+# WHAT V1A ADDED, AND WHY.  Zig looked at the court on 2026-08-09 and read
+# `personal` against the marshal while the live policy was
+# `seat_home.marshal=secondary`.  The cell was lying by omission twice: it
+# printed the EPOCH-2 tap name (renamed `personal`->`primary` and
+# `work`->`linearb` that same evening — agents/scheduler/taps.conf's own EPOCH
+# 3 block) and it knew nothing about the per-seat home-tap override.  So the
+# cell now renders the POLICY layer, in two parts:
+#
+#   <tap>                the seat's roster tap in EPOCH-3 naming
+#   <tap>→<pool>         …and the pool its `seat_home.<seat>` override sends it
+#                        to, when that pool is a DIFFERENT one
+#
+# THREE RULES THAT KEEP IT HONEST:
+#
+#   * THE EPOCH MAP IS DERIVED FROM THE CONF, never hardcoded here.  A value
+#     the conf lists in some `pool.<p>.taps=` is already an epoch-3 tap name
+#     and is printed back unchanged (this is why `tick` stays `tick` rather
+#     than collapsing into its pool: `tick` IS a tap, it merely shares
+#     primary's account and therefore primary's ceiling).  A value that
+#     survives only in a `pool.<p>.groups=` list is an epoch-2 alias, and that
+#     list's FIRST entry is the same pool's epoch-3 name by the conf's own
+#     stated ordering.  Anything the conf has never heard of prints unchanged.
+#   * AN OVERRIDE THAT AGREES IS NOT NEWS.  `seat_home.linearb=linearb` on a
+#     seat whose tap already resolves to the linearb pool renders `linearb`,
+#     not `linearb→linearb`.  The arrow means "this seat starts somewhere
+#     other than where its tap would put it", and nothing else.
+#   * NO CONF, NO CHANGE.  A missing or unreadable taps.conf leaves every cell
+#     at the v0 roster value — no error text in the cell, no dash, no guess.
+#
+# ⚠️ WHAT THIS CELL STILL DOES NOT KNOW — v1b, THE SERVING TAP.  This is the
+# PREFERRED/home tap: policy, read from two local files.  It is NOT what a live
+# pane is actually running, which can differ the moment a launch rolls over at
+# its ceiling (agents/lib/tap-headroom.sh's th_pick_pool).  Surfacing that needs
+# the gateway capture / the wrapper's own exports (dotfiles-d5sq, and the
+# statusline's W3), and it must NOT arrive by having the hall read
+# tap-rollover.jsonl or ssh pico from the renderer: the court repaints every two
+# seconds and its whole charter is that it stays fast and local.  v1b adds a
+# source; it does not change this rendering.
+#
+# (The seam comment this replaces sketched the separator as `work>tick`.  Zig
+# ruled U+2192 instead when he ruled the statusline's rollover surface —
+# dotfiles-kcto, `🔌primary→secondary` — and the two surfaces say the same
+# thing, so they say it the same way.)
+
+# hall_pool_table -> "<pool>\t<taps csv>\t<groups csv>" per pool, in the conf's
+# preference order.  Empty when there is no conf and no library: every caller
+# treats that as "no tap policy in view".
+hall_pool_table() {
+  local p taps groups
+  declare -F th_conf_get >/dev/null 2>&1 || return 0
+  for p in $(th_pools); do
+    taps=$(th_conf_get "pool.$p.taps")
+    groups=$(th_conf_get "pool.$p.groups")
+    printf '%s\t%s\t%s\n' "$p" "$taps" "$groups"
+  done
+}
+
+# hall_tap_epoch3 <roster tap> <pool table> -> "<epoch-3 tap>\t<pool>", or
+# nothing at all when the conf does not recognise the value.
+hall_tap_epoch3() {
+  local want=$1 tab=$2 pool taps groups t
+  [ -n "$want" ] || return 0
+  [ -n "$tab" ] || return 0
+  # An EPOCH-3 tap name: the conf lists it as a tap of some pool.
+  while IFS=$'\t' read -r pool taps groups; do
+    [ -n "${pool:-}" ] || continue
+    for t in ${taps//,/ }; do
+      [ "$t" = "$want" ] && { printf '%s\t%s' "$want" "$pool"; return 0; }
+    done
+  done <<<"$tab"
+  # An EPOCH-2 name: it survives only in `groups=`, whose first value is that
+  # pool's epoch-3 name (the conf states that ordering; this reads it).
+  while IFS=$'\t' read -r pool taps groups; do
+    [ -n "${pool:-}" ] || continue
+    for t in ${groups//,/ }; do
+      [ "$t" = "$want" ] && { printf '%s\t%s' "${groups%%,*}" "$pool"; return 0; }
+    done
+  done <<<"$tab"
+  return 0
+}
+
+# hall_tap_cell <seat> <dump> -> the TAP COLUMN's contents for one seat.
 hall_tap_cell() {
-  local t
-  t=$(printf '%s\n' "$2" | awk -F'\t' -v s="$1" '$1=="seat" && $2==s {print $10; exit}')
-  [ -n "$t" ] || t=$(hall_taps_of "$1" "$2")
-  [ -n "$t" ] || t='-'
-  printf '%s' "$t"
+  local seat=$1 dump=$2 t e name pool home
+  t=$(printf '%s\n' "$dump" | awk -F'\t' -v s="$seat" '$1=="seat" && $2==s {print $10; exit}')
+  [ -n "$t" ] || t=$(hall_taps_of "$seat" "$dump")
+  [ -n "$t" ] || { printf '%s' '-'; return 0; }
+
+  e=$(hall_tap_epoch3 "$t" "$_HALL_POOLTAB")
+  [ -n "$e" ] || { printf '%s' "$t"; return 0; }
+  name=${e%%$'\t'*}
+  pool=${e#*$'\t'}
+
+  home=''
+  declare -F th_conf_get >/dev/null 2>&1 && home=$(th_conf_get "seat_home.$seat")
+  if [ -n "$home" ] && [ "$home" != "$pool" ]; then
+    printf '%s%s%s' "$name" "$TAP_ARROW" "$home"
+  else
+    printf '%s' "$name"
+  fi
+}
+
+# hall_tap_cells <dump> -> "<seat>\t<cell>" for every roster seat, computed
+# ONCE per render.  The row loop below looks cells up in this instead of
+# recomputing them, so growing the column costs no extra conf reads.
+hall_tap_cells() {
+  local name
+  while IFS=$'\t' read -r _tag name _rest; do
+    [ -n "${name:-}" ] || continue
+    printf '%s\t%s\n' "$name" "$(hall_tap_cell "$name" "$1")"
+  done <<<"$(printf '%s\n' "$1" | awk -F'\t' '$1=="seat"')"
+}
+
+# hall_tap_of <seat> <cells> -> one seat's precomputed cell, or `-`.
+hall_tap_of() {
+  local s c
+  while IFS=$'\t' read -r s c; do
+    [ "$s" = "$1" ] && { printf '%s' "$c"; return 0; }
+  done <<<"$2"
+  printf '%s' '-'
+}
+
+# hall_tap_widest <cells> -> the widest cell, in CELLS.
+#
+# Bash's ${#s}, not awk's length(): awk's is characters under gawk and BYTES
+# under mawk, and this machine's /usr/bin/awk is not a fixed fact. Every
+# character a tap cell can hold — ASCII plus the 1-cell arrow — is one cell, so
+# a character count IS the cell count here.
+hall_tap_widest() {
+  local s c m=0
+  while IFS=$'\t' read -r s c; do
+    [ -n "${s:-}" ] || continue
+    [ "${#c}" -gt "$m" ] && m=${#c}
+  done <<<"$1"
+  printf '%s' "$m"
 }
 
 # hall_glyph_audit <dump> — THE COLUMN MATH, ASSERTED (dotfiles-gl6z).
@@ -382,6 +630,8 @@ hall_seat_of_window() {
 # padding via printf %-Ns is safe here because every text column is ASCII —
 # seat names are ^[a-z][a-z0-9-]+$ (R1) and offices are English.  A non-ASCII
 # office would skew one row; that is a roster question, not a renderer one.
+# The ONE deliberate exception is the tap column's arrow, which is 3 bytes and
+# 1 cell and therefore goes through hall_fieldw wherever it is padded.
 #
 # v0 matches a live window to a seat BY NAME (exact, then alias) within this
 # server.  Session qualification is moot on the keep — Zig's 2026-08-09
@@ -391,8 +641,16 @@ hall_seat_of_window() {
 # binding session to qualify against.  The session each match was found in is
 # printed for the unregistered rows, where it is the actionable fact.
 court() {
-  local dump sock live host role cur_window cur_seat cur_tap
+  local dump sock live host role cur_window cur_seat cur_tap tapcells tapw
   dump=$(_seat_dump) || die 3 "roster could not be read (see the parse error above). Set \$SEATS_YML or install the agents tier."
+
+  # THE TAP POLICY, once per render — not once per process. taps.conf is a file
+  # Zig edits by hand while watching this court repaint, so a per-process cache
+  # would show him the policy he had when the popup opened. It is one conf read
+  # per pool; the per-seat cells below are computed from it exactly once each.
+  _HALL_POOLTAB=$(hall_pool_table)
+  tapcells=$(hall_tap_cells "$dump")
+  tapw=$(hall_tap_widest "$tapcells")
 
   sock=$(hall_socket) || sock=""
   live=""
@@ -422,7 +680,7 @@ court() {
 
   local cols
   cols=$(hall_cols)
-  hall_layout "$cols"
+  hall_layout "$cols" "$tapw"
 
   # 4 leading spaces, not 3: the sigil column is one emoji (2 cells) plus 2
   # spaces. Every column below is byte-padded ASCII, so the header, the rule
@@ -464,11 +722,11 @@ court() {
   local seated=0 asleep=0
   # TEN fields, not nine: the seat's own `tap` is field 10 (seat-resolve.sh's
   # dump contract). Name it, or `charter` swallows both.
-  local name model home history office sigil charter tap
-  while IFS=$'\t' read -r _tag name model _effort home history office sigil charter tap; do
+  local name model home _history office sigil charter tap
+  while IFS=$'\t' read -r _tag name model _effort home _history office sigil charter tap; do
     [ -n "${name:-}" ] || continue
     seated=$((seated + 1))
-    local aliases hit glyph act row
+    local aliases hit glyph act row tapcell
     aliases=$(printf '%s\n' "$dump" | awk -F'\t' -v s="$name" '$1=="alias" && $3==s {print $2}')
     # The seat's live window: its own name first, then any alias (a window that
     # was never literally renamed is still that seat's window — that is what
@@ -494,18 +752,23 @@ court() {
         printf '%s  %-*s %s\n' "$sigil" "$W_NAME" "$(hall_trunc "$name" "$W_NAME")" "$glyph"
         ;;
       medium)
+        # The tap is LAST on this line and therefore unpadded — no hall_fieldw
+        # needed, and none wanted: nothing follows it to shift.
         printf '%s  %-*s %-*s %s %-4s %-*s %s\n' \
           "$sigil" "$W_NAME" "$(hall_trunc "$name" "$W_NAME")" \
           "$W_OFFICE" "$(hall_trunc "$office" "$W_OFFICE")" \
           "$glyph" "$act" "$W_MODEL" "$(hall_trunc "${model:--}" "$W_MODEL")" \
-          "$(hall_trunc "$(hall_tap_cell "$name" "$dump")" "$W_TAP")"
+          "$(hall_trunc_tap "$(hall_tap_of "$name" "$tapcells")" "$W_TAP")"
         ;;
       *)
+        # …here the CHARTER follows it, so the tap field's width is computed
+        # from the cell's own bytes (hall_fieldw) instead of assumed.
+        tapcell=$(hall_trunc_tap "$(hall_tap_of "$name" "$tapcells")" "$W_TAP")
         printf '%s  %-*s %-*s %s %-4s %-*s %-*s %s\n' \
           "$sigil" "$W_NAME" "$(hall_trunc "$name" "$W_NAME")" \
           "$W_OFFICE" "$(hall_trunc "$office" "$W_OFFICE")" \
           "$glyph" "$act" "$W_MODEL" "$(hall_trunc "${model:--}" "$W_MODEL")" \
-          "$W_TAP" "$(hall_trunc "$(hall_tap_cell "$name" "$dump")" "$W_TAP")" \
+          "$(hall_fieldw "$tapcell" "$W_TAP")" "$tapcell" \
           "$(hall_trunc "$(hall_plain "$charter")" "$W_CHARTER")"
         ;;
     esac
@@ -531,8 +794,8 @@ court() {
   # 🚧 — live windows that match NO seat and no alias.  Never adopted silently
   # (sb6s AC2): the hall reports them and stops.  Adoption is a v1 verb that
   # writes THROUGH the roster.
-  local unreg=0 sess bare g act id
-  while IFS=$'\t' read -r sess bare g act id; do
+  local unreg=0 sess bare _g act _id
+  while IFS=$'\t' read -r sess bare _g act _id; do
     [ -n "${bare:-}" ] || continue
     hall_seat_of_window "$bare" "$dump" >/dev/null && continue
     unreg=$((unreg + 1))
@@ -754,7 +1017,12 @@ visit() {
 
   local aliases
   aliases=$(printf '%s\n' "$dump" | awk -F'\t' -v s="$seat" '$1=="alias" && $3==s {print $2}' | tr '\n' ' ')
-  # shellcheck disable=SC2086  -- $aliases is a deliberate word list (R1 names)
+  # $aliases is a deliberate word list of R1 names, so the split is the point.
+  # NOTE the directive's shape: a trailing `-- why` made shellcheck 0.10 refuse
+  # to parse the DIRECTIVE (SC1072/SC1073, a fatal error), which aborts the
+  # whole file — so nothing in this script was being checked at all. The
+  # rationale goes above the directive; the directive line stays bare.
+  # shellcheck disable=SC2086
   win_id=$(hall_find_window "$sock" "$sess" "$seat" $aliases)
 
   if [ -n "$win_id" ] && [ "${HALL_ONLY_IF_ABSENT:-0}" = 1 ]; then
@@ -816,9 +1084,14 @@ full table to 99, and at 100+ adds each seat's charter line. COMPACT SHOWS LIVE
 SEATS ONLY — an asleep seat is one line of phone you cannot act on; type its
 name to wake it. Every wider layout draws the whole roster.
 
-The roster (agents/seats.yml) is truth; windows are cache. v0 reads the roster
-and the live tmux server only — no harnessd, so the cockpit outlives the
-daemon. Mail, brief, marshal queue, adopt/retire and tap failover are v1.
+The tap column reads the estate's tap POLICY: the seat's tap in epoch-3 naming,
+and 'primary${TAP_ARROW}secondary' when agents/scheduler/taps.conf gives
+that seat a different home pool. It is the PREFERRED tap, not the serving one.
+
+The roster (agents/seats.yml) is truth; windows are cache. The hall reads the
+roster, the live tmux server and taps.conf — all local, no harnessd, so the
+cockpit outlives the daemon. Mail, brief, marshal queue, adopt/retire and the
+SERVING tap are still v1.
 EOF
 }
 

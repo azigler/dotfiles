@@ -21,6 +21,11 @@
 #   glyphs       the REAL court output goes through validate-seats.py's own
 #                sigil rule — the roster's mechanical enforcement, applied to
 #                the renderer (Zig's 2026-08-09 glyph pin, which also fixes 📬)
+#   tap          the TAP COLUMN's policy layer (dotfiles-oq4n): epoch-3 names
+#                derived from taps.conf, the `seat_home.<seat>` override drawn
+#                as `primary→secondary`, an override that AGREES drawn with no
+#                arrow, no conf drawn as the roster's own value — plus the
+#                column math the arrow forces (3 bytes, ONE cell)
 #   visit        existing window (glyph-prefixed name still matches) -> select,
 #                no second window; absent -> materialize in the ROSTER's
 #                session with the roster's home as cwd and the canonical name
@@ -214,6 +219,48 @@ seats:
 EOF
 sed -i "s|__BASE__|$BASE|g" "$ROSTER"
 
+# --- the fixture TAP POLICY (dotfiles-oq4n) ---------------------------------
+# agents/scheduler/taps.conf is the hall's second input now, and the suite must
+# be hermetic against it for the same reason it is hermetic against ~/.tmux.conf:
+# Zig edits that file, and a suite whose expectations move when he does is a
+# suite that reports his edits as regressions.
+#
+# EXPORTED, not passed per call: the tap-headroom library reads
+# $TAP_HEADROOM_CONF, and every `env` invocation below would otherwise have to
+# thread it through by hand. The two cases that need a DIFFERENT conf (no conf
+# at all; the REAL conf against the REAL roster) set it explicitly.
+#
+# Shaped like the real one, and the overrides are chosen to make each rule
+# fail loudly on its own:
+#   alpha    tap personal, seat_home secondary -> `primary→secondary` (17 wide,
+#            the widest cell, so it is what sizes the column)
+#   epsilon  tap personal, seat_home linearb   -> `primary→linearb` (15 wide —
+#            SHORTER than the column, so its field is PADDED, which is the only
+#            place the byte-vs-cell arithmetic can go wrong)
+#   beta     tap personal, seat_home primary   -> `primary`, NO arrow: an
+#            override that agrees with the derived pool is not news
+#   gamma    tap work, no override             -> `linearb` (the epoch-2 map)
+#   seneschal/delta/zeta                       -> the plain epoch-3 name
+TAPCONF="$BASE/taps.conf"
+cat > "$TAPCONF" <<'EOF'
+order=primary,secondary,linearb
+pool.primary.taps=primary,tick
+pool.primary.config_dir=~/.claude
+pool.primary.groups=primary,personal
+pool.secondary.taps=secondary
+pool.secondary.config_dir=~/.claude-secondary
+pool.secondary.groups=secondary
+pool.linearb.taps=linearb
+pool.linearb.config_dir=~/.claude-work
+pool.linearb.groups=linearb,work
+seat_home.alpha=secondary
+seat_home.epsilon=linearb
+seat_home.beta=primary
+ceiling=1.0
+EOF
+export TAP_HEADROOM_CONF="$TAPCONF"
+ARROW=$(printf '\xe2\x86\x92')     # U+2192, Zig's ruled override separator
+
 # 0. The fixture must satisfy the REAL validator, or every case below tests a
 # shape the roster could never legally have.
 if python3 "$VALIDATOR" "$ROSTER" >/dev/null 2>"$ERR"; then ok
@@ -263,16 +310,60 @@ for s in seneschal alpha beta gamma; do
 done
 has "court renders the office" "The Seneschal" "$COURT"
 has "court renders the model"  "sonnet"        "$COURT"
-has "court renders the tap"    "work"          "$COURT"
+has "court renders the tap"    "linearb"       "$COURT"
 # THE TAP COLUMN NEVER SAYS `-` FOR A SEAT (Zig, 2026-08-09): beta and the
-# seneschal have no schedule at all and still draw from `personal`, because the
-# roster now states it. `-` in that column is reserved for an UNREGISTERED
-# window, where emptiness is the honest answer.
+# seneschal have no schedule at all and still draw a tap, because the roster
+# now states it. `-` in that column is reserved for an UNREGISTERED window,
+# where emptiness is the honest answer.
 TAPCOL=$(printf '%s\n' "$COURT" | grep -E '^.  (beta|seneschal) ' | sed 's/.*  //')
-has  "TAPCOL a schedule-less seat still shows its tap" "personal" \
+has  "TAPCOL a schedule-less seat still shows its tap" "primary" \
      "$(printf '%s\n' "$COURT" | grep ' beta ')"
 hasnt "TAPCOL a schedule-less seat never shows a dash" " -$" "$TAPCOL"
 has "court counts the seats"   "7 seats"       "$COURT"
+
+# --- THE TAP COLUMN'S POLICY LAYER (dotfiles-oq4n) -------------------------
+# Zig read `personal` against the marshal while taps.conf said
+# `seat_home.marshal=secondary`. Two lies in one cell: an EPOCH-2 tap name, and
+# no sign of the override at all. Each rule gets its own case, and each case is
+# chosen so that dropping the rule changes THIS assertion rather than some
+# other one.
+tap_of() { printf '%s\n' "$1" | grep -E "^.  $2 " | sed -E 's/.*[[:space:]]([^[:space:]]+)[[:space:]]*$/\1/'; }
+# EPOCH 3, derived from the conf's own pool.<p>.groups (`personal` survives
+# only there, and that list's first entry is the epoch-3 name). Never a table
+# in the hall.
+eq "TAPEPOCH personal -> primary" "primary" "$(tap_of "$COURT" seneschal)"
+eq "TAPEPOCH work -> linearb"     "linearb" "$(tap_of "$COURT" gamma)"
+# THE OVERRIDE, with Zig's separator. This is the marshal's case, in fixture form.
+eq "TAPOVERRIDE seat_home draws the arrow" "primary${ARROW}secondary" \
+   "$(tap_of "$COURT" alpha)"
+eq "TAPOVERRIDE a second, shorter override" "primary${ARROW}linearb" \
+   "$(tap_of "$COURT" epsilon)"
+# AN OVERRIDE THAT AGREES IS NOT NEWS. beta's seat_home is `primary` and its
+# tap already resolves to the primary pool: an implementation that renders the
+# override unconditionally says `primary→primary` here.
+eq    "TAPAGREE an override to the derived pool draws no arrow" "primary" \
+      "$(tap_of "$COURT" beta)"
+hasnt "TAPAGREE no arrow on beta's row" "$ARROW" "$(printf '%s\n' "$COURT" | grep ' beta ')"
+# NO CONF, NO CHANGE: the v0 roster value, verbatim, with no error text and no
+# dash. This is the graceful path on a machine (or a clone) with no tap policy.
+NOCONF=$(env -u TMUX -u TMUX_TMPDIR -u HALL_SESSION -u HALL_ONLY_IF_ABSENT \
+           SEATS_YML="$ROSTER" HALL_TMUX_SOCKET="$SOCK" \
+           TAP_HEADROOM_CONF="$BASE/no-such-taps.conf" bash "$HALL" 2>/dev/null)
+eq    "TAPNOCONF falls back to the roster value" "personal" "$(tap_of "$NOCONF" seneschal)"
+eq    "TAPNOCONF the work seat too"              "work"     "$(tap_of "$NOCONF" gamma)"
+hasnt "TAPNOCONF no arrow anywhere"              "$ARROW"   "$NOCONF"
+hasnt "TAPNOCONF no error text in the cell"      "conf"     "$NOCONF"
+# THE REAL ROSTER AGAINST THE REAL CONF — the thing Zig actually looked at.
+# Nothing here is a fixture: agents/seats.yml says marshal tap:personal and
+# agents/scheduler/taps.conf says seat_home.marshal=secondary.
+REALPOLICY=$(COLUMNS=120 env -u TMUX -u TMUX_TMPDIR -u HALL_SESSION -u HALL_ONLY_IF_ABSENT \
+               SEATS_YML="$ROOT/agents/seats.yml" HALL_TMUX_SOCKET="$SOCK" \
+               TAP_HEADROOM_CONF="$ROOT/agents/scheduler/taps.conf" bash "$HALL" 2>/dev/null)
+has "TAPREAL the marshal's override is on the court" "primary${ARROW}secondary" \
+    "$(printf '%s\n' "$REALPOLICY" | grep ' marshal ')"
+has "TAPREAL the Factor reads linearb, not work"     "linearb" \
+    "$(printf '%s\n' "$REALPOLICY" | grep ' linearb ')"
+hasnt "TAPREAL no epoch-2 name survives in the column" " personal " "$REALPOLICY"
 
 # Status glyphs come from the LIVE window name, and 💤 from its absence.
 ALPHA_ROW=$(printf '%s\n' "$COURT" | grep ' alpha ')
@@ -298,6 +389,15 @@ hasnt "the banned envelope U+2709"    "✉"  "$COURT"
 # refuses anything that is CLAIMING to be a glyph and isn't 2 cells wide. It
 # also asserts the output really does contain emoji, so an all-ASCII regression
 # cannot pass by having nothing to reject.
+#
+# ⚠️ ONE ALLOWED EXCEPTION, and it is a WHITELIST OF ONE: U+2192, the tap
+# column's override separator, which Zig picked explicitly over the hall's
+# sketched `>` when he ruled the statusline's rollover surface (dotfiles-kcto,
+# dotfiles-oq4n). It is not a glyph and is never treated as one — it is TEXT
+# inside a text column, 1 cell wide — which is why it is allowed HERE and not
+# in validate-seats.py, whose sigil rule governs ROSTER FIELDS and must stay
+# unweakened. The allowance is named codepoint by codepoint on purpose: a
+# second arrow, a box-drawing character or an em dash still goes red.
 printf '%s' "$COURT" > "$OUTF"
 glyph_check() {
   python3 - "$VALIDATOR" "$1" <<'PY'
@@ -305,9 +405,12 @@ import importlib.util, pathlib, sys
 spec = importlib.util.spec_from_file_location("_vs", sys.argv[1])
 vs = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(vs)
+ALLOWED = {0x2192}          # the tap column's override separator, Zig's pick
 text = pathlib.Path(sys.argv[2]).read_text()
 bad = []
 for ch in text:
+    if ord(ch) in ALLOWED:
+        continue
     r = vs.glyph_violation(ch)
     if r:
         bad.append(f"U+{ord(ch):04X}: {r}")
@@ -320,6 +423,20 @@ else:
     print(f"CLEAN {len(emoji)} distinct emoji")
 PY
 }
+
+# …and the exception is MEASURED, not asserted. U+2192 is allowed above on the
+# strength of being 1 cell of text; if it were ever 2 (or if display_width
+# stopped being able to tell), every padded field carrying it would be wrong by
+# exactly the amount nobody would notice.
+ARROWW=$(python3 - "$VALIDATOR" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("_vs", sys.argv[1])
+vs = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(vs)
+print(f"{vs.display_width(chr(0x2192))} {vs.sigil_violation(chr(0x2192)) is not None}")
+PY
+)
+eq "TAPARROW U+2192 is ONE cell of TEXT, and not a legal sigil" "1 True" "$ARROWW"
 GLYPHCHECK=$(glyph_check "$OUTF")
 case "$GLYPHCHECK" in
   CLEAN*) ok ;;
@@ -420,7 +537,12 @@ render_at() { # render_at <cols> [roster] -> writes $BASE/w<cols>.out, echoes it
     SEATS_YML="$roster" HALL_TMUX_SOCKET="$SOCK" bash "$HALL" 2>/dev/null \
     | tee "$BASE/w$c.out"
 }
-for C in 40 80 120; do
+# 60 is in the list because it is the MEDIUM FLOOR, and the tap column grew
+# there (dotfiles-oq4n): an override cell is 17 cells where the old fixed
+# column was 8, so 60 is the width at which the office and the tap can no
+# longer both have what they want. If that trade ever overflows, this is the
+# case that says so.
+for C in 40 60 80 120; do
   OUT=$(render_at "$C")
   G=$(glyph_check "$BASE/w$C.out")
   case "$G" in CLEAN*) ok ;; *) bad "BP$C glyph rule at $C cols ($G)" ;; esac
@@ -446,7 +568,8 @@ COMPACT=$(cat "$BASE/w40.out")
 has   "BPCOMPACT keeps the live seat"   "alpha"         "$COMPACT"
 hasnt "BPCOMPACT drops an asleep seat"  "seneschal"     "$COMPACT"
 hasnt "BPCOMPACT drops the office"      "The Seneschal" "$COMPACT"
-hasnt "BPCOMPACT drops the tap"         "personal"      "$COMPACT"
+hasnt "BPCOMPACT drops the tap"         "primary"       "$COMPACT"
+hasnt "BPCOMPACT drops the arrow too"   "$ARROW"        "$COMPACT"
 has   "BPCOMPACT teaches the prompt"    "type a seat name" "$COMPACT"
 # …and the wider layouts still draw the WHOLE roster — the asleep seats are
 # dropped by the phone breakpoint, not by the renderer.
@@ -457,7 +580,13 @@ has "BPWIDEROSTER keeps the asleep seats" "seneschal"   "$(cat "$BASE/w120.out")
 MEDIUM=$(cat "$BASE/w80.out")
 has "BPMEDIUM has the office" "The Seneschal"  "$MEDIUM"
 has "BPMEDIUM has the host"   "$(hostname -s)" "$MEDIUM"
-has "BPMEDIUM has the tap"    "work"           "$MEDIUM"
+has "BPMEDIUM has the tap"    "linearb"        "$MEDIUM"
+has "BPMEDIUM has the override" "primary${ARROW}secondary" "$MEDIUM"
+# At the medium FLOOR the tap column is squeezed, and what it gives up is the
+# HOME side — the override keeps its full width, because the override is the
+# news (`pr.→secondary`, never `primary→seco.`).
+NARROW=$(cat "$BASE/w60.out")
+has "BPMEDIUM60 the override survives the squeeze" "${ARROW}secondary" "$NARROW"
 
 # WIDE: the room is used — the charter line appears, and the estate role is
 # spelled out rather than abbreviated to the bare host.
@@ -469,6 +598,47 @@ has "BPWIDE keeps every medium column" "model"            "$WIDEOUT"
 # word for three names for the same table.
 if [ "$(widest "$BASE/w120.out")" -gt "$(widest "$BASE/w80.out")" ]; then ok
 else bad "BPWIDE the wide court must actually use the room it is given"; fi
+
+# --- THE COLUMN AFTER THE TAP (dotfiles-oq4n) ------------------------------
+# The wide layout is the ONLY place the tap column is padded — the charter
+# follows it — and it is therefore the only place the arrow's byte/cell
+# mismatch can be seen. printf pads by BYTES; U+2192 is 3 bytes and 1 cell, so
+# a field holding one is 2 bytes "wide" the terminal never draws, and every
+# row with an arrow drifts LEFT by 2 relative to every row without one.
+#
+# The fixture is built for exactly this: alpha's cell is 17 cells (it sizes the
+# column, so it is never padded) and epsilon's is 15 (so it IS padded, by 2 —
+# the only arithmetic that can be wrong). Every fixture charter starts with the
+# word `fixture`, which gives one anchor per row, header included.
+charter_starts() {
+  python3 - "$VALIDATOR" "$1" <<'PY'
+import importlib.util, pathlib, re, sys
+spec = importlib.util.spec_from_file_location("_vs", sys.argv[1])
+vs = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(vs)
+seen = {}
+for line in pathlib.Path(sys.argv[2]).read_text().splitlines():
+    if not re.match(r"^(\S)  (\S)", line):
+        continue
+    i = line.find("fixture")
+    if i < 0:
+        continue
+    seen.setdefault(vs.display_width(line[:i]), []).append(line[:14].strip())
+if len(seen) == 1:
+    print(f"ALIGNED at cell {next(iter(seen))} across {sum(len(v) for v in seen.values())} rows")
+else:
+    print("SHIFTED " + " | ".join(f"cell {k}: {','.join(v)}" for k, v in sorted(seen.items())))
+PY
+}
+CSTART=$(charter_starts "$BASE/w120.out")
+case "$CSTART" in
+  ALIGNED*) ok ;;
+  *) bad "TAPCOLMATH the charter must start at the same cell on every row — the tap arrow is 3 bytes and 1 cell ($CSTART)" ;;
+esac
+# …and the fixture really does exercise both shapes, or the check above is
+# asserting alignment over rows that are all the same.
+has "TAPCOLMATH the wide court carries a padded arrow row" "primary${ARROW}linearb" \
+    "$(cat "$BASE/w120.out")"
 
 # THE REAL ROSTER, at every breakpoint. The fixture cannot see this: charter
 # lines are free PROSE, every one of the 18 real ones is written with an em
