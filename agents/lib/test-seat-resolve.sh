@@ -331,6 +331,80 @@ has "missing note names the seat gap" "is NOT a registered seat" "$(cat "$ERR")"
 OUT=$(as_alpha handoff_read_path "$DIR" 2>"$ERR")
 has "missing note for a REAL seat says which seat" 'seat "alpha"' "$(cat "$ERR")"
 
+# --- TZFR-SECTION-BEGIN -----------------------------------------------------
+# ===========================================================================
+# dotfiles-tzfr — the REVERSE-RENAME guard in handoff-path.sh.
+# Mechanism (agreed with this lib, not invented in parallel): the note carries
+# its owner in front matter; the reader compares it to the resolved seat.
+# ===========================================================================
+
+# WRITE side: the note gets seat: front matter, idempotently.
+printf 'body line\n' > "$NOTE"
+as_alpha handoff_stamp_seat "$NOTE"
+eq  "stamp writes the seat"     "alpha"         "$(_handoff_note_seat "$NOTE")"
+has "stamp keeps the body"      "body line"     "$(cat "$NOTE")"
+has "stamp records the window"  "window: alpha" "$(cat "$NOTE")"
+as_alpha handoff_stamp_seat "$NOTE"
+eq "stamp is idempotent (one front-matter block)" 2 "$(grep -c '^---$' "$NOTE")"
+eq "stamp is idempotent (body intact)" "body line" "$(tail -1 "$NOTE")"
+# A window with no seat must never stamp a guessed owner.
+printf 'body line\n' > "$WNOTE"
+if as_nobody handoff_stamp_seat "$WNOTE"; then bad "stamp must refuse without a seat"; else ok; fi
+eq "refused stamp leaves the file alone" "body line" "$(cat "$WNOTE")"
+
+# READ, matching seat -> served, silently.
+OUT=$(as_alpha handoff_read_path "$DIR" 2>"$ERR"); RC=$?
+eq "matching seat rc"     0       "$RC"
+eq "matching seat serves" "$NOTE" "$OUT"
+eq "matching seat silent" ""      "$(cat "$ERR")"
+
+# THE BUG (dotfiles-tzfr): a window renamed ONTO a name that already has a
+# note. The note belongs to seat beta; this window resolves to seat alpha.
+# Before the fix, handoff_read_path found the file and served it with NO
+# diagnostic whatsoever — these five assertions are what fail against that.
+printf -- '---\nseat: beta\nsession: sess-a\nwindow: alpha\n---\nbeta private notes\n' > "$NOTE"
+OUT=$(as_alpha handoff_read_path "$DIR" 2>"$ERR"); RC=$?
+eq  "reverse rename refuses (rc)"         3  "$RC"
+eq  "reverse rename serves NOTHING"       "" "$OUT"
+has "reverse rename is loud"              "ANOTHER SEAT" "$(cat "$ERR")"
+has "reverse rename names the note owner" "beta"         "$(cat "$ERR")"
+has "reverse rename names this seat"      "alpha"        "$(cat "$ERR")"
+
+# R6 as amended: an ABSENT seat: is never an error. Serve it, and say once that
+# it predates the migration.
+printf 'a pre-migration note with no front matter\n' > "$NOTE"
+OUT=$(as_alpha handoff_read_path "$DIR" 2>"$ERR"); RC=$?
+eq  "absent front matter rc"             0       "$RC"
+eq  "absent front matter serves"         "$NOTE" "$OUT"
+has "absent front matter notices"        "no seat: front matter" "$(cat "$ERR")"
+has "absent front matter names the seat" "alpha"                 "$(cat "$ERR")"
+
+# A note that names an owner, read from a window with NO seat: unverifiable, so
+# refused rather than silently served.
+printf -- '---\nseat: alpha\n---\nalpha notes\n' > "$WNOTE"
+OUT=$(as_nobody handoff_read_path "$DIR" 2>"$ERR"); RC=$?
+eq  "unregistered + owned note refuses"        3  "$RC"
+eq  "unregistered + owned note serves nothing" "" "$OUT"
+has "unregistered + owned note is loud" "HAS NO SEAT" "$(cat "$ERR")"
+
+# Unregistered window with a PLAIN note keeps the pre-seat behavior exactly:
+# served, silent. A shared lib must not start shouting in every project whose
+# windows have no roster row yet.
+printf 'plain note\n' > "$WNOTE"
+OUT=$(as_nobody handoff_read_path "$DIR" 2>"$ERR"); RC=$?
+eq "unregistered + plain note rc"     0        "$RC"
+eq "unregistered + plain note serves" "$WNOTE" "$OUT"
+eq "unregistered + plain note silent" ""       "$(cat "$ERR")"
+
+# No roster (a project on a machine with no seats.yml) -> the guard is inert
+# and every path is byte-identical to the pre-seat lib.
+printf -- '---\nseat: beta\n---\nbeta notes\n' > "$NOTE"
+OUT=$( export SEATS_YML="$BASE/does-not-exist.yml" HANDOFF_WINDOW=alpha
+       handoff_read_path "$DIR" 2>"$ERR" ); RC=$?
+eq "no roster -> serves as before" "$NOTE" "$OUT"
+eq "no roster -> rc 0"             0       "$RC"
+eq "no roster -> silent"           ""      "$(cat "$ERR")"
+# --- TZFR-SECTION-END -------------------------------------------------------
 
 TOTAL=$((PASS + FAIL))
 if [ "$FAIL" -eq 0 ]; then echo "PASS: $PASS/$TOTAL test cases"; exit 0; fi

@@ -316,10 +316,19 @@ _seat_resolve_self() {
   match=${hit%%	*}
   seat=${hit#*	}
 
-  # R7: qualify by the binding's session. A window name is per-session, and two
-  # sessions are live on the default socket today (`work`, `zig-computer`), so a
+  # R7: qualify by the binding's session. A window name is per-session, so a
   # name that matches a seat whose binding lives in ANOTHER session is not this
   # seat — refuse rather than tie-break silently.
+  #
+  # The topology this guards is NOT "the second session on this box". Zig
+  # abolished the `work` session on 2026-08-09: one session per server, named
+  # after the host, so tmux session:window now equals host:seat universally and
+  # the linearb windows live in `zig-computer` while still drawing the work TAP
+  # (tap binds per window, R4 — session topology never touched it). The check
+  # stays because the roster, not this file, decides what a binding's session
+  # is: a second server, a second host, or a stale row makes a name resolve
+  # into a session that is not the caller's, and guessing there is the whole
+  # failure mode. Nothing here may hardcode a session name.
   bind_sessions=$(printf '%s\n' "$dump" | awk -F'\t' -v s="$seat" -v w="$win" \
     '$1=="sched" && $2==s && $6==w {print $5}' | sort -u)
   if [ -n "$bind_sessions" ] && [ -n "$ses" ]; then
