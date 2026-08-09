@@ -536,6 +536,28 @@ if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(pulse-inject\.sh|test-
   fi
 fi
 
+# --- the t5fj STALENESS guards -> prove THEY still bite --------------------
+# Fifth instance, spanning TWO scripts that share one decision: whether a
+# scheduled tick is delivered (dotfiles-t5fj). pulse-retry.sh re-verifies a
+# bounce against the present before re-firing (step 3d.5); pulse-inject.sh
+# refuses a --fresh injection whose target pane runs a tick of the SAME loop.
+# Both fail silently in the dangerous direction — a guard that stops biting
+# looks like a quiet night until a /clear lands on a live run and takes its
+# context with it. 14 mutants + baseline; the injector's cases run under
+# PULSE_TEST_ONLY=t5fj with the section's exact case count asserted, so a
+# filter matching nothing is a harness error, not a green baseline. Both test
+# files are triggers on purpose — deleting a named case loses the bite while
+# the suites stay green.
+if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(pulse-retry\.sh|test-pulse-retry\.sh|pulse-inject\.sh|test-pulse-inject\.sh|mutate-t5fj-staleness\.sh)$'; then
+  echo "pre-commit: staged changes touch the t5fj staleness guards -> running mutation harness"
+  if [ -f "$ROOT/agents/scheduler/mutate-t5fj-staleness.sh" ]; then
+    bash "$ROOT/agents/scheduler/mutate-t5fj-staleness.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/scheduler/mutate-t5fj-staleness.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
 # --- the MOLT's safety rails -> prove THEY still bite ----------------------
 # Fourth instance of the same argument, on a script whose decision is WHETHER TO
 # DESTROY A LIVE SESSION'S CONTEXT (dotfiles-it06). Every rail fails silently:
