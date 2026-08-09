@@ -25,11 +25,18 @@ WHAT IT DOES
 For each loop in the harnessd manifest:
 
   1. read the loop's last fire from its systemd timer (``LastTriggerUSec``);
-  2. if the fire is older than the loop's ``grace_minutes`` (default 90) and NO ledger
+  2. establish that the .service actually ran FOR THAT TRIGGER, by enumerating the
+     journal's invocations inside the trigger's attribution window (see
+     ``service_starts_in_window`` — a single latest-start marker cannot answer a
+     per-trigger question);
+  3. if the fire is older than the loop's ``grace_minutes`` (default 90) and NO ledger
      row has landed since that fire, append ONE ``outcome: "stalled"`` row;
-  3. skip a fire already recorded as a BOUNCE — a bounce means the tick never started
+  4. skip a fire already recorded as a BOUNCE — a bounce means the tick never started
      (the window was 🔔-blocked and pulse-inject deliberately typed nothing), which is
      a different, self-healing condition that harnessd already renders.
+
+Every skip path logs through ``log_once``: a skip is a STEADY state and this runs every
+ten minutes, so it announces itself once per (timer, fire) and then stays quiet.
 
 Idempotency is structural, not bookkept: the row this script appends itself carries a
 ``ts`` after the fire, so the next run sees a row in-window and stands down. One row per
@@ -60,8 +67,25 @@ DEFAULT_MANIFEST = Path.home() / "harnessd" / "refs" / "harness-manifest.json"
 BOUNCES_PATH = (
     Path.home() / ".local" / "state" / "harness" / "pulse-bounces.jsonl"
 )
-LOG_PATH = (
-    Path.home() / ".local" / "state" / "harness" / "pulse-stall-reconcile.log"
+LOG_PATH = Path(
+    os.environ.get("PULSE_STALL_RECONCILE_LOG")
+    or Path.home()
+    / ".local"
+    / "state"
+    / "harness"
+    / "pulse-stall-reconcile.log"
+)
+#: Dedup state for the "known-not-stall" log events — see ``log_once``. One JSONL
+#: line per (timer, event), holding the fire it was last logged for. Deliberately
+#: beside the log and human-readable: `cat` it and you can see exactly why a line
+#: is being suppressed, and `rm` it to make every current state re-announce once.
+STATE_PATH = Path(
+    os.environ.get("PULSE_STALL_RECONCILE_STATE")
+    or Path.home()
+    / ".local"
+    / "state"
+    / "harness"
+    / "pulse-stall-reconcile-state.jsonl"
 )
 DEFAULT_GRACE_MINUTES = 90
 
@@ -79,6 +103,12 @@ STALL_MARGIN_MINUTES = 30
 # at the older stamp — and attributing it to that stamp writes a stall for a fire
 # that never happened (dotfiles-05jn, second half).
 ATTRIBUTION_WINDOW_MINUTES = 15
+
+#: systemd's MESSAGE_ID for "Starting <unit>…" (sd-messages.h, MESSAGE_ID_UNIT_STARTING).
+#: The manager emits it for every real activation of the SERVICE, and does NOT emit it
+#: when ``enable --now`` merely arms the TIMER — which is what keeps dotfiles-05jn fixed
+#: while we widen the evidence base below.
+UNIT_STARTING_MESSAGE_ID = "7d4958e842da4a758f6c1cdc7b36dcc5"
 
 
 def parse_iso(s: str | None) -> datetime | None:
@@ -156,6 +186,85 @@ def service_last_start(unit: str) -> datetime | None:
     return None
 
 
+def service_starts_in_window(
+    unit: str, since: datetime, until: datetime
+) -> list[datetime] | None:
+    """Every start of ``unit`` between ``since`` and ``until``, read from the journal.
+
+    Returns a (possibly empty) list when the journal could be read, and ``None`` when
+    it could not — the caller must treat those two as different answers.
+
+    THE DEFECT THIS EXISTS FOR (dotfiles-gxqc), and it is the q0qi family: a MARKER
+    consulted in place of the per-trigger reality. ``ExecMainStartTimestamp`` holds
+    exactly ONE timestamp — the LATEST start — so any later start silently erases the
+    evidence that an earlier fire ran at all. Live instance 2026-08-09: pulse-digest
+    fired at 14:00:10, the service ran at 14:00:16 and logged
+    ``PULSE_INJECT_RESULT=injected``; a manual ``systemctl --user start`` at 15:15:08
+    then advanced the marker past this trigger's attribution window, and the
+    reconciler declared the *real* 14:00 fire "service never ran" on every ten-minute
+    cycle for hours. The marker can only ever answer "which start was last"; the
+    question being asked is "did THIS trigger run", which is per-trigger, so it has to
+    be asked of a per-invocation record. The journal is that record: it keeps every
+    invocation, so enumerate the ones inside the window instead of interrogating a
+    single overwritable stamp.
+
+    Two independent signals are collected, because either alone has a blind spot:
+    the manager's "Starting …" line (present even for a service that logs nothing),
+    and the earliest entry of each distinct ``_SYSTEMD_INVOCATION_ID`` (present even
+    if a future systemd renames or drops that MESSAGE_ID).
+    """
+    try:
+        proc = subprocess.run(
+            [
+                "journalctl",
+                "--user",
+                "-u",
+                unit,
+                "--since",
+                f"@{int(since.timestamp())}",
+                "--until",
+                f"@{int(until.timestamp())}",
+                "-o",
+                "json",
+                "--output-fields=MESSAGE_ID,_SYSTEMD_INVOCATION_ID",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+
+    starts: list[datetime] = []
+    first_of_invocation: dict[str, datetime] = {}
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        raw = obj.get("__REALTIME_TIMESTAMP")
+        try:
+            ts = datetime.fromtimestamp(int(raw) / 1_000_000, tz=UTC)
+        except (TypeError, ValueError):
+            continue
+        if obj.get("MESSAGE_ID") == UNIT_STARTING_MESSAGE_ID:
+            starts.append(ts)
+            continue
+        inv = obj.get("_SYSTEMD_INVOCATION_ID")
+        if isinstance(inv, str) and inv:
+            prev = first_of_invocation.get(inv)
+            first_of_invocation[inv] = ts if prev is None else min(prev, ts)
+    starts.extend(first_of_invocation.values())
+    return sorted(starts)
+
+
 def load_jsonl(path: Path) -> list[dict]:
     try:
         text = path.read_text(errors="replace")
@@ -224,12 +333,15 @@ def stalled_row(
         # and its sibling dotfiles-kel5. State what was checked; name what was not.
         "note": (
             f"STALLED — {timer}.timer triggered at {fire:%Y-%m-%dT%H:%M:%SZ} AND "
-            f"{timer}.service executed (ExecMainStartTimestamp at or after that "
-            f"trigger), but no `{row_name}` row landed in the {waited}m since, and no "
+            f"{timer}.service executed for THAT trigger (a journal invocation, or "
+            "ExecMainStartTimestamp, inside the "
+            f"{ATTRIBUTION_WINDOW_MINUTES}m attribution window), but no "
+            f"`{row_name}` row landed in the {waited}m since, and no "
             "bounce was recorded for this timer in that window. So the tick started "
             "and did not report. NOT CHECKED HERE: whether pulse-inject typed "
             "successfully, and whether the tick parked on Zig — this script reads the "
-            "timer, the service start, the ledger and the bounce log, nothing else. "
+            "timer, the journal, the service start, the ledger and the bounce log, "
+            "nothing else. "
             "Row written by pulse-stall-reconcile, NOT by the tick: a tick that cannot "
             "complete a turn cannot log its own failure (explore-88k9). Check the "
             "window's pane and the session transcript for the first turn's error."
@@ -251,6 +363,60 @@ def log(entry: dict) -> None:
         pass
 
 
+def load_seen() -> dict[str, str]:
+    """Last-logged fire per ``<timer>|<event>`` key, from ``STATE_PATH``."""
+    seen: dict[str, str] = {}
+    for obj in load_jsonl(STATE_PATH):
+        key, fire_ts = obj.get("key"), obj.get("fire_ts")
+        if isinstance(key, str) and isinstance(fire_ts, str):
+            seen[key] = fire_ts
+    return seen
+
+
+def save_seen(seen: dict[str, str]) -> None:
+    """Rewrite ``STATE_PATH`` with exactly the keys observed on THIS run.
+
+    Rewrite-not-append is the pruning mechanism: a timer that stops being in a
+    known-not-stall state simply is not written, so the file stays bounded by the
+    number of live timers, and a state that RECURS after clearing announces itself
+    once more rather than being suppressed forever by a stale line.
+    """
+    try:
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = STATE_PATH.with_suffix(STATE_PATH.suffix + ".tmp")
+        with tmp.open("w") as fh:
+            for key in sorted(seen):
+                fh.write(json.dumps({"key": key, "fire_ts": seen[key]}) + "\n")
+        tmp.replace(STATE_PATH)
+    except OSError:
+        pass
+
+
+def log_once(
+    prev: dict[str, str], seen: dict[str, str], key: str, entry: dict
+) -> bool:
+    """Log ``entry`` only if this (timer, event) has changed since the last run.
+
+    THE DEFECT THIS EXISTS FOR (dotfiles-gxqc, second half). Every skip path here
+    reports a STEADY state — "the timer is armed and the service never ran for this
+    trigger", "this loop pins ledger_row: null" — and this script runs every ten
+    minutes, forever. Logging a steady state per cycle produced 117 lines in one day
+    for three timers (12x/day each for the two investd timers, whose fires are a week
+    old and will never change), which is not a log anyone can read for signal. A state
+    is worth one line when it BEGINS; after that the line is noise that buries the
+    events that are actually new.
+
+    The dedup key is the state's identity (timer + event) and the value is the fire it
+    was logged for, so a NEW fire in the same state re-announces exactly once.
+    """
+    fire_ts = entry.get("fire_ts") or ""
+    seen[key] = fire_ts
+    if prev.get(key) == fire_ts:
+        return False
+    log(entry)
+    return True
+
+
 def reconcile(manifest_path: Path, now: datetime, dry_run: bool) -> list[dict]:
     try:
         manifest = json.loads(manifest_path.read_text())
@@ -263,6 +429,8 @@ def reconcile(manifest_path: Path, now: datetime, dry_run: bool) -> list[dict]:
 
     bounces = load_jsonl(BOUNCES_PATH)
     written: list[dict] = []
+    prev_seen = load_seen()
+    seen: dict[str, str] = {}
 
     for project in manifest.get("projects", []):
         project_path = project.get("path")
@@ -295,15 +463,37 @@ def reconcile(manifest_path: Path, now: datetime, dry_run: bool) -> list[dict]:
             # attributed to the stale trigger and we write a stall for a fire that
             # never happened. Found 2026-08-01: a `systemctl start` at 22:44 was
             # blamed on the 19:05 re-arm stamp, 3.5h earlier.
+            #
+            # dotfiles-gxqc: ask the question PER TRIGGER. ExecMainStartTimestamp is
+            # a single overwritable marker, so a later start (the manual re-fire
+            # above is exactly that) erases the evidence for an earlier REAL fire and
+            # the answer flips to "never ran" for a fire that plainly did. The
+            # journal keeps one record per invocation, so any start it shows inside
+            # this trigger's window satisfies this trigger. The marker is kept as a
+            # second, independent witness: neither source is complete on its own (the
+            # journal can be rotated away, the marker can be overwritten), and either
+            # one showing a start in-window is evidence a start happened.
+            window_end = fire + timedelta(minutes=ATTRIBUTION_WINDOW_MINUTES)
             svc_start = service_last_start(f"{timer}.service")
-            attributable = (
-                svc_start is not None
-                and fire
-                <= svc_start
-                <= fire + timedelta(minutes=ATTRIBUTION_WINDOW_MINUTES)
+            marker_ok = (
+                svc_start is not None and fire <= svc_start <= window_end
             )
-            if not attributable:
-                log(
+            journal_starts = service_starts_in_window(
+                f"{timer}.service", fire, window_end
+            )
+            # Re-apply the window here rather than trusting journalctl's --since /
+            # --until to have meant what we meant. The attribution window IS the
+            # guard (dotfiles-05jn's second half); a guard delegated wholesale to
+            # another program's date parsing is a guard you cannot test.
+            if journal_starts is not None:
+                journal_starts = [
+                    s for s in journal_starts if fire <= s <= window_end
+                ]
+            if not (marker_ok or journal_starts):
+                log_once(
+                    prev_seen,
+                    seen,
+                    f"{timer}|skipped-timer-armed-but-service-never-ran",
                     {
                         "ts": now.isoformat(),
                         "event": "skipped-timer-armed-but-service-never-ran",
@@ -312,12 +502,21 @@ def reconcile(manifest_path: Path, now: datetime, dry_run: bool) -> list[dict]:
                         "service_last_start": (
                             svc_start.isoformat() if svc_start else None
                         ),
+                        "journal_starts_in_window": (
+                            None
+                            if journal_starts is None
+                            else [s.isoformat() for s in journal_starts]
+                        ),
                         "why": (
                             "the timer unit was activated (enable --now / install / "
-                            "rename) but the service did not execute for this "
-                            "trigger — not a stall"
+                            "rename) but neither the journal nor "
+                            "ExecMainStartTimestamp shows the service starting inside "
+                            f"this trigger's {ATTRIBUTION_WINDOW_MINUTES}m window — "
+                            "not a stall. Logged once per (timer, fire); a repeat of "
+                            "the SAME state is suppressed via "
+                            f"{STATE_PATH.name}"
                         ),
-                    }
+                    },
                 )
                 continue
 
@@ -343,13 +542,19 @@ def reconcile(manifest_path: Path, now: datetime, dry_run: bool) -> list[dict]:
                 # A null pin means the loop writes several row names; there is no honest
                 # single name to attribute a stalled row to, and guessing would corrupt
                 # the very signal this script exists to make trustworthy.
-                log(
+                # Also a steady state (the manifest pin does not change between
+                # cycles), so it is deduped on the same key shape as the skip above.
+                log_once(
+                    prev_seen,
+                    seen,
+                    f"{timer}|skipped-null-row",
                     {
                         "ts": now.isoformat(),
                         "event": "skipped-null-row",
                         "timer": timer,
+                        "fire_ts": fire.isoformat(),
                         "ledger": str(ledger),
-                    }
+                    },
                 )
                 continue
 
@@ -368,6 +573,12 @@ def reconcile(manifest_path: Path, now: datetime, dry_run: bool) -> list[dict]:
                 )
             written.append({"timer": timer, "ledger": str(ledger), **row})
 
+    # A --dry-run must leave no trace, so it does not persist the dedup state. The
+    # cost is that a dry run may re-announce a state the next real run announces
+    # again; the alternative — a read-only mode that silently suppresses a future
+    # real log line — is the worse trade.
+    if not dry_run:
+        save_seen(seen)
     return written
 
 
@@ -379,9 +590,12 @@ def reconcile(manifest_path: Path, now: datetime, dry_run: bool) -> list[dict]:
 def _selftest() -> int:
     import tempfile
 
-    global timer_last_fire, BOUNCES_PATH, LOG_PATH
+    global timer_last_fire, service_last_start, service_starts_in_window
+    global BOUNCES_PATH, LOG_PATH, STATE_PATH
 
     real_timer, real_bounces, real_log = timer_last_fire, BOUNCES_PATH, LOG_PATH
+    real_svc, real_journal = service_last_start, service_starts_in_window
+    real_state = STATE_PATH
     failures: list[str] = []
 
     def check(name: str, got, want) -> None:
@@ -401,6 +615,7 @@ def _selftest() -> int:
         ledger = proj / "pulse-ledger.jsonl"
         manifest = root / "manifest.json"
         LOG_PATH = root / "reconcile.log"
+        STATE_PATH = root / "reconcile-state.jsonl"
         BOUNCES_PATH = root / "bounces.jsonl"
 
         manifest.write_text(
@@ -424,7 +639,15 @@ def _selftest() -> int:
             )
         )
 
+        # Stub ALL THREE unit readers. Stubbing only the timer left the other two
+        # talking to the real `systemctl` / `journalctl` about a unit named
+        # `pulse-fake`, which of course has never run — so every case that expects a
+        # stalled row silently got zero, and this selftest had been red since the
+        # dotfiles-05jn service gate landed. A "hermetic" fixture that still shells
+        # out is not hermetic.
         timer_last_fire = lambda unit: fire  # noqa: E731
+        service_last_start = lambda unit: fire  # noqa: E731
+        service_starts_in_window = lambda unit, since, until: [fire]  # noqa: E731
 
         def rows() -> list[dict]:
             return load_jsonl(ledger)
@@ -486,13 +709,49 @@ def _selftest() -> int:
         check("dry-run reports", len(reconcile(manifest, late, True)), 1)
         check("dry-run wrote nothing", rows(), [])
 
-        # 8. a timer that never fired -> nothing to reconcile
+        # 8. dotfiles-gxqc — a LATER manual start must not erase this fire.
+        #    The marker points at a re-fire 75m after the trigger (outside the
+        #    window); the journal still holds the real in-window start.
+        ledger.write_text("")
+        STATE_PATH.write_text("")
+        LOG_PATH.write_text("")
+        service_last_start = lambda unit: fire + timedelta(minutes=75)  # noqa: E731
+        check(
+            "later manual start does not erase the real fire",
+            len(reconcile(manifest, late, False)),
+            1,
+        )
+        check(
+            "no false never-ran skip logged",
+            LOG_PATH.read_text().count("service-never-ran"),
+            0,
+        )
+
+        # 9. dotfiles-gxqc, second half — a steady skip state logs ONCE, not
+        #    once per cycle. Nothing ran at all: no marker, no journal entry.
+        ledger.write_text("")
+        STATE_PATH.write_text("")
+        LOG_PATH.write_text("")
+        service_last_start = lambda unit: None  # noqa: E731
+        service_starts_in_window = lambda unit, since, until: []  # noqa: E731
+        reconcile(manifest, late, False)
+        reconcile(manifest, late, False)
+        reconcile(manifest, late, False)
+        check(
+            "steady skip state logs once, not per cycle",
+            LOG_PATH.read_text().count("service-never-ran"),
+            1,
+        )
+
+        # 10. a timer that never fired -> nothing to reconcile
         timer_last_fire = lambda unit: None  # noqa: E731
         check(
             "never-fired timer is skipped", reconcile(manifest, late, False), []
         )
 
     timer_last_fire, BOUNCES_PATH, LOG_PATH = real_timer, real_bounces, real_log
+    service_last_start, service_starts_in_window = real_svc, real_journal
+    STATE_PATH = real_state
 
     if failures:
         for f in failures:
@@ -503,9 +762,9 @@ def _selftest() -> int:
         )
         return 1
     print(
-        "pulse-stall-reconcile selftest: PASS (8 cases — grace window, "
+        "pulse-stall-reconcile selftest: PASS (10 cases — grace window, "
         "stalled write, idempotency, reported tick, bounce, null row, "
-        "dry-run, never-fired)"
+        "dry-run, later-manual-start, skip-dedup, never-fired)"
     )
     return 0
 
