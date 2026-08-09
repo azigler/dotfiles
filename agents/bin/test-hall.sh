@@ -108,6 +108,7 @@ seats:
     home: __BASE__/deskhome
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/seneschal.history.md
     schedules: []
@@ -118,6 +119,7 @@ seats:
     home: __BASE__/alphahome
     model: fable
     effort: high
+    tap: personal
     aliases: [alpha-old]
     history: refs/seats/alpha.history.md
     schedules:
@@ -132,6 +134,7 @@ seats:
     home: ~/
     model: sonnet
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/beta.history.md
     schedules: []
@@ -142,6 +145,7 @@ seats:
     home: __BASE__/gammahome
     model: opus
     effort: high
+    tap: work
     aliases: []
     history: refs/seats/gamma.history.md
     schedules:
@@ -195,6 +199,14 @@ done
 has "court renders the office" "The Seneschal" "$COURT"
 has "court renders the model"  "sonnet"        "$COURT"
 has "court renders the tap"    "work"          "$COURT"
+# THE TAP COLUMN NEVER SAYS `-` FOR A SEAT (Zig, 2026-08-09): beta and the
+# seneschal have no schedule at all and still draw from `personal`, because the
+# roster now states it. `-` in that column is reserved for an UNREGISTERED
+# window, where emptiness is the honest answer.
+TAPCOL=$(printf '%s\n' "$COURT" | grep -E '^.  (beta|seneschal) ' | sed 's/.*  //')
+has  "TAPCOL a schedule-less seat still shows its tap" "personal" \
+     "$(printf '%s\n' "$COURT" | grep ' beta ')"
+hasnt "TAPCOL a schedule-less seat never shows a dash" " -$" "$TAPCOL"
 has "court counts the seats"   "4 seats"       "$COURT"
 
 # Status glyphs come from the LIVE window name, and 💤 from its absence.

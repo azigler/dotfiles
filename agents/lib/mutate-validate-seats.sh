@@ -1,5 +1,6 @@
 #!/bin/bash
-# Mutation harness for validate-seats.py's GLYPH PROPERTY RULE (dotfiles-gl6z).
+# Mutation harness for validate-seats.py's ROSTER-TRUTH rules: the GLYPH
+# PROPERTY rule (dotfiles-gl6z) and the SEAT-TAP rule (Zig, 2026-08-09).
 #
 #   bash agents/lib/mutate-validate-seats.sh [-v]
 #
@@ -207,6 +208,25 @@ mutate "$SCRIPT_NAME" \
 check "M3 data-range-dropped (refresh regression)" \
   "SIGIL-EPRES-GOOD REAL-ROSTER" \
   "SIGIL-EPRES-KEY SIGIL-ASCII"
+
+# M4 -- the SEATTAP rule made presence-optional, written the way the "be
+# lenient, personal IS the default anyway" instinct writes it: default the
+# missing value instead of refusing it. A seat with NO tap sails through while
+# an undeclared one is still caught, so the rule keeps LOOKING like it works —
+# and the roster goes back to a file you have to infer defaults from, which is
+# the thing Zig's 2026-08-09 ruling is against. The unknown-tap case must keep
+# passing: that asymmetry is this mutant's signature.
+#
+# (The obvious mutant — disarming `if tap is None:` — is a NO-OP here, because
+# the `elif tap not in taps` arm catches None anyway. Recorded because a
+# no-op mutant that "survives" reads exactly like a missing guard.)
+fresh_copy
+mutate "$SCRIPT_NAME" \
+  '        tap = seat.get("tap")' \
+  '        tap = seat.get("tap") or "personal"'
+check "M4 seat-tap-presence-optional" \
+  "SEATTAP-MISSING" \
+  "SEATTAP-UNKNOWN SIGIL-EPRES-GOOD REAL-ROSTER"
 
 echo
 if [ "$HARNESS_ERR" -ne 0 ]; then

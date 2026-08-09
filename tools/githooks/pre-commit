@@ -555,18 +555,19 @@ fi
 # view Zig could see was stilted. That is the shape — a green suite over a
 # rule that does not hold. Every way it can rot again is equally quiet: the
 # property check disarmed, the embedded data made fail-open (the No-list
-# design the module comment argues against), a range dropped in a refresh.
-# Measured on this box:
+# design the module comment argues against), a range dropped in a refresh — and
+# now the SEAT-TAP rule made "lenient" by defaulting the value it exists to
+# demand. Measured on this box:
 #
-#     test-validate-seats.sh (36 cases)                 1s
-#     mutate-validate-seats.sh (3 mutants + baseline)   6s
+#     test-validate-seats.sh (40 cases)                 1s
+#     mutate-validate-seats.sh (4 mutants + baseline)   8s
 #
 # Cheap enough to fire on all four files; the test file and the roster are
 # triggers on purpose — SIGIL-EPRES-GOOD/REAL-ROSTER are the SOLE detectors
-# for the DATA being load-bearing, so deleting one case loses the bite while
-# the suite stays green.
+# for the DATA being load-bearing, and SEATTAP-MISSING for presence being
+# required, so deleting one case loses the bite while the suite stays green.
 if printf '%s\n' "$STAGED" | grep -qE '^agents/(lib/(validate-seats\.py|test-validate-seats\.sh|mutate-validate-seats\.sh)|seats\.yml)$'; then
-  echo "pre-commit: staged changes touch the glyph property rule -> running mutation harness (~6s)"
+  echo "pre-commit: staged changes touch the roster-truth rules -> running mutation harness (~8s)"
   if [ -f "$ROOT/agents/lib/mutate-validate-seats.sh" ]; then
     bash "$ROOT/agents/lib/mutate-validate-seats.sh" || FAILED=1
   else

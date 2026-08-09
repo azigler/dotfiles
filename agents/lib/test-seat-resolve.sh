@@ -78,6 +78,7 @@ seats:
     home: ~/alpha
     model: fable
     effort: high
+    tap: personal
     aliases: [alpha-old, di]
     history: refs/seats/alpha.history.md
     schedules:
@@ -92,6 +93,7 @@ seats:
     home: ~/beta
     model: sonnet
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/beta.history.md
     schedules: []
@@ -102,7 +104,8 @@ seats:
     home: ~/gamma
     model: sonnet
     effort: high
-    aliases: []
+    tap: personal
+    aliases: [gamma-two]
     history: refs/seats/gamma.history.md
     schedules:
       - unit: pulse-gamma-one
@@ -120,6 +123,7 @@ seats:
     home: ~/delta
     model: sonnet
     effort: high
+    tap: personal
     aliases: [delta-old]
     history: refs/seats/delta.history.md
     schedules:
@@ -230,6 +234,20 @@ eq  "foreign is silent"       ""             "$(cat "$ERR")"
 # R13 on the foreign path: unambiguous -> a bare pair; ambiguous -> none.
 eq "foreign unambiguous session (line-anchored)" 1 "$(lines '^session=sess-a$' "$OUT")"
 eq "foreign unambiguous window (line-anchored)"  1 "$(lines '^window=alpha$'   "$OUT")"
+# THE SEAT'S OWN TAP (Zig, 2026-08-09): every seat declares the tap it draws
+# from, so a consumer never has to infer one from the schedules — and a
+# schedule-less seat has an answer at all, which is the whole point of the
+# ruling. It is field 10 of the seat record, APPENDED, so `home` and `sigil`
+# below must still be exactly where they were.
+has "seat emits its own tap" "tap=personal" "$OUT"
+has "appending tap did not shift home"  "home=~/alpha" "$OUT"
+has "appending tap did not shift sigil" "sigil=📜"     "$OUT"
+# …and the TAP TABLE is in the dump, so a launcher can get the config_dir
+# without a second reader of seats.yml.
+DUMP=$(_seat_dump)
+eq "tap table carries the config dir" "~/.claude" "$(_seat_tap_config_dir personal "$DUMP")"
+eq "an unknown tap has no config dir" ""          "$(_seat_tap_config_dir nosuchtap "$DUMP")"
+
 OUT=$(seat_resolve --seat gamma 2>"$ERR")
 has "gamma has two bindings" "bindings=2" "$OUT"
 eq  "R13 ambiguous seat emits NO bare session" 0 "$(lines '^session=' "$OUT")"

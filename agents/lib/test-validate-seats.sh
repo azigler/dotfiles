@@ -47,6 +47,7 @@ seats:
     home: ~/explore
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/desk.history.md
     schedules:
@@ -61,6 +62,7 @@ seats:
     home: ~/explore
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/dream.history.md
     schedules:
@@ -142,6 +144,23 @@ sed 's/sigil: "📜"/sigil: "🎤"/' "$GOOD" > "$F"
 run "$F"
 if [ "$RC" -ne 0 ]; then ok; else bad "SIGIL (denylist): must fail"; fi
 case "$OUT" in *"SIGIL:"*) ok ;; *) bad "SIGIL (denylist): expected that tag, got: $OUT" ;; esac
+
+# --- 6b. SEATTAP: a seat with no tap at all ---------------------------------
+# Zig's ruling, 2026-08-09: personal is the default and the roster SAYS so, so
+# that the hall's `-` means only "unregistered window". The sed deletes the
+# seat-level tap line (4 spaces) without touching the schedule's (8 spaces).
+F="$BASE/seattap-missing.yml"
+sed '/^    tap: personal$/d' "$GOOD" > "$F"
+run "$F"
+if [ "$RC" -ne 0 ]; then ok; else bad "SEATTAP-MISSING a seat with no tap must fail"; fi
+case "$OUT" in *"SEATTAP:"*) ok ;; *) bad "SEATTAP-MISSING expected that tag, got: $OUT" ;; esac
+
+# --- 6c. SEATTAP: a seat naming a tap that is not declared ------------------
+F="$BASE/seattap-unknown.yml"
+sed 's/^    tap: personal$/    tap: nosuchtap/' "$GOOD" > "$F"
+run "$F"
+if [ "$RC" -ne 0 ]; then ok; else bad "SEATTAP-UNKNOWN an undeclared tap must fail"; fi
+case "$OUT" in *"SEATTAP:"*) ok ;; *) bad "SEATTAP-UNKNOWN expected that tag, got: $OUT" ;; esac
 
 # --- 8b. SIGIL-EPRES: a TEXT-presentation glyph from inside the emoji blocks
 # The dotfiles-gl6z defect itself: 🗝 U+1F5DD is emoji-RANGE, passes the block

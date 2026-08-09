@@ -281,6 +281,14 @@ hall_taps_of() {
 
 # hall_tap_cell <seat> <dump> -> the TAP COLUMN's contents.
 #
+# THE SEAT'S OWN `tap:` (Zig, 2026-08-09, off this very column): it used to be
+# DERIVED from the seat's schedules, so the seven schedule-less seats rendered
+# `-` — and `-` read as "no tap" when the truth was "personal, like everything
+# else".  The roster now states it, the validator requires it, and this cell
+# just reports it.  A `-` here now means one thing only: an UNREGISTERED
+# window, where emptiness is the honest answer.  The schedule-derived value
+# survives as the FALLBACK for a roster older than the rule.
+#
 # ⚠️ THE V1 SEAM (sb6s "Tap failover", explicitly NOT v0).  When taps gain an
 # ordered failover list and a headroom check, the SERVING tap can differ from
 # the PREFERRED one, and this cell is where that shows up — as `work>tick`,
@@ -290,7 +298,8 @@ hall_taps_of() {
 # only tap it can honestly know.
 hall_tap_cell() {
   local t
-  t=$(hall_taps_of "$1" "$2")
+  t=$(printf '%s\n' "$2" | awk -F'\t' -v s="$1" '$1=="seat" && $2==s {print $10; exit}')
+  [ -n "$t" ] || t=$(hall_taps_of "$1" "$2")
   [ -n "$t" ] || t='-'
   printf '%s' "$t"
 }
@@ -441,8 +450,10 @@ court() {
   esac
 
   local seated=0 asleep=0
-  local name model home history office sigil charter
-  while IFS=$'\t' read -r _tag name model _effort home history office sigil charter; do
+  # TEN fields, not nine: the seat's own `tap` is field 10 (seat-resolve.sh's
+  # dump contract). Name it, or `charter` swallows both.
+  local name model home history office sigil charter tap
+  while IFS=$'\t' read -r _tag name model _effort home history office sigil charter tap; do
     [ -n "${name:-}" ] || continue
     seated=$((seated + 1))
     local aliases hit glyph act row

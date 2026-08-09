@@ -71,6 +71,13 @@ taps:
 # glyph inside the emoji blocks (🗝 🛡 🕯 🕊 were all four) measures ONE cell
 # and stilts its row in the hall's court view. Do not pick a sigil by eye.
 #
+# `tap:` is REQUIRED on every seat (Zig, 2026-08-09): the tap this seat draws
+# from when something launches it — its schedules' tap where it has schedules,
+# and `personal` where it has none, because personal IS the default and the
+# roster STATES its defaults rather than leaving a reader (or a court view) to
+# render `-`. A schedule's own `tap:` still governs that schedule; this is the
+# seat's, and it is what the hall shows and what a launch exports.
+#
 # `home:` is the default cwd — seats ROAM, home is not a jail. `history:` is
 # append-only, machine-level under refs/seats/ (OQ1 resolution on uikg,
 # 2026-08-08), distinct from the per-window handoff note that gets
@@ -93,6 +100,7 @@ seats:
     home: ~/dotfiles
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/seneschal.history.md
     # SHIPPED (dotfiles-son4, 2026-08-09): pulse-seneschal.timer is installed
@@ -115,6 +123,7 @@ seats:
     home: ~/dotfiles
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/marshal.history.md
     # Design-only until the fleet-drain spec (dotfiles-69qr) is checked
@@ -130,6 +139,7 @@ seats:
     home: ~/dotfiles
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/dotfiles.history.md
     # Interactive window (zig-computer:dotfiles), no pulse timer.
@@ -149,10 +159,12 @@ seats:
     home: ~/harnessd
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/harnessd.history.md
-    # A live systemd daemon (harnessd.service), not a pulse-tick loop — no
-    # tap/window binding to record here.
+    # A live systemd daemon (harnessd.service), not a pulse-tick loop — so no
+    # SCHEDULE binding to record. The seat's own `tap:` above still applies:
+    # it is what a hall visit launches this seat on.
     schedules: []
 
   # --- Inquiry: research + allocation --------------------------------------
@@ -164,6 +176,7 @@ seats:
     home: ~/explore
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/desk.history.md
     schedules:
@@ -179,6 +192,7 @@ seats:
     home: ~/explore
     model: opus
     effort: high
+    tap: tick
     aliases: []
     history: refs/seats/dive.history.md
     schedules:
@@ -202,6 +216,7 @@ seats:
     home: ~/explore
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/dream.history.md
     schedules:
@@ -227,6 +242,7 @@ seats:
     home: ~/digestd
     model: sonnet
     effort: high
+    tap: tick
     aliases: [digest]
     history: refs/seats/digestd.history.md
     schedules:
@@ -245,6 +261,7 @@ seats:
     home: ~/aaif
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/aaif.history.md
     schedules:
@@ -260,6 +277,7 @@ seats:
     home: ~/andrewzigler3
     model: sonnet
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/az3.history.md
     schedules:
@@ -275,6 +293,7 @@ seats:
     home: ~/hevyd
     model: sonnet
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/hevyd.history.md
     schedules:
@@ -290,6 +309,7 @@ seats:
     home: ~/picod
     model: sonnet
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/picod.history.md
     schedules:
@@ -307,6 +327,7 @@ seats:
     home: ~/investd
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/investd.history.md
     schedules:
@@ -326,6 +347,7 @@ seats:
     home: ~/autonoveld
     model: opus
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/autonoveld.history.md
     schedules:
@@ -357,6 +379,7 @@ seats:
     home: ~/romd
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/romd.history.md
     # Interactive window (zig-computer:romd), no pulse timer.
@@ -373,6 +396,7 @@ seats:
     # work" — no sonnet-default carve-out for this seat.
     model: fable
     effort: high
+    tap: work
     # ONE seat merges every prior per-day/per-report window; none of them was
     # literally renamed to "linearb", so each is an alias, not history.
     aliases:
@@ -424,6 +448,7 @@ seats:
     home: ~/coding-jams
     model: sonnet
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/tinker.history.md
     # Ad-hoc, hand-opened windows; no durable timer yet.
@@ -436,6 +461,7 @@ seats:
     home: ~/cfp
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/orator.history.md
     # Ad-hoc, hand-opened windows; no durable timer yet.
