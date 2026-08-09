@@ -8,23 +8,26 @@
 # the real host over real ssh; that suite SKIPs when pico is down, which is
 # precisely when a watcher's suite most needs to run. Hence the stub.)
 #
-# EVERY CASE DRIVES A NON-ok OUTCOME except 1, 3, 4 and 18. The only interesting
-# property of a health check is that it can FAIL, and this one was written after
-# three launchd jobs failed for two months behind a green-looking box. Cases 3
-# and 4 are the converse discipline: a watcher that cries wolf at ordinary
-# KeepAlive churn gets ignored, and an ignored watcher is the same silence in a
-# louder costume.
+# EVERY CASE DRIVES A NON-ok OUTCOME except 1, 3, 4, 18, 21 and 26. The only
+# interesting property of a health check is that it can FAIL, and this one was
+# written after three launchd jobs failed for two months behind a green-looking
+# box. Cases 3, 4 and 21 are the converse discipline: a watcher that cries wolf
+# at ordinary KeepAlive churn, or at a VM that restarted, gets ignored — and an
+# ignored watcher is the same silence in a louder costume.
 #
 # MEASURED mutant -> failing cases (2026-08-09; re-measure if you change a case,
 # and do not write this map from memory):
 #
 #   M1  the launchd failing-job filter made vacuous       -> 2 12 14
 #   M2  the ssh-failure path reports ok                   -> 11
-#   M3  the unexpected-listener diff ignored              -> 8
-#   M4  the state-age comparison made unreachable         -> 6
+#   M3  the unexpected-listener diff ignored              -> 8 22 24
+#   M4  the state-age comparison made unreachable         -> 6 12
 #   M5  the ledger append dropped                         -> 14 15
+#   M6  the dynamic entry's process name dropped          -> 22
+#   M7  the softwareupdate cache's build check made vacuous -> 25
+#   M8  the dynamic entry's ephemeral-range check widened -> 24
 #
-# That map is EXECUTABLE, not a comment: mutate-pico-health.sh applies all five
+# That map is EXECUTABLE, not a comment: mutate-pico-health.sh applies all eight
 # and asserts each dies on exactly the cases named here. tools/githooks/pre-commit
 # runs both.
 #
@@ -95,11 +98,13 @@ cat >"$WORK/ports.manifest" <<'EOM'
 *:14829            # go-jamming
 100.72.47.4:8080   # nginx
 127.0.0.1:21848    # romd cappedproxy
+127.0.0.1:dynamic limactl   # the un-pinnable one (cases 21-24)
 EOM
 
 PORTS_OK="PORT${TAB}*:14829${TAB}go-jammin
 PORT${TAB}100.72.47.4:8080${TAB}nginx
-PORT${TAB}127.0.0.1:21848${TAB}cappedpro"
+PORT${TAB}127.0.0.1:21848${TAB}cappedpro
+PORT${TAB}127.0.0.1:52001${TAB}limactl"
 
 JOBS_OK="JOB${TAB}-${TAB}0${TAB}com.zig.ss14-backup
 JOB${TAB}84195${TAB}0${TAB}com.zig.agentgateway"
@@ -120,11 +125,13 @@ reset_fix() {
   FIX_SURAN=1
   FIX_SURC=0
   FIX_SU=""
+  FIX_BUILD=25G76
 }
 
 mkfix() { # mkfix <path>
   {
     printf 'NOW=%s\n' "$FIX_NOW"
+    [ -n "$FIX_BUILD" ] && printf 'OS_BUILD=%s\n' "$FIX_BUILD"
     printf 'DISK_PCT=%s\n' "$FIX_DISK"
     printf 'DISK_FREE_KB=%s\n' "$FIX_FREE"
     [ -n "$FIX_JOBS" ] && printf '%s\n' "$FIX_JOBS"
@@ -283,7 +290,8 @@ fi
 # --- 9 -----------------------------------------------------------------------
 reset_fix
 FIX_PORTS="PORT${TAB}*:14829${TAB}go-jammin
-PORT${TAB}127.0.0.1:21848${TAB}cappedpro"
+PORT${TAB}127.0.0.1:21848${TAB}cappedpro
+PORT${TAB}127.0.0.1:52001${TAB}limactl"
 mkfix "$FIXTURE"
 run
 if [ "$VERDICT" = degraded ] &&
@@ -444,6 +452,7 @@ mkfix "$FIXTURE"
 SEEDED="$WORK/seeded-su.cache"
 {
   printf '# generated_at=%s\n' "$((FIX_NOW - 90000))"
+  printf '# os_build=%s\n' "$FIX_BUILD" # same build: case 25 owns the mismatch
   printf 'macOS Sonoma 14.8.9\n'
   printf 'macOS Tahoe 26.6.1\n'
 } >"$SEEDED"
@@ -464,15 +473,170 @@ fi
 # The convention arm of tools/githooks/pre-commit only gates scripts; without
 # this case a hand-edit to the real manifest — a duplicate, a stray word, an
 # empty file — would be gated on nothing.
-MF_ENTRIES=$(sed 's/#.*//' "$REAL_MANIFEST" | awk 'NF { print $1 }')
+MF_ROWS=$(sed 's/#.*//' "$REAL_MANIFEST" | awk 'NF')
+MF_ENTRIES=$(printf '%s\n' "$MF_ROWS" | awk '{ print $1 }')
 MF_N=$(printf '%s' "$MF_ENTRIES" | grep -c .)
 MF_DUPES=$(printf '%s\n' "$MF_ENTRIES" | sort | uniq -d)
-MF_JUNK=$(printf '%s\n' "$MF_ENTRIES" | grep -vE '^(\*|\[[0-9a-f:]+\]|[0-9]{1,3}(\.[0-9]{1,3}){3}):[0-9]{1,5}$')
-MF_EXTRA=$(sed 's/#.*//' "$REAL_MANIFEST" | awk 'NF > 1 { print }')
+MF_JUNK=$(printf '%s\n' "$MF_ENTRIES" | grep -vE '^(\*|\[[0-9a-f:]+\]|[0-9]{1,3}(\.[0-9]{1,3}){3}):([0-9]{1,5}|dynamic)$')
+# A pinned entry carries nothing but its addr:port. A dynamic entry MUST carry
+# exactly one process name: without it the rule matches EVERY ephemeral listener
+# on that address, which is the manifest failing open — the one way this grammar
+# can be used to launder an undocumented listener instead of documenting it.
+MF_EXTRA=$(printf '%s\n' "$MF_ROWS" | awk '
+  $1 !~ /:dynamic$/ && NF > 1 { print }
+  $1 ~ /:dynamic$/ && (NF != 2 || $2 !~ /^[A-Za-z0-9._-]+$/) { print }')
 if [ "$MF_N" -ge 20 ] && [ -z "$MF_DUPES" ] && [ -z "$MF_JUNK" ] && [ -z "$MF_EXTRA" ]; then
   ok "20 the checked-in pico-ports.manifest parses: $MF_N entries, no dupes, no junk"
 else
   bad "20 the checked-in manifest parses" "n=$MF_N dupes=[$MF_DUPES] junk=[$MF_JUNK] extra-words=[$MF_EXTRA]"
+fi
+
+# --- 21 -- THE DRIFT THAT PRODUCED dotfiles-c9yi -----------------------------
+# colima restarts; the kernel hands `limactl usernet` a different ephemeral
+# loopback port. Against a PINNED manifest line that is two findings for one
+# non-event — "expected listener GONE: 127.0.0.1:60121" and "undocumented
+# listener: 127.0.0.1:49265" — and it recurs at every VM restart, which is how a
+# watcher trains its readers to skip it. Both ports below are ephemeral and both
+# belong to limactl, so neither run has anything to say.
+reset_fix
+mkfix "$FIXTURE"
+run
+V21A=$VERDICT
+O21A=$OUT
+FIX_PORTS=${PORTS_OK//52001/61999}
+mkfix "$FIXTURE"
+run
+if [ "$V21A" = ok ] && [ "$VERDICT" = ok ] &&
+  ! printf '%s' "$O21A$OUT" | grep -q 'undocumented listener' &&
+  ! printf '%s' "$O21A$OUT" | grep -q 'listener(s) GONE'; then
+  ok "21 an ephemeral port that MOVES between runs (52001 -> 61999) is not a finding"
+else
+  bad "21 a moving ephemeral port is not a finding" "run1=$V21A run2=$VERDICT
+$(printf '%s\n' "$OUT" | sed 's/^/        | /')"
+fi
+
+# --- 22 -- and the guard stays sharp -----------------------------------------
+# The whole risk of a dynamic entry is that it becomes a wildcard. A DIFFERENT
+# process on a loopback ephemeral port is exactly the next undocumented listener
+# the manifest exists to catch, and the rule must not launder it.
+reset_fix
+FIX_PORTS="$PORTS_OK
+PORT${TAB}127.0.0.1:52002${TAB}nc"
+mkfix "$FIXTURE"
+run
+if [ "$VERDICT" = degraded ] && [ "$RC" -eq 10 ] &&
+  printf '%s' "$OUT" | grep -q 'FINDING: undocumented listener(s): 127.0.0.1:52002'; then
+  ok "22 a DIFFERENT process on a loopback ephemeral port is still undocumented"
+else
+  bad "22 dynamic entries do not launder other processes" "verdict=$VERDICT rc=$RC
+$(printf '%s\n' "$OUT" | sed 's/^/        | /')"
+fi
+
+# --- 23 ----------------------------------------------------------------------
+# The other direction: the named process gone entirely is still a service that
+# is down, reported under the token the manifest speaks.
+reset_fix
+FIX_PORTS="PORT${TAB}*:14829${TAB}go-jammin
+PORT${TAB}100.72.47.4:8080${TAB}nginx
+PORT${TAB}127.0.0.1:21848${TAB}cappedpro"
+mkfix "$FIXTURE"
+run
+if [ "$VERDICT" = degraded ] &&
+  printf '%s' "$OUT" | grep -q 'FINDING: expected listener(s) GONE: 127.0.0.1:dynamic'; then
+  ok "23 the named process vanishing is still GONE, not silence"
+else
+  bad "23 a vanished dynamic listener is caught" "verdict=$VERDICT rc=$RC
+$(printf '%s\n' "$OUT" | sed 's/^/        | /')"
+fi
+
+# --- 24 ----------------------------------------------------------------------
+# A dynamic entry is scoped to the EPHEMERAL range, so it cannot be used to
+# whitelist a service port by naming its process. limactl on :9999 is both an
+# undocumented listener and a rule with nothing to match.
+reset_fix
+FIX_PORTS=${PORTS_OK//52001/9999}
+mkfix "$FIXTURE"
+run
+if [ "$VERDICT" = degraded ] &&
+  printf '%s' "$OUT" | grep -q 'FINDING: undocumented listener(s): 127.0.0.1:9999' &&
+  printf '%s' "$OUT" | grep -q 'FINDING: expected listener(s) GONE: 127.0.0.1:dynamic'; then
+  ok "24 the named process OUTSIDE the ephemeral range is not laundered by the rule"
+else
+  bad "24 dynamic entries are scoped to the ephemeral range" "verdict=$VERDICT rc=$RC
+$(printf '%s\n' "$OUT" | sed 's/^/        | /')"
+fi
+
+# --- 25 -- THE CONTRADICTION -------------------------------------------------
+# dotfiles-c9yi: pico upgraded to 26.6.1 (25G76) at 12:36Z, the softwareupdate
+# cache had been written at 03:43Z, and 20h-by-the-clock said "still fresh". For
+# six hours the checker reported the two offers that upgrade had just CONSUMED —
+# "macOS Sonoma 14.8.9; macOS Tahoe 26.6.1" — against a live `softwareupdate -l`
+# on the same box showing none. A count is a fact about the build it was measured
+# on; on a different build it is not stale, it is VOID.
+reset_fix
+FIX_SURAN=0
+mkfix "$FIXTURE"
+SEEDED="$WORK/preupgrade-su.cache"
+{
+  printf '# generated_at=%s\n' "$FIX_NOW"
+  printf '# os_build=%s\n' "24G90"
+  printf 'macOS Sonoma 14.8.9\n'
+  printf 'macOS Tahoe 26.6.1\n'
+} >"$SEEDED"
+PIN_SUCACHE="$SEEDED"
+run
+unset PIN_SUCACHE
+if [ "$VERDICT" = degraded ] && [ "$RC" -eq 10 ] &&
+  printf '%s' "$OUT" | grep -q 'FINDING: softwareupdate cache discarded — measured on OS build 24G90' &&
+  ! printf '%s' "$OUT" | grep -q 'macOS Sonoma 14.8.9' &&
+  [ ! -f "$SEEDED" ]; then
+  ok "25 a cache measured on an OLDER OS build is VOID — discarded, never reported"
+else
+  bad "25 an OS upgrade voids the softwareupdate cache" "verdict=$VERDICT rc=$RC cache-still-there=$([ -f "$SEEDED" ] && echo yes || echo no)
+$(printf '%s\n' "$OUT" | sed 's/^/        | /')"
+fi
+
+# --- 26 ----------------------------------------------------------------------
+# The other half of the same fix, and the half that keeps 25 from firing in
+# practice: the cached build is handed to the probe, which re-asks in the SAME
+# round trip when it no longer matches — and a refreshed cache records the build
+# its answer is about.
+reset_fix
+FIX_SU=""
+mkfix "$FIXTURE"
+SEEDED2="$WORK/rekeyed-su.cache"
+{
+  printf '# generated_at=%s\n' "$FIX_NOW"
+  printf '# os_build=%s\n' "24G90"
+  printf 'macOS Tahoe 26.6.1\n'
+} >"$SEEDED2"
+PIN_SUCACHE="$SEEDED2"
+PIN_ARGV="$WORK/rekey-argv"
+run
+unset PIN_SUCACHE PIN_ARGV
+if [ "$VERDICT" = ok ] && [ "$RC" -eq 0 ] &&
+  grep -q "SU_CACHED_BUILD='24G90'" "$WORK/rekey-argv" &&
+  grep -q '^# os_build=25G76$' "$SEEDED2" &&
+  [ "$(grep -cv '^#' "$SEEDED2")" = 0 ]; then
+  ok "26 the cached build is handed to the probe, and a refresh re-keys the cache"
+else
+  bad "26 the cache is keyed to the OS build" "verdict=$VERDICT rc=$RC argv=[$(cat "$WORK/rekey-argv")]
+        cache=[$(cat "$SEEDED2")]"
+fi
+
+# --- 27 ----------------------------------------------------------------------
+# No build means the guard above is not running, and its absence is silent —
+# which is the same class of defect as the cache it protects. Broken checker.
+reset_fix
+FIX_BUILD=""
+mkfix "$FIXTURE"
+run
+if [ "$RC" -ne 0 ] && [ "$RC" -ne 10 ] &&
+  printf '%s' "$OUT" | grep -q 'CHECKER BROKEN: the probe returned no OS_BUILD='; then
+  ok "27 a probe that cannot say which OS build it measured is a BROKEN CHECKER"
+else
+  bad "27 a missing OS_BUILD is checker-broken" "rc=$RC
+$(printf '%s\n' "$OUT" | sed 's/^/        | /')"
 fi
 
 echo
