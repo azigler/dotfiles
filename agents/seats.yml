@@ -146,6 +146,24 @@ seats:
     model: fable
     effort: high
     tap: personal
+    # NON-INTERACTIVE (Zig, 2026-08-09: "i dont interact with marshal";
+    # incident dotfiles-9i39). `interactive: false` is a MACHINE-READ mark, not
+    # a note: agents/hooks/pre-ask-user-question-seat-guard.sh blocks the
+    # AskUserQuestion tool in this seat's window and redirects the seat to
+    # AGENTS.md's autonomous-loop exception (P1 `human:` bead + push + end ✅).
+    # It is read STRICTLY — only the literal boolean `false` marks a seat, so a
+    # typo degrades to "unmarked", which is the allow direction.
+    #
+    # Why the seat and not the tick: on 2026-08-09 the freeze came from an IDLE
+    # POST-MOLT context, which is not a tick at all, merely living in this
+    # scheduled window. A 🔔 there makes pulse-inject defer every subsequent
+    # injection, so one menu with Zig away freezes the whole loop indefinitely.
+    # The seat is the durable fact; the turn's kind is not.
+    #
+    # Absent on every other seat, and absence means interactive — the default
+    # stays "a window may ask Zig a question", and only a row that says
+    # otherwise is gated.
+    interactive: false
     aliases: []
     history: refs/seats/marshal.history.md
     # SHIPPED, PENDING THE MAIDEN RUN (dotfiles-69qr, 2026-08-09). The drain

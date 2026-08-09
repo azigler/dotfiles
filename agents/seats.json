@@ -316,6 +316,7 @@
       "effort": "high",
       "history": "refs/seats/marshal.history.md",
       "home": "~/dotfiles",
+      "interactive": false,
       "model": "fable",
       "office": "The Marshal",
       "schedules": [

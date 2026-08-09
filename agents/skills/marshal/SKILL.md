@@ -190,6 +190,35 @@ today's budget (`marshal-drain.sh budget`), the freeze state, and whether the
 timer is installed and enabled. Answer in a short paragraph. Do not dispatch
 anything from a status call.
 
+## Idle — the post-molt context, and every turn that is not a tick
+
+A boundary molt leaves a FRESH context living in the `marshal` window with
+nothing pending. On 2026-08-09 that context onboarded and ended its turn on an
+AskUserQuestion routing menu addressed to Zig (incident **`dotfiles-9i39`**).
+The window went 🔔, `pulse-inject` correctly deferred the next injection as
+`deferred-blocked-on-human`, and with Zig away that single menu would have
+frozen the maiden campaign **and every future 01:07 tick, indefinitely**. It
+took a supervised Esc to clear.
+
+Nothing in the tick rules covered it, because that turn was not a tick. So the
+rule belongs to the SEAT, not the turn:
+
+> **Never open AskUserQuestion from this window.** Zig does not interact with
+> the marshal. With no tick pending, **end the turn ✅ and wait for the next
+> injection** — an idle marshal is a healthy marshal; a 🔔 one is a stopped one.
+
+Anything that genuinely needs Zig takes AGENTS.md's autonomous-loop exception
+(*"autonomous loops never block on AskUserQuestion — they file a P1 `human:`
+bead + push notification and end the tick"*), which is three steps and then
+silence: file the P1 `human:` bead with the question **and its options**, send a
+`PushNotification` naming the decision and this window, end ✅.
+
+This is mechanical as well as written. `agents/seats.yml` marks this seat
+`interactive: false`, and `pre-ask-user-question-seat-guard.sh` blocks the tool
+in any window that resolves to a seat carrying that mark — printing the three
+steps, with a copy-pasteable `br create`, in its refusal. The guard fails OPEN
+on anything it cannot resolve, so it is the backstop; this section is the rule.
+
 ## What this seat is not
 
 Not an author (a decision bead is never drain-claimable, even carrying a marker
