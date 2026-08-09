@@ -216,7 +216,7 @@ composed. Do not merge; route it as FIX-FIRST for a wiring wave.
 |---|---|---|
 | **SHIP** | No load-bearing defect found | Proceed to the quality gate |
 | **FIX-FIRST** | Real defects, scoped and fixable | Dispatch a fix wave for the named findings; then re-scrutinize |
-| **REJECT** | The wave did not deliver what the bead claims | Re-open the impl bead with the findings logged via `br comments add`; re-dispatch impl |
+| **REJECT** | The wave did not deliver what the bead claims | Re-open the impl bead with the findings logged via `br comments add`; re-dispatch impl. If the findings instead warrant a FRESH bead (the rejected wave is unsalvageable, or a distinct defect deserves its own `bug` bead rather than folding into a reopen) — mint `br dep add <new-bead-id> <impl-bead-id> -t discovered-from` so the new bead's ancestry traces back to the rejected wave |
 
 Record the verdict + findings on the impl bead via `br comments add`. The
 gate is not cleared until the latest verdict is SHIP — or the orchestrator

@@ -443,6 +443,24 @@ Querying only the new one silently under-reports open proposals, which is
 exactly the dedupe failure the phantom-backlog guard exists to prevent. Drop the
 old spelling only once no open bead carries it.
 
+**Provenance — wire `discovered-from` when the candidate names its source.**
+The git-history seams (`offboard-history`, `memory-history`, `skill-history`,
+`findings-corrections`) carry the originating commit's `Bead:` trailer through
+to each candidate's `detail` as `source_bead` (subject/diff-line candidates) or
+`source_beads` (churn candidates, a path touched under more than one bead).
+After filing the proposal bead, if the keeper you filed it from has one of
+those fields populated, mint the edge so the proposal's ancestry is queryable
+(`br dep tree <proposal-id>` shows what session/bead surfaced it):
+
+```bash
+br dep add <new-proposal-bead-id> <source-bead-id> -t discovered-from
+```
+
+For `source_beads` (plural — churn candidates), add one edge per distinct bead
+in the list. If `source_bead`/`source_beads` is empty or absent (recall-based
+seams, or a commit made before this field existed), skip the edge — there is
+nothing to wire it to.
+
 **Never** edit `MEMORY.md`, never open an AskUserQuestion, never mark a proposal
 as accepted yourself. The bead IS the proposal; the human's promote/reject IS the
 gate.

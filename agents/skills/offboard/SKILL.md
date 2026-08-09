@@ -246,6 +246,18 @@ destination:
 | is new and worth tracking | `→ filed bd-yyyy` (label it `friction` — see `/beads`) |
 | is genuinely one-off | `→ one-off` |
 
+**Wire provenance on every `filed bd-yyyy`.** If the friction surfaced while
+working a specific bead this session, mint the edge so the new bead's
+ancestry is queryable — `br dep tree bd-yyyy` then shows exactly which piece
+of work turned it up:
+
+```bash
+br dep add bd-yyyy <bead-you-were-working> -t discovered-from
+```
+
+Skip it only when the friction genuinely wasn't tied to any single bead
+(e.g. found during general session cleanup, not mid-task).
+
 **The `one-off` valve is load-bearing, not an escape hatch to abuse.**
 Without it, every trivial hiccup would need a bead and the channel trains
 itself to stop reporting friction at all — that failure mode is worse than

@@ -1185,22 +1185,31 @@ def seam_session_recall(ctx: SeamContext) -> SeamResult:
 
 # --- the shared git-history collector (3 seams stand on this) --------------- #
 def _iter_commits(log_text: str):
-    """Yield ``(sha, iso_ts, subject, [diff lines])`` from a ``log -p`` dump."""
-    sha = ts = subject = None
+    """Yield ``(sha, iso_ts, subject, source_bead, [diff lines])`` from a
+    ``log -p`` dump.
+
+    ``source_bead`` is the commit's ``Bead:`` trailer value (empty string if
+    the commit carries none) — git emits it as the 4th ``%(trailers:…)``
+    field in the header line. It is how a git-history candidate's provenance
+    reaches back to the bead the change was made FOR, so a proposal filed
+    from this candidate can mint a ``discovered-from`` edge to it.
+    """
+    sha = ts = subject = bead = None
     body: list[str] = []
     for line in log_text.split("\n"):
         if line.startswith(NUL):
             if sha is not None:
-                yield sha, ts, subject, body
+                yield sha, ts, subject, bead or "", body
             parts = line[1:].split(FS)
             sha = parts[0] if parts else ""
             ts = parts[1] if len(parts) > 1 else ""
             subject = parts[2] if len(parts) > 2 else ""
+            bead = parts[3] if len(parts) > 3 else ""
             body = []
         elif sha is not None:
             body.append(line)
     if sha is not None:
-        yield sha, ts, subject, body
+        yield sha, ts, subject, bead or "", body
 
 
 def _changed_lines(diff: Sequence[str]):
@@ -1258,7 +1267,7 @@ def collect_git_history(
         "--no-color",
         "-U0",
         "-p",
-        f"--pretty=format:{NUL}%H{FS}%aI{FS}%s",
+        f"--pretty=format:{NUL}%H{FS}%aI{FS}%s{FS}%(trailers:key=Bead,valueonly,separator=%x2C)",
         "--",
         *specs,
     ]
@@ -1274,7 +1283,12 @@ def collect_git_history(
     churn: dict[str, list[str]] = {}
     n_commits = 0
 
-    for sha, ts, subject, diff in _iter_commits(out):
+    # path -> distinct Bead: trailers seen among its revisions, for the churn
+    # candidate's own source_beads (below) — a separate dict from ``churn``
+    # because not every revision names a bead and we only want distinct ones.
+    churn_beads: dict[str, set[str]] = {}
+
+    for sha, ts, subject, source_bead, diff in _iter_commits(out):
         n_commits += 1
         short = (sha or "")[:8]
         subj = subject or ""
@@ -1289,7 +1303,11 @@ def collect_git_history(
                     sig,
                     ts or "",
                     f"{short} (commit subject)",
-                    {"commit": sha, "kind": "subject"},
+                    {
+                        "commit": sha,
+                        "kind": "subject",
+                        "source_bead": source_bead or None,
+                    },
                     slug=cand_slug,
                 )
             else:
@@ -1304,6 +1322,8 @@ def collect_git_history(
             if path not in seen_files:
                 seen_files.add(path)
                 churn.setdefault(path, []).append(f"{short} {subj}")
+                if source_bead:
+                    churn_beads.setdefault(path, set()).add(source_bead)
             sigs = match_signals(text)
             if not sigs:
                 continue
@@ -1322,6 +1342,7 @@ def collect_git_history(
                         "change": change,
                         "kind": "diff-line",
                         "occurrences": 1,
+                        "source_bead": source_bead or None,
                     },
                     slug=cand_slug,
                 )
@@ -1346,6 +1367,7 @@ def collect_git_history(
                 "kind": "churn",
                 "revisions": len(subjects),
                 "subjects": subjects[:12],
+                "source_beads": sorted(churn_beads.get(path, set())),
             },
             slug=cand_slug,
         )
