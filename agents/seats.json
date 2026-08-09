@@ -98,6 +98,20 @@
       "sigil": "🧱",
       "tap": "personal"
     },
+    "consul": {
+      "aliases": [
+        "hardening"
+      ],
+      "charter-line": "estate consul — Zig's working interface; cross-cutting operations (hardening, guards, taps); peer of the Master of Works",
+      "effort": "high",
+      "history": "refs/seats/consul.history.md",
+      "home": "~/dotfiles",
+      "model": "fable",
+      "office": "The Consul",
+      "schedules": [],
+      "sigil": "🦅",
+      "tap": "personal"
+    },
     "desk": {
       "aliases": [],
       "charter-line": "chancery/allocation — weekly corpus allocator memo for the explore lab",
@@ -421,6 +435,7 @@
   },
   "unit_allowlist": [
     "pulse-retry",
-    "pulse-stall"
+    "pulse-stall",
+    "pulse-escalate"
   ]
 }

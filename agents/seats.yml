@@ -76,7 +76,9 @@ profiles:
 # answer to no single seat. Anything else enabled and unclaimed is a real
 # UNIT-ORPHAN finding, not a candidate for this list by default.
 # ---------------------------------------------------------------------------
-unit_allowlist: [pulse-retry, pulse-stall]
+# pulse-escalate: the stall-escalation ladder (dotfiles-9z3o) — like retry and
+# stall it serves every seat's window and answers to none.
+unit_allowlist: [pulse-retry, pulse-stall, pulse-escalate]
 
 # ---------------------------------------------------------------------------
 # SEATS — the offices of the estate. `model:` policy (dotfiles-pulse-row-model-
@@ -206,6 +208,24 @@ seats:
     aliases: []
     history: refs/seats/dotfiles.history.md
     # Interactive window (zig-computer:dotfiles), no pulse timer.
+    schedules: []
+
+  consul:
+    charter-line: "estate consul — Zig's working interface; cross-cutting operations (hardening, guards, taps); peer of the Master of Works"
+    office: "The Consul"
+    # 🦅 U+1F985, Emoji_Presentation=Yes — the paired-consul office takes the
+    # eagle (decision bead dotfiles-7ibz; 🏛 and ⚖ are both EPres=No and were
+    # never candidates under the gl6z rule).
+    sigil: "🦅"
+    home: ~/dotfiles
+    model: fable
+    effort: high
+    tap: personal
+    aliases: [hardening]
+    history: refs/seats/consul.history.md
+    # Interactive durable window (zig-computer:consul), no pulse timer. Second
+    # dotfiles-repo seat beside the Master of Works — per-window handoff
+    # scoping keeps their notes separate (session-handoff--consul.md).
     schedules: []
 
   harnessd:
