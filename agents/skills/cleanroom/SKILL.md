@@ -17,7 +17,7 @@ Everything here rests on one claim, and the claim is load-bearing:
 
 An agent in a loop will write an implementation, write a test that
 agrees with the implementation, watch it pass, and commit. Both halves
-wrong, in agreement, at speed, for about $10/hour. The thing that
+wrong, in agreement, at speed, for about \$10/hour. The thing that
 prevents that is an **oracle** — something outside your implementation
 that can answer "is this output correct?" without sharing your
 misunderstanding.
@@ -261,6 +261,16 @@ Make it structural:
 - The spec is the only channel. If the implementer needs a fact, the
   answer is to improve the spec, not to peek.
 
+**In this harness:** a worktree subagent gets a full copy of the project
+repo. If the original is a tracked file in that repo, every implementer
+worktree contains it and the wall is void by default. The original must
+live outside the project repo, or be untracked — untracked files do not
+materialize in a fresh worktree. The observer reads it by absolute path
+from outside the repo; the implementer's worktree is cut from a repo that
+has never tracked the artifact. Check it mechanically, in the implementer's
+worktree: `git ls-files | grep -i <artifact>` — empty output means the wall
+holds.
+
 ### The leak detector
 
 No public source has a mechanical test for whether disposal held. Use this:
@@ -297,8 +307,30 @@ The mechanically trivial part. One iteration = fresh context = one task =
 one commit. The filesystem and git are the memory layer, not the context
 window.
 
+The literature original (§0, ghuntley/how-to-ralph-wiggum) is quoted here for
+context — it is what "reverse Ralph loop" names, not a form to copy. It is
+uncapped and cannot tell success from failure:
+
 ```bash
+# LITERATURE QUOTATION — uncapped, verdict-blind. Do not copy this form.
 while :; do cat PROMPT.md | claude -p …; done
+```
+
+The canonical form in this house is **capped** and checks a result marker on
+every iteration, per the adaptations below — an oracle that silently stops
+checking is worse than no oracle, because it reports success:
+
+```bash
+MAX_ITER=5
+for i in $(seq 1 "$MAX_ITER"); do
+  OUT=$(cat PROMPT.md | claude -p --output-format text)
+  echo "$OUT"
+  if ! grep -q '^ITER_RESULT=' <<<"$OUT"; then
+    echo "iteration $i: no ITER_RESULT= marker — exit-0-without-a-marker is FAILURE (dotfiles-cxle)" >&2
+    exit 1
+  fi
+  grep -q '^ITER_RESULT=DONE$' <<<"$OUT" && { echo "done at iteration $i"; break; }
+done
 ```
 
 Durable state between iterations:
@@ -369,8 +401,8 @@ want context reset as the mechanism.
   Agents write placeholders. Grep for them explicitly; `/scrutinize` §1.
 - **False-negative search** → reimplementing what exists.
 - **Unbounded spin** → 50 iterations on a 3-iteration problem.
-- **Cost** → roughly $10/hr sustained. One second-hand report of a $50k
-  contract delivered for $297 in tokens. Cheap enough that waste is easy to
+- **Cost** → roughly \$10/hr sustained. One second-hand report of a $50k
+  contract delivered for \$297 in tokens. Cheap enough that waste is easy to
   miss and easy to tolerate for far too long.
 
 ---
