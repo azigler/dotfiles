@@ -389,6 +389,40 @@ printf '%s\n' "$OUT" | grep -q "could not read the mtime" \
   || bad 24m "the fail-closed path is silent"
 kill_pane
 
+# --- 25: R14 — a passed invoker pane beats <window_id>.0 --------------------
+# The 2026-08-09 live failure: a split window put another session at pane .0,
+# and the --self child (rebuilding "$WIN_ID.0") watched and would have cycled
+# the WRONG session. With --pane, the child must type into the INVOKER's pane
+# and leave pane .0 completely untouched.
+echo
+echo "-- R14: self-pane passthrough targets the invoker's pane, never .0"
+reset_ledger; fresh_offboard
+mk_pane moltyR "✅ seat"
+TYPED0="$TYPED"
+TYPED1="$T/typed.moltyR.p1"
+: > "$TYPED1"
+"${TM[@]}" split-window -d -t "=moltyR:0" -c "$T"   "MOLT_TEST_MARKER=$(printf '%q' '? for shortcuts') bash $T/pane.sh $TYPED1"
+PANE1=$("${TM[@]}" list-panes -t "=moltyR:0" -F '#{pane_id}' | tail -1)
+_n=0; while [ "$_n" -lt 200 ]; do
+  "${TM[@]}" capture-pane -p -t "$PANE1" | grep -qF '? for shortcuts' && break
+  _n=$((_n+1)); sleep 0.05
+done
+molt --target moltyR seat --pane "$PANE1" --mode molt
+want_verdict 25 "molt with --pane completes" molted
+TYPED="$TYPED1"; want_typed 25a "the INVOKER pane ($PANE1) was cycled" "/clear"
+TYPED="$TYPED0"; want_untouched 25b0 "pane .0 (the other session) was typed into NOT AT ALL"
+kill_pane
+
+# --- 25b: R14 fallback — a dead passed pane falls back to window-name .0 ----
+echo
+echo "-- R14: a vanished invoker pane falls back to name resolution"
+reset_ledger; fresh_offboard
+mk_pane moltyS "✅ seat"
+molt --target moltyS seat --pane '%99999' --mode molt
+want_verdict 25c "dead --pane still molts via fallback" molted
+want_typed   25d "fallback typed into pane .0" "/clear"
+kill_pane
+
 # --- summary ----------------------------------------------------------------
 echo
 TOTAL=$((PASS + FAIL))

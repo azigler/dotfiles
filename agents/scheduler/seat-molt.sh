@@ -213,7 +213,7 @@ emit_result() {
 # shellcheck disable=SC2317  # invoked indirectly via `trap _on_exit EXIT`
 _on_exit() {
   local rc=$?
-  [ "$rc" -ne 0 ] && emit_result failed
+  if [ "$rc" -ne 0 ]; then emit_result failed; else emit_result exited-unlogged; fi
   exit "$rc"
 }
 trap _on_exit EXIT
@@ -247,6 +247,7 @@ SESSION_ID=""
 PCT=""
 SELF=0
 WAIT_IDLE_FIRST=0
+PANE_ARG=""
 T0=""
 
 while [ $# -gt 0 ]; do
@@ -262,6 +263,7 @@ while [ $# -gt 0 ]; do
     --session-id) [ $# -ge 2 ] || { usage; emit_result failed-usage; exit 64; }; SESSION_ID=$2; shift 2 ;;
     --pct)        [ $# -ge 2 ] || { usage; emit_result failed-usage; exit 64; }; PCT=$2; shift 2 ;;
     --wait-idle-first) WAIT_IDLE_FIRST=1; shift ;;
+    --pane)       [ $# -ge 2 ] || { usage; emit_result failed-usage; exit 64; }; PANE_ARG=$2; shift 2 ;;
     --t0)         [ $# -ge 2 ] || { usage; emit_result failed-usage; exit 64; }; T0=$2; shift 2 ;;
     -h|--help)    usage; emit_result failed-usage; exit 64 ;;
     *) echo "seat-molt: unknown arg $1" >&2; usage; emit_result failed-usage; exit 64 ;;
@@ -413,7 +415,21 @@ if [ "$SELF" -eq 1 ]; then
     [ -f "$_pf" ] && PCT=$(tr -dc '0-9' < "$_pf")
   fi
 
+  # R14 (dotfiles, 2026-08-09): the invoker's own PANE rides to the child. The
+  # <window_id>.0 rebuild assumed one pane per window; a split window put the
+  # ORIGINAL session at .0 and this session's molt child watched (and would have
+  # typed into) the WRONG pane — measured live: the 06:01 child targeted @3.0
+  # while the invoker sat in the other pane. Resolve it here (same reasoning as
+  # the socket: the foreground still has env/ancestry; the setsid child has
+  # neither) and pass it explicitly.
+  PANE_SELF=""
+  if [ -n "${TMUX_PANE:-}" ]; then
+    PANE_SELF="$TMUX_PANE"
+  elif command -v _tpr_by_ancestry >/dev/null 2>&1; then
+    PANE_SELF=$(_tpr_by_ancestry '#{pane_id}') || PANE_SELF=""
+  fi
   CHILD=(--target "$SESSION" "$WINDOW" --mode "$MODE" --socket "$SOCKET" --wait-idle-first --t0 "$SELF_T0")
+  [ -n "$PANE_SELF" ] && CHILD+=(--pane "$PANE_SELF")
   [ -n "$DIR" ]        && CHILD+=(--dir "$DIR")
   [ -n "$SESSION_ID" ] && CHILD+=(--session-id "$SESSION_ID")
   [ -n "$PCT" ]        && CHILD+=(--pct "$PCT")
@@ -444,18 +460,37 @@ fi
 # --- from here on: the --target path (and the --self child) -----------------
 [ "$WAIT_IDLE_FIRST" -eq 1 ] && IDLE_TIMEOUT="$SELF_IDLE_TIMEOUT"
 
+# R14: an explicitly-passed invoker pane is ground truth — it wins over the
+# window-NAME lookup, and the window identity is re-derived from it so the rate
+# limit and the idle-watch key on the pane's real window (a shared window name
+# across sessions/panes must not couple their molt cycles).
+PANE=""
 WIN_ID=""
-while IFS=$'\t' read -r _id _name; do
-  [ -n "$_id" ] || continue
-  if [ "$(strip_lexicon "$_name")" = "$WINDOW" ]; then WIN_ID=$_id; break; fi
-done < <(TM list-windows -t "=$SESSION" -F $'#{window_id}\t#{window_name}' 2>/dev/null)
-
-if [ -z "$WIN_ID" ]; then
-  echo "seat-molt: no window '$WINDOW' in session '$SESSION' on socket $SOCKET" >&2
-  note "FAIL: no window '$WINDOW' in session '$SESSION' on $SOCKET"
-  emit_result failed-no-window; exit 70
+if [ -n "$PANE_ARG" ]; then
+  _pw=$(TM display-message -p -t "$PANE_ARG" '#{window_id}' 2>/dev/null) || _pw=""
+  if [ -n "$_pw" ]; then
+    PANE="$PANE_ARG"
+    WIN_ID="$_pw"
+    _pwname=$(TM display-message -p -t "$PANE_ARG" '#{window_name}' 2>/dev/null) || _pwname=""
+    [ -n "$_pwname" ] && WINDOW=$(strip_lexicon "$_pwname")
+    note "pane: using invoker pane $PANE (window $WIN_ID '$WINDOW') — R14 self-pane passthrough"
+  else
+    note "pane: passed invoker pane '$PANE_ARG' no longer exists — falling back to window-name resolution"
+  fi
 fi
-PANE="$WIN_ID.0"
+if [ -z "$PANE" ]; then
+  while IFS=$'\t' read -r _id _name; do
+    [ -n "$_id" ] || continue
+    if [ "$(strip_lexicon "$_name")" = "$WINDOW" ]; then WIN_ID=$_id; break; fi
+  done < <(TM list-windows -t "=$SESSION" -F $'#{window_id}\t#{window_name}' 2>/dev/null)
+
+  if [ -z "$WIN_ID" ]; then
+    echo "seat-molt: no window '$WINDOW' in session '$SESSION' on socket $SOCKET" >&2
+    note "FAIL: no window '$WINDOW' in session '$SESSION' on $SOCKET"
+    emit_result failed-no-window; exit 70
+  fi
+  PANE="$WIN_ID.0"
+fi
 
 # The project whose offboard marker governs this pane. pane_current_path is the
 # pane shell's cwd, which for a Claude seat is its project anchor; --dir wins
