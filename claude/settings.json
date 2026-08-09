@@ -6,7 +6,9 @@
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5[1m]"
   },
   "permissions": {
-    "allow": ["Read(/home/ubuntu/.local/state/harness/conduit/**)"],
+    "allow": [
+      "Read(/home/ubuntu/.local/state/harness/conduit/**)"
+    ],
     "defaultMode": "default"
   },
   "model": "claude-fable-5[1m]",
@@ -327,6 +329,7 @@
   },
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
+  "theme": "dark",
   "teammateMode": "auto",
   "remoteControlAtStartup": true,
   "agentPushNotifEnabled": true
