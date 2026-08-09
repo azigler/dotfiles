@@ -291,6 +291,11 @@ The orchestrator owns the full lifecycle — create, claim, close. Subagents nev
 `br update` or `br close`; they only carry `Bead: <id>` in the commit trailer. Pass
 the ID in the dispatch prompt.
 
+A PreToolUse hook block kills the ENTIRE Bash call, not just the flagged
+command — never chain bead mutations behind another command (`br update X &&
+br close Y` runs neither on block); run each as its own standalone call (see
+`/beads`).
+
 ### ⚠️ Never write an open-bead list into a doc — `br ready` owns that fact
 
 **Zig's call, 2026-08-01.** A CLAUDE.md (or README, or handoff note) that lists which
