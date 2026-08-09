@@ -1,75 +1,85 @@
-# Session handoff — 2026-08-09 fb9f7a18 (marshal night, kjjf campaign run 3 — NIGHT ENDED)
+# Session handoff — 2026-08-09 48210beb (marshal night, kjjf campaign run 4 — RETROACTIVE)
+
+> ⚠️ RETROACTIVE OFFBOARD. Run 4 (18:06–18:36Z) ended without `/offboard`;
+> the seneschal window honored `.offboard-pending` at its next onboard and
+> wrote this note from the session JSONL + drain ledger + harnessd git log —
+> every claim below traces to one of those, not to memory. Run 5 was ALREADY
+> LIVE (night-start 18:38:06Z) when this note was written.
 
 ## State at offboard
-- Current branch: main (dotfiles); harnessd main pushed at `928e02c`
-- Last commit: see git log (this offboard's commit follows)
+- Current branch: main (dotfiles); harnessd main pushed at `6cd1fd5` (== origin)
 - Open beads: run `br ready` (never a copied list)
-- In-flight subagents: **none** — wave-1 builder completed and was reaped
-- Dirty files: none beyond this note + beads sync
-- Markers: `.offboard-pending` cleared; `.claude/last-offboard-session` = fb9f7a18
+- In-flight subagents from run 4: **none** — builder and scrutiny both completed
+  and were reaped; worktree `agent-marshal-9gvd-r2` + branch removed, other
+  worktrees verified surviving
+- Dirty files: `.beads/issues.jsonl` was left to its live writers (t06l filed by
+  a concurrent session, not run 4)
+- Markers: `.offboard-pending` cleared retroactively; `.claude/last-offboard-session` = 48210beb
 
 ## What happened this session (bullets)
-- `/marshal night`, campaign run 3 under `dotfiles-kjjf`. Plan `planned:12`, all
+- `/marshal night`, campaign run 4 under `dotfiles-kjjf`. Plan `planned:12`, all
   `serial:harnessd`, budget DEGRADED at the 150k floor (`weekly-cap-unset`).
-  Ledger rows: night-start, dispatched(9gvd), molt, failed(9gvd), night-end.
-- Wave 1 `harnessd-9gvd` (chats multi-select): sonnet builder completed all 3
-  AC parts (fixtures accepted from a9c64fb per `dotfiles-b01h`; ParseMultiSelect;
-  client checkbox render + answer verb). Commits a11bd82, b42a956, 3fb298c.
-- **Landed**: guarded merge ff `67e5110` → `3fb298c` on harnessd main, both
-  post-merge assertions pass, `go test ./...` + `make test` green ON main,
-  `MARSHAL_VERIFY_RESULT=ok`, pushed `928e02c` (== origin, ls-remote proof).
-- **Scrutiny (opus, read-only): FIX-FIRST** — checkbox core clean; 4 clustered
-  defects in the daemon free-text-in-multi branch (F1 Tab-from-anywhere
-  contradicts the measured map → branch 502s; F1b mock encodes the assumption;
-  F2 free-text row resolution can hit "Chat about this"; F3 Up-math ignores the
-  unnumbered Submit row). Full findings with file:line ON the bead
-  (`br comments list harnessd-9gvd`). Bead stays OPEN, unassigned; merge stays
-  landed (run-2 b1v6 precedent).
-- Budget honesty: floor exhausted by wave 1 (builder 91.2k + scrutiny 126.5k =
-  217.7k vs 150k floor) → no fix cycle, no wave 2, night ended.
-- Mid-night compact molt fired cleanly (verdict=compacted 17:02Z); builder
-  handle survived it, completion notification received post-molt. The stop-hook
-  fired once more immediately post-compact with a stale >50% reading — ignored
-  as satisfied, did not recur.
-- Cleanup after completion notification: orphan-reaper clean, worktree +
-  branch `worktree-agent-marshal-9gvd` removed. The foreign writer's tree
-  (`/tmp/harnessd-agent-a008d55152e344050`) was already removed by its own lane
-  — verified gone BEFORE my cleanup, not collateral.
+  Ledger rows: night-start, dispatched(9gvd attempt 2), molt, failed(9gvd),
+  parked(9gvd), night-end.
+- Wave 1 `harnessd-9gvd` attempt 2 (sonnet builder, prepared worktree
+  `agent-marshal-9gvd-r2` @ b533cd6): remediated run-3's F1–F4 findings, commit
+  `d0ed56a`, with adversarially-verified tests (reverted F1 to prove the new
+  key-sequence mock bites).
+- **Landed**: guarded merge ff → `d0ed56a` on harnessd main, both post-merge
+  assertions pass, `MARSHAL_VERIFY_RESULT=ok`, `go test ./...` 12/12 +
+  `make test` green ON main, pushed `8d42d25` then `6cd1fd5`.
+- **Scrutiny (opus, read-only): FIX-FIRST again** — F1–F3 confirmed genuinely
+  fixed under mutation, but the F4 retry-guard introduced N1/N2 (major) plus
+  N3–N5. Findings recorded on the bead (`br comments list harnessd-9gvd`).
+  Merge stays landed (defective-but-contained, same posture as runs 2–3).
+- **PARKED, not three-strikes**: second FIX-FIRST strike tonight for the SAME
+  bead → the R6 record verb ruled `park-repeat-failure` (same-bead repeat), not
+  three-strikes. `harnessd-yyv9` filed as the P1 `human:` adjudication bead with
+  three options; no third unattended attempt. Streak across runs is 3
+  (b1v6, 9gvd, 9gvd) but same-bead repeat does not end the campaign.
+- Budget honesty: floor consumed by wave 1 — builder 154.2k (sonnet) + scrutiny
+  98.6k (opus) = 252.8k vs 150k floor → night ended, waves 2–12 requeued.
+- Mid-night compact molt fired cleanly (18:27Z, scrutiny agent in flight,
+  `--in-flight yes`); handle survived, verdict arrived post-compaction.
+- Cleanup verified: 9gvd-r2 worktree + branch removed after completion
+  notification; incidental dotfiles worktree reaped; `git worktree list`
+  confirmed other agents' trees survived.
 
 ## Friction
-- seat-molt compact path requires same-session /offboard first (mid-flight
-  molt refused until offboard ran) → `dotfiles-pvq8`
-- stop-context-guard fired "past 50%" immediately after a completed compaction
-  (stale reading; single occurrence, self-resolved) → one-off
-- `br comment` verb doesn't exist (it's `br comments add <id> <text>`,
-  positional) → one-off
+- Session ended without `/offboard` — the night-end + push completed but the
+  tick closed before the offboard ritual ran; `.offboard-pending` did its job
+  and the next onboard (seneschal window) honored it. Recurrence risk is real
+  (marshal ticks end on budget exhaustion, offboard is the last unfunded step)
+  → covered by `dotfiles-pvq8` (molt/offboard sequencing) — if it recurs on a
+  normal-budget night, file a dedicated bead.
 
 ## Decisions made this session (autonomous decide-and-proceed calls)
-- `dotfiles-b01h` — accept a9c64fb matrix fixtures as 9gvd's AC1 capture;
-  builder told to skip smoke-live (verified before relayed)
-- FIX-FIRST handling (no new bead — followed run-2 b1v6 precedent + budget
-  floor rule): merge stays landed, bead open with findings, outcome `failed`,
-  no fix cycle on an exhausted floor
+- No `-t decision` beads filed by this session (harvest receipt: the 1 hit in
+  the window, `dotfiles-t06l`, was filed by a concurrent session — verified by
+  JSONL grep; harnessd shows zero decision beads in the window). The night's
+  substantive ruling — park 9gvd on `park-repeat-failure` rather than
+  three-strikes — is durably recorded in the drain ledger `parked` row and in
+  `harnessd-yyv9` itself.
 
 ## Proposed practices — where each one landed (Step 2.6)
-- none this session (pvq8 filed mid-night covers the molt precondition)
+- none this session.
 
 ## What's next
-1. **`harnessd-9gvd` fix cycle on a funded night**: daemon-side only
-   (`session_multiselect.go` F1–F4; client is correct). Findings on the bead.
-   It remains fleet-certified; scope is crisp and cold-buildable.
-2. **⚠️ streak=2 across runs (b1v6, 9gvd)** — one more consecutive failed
-   outcome fires three-strikes (end night + P1 incident). The next run's first
-   landing should be chosen/handled with that in mind.
-3. Waves 2–12 of the kjjf queue remain; budget stays degraded until the weekly
-   cap is set. Campaign boundary: no run launches after 08:00 UTC 2026-08-10.
-4. b1v6 remains parked behind fst4 adjudication (unchanged this run).
+1. **`harnessd-yyv9` is blocked on Zig** — three adjudication options for the
+   parked 9gvd (F4-guard defects N1–N5 remain open on a live-but-contained
+   branch). The seneschal brief already carries it.
+2. Run 5 is LIVE (night-start 18:38Z, wave-2 `harnessd-g7qd`, opus builder,
+   cross-repo prepared worktree @ 6cd1fd5). Its own offboard will overwrite
+   this note — that is correct.
+3. Waves in the kjjf queue continue on funded nights; budget stays degraded
+   until the weekly cap is set. Campaign boundary: no run launches after
+   08:00 UTC 2026-08-10.
 
 ## Warnings / watch-outs
+- The 9gvd multi-select free-text branch on harnessd main now carries N1–N5
+  (F4-guard regressions) — still contained (502-before-unsafe-keys posture),
+  but do not drive multi-select free-text from the PWA until yyv9 adjudicates.
 - harnessd `make audit` still RED pre-existing (fst4 adjudication pending) —
   never a close-gate citation.
-- The 9gvd free-text-in-multi branch is LIVE on harnessd main and known
-  defective-but-contained (502s before sending unsafe keys; F2 hazard only
-  reachable on retry). On-device answering is deferred to `harnessd-8fca`
-  anyway — but don't drive multi-select free-text from the PWA until F1–F4 land.
-- Budget derivation stays `degraded` until the weekly cap is set.
+- `.claude/last-offboard-session` is still the shared single slot (ie5a) —
+  this write stamps 48210beb over the seneschal's 62dbd804 by design.
