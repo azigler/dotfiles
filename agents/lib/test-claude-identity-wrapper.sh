@@ -135,6 +135,12 @@ fi
 if [ -n "${ANTHROPIC_BASE_URL+x}" ]; then
   printenv ANTHROPIC_BASE_URL > "$DUMPDIR/base"
 fi
+# The config dir the LAUNCHED process actually got. A rollover that changes the
+# headers but not this is the whole defect in one line: the request would
+# announce a tap it is not running on.
+if [ -n "${CLAUDE_CONFIG_DIR+x}" ]; then
+  printenv CLAUDE_CONFIG_DIR > "$DUMPDIR/cfgdir"
+fi
 exit 0
 EOF
 chmod +x "$MOCKDIR/claude"
@@ -195,16 +201,32 @@ RUN_HOME="$FAKEHOME"
 run() {
   _sh=$1; shift
   rm -f "$DUMPDIR/hdrs" "$DUMPDIR/hdrs.od" "$DUMPDIR/base" "$DUMPDIR/args" \
-        "$DUMPDIR/creds" "$DUMPDIR/leak"
+        "$DUMPDIR/creds" "$DUMPDIR/leak" "$DUMPDIR/cfgdir" "$DUMPDIR/stderr"
   env -i \
     HOME="$RUN_HOME" PATH="$MOCKDIR:/usr/bin:/bin" DUMPDIR="$DUMPDIR" \
     "$@" \
-    "$_sh" -c '. "$0"; claude --resume x' "$WRAPPER"
+    "$_sh" -c '. "$0"; claude --resume x' "$WRAPPER" 2> "$DUMPDIR/stderr"
+}
+
+# runargs — same as run(), but the launch's OWN argv is supplied by the caller.
+# The failover consult reads `--model` out of it (the model-scoped allotment is
+# a different ceiling from the unified ones), so a case that drives that arm
+# cannot use run()'s fixed `--resume x`.
+runargs() {
+  _sh=$1; _cargs=$2; shift 2
+  rm -f "$DUMPDIR/hdrs" "$DUMPDIR/hdrs.od" "$DUMPDIR/base" "$DUMPDIR/args" \
+        "$DUMPDIR/creds" "$DUMPDIR/leak" "$DUMPDIR/cfgdir" "$DUMPDIR/stderr"
+  env -i \
+    HOME="$RUN_HOME" PATH="$MOCKDIR:/usr/bin:/bin" DUMPDIR="$DUMPDIR" \
+    "$@" \
+    "$_sh" -c ". \"\$0\"; claude $_cargs" "$WRAPPER" 2> "$DUMPDIR/stderr"
 }
 got_hdrs()  { [ -f "$DUMPDIR/hdrs" ]  && cat "$DUMPDIR/hdrs"  || printf '<UNSET>'; }
 got_base()  { [ -f "$DUMPDIR/base" ]  && cat "$DUMPDIR/base"  || printf '<UNSET>'; }
 got_args()  { [ -f "$DUMPDIR/args" ]  && cat "$DUMPDIR/args"  || printf '<NO LAUNCH>'; }
 got_creds() { [ -f "$DUMPDIR/creds" ] && cat "$DUMPDIR/creds" || printf '<NO LAUNCH>'; }
+got_cfgdir() { [ -f "$DUMPDIR/cfgdir" ] && cat "$DUMPDIR/cfgdir" || printf '<UNSET>'; }
+got_stderr() { [ -f "$DUMPDIR/stderr" ] && cat "$DUMPDIR/stderr" || printf ''; }
 
 check() { # <label> <expected> <actual>
   if [ "$2" = "$3" ]; then pass "$1"; else fail "$1" "$2" "$3"; fi
@@ -234,7 +256,7 @@ four() { printf 'X-Session-Identity: %s\nX-Machine-Origin: %s\nX-Seat-Address: %
 # unreachable, and every run below lands on the EXPLICIT not-a-seat form. That
 # is deliberate: the degraded box must be visible in the data, never
 # seat-shaped. T16–T18 install a fixture tier and drive the resolved forms.
-BOTH=$(four 'testbox:?pulse' personal)
+BOTH=$(four 'testbox:?pulse' primary)
 
 # T1 [case 1] tmux + hostname: all four headers, newline-separated, legacy first.
 run "$SH" MOCK_HOST=testbox TMUX_PANE=%1 MOCK_SESS=work MOCK_WIN=pulse
@@ -267,7 +289,7 @@ esac
 # explicit form, `<host>:?` — a host-only row, never a guessed seat.
 run "$SH" MOCK_HOST=testbox
 check 'T2 [case 1] no tmux -> host-only address, tap still known' \
-  "$(four 'testbox:?' personal)" "$(got_hdrs)"
+  "$(four 'testbox:?' primary)" "$(got_hdrs)"
 assert_launch 'T2 [case 1]'
 
 # T3 [case 2] hostname fails, tmux present: the HOST field degrades to `?` and
@@ -275,7 +297,7 @@ assert_launch 'T2 [case 1]'
 # unattended tick on a hostname-less box lives on, and the one M5/M7 survived on.
 run "$SH" TMUX_PANE=%1 MOCK_SESS=work MOCK_WIN=pulse
 check 'T3 [case 2] hostname fails -> ? in the host field, not a dropped header' \
-  "$(four '?:?pulse' personal)" "$(got_hdrs)"
+  "$(four '?:?pulse' primary)" "$(got_hdrs)"
 check 'T3 [case 2] no base URL' '<UNSET>' "$(got_base)"
 assert_launch 'T3 [case 2]'
 
@@ -291,12 +313,12 @@ assert_launch 'T3 [case 2]'
 # diff does not touch it; noted rather than restructured for.
 run "$SH" TMUX_PANE=%1 MOCK_SESS='wo rk' MOCK_WIN='✅ my pane'
 check 'T3b [case 2] window token still sanitized' \
-  "$(four '?:?-my-pane' personal)" "$(got_hdrs)"
+  "$(four '?:?-my-pane' primary)" "$(got_hdrs)"
 assert_launch 'T3b [case 2]'
 
 # --- reaching launch cases 3 and 4 in epoch 2 --------------------------------
 # The tap is derivable from almost anything (unset CLAUDE_CONFIG_DIR means the
-# vendor default, i.e. `personal`), so "no headers at all" is no longer reached
+# vendor default, i.e. `primary`), so "no headers at all" is no longer reached
 # by simply having no tmux and no hostname. `CLAUDE_CONFIG_DIR=/` is the one
 # genuinely degenerate value — it has no basename to name a tap with — and it is
 # what keeps cases 3, 4 and 4u driven. An untested launch branch is exactly how
@@ -468,23 +490,46 @@ fi
 # that does not follow the `~/.claude-<tap>` convention is not a known tap, and
 # silently naming it one would put fabricated rows in the billing rollup.
 # ~/.claude-tick is the one deliberate exception (dotfiles-iez1): it is a jail
-# PROFILE of `personal`, not a tap — ~/.claude and ~/.claude-tick carry the
+# PROFILE of `primary`, not a tap — ~/.claude and ~/.claude-tick carry the
 # IDENTICAL account fingerprint (same Max subscription), so the config-dir
 # convention's usual "strip claude-, that's the tap name" read would be
 # billing-false here specifically.
+#
+# ⚠️ EPOCH 3, 2026-08-09 (dotfiles-kecb). The three expected VALUES moved with
+# Zig's naming ruling: `personal` -> `primary`, `work` -> `linearb`, and
+# ~/.claude-secondary joins as `secondary`. Two of the three are still derived
+# by the plain "strip claude-, that's the tap" rule; `~/.claude-work ->
+# linearb` is NOT — the directory name did not move, only the tap name did — so
+# it is the one arm that needs its own case here and its own case in the
+# wrapper. Getting it wrong is silent: `work` is a perfectly plausible tap name
+# and the rollup would simply carry two names for one account forever.
 tap_of() { printf '%s\n' "$1" | sed -n 's/^X-Tap: //p'; }
 
 run "$SH" MOCK_HOST=testbox                                  # CLAUDE_CONFIG_DIR unset
-check 'T15a unset CLAUDE_CONFIG_DIR -> personal (the vendor default ~/.claude)' \
-  'personal' "$(tap_of "$(got_hdrs)")"
+check 'T15a unset CLAUDE_CONFIG_DIR -> primary (the vendor default ~/.claude)' \
+  'primary' "$(tap_of "$(got_hdrs)")"
 assert_launch 'T15a'
 
-for _cd_case in "/home/x/.claude:personal" "/home/x/.claude-work:work" \
-                "/home/x/.claude-tick:personal" "~/.claude-work:work" \
-                "/home/x/.claude-work/:work" "/home/x/nonsense:?nonsense"; do
+for _cd_case in "/home/x/.claude:primary" "/home/x/.claude-work:linearb" \
+                "/home/x/.claude-tick:primary" "~/.claude-work:linearb" \
+                "/home/x/.claude-work/:linearb" "/home/x/.claude-secondary:secondary" \
+                "/home/x/nonsense:?nonsense"; do
   _cd=${_cd_case%:*}; _want=${_cd_case##*:}
   run "$SH" MOCK_HOST=testbox CLAUDE_CONFIG_DIR="$_cd"
   check "T15 tap derivation: $_cd -> $_want" "$_want" "$(tap_of "$(got_hdrs)")"
+done
+
+# T15z — the EPOCH-2 names must be GONE from what this wrapper emits. Not a
+# restatement of the loop above: that loop asserts each arm's new value, this
+# asserts the OLD value cannot come back through any arm, which is what a
+# half-applied rename actually looks like (one `case` arm missed, everything
+# else green).
+for _cd in /home/x/.claude /home/x/.claude-work /home/x/.claude-tick; do
+  run "$SH" MOCK_HOST=testbox CLAUDE_CONFIG_DIR="$_cd"
+  case "$(tap_of "$(got_hdrs)")" in
+    personal|work) fail "T15z $_cd emits no EPOCH-2 tap name" 'primary|linearb|secondary' "$(tap_of "$(got_hdrs)")" ;;
+    *)             pass "T15z $_cd emits no EPOCH-2 tap name" ;;
+  esac
 done
 
 # --- the fixture agents tier: seat resolution, without the live roster -------
@@ -533,7 +578,7 @@ if command -v python3 >/dev/null 2>&1; then
   # coincidental.
   run "$SH" MOCK_HOST=testbox SEATS_YML="$FIXROSTER" SEAT_WINDOW=desk
   check 'T16 [jbnp] registered window -> <host>:<seat>' \
-    "$(four 'testbox:desk' personal)" "$(got_hdrs)"
+    "$(four 'testbox:desk' primary)" "$(got_hdrs)"
   assert_launch 'T16'
 
   # T17 — THE PROOF THAT THE ADDRESS IS DERIVED (R6). The window is `olddesk`,
@@ -544,7 +589,7 @@ if command -v python3 >/dev/null 2>&1; then
   # window `di-monday` -> `zig-computer:linearb`.
   run "$SH" MOCK_HOST=testbox SEATS_YML="$FIXROSTER" SEAT_WINDOW=olddesk
   check 'T17 [jbnp] ALIAS window resolves to the CANONICAL seat, not the raw name' \
-    "$(four 'testbox:desk' personal)" "$(got_hdrs)"
+    "$(four 'testbox:desk' primary)" "$(got_hdrs)"
   assert_launch 'T17'
 
   # T18 — an UNREGISTERED window is marked, never seat-shaped. With a roster
@@ -553,7 +598,7 @@ if command -v python3 >/dev/null 2>&1; then
   # a value indistinguishable from a real seat.
   run "$SH" MOCK_HOST=testbox SEATS_YML="$FIXROSTER" SEAT_WINDOW=ghost
   check 'T18 [jbnp] unregistered window -> explicit <host>:?<window>' \
-    "$(four 'testbox:?ghost' personal)" "$(got_hdrs)"
+    "$(four 'testbox:?ghost' primary)" "$(got_hdrs)"
   assert_launch 'T18'
 
   RUN_HOME="$FAKEHOME"
@@ -568,6 +613,24 @@ fi
 # wrong name, silently, in the billing rollup. This closes it at test time —
 # every `taps:` row in the REAL agents/seats.yml is fed to the wrapper and must
 # come back as its own name.
+#
+# ⚠️ EPOCH 3 (dotfiles-kecb): "its own name" is now "its own name AFTER the
+# rename". agents/seats.yml still carries the EPOCH-2 keys `personal` and
+# `work`, because several consumers read those strings (marshal.conf's tap
+# filter, pulse-inject's seat pinning) and the roster rename is a separate,
+# sequenced change. `epoch3_of` is that rename, written down ONCE, in the one
+# place that compares the two. It is deliberately an EXPLICIT MAP and not a
+# "whatever the wrapper says" pass-through: the entire value of this case is
+# that it fails when the roster gains a tap the wrapper derives differently, and
+# a pass-through would make it agree with the wrapper by construction. When the
+# roster is renamed, this map becomes three identities and can go.
+epoch3_of() {
+  case "$1" in
+    personal) printf 'primary' ;;
+    work)     printf 'linearb' ;;
+    *)        printf '%s' "$1" ;;
+  esac
+}
 LIVEROSTER="$DIR/../seats.yml"
 if [ -f "$LIVEROSTER" ]; then
   _n=0
@@ -583,8 +646,8 @@ if [ -f "$LIVEROSTER" ]; then
     [ -n "$_tapname" ] && [ -n "$_tapdir" ] || continue
     _n=$((_n + 1))
     run "$SH" MOCK_HOST=testbox CLAUDE_CONFIG_DIR="$_tapdir"
-    check "T19 roster tap '$_tapname' (config_dir $_tapdir) derives to itself" \
-      "$_tapname" "$(tap_of "$(got_hdrs)")"
+    check "T19 roster tap '$_tapname' (config_dir $_tapdir) derives to its epoch-3 name" \
+      "$(epoch3_of "$_tapname")" "$(tap_of "$(got_hdrs)")"
   done < "$TMPROOT/taps"
   if [ "$_n" -eq 0 ]; then
     fail 'T19 fixture: at least one taps: row was read from the live roster' \
@@ -594,6 +657,317 @@ if [ -f "$LIVEROSTER" ]; then
   fi
 else
   echo "  skip T19 (no live roster at $LIVEROSTER)"
+fi
+
+# ===========================================================================
+# T20-T27 [dotfiles-kecb] — THE TAP-FAILOVER CONSULT AT THE LAUNCH SEAM
+# ===========================================================================
+# Everything below is hermetic: a fixture taps.conf, a fixture $HOME holding
+# three config dirs with fixture credentials, and a stub `curl` that answers
+# the usage endpoint by looking at which token it was handed. No network, no
+# ssh, no real account.
+#
+# The regressions these guard, each of which passes a source read:
+#   R8  a rollover that changes the config dir but not the headers (or the
+#       headers but not the config dir) — the request then announces a tap it
+#       is not running on, which is the exact 19:23Z defect with the tap
+#       system's own machinery.  (T20)
+#   R9  a rollover that happens SILENTLY — right tap, no X-Home-Tap, no ledger
+#       row, no stderr line. Byte-identical downstream to a launch whose home
+#       tap was always that pool, so nothing could ever count them.  (T20b-d)
+#   R10 rolling over on data nobody could read. An unmeasurable pool is not a
+#       pool with headroom, and an unmeasurable HOME is not a reason to
+#       leave.  (T21, T21b)
+#   R11 the per-seat home-tap override ignored, so a LinearB seat's overflow
+#       silently lands on Zig's personal subscription while LinearB's sits
+#       idle.  (T22)
+#   R12 the model-scoped (Fable) allotment ignored — the unified windows have
+#       headroom, the Fable weekly does not, and the launch stalls anyway
+#       because nothing consulted the one dimension that was full.  (T23,
+#       T23b)
+#   R13 an INHERITED attribution header passed through to a launch this
+#       wrapper declined to attribute, so an ambient `X-Tap` from a parent
+#       session speaks for a process it knows nothing about.  (T25)
+TAPCONF="$TMPROOT/taps.conf"
+TAPHOME="$TMPROOT/taphome"
+mkdir -p "$TAPHOME/.claude" "$TAPHOME/.claude-secondary" "$TAPHOME/.claude-work"
+
+# A fixture credential per pool. The `accessToken` is a MARKER, not a secret:
+# the stub curl below routes on it, which is how one stub serves three pools.
+# expiresAt is far in the future so the expiry refusal does not fire here (T24
+# drives that arm on purpose).
+for _p in claude:PRIMARY claude-secondary:SECONDARY claude-work:LINEARB; do
+  printf '{"claudeAiOauth":{"accessToken":"FIXTURE-%s","expiresAt":99999999999999}}\n' \
+    "${_p##*:}" > "$TAPHOME/.${_p%%:*}/.credentials.json"
+done
+
+cat > "$TAPCONF" <<'EOF'
+order=primary,secondary,linearb
+pool.primary.taps=primary,tick
+pool.primary.config_dir=~/.claude
+pool.primary.groups=primary,personal
+pool.secondary.taps=secondary
+pool.secondary.config_dir=~/.claude-secondary
+pool.secondary.groups=secondary
+pool.linearb.taps=linearb
+pool.linearb.config_dir=~/.claude-work
+pool.linearb.groups=linearb,work
+seat_home.desk=linearb
+ceiling=1.0
+fable_scope=Fable
+fable_models=fable
+fable_ceiling=1.0
+cache_ttl_seconds=120
+timeout_seconds=4
+EOF
+
+# The stub curl. $STUB_<POOL> names the response shape each pool answers with;
+# unset means "this pool answers nothing", i.e. unmeasurable. The `-w
+# %{http_code}` contract of the real call is reproduced exactly, because the
+# reader parses the body and the code out of one stream.
+cat > "$MOCKDIR/curl" <<'EOF'
+#!/bin/sh
+who=UNKNOWN
+for a in "$@"; do
+  case "$a" in
+    *FIXTURE-PRIMARY*)   who=PRIMARY ;;
+    *FIXTURE-SECONDARY*) who=SECONDARY ;;
+    *FIXTURE-LINEARB*)   who=LINEARB ;;
+  esac
+done
+eval "shape=\${STUB_$who:-}"
+case "$shape" in
+  "")     printf 'network unreachable\n' >&2; exit 7 ;;
+  http401) printf '{"type":"error"}\n401'; exit 0 ;;
+  *)
+    # shape is `<5h>,<7d>,<fable>` in PERCENT, matching the real document.
+    f5=${shape%%,*}; rest=${shape#*,}; f7=${rest%%,*}; ff=${rest#*,}
+    printf '{"limits":[{"kind":"session","percent":%s},{"kind":"weekly_all","percent":%s},{"kind":"weekly_scoped","percent":%s,"scope":{"model":{"display_name":"Fable"}}}]}\n200' "$f5" "$f7" "$ff"
+    exit 0 ;;
+esac
+EOF
+chmod +x "$MOCKDIR/curl"
+
+# Every consult case below carries the same five env assignments: the fixture
+# conf, the fixture home for `~` expansion, the oauth arm only (the gateway arm
+# would need ssh), no cache (a cache would make case N depend on case N-1), and
+# a fixture ledger path.
+#
+# They are written out LITERALLY at every call site rather than held in one
+# $FAILENV variable, and that is not verbosity — it is the zsh word-splitting
+# trap. `run "$SH" $FAILENV …` splits into five arguments under bash and stays
+# ONE argument under zsh (zsh performs no field splitting on parameter
+# expansions), so `env` would set a single variable whose name is
+# TAP_HEADROOM_CONF and whose value is the whole line: no conf, no consult,
+# every rollover case silently passing under bash and failing under zsh.
+# Measured here, exactly that way, before this comment existed.
+
+if command -v python3 >/dev/null 2>&1; then
+  RUN_HOME="$TIERHOME"
+  hdr_of() { printf '%s\n' "$2" | sed -n "s/^$1: //p"; }
+
+  # T20 — THE ROLLOVER. primary is AT its ceiling (100%), secondary is empty.
+  # Four assertions, because four separate things have to move together and
+  # any three of them without the fourth is a defect: the launched process's
+  # CONFIG DIR, the `X-Tap` header, the explicit rollover pair, and the
+  # durable ledger row.
+  rm -f "$TMPROOT/rollover.jsonl"
+  run "$SH" MOCK_HOST=testbox SEATS_YML="$FIXROSTER" SEAT_WINDOW=ghost \
+      CLAUDE_CONFIG_DIR="$TAPHOME/.claude" TAP_HEADROOM_CONF="$TAPCONF" TAP_HEADROOM_HOME="$TAPHOME" TAP_HEADROOM_SOURCE=oauth TAP_HEADROOM_NO_CACHE=1 CIW_ROLLOVER_LEDGER="$TMPROOT/rollover.jsonl" \
+      STUB_PRIMARY=100,50,50 STUB_SECONDARY=0,0,0
+  check 'T20 rollover: the LAUNCHED process gets the new pool config dir' \
+    "$TAPHOME/.claude-secondary" "$(got_cfgdir)"
+  check 'T20b rollover: X-Tap carries the tap that RAN, not the home tap' \
+    'secondary' "$(tap_of "$(got_hdrs)")"
+  check 'T20c rollover: X-Home-Tap names the tap it came from' \
+    'primary' "$(hdr_of X-Home-Tap "$(got_hdrs)")"
+  check 'T20c2 rollover: X-Tap-Rollover marks the row' \
+    '1' "$(hdr_of X-Tap-Rollover "$(got_hdrs)")"
+  case "$(got_stderr)" in
+    *"TAP ROLLOVER"*) pass 'T20d rollover: one loud sentence on stderr' ;;
+    *) fail 'T20d rollover: one loud sentence on stderr' '*TAP ROLLOVER*' "$(got_stderr)" ;;
+  esac
+  if grep -q '"home_tap":"primary","used_tap":"secondary"' "$TMPROOT/rollover.jsonl" 2>/dev/null; then
+    pass 'T20e rollover: a ledger row carrying home_tap != used_tap'
+  else
+    fail 'T20e rollover: a ledger row carrying home_tap != used_tap' \
+      '"home_tap":"primary","used_tap":"secondary"' \
+      "$([ -f "$TMPROOT/rollover.jsonl" ] && cat "$TMPROOT/rollover.jsonl" || printf '<no ledger file>')"
+  fi
+  assert_launch 'T20'
+
+  # T20f — THE NON-ROLLOVER, and it is not a formality: it is what stops every
+  # assertion above from being satisfied by a wrapper that rolls over
+  # unconditionally. Home has headroom -> home, no rollover headers at all, no
+  # ledger row, no stderr sentence.
+  rm -f "$TMPROOT/rollover.jsonl"
+  run "$SH" MOCK_HOST=testbox SEATS_YML="$FIXROSTER" SEAT_WINDOW=ghost \
+      CLAUDE_CONFIG_DIR="$TAPHOME/.claude" TAP_HEADROOM_CONF="$TAPCONF" TAP_HEADROOM_HOME="$TAPHOME" TAP_HEADROOM_SOURCE=oauth TAP_HEADROOM_NO_CACHE=1 CIW_ROLLOVER_LEDGER="$TMPROOT/rollover.jsonl" \
+      STUB_PRIMARY=50,50,50 STUB_SECONDARY=0,0,0
+  check 'T20f home has headroom -> X-Tap stays primary' 'primary' "$(tap_of "$(got_hdrs)")"
+  check 'T20g home has headroom -> NO X-Home-Tap header' '' "$(hdr_of X-Home-Tap "$(got_hdrs)")"
+  check 'T20h home has headroom -> NO ledger row' '<no ledger file>' \
+    "$([ -f "$TMPROOT/rollover.jsonl" ] && cat "$TMPROOT/rollover.jsonl" || printf '<no ledger file>')"
+  assert_launch 'T20f'
+
+  # T21 — R10, direction one: the home pool is at its ceiling and NOTHING else
+  # can be measured. Staying home is the ruled answer — a stalled launch on the
+  # right account is recoverable (dotfiles-yrsg waits out the reset); a silently
+  # cross-billed one is not.
+  run "$SH" MOCK_HOST=testbox SEATS_YML="$FIXROSTER" SEAT_WINDOW=ghost \
+      CLAUDE_CONFIG_DIR="$TAPHOME/.claude" TAP_HEADROOM_CONF="$TAPCONF" TAP_HEADROOM_HOME="$TAPHOME" TAP_HEADROOM_SOURCE=oauth TAP_HEADROOM_NO_CACHE=1 CIW_ROLLOVER_LEDGER="$TMPROOT/rollover.jsonl" STUB_PRIMARY=100,50,50
+  check 'T21 [R10] home at ceiling + no candidate measurable -> stays home' \
+    'primary' "$(tap_of "$(got_hdrs)")"
+  check 'T21a and does NOT claim a rollover' '' "$(hdr_of X-Tap-Rollover "$(got_hdrs)")"
+
+  # T21b — R10, direction two: the home pool cannot be measured AT ALL. An
+  # unreadable home is not evidence that it is full, so nothing moves — and
+  # this is the case a "ceiling or unknown -> roll" shortcut gets wrong on
+  # every network blip.
+  run "$SH" MOCK_HOST=testbox SEATS_YML="$FIXROSTER" SEAT_WINDOW=ghost \
+      CLAUDE_CONFIG_DIR="$TAPHOME/.claude" TAP_HEADROOM_CONF="$TAPCONF" TAP_HEADROOM_HOME="$TAPHOME" TAP_HEADROOM_SOURCE=oauth TAP_HEADROOM_NO_CACHE=1 CIW_ROLLOVER_LEDGER="$TMPROOT/rollover.jsonl" STUB_SECONDARY=0,0,0
+  check 'T21b [R10] home UNMEASURABLE -> stays home, never rolls on ignorance' \
+    'primary' "$(tap_of "$(got_hdrs)")"
+  check 'T21c and does NOT claim a rollover' '' "$(hdr_of X-Tap-Rollover "$(got_hdrs)")"
+
+  # T22 — R11, the per-seat home-tap override. Window `desk` is a registered
+  # seat and the fixture conf gives it seat_home.desk=linearb. primary is full;
+  # BOTH secondary and linearb have headroom, and the GLOBAL order would pick
+  # secondary. The override is the only thing that makes linearb win, so this
+  # case cannot pass by accident.
+  run "$SH" MOCK_HOST=testbox SEATS_YML="$FIXROSTER" SEAT_WINDOW=desk \
+      CLAUDE_CONFIG_DIR="$TAPHOME/.claude" TAP_HEADROOM_CONF="$TAPCONF" TAP_HEADROOM_HOME="$TAPHOME" TAP_HEADROOM_SOURCE=oauth TAP_HEADROOM_NO_CACHE=1 CIW_ROLLOVER_LEDGER="$TMPROOT/rollover.jsonl" \
+      STUB_PRIMARY=100,50,50 STUB_SECONDARY=0,0,0 STUB_LINEARB=0,0,0
+  check 'T22 [R11] the seat override orders the candidates behind home' \
+    'linearb' "$(tap_of "$(got_hdrs)")"
+  check 'T22b and the launched config dir moved with it' \
+    "$TAPHOME/.claude-work" "$(got_cfgdir)"
+
+  # T22c — the same launch from an UNREGISTERED window takes the global order
+  # instead. Without this, T22 would also pass against a wrapper that simply
+  # preferred linearb always.
+  run "$SH" MOCK_HOST=testbox SEATS_YML="$FIXROSTER" SEAT_WINDOW=ghost \
+      CLAUDE_CONFIG_DIR="$TAPHOME/.claude" TAP_HEADROOM_CONF="$TAPCONF" TAP_HEADROOM_HOME="$TAPHOME" TAP_HEADROOM_SOURCE=oauth TAP_HEADROOM_NO_CACHE=1 CIW_ROLLOVER_LEDGER="$TMPROOT/rollover.jsonl" \
+      STUB_PRIMARY=100,50,50 STUB_SECONDARY=0,0,0 STUB_LINEARB=0,0,0
+  check 'T22c no override -> the global order (secondary before linearb)' \
+    'secondary' "$(tap_of "$(got_hdrs)")"
+
+  # T23 — R12, the FABLE dimension. Every unified window has room (50%/50%);
+  # only the model-scoped weekly allotment is exhausted, and the launch names
+  # `--model fable`. Nothing in the gateway's captured attributes can see this
+  # — it is the whole reason the OAuth usage document had to be found.
+  runargs "$SH" '--model fable -p hi' MOCK_HOST=testbox SEATS_YML="$FIXROSTER" \
+      SEAT_WINDOW=ghost CLAUDE_CONFIG_DIR="$TAPHOME/.claude" TAP_HEADROOM_CONF="$TAPCONF" TAP_HEADROOM_HOME="$TAPHOME" TAP_HEADROOM_SOURCE=oauth TAP_HEADROOM_NO_CACHE=1 CIW_ROLLOVER_LEDGER="$TMPROOT/rollover.jsonl" \
+      STUB_PRIMARY=50,50,100 STUB_SECONDARY=0,0,0
+  check 'T23 [R12] fable allotment exhausted on a --model fable launch -> rollover' \
+    'secondary' "$(tap_of "$(got_hdrs)")"
+
+  # T23b — THE CONTROL, and it is what makes T23 mean anything: the identical
+  # pool state with a launch that does NOT name fable stays home. A wrapper
+  # that consulted the fable arm unconditionally would pass T23 and fail here,
+  # and it would drain the reserve pool for every opus tick on the fleet.
+  runargs "$SH" '--model opus-5 -p hi' MOCK_HOST=testbox SEATS_YML="$FIXROSTER" \
+      SEAT_WINDOW=ghost CLAUDE_CONFIG_DIR="$TAPHOME/.claude" TAP_HEADROOM_CONF="$TAPCONF" TAP_HEADROOM_HOME="$TAPHOME" TAP_HEADROOM_SOURCE=oauth TAP_HEADROOM_NO_CACHE=1 CIW_ROLLOVER_LEDGER="$TMPROOT/rollover.jsonl" \
+      STUB_PRIMARY=50,50,100 STUB_SECONDARY=0,0,0
+  check 'T23b [R12] the SAME pool state, a non-fable launch -> stays home' \
+    'primary' "$(tap_of "$(got_hdrs)")"
+
+  # T24 — an EXPIRED credential answers 401, and 401 must never read as
+  # headroom. Real shape: pool linearb's access token was expired on
+  # 2026-08-09 and the live endpoint answered
+  # `{"type":"error","error":{"type":"authentication_error"}}`. Here primary is
+  # full and secondary's token 401s, so a reader that scored a failed read as
+  # "0% used" would roll straight into an account it cannot even authenticate
+  # to. The right answer is to stay home.
+  run "$SH" MOCK_HOST=testbox SEATS_YML="$FIXROSTER" SEAT_WINDOW=ghost \
+      CLAUDE_CONFIG_DIR="$TAPHOME/.claude" TAP_HEADROOM_CONF="$TAPCONF" TAP_HEADROOM_HOME="$TAPHOME" TAP_HEADROOM_SOURCE=oauth TAP_HEADROOM_NO_CACHE=1 CIW_ROLLOVER_LEDGER="$TMPROOT/rollover.jsonl" \
+      STUB_PRIMARY=100,50,50 STUB_SECONDARY=http401
+  check 'T24 a 401 candidate is UNAVAILABLE, not empty -> stays home' \
+    'primary' "$(tap_of "$(got_hdrs)")"
+
+  # T24b — the consult can be switched off entirely, and then it costs
+  # nothing and changes nothing. This is the escape hatch a fleet-wide launch
+  # path has to have.
+  run "$SH" MOCK_HOST=testbox SEATS_YML="$FIXROSTER" SEAT_WINDOW=ghost \
+      CLAUDE_CONFIG_DIR="$TAPHOME/.claude" TAP_HEADROOM_CONF="$TAPCONF" TAP_HEADROOM_HOME="$TAPHOME" TAP_HEADROOM_SOURCE=oauth TAP_HEADROOM_NO_CACHE=1 CIW_ROLLOVER_LEDGER="$TMPROOT/rollover.jsonl" CIW_TAP_FAILOVER=off \
+      STUB_PRIMARY=100,50,50 STUB_SECONDARY=0,0,0
+  check 'T24b CIW_TAP_FAILOVER=off -> no consult, no rollover' \
+    'primary' "$(tap_of "$(got_hdrs)")"
+
+  RUN_HOME="$FAKEHOME"
+  rm -f "$MOCKDIR/curl"
+else
+  echo "  skip T20-T24 (no python3 — the headroom reader cannot parse a usage document)"
+fi
+
+# --- T25 [dotfiles-kecb]: AN INHERITED ATTRIBUTION HEADER IS NEVER PASSED ON -
+# R13, and the measured half of the 19:23Z defect that this wrapper CAN reach.
+# `claude` exports ANTHROPIC_CUSTOM_HEADERS to its own children, so a Bash-tool
+# shell inside a session starts life carrying its parent's `X-Tap`. When this
+# wrapper declines to attribute a launch at all it must REMOVE that ambient
+# value, not let it through: a request with no header logs as `unknown` and is
+# visibly unattributed; one carrying somebody else's header is confidently
+# wrong. Cases 4s (nothing resolvable), 3s (base URL only) and 4us (hatch
+# armed) are the three that decline.
+STALE='X-Session-Identity: other:seat
+X-Machine-Origin: primary
+X-Seat-Address: other:seat
+X-Tap: primary'
+
+run "$SH" CLAUDE_CONFIG_DIR="$NOTAP" ANTHROPIC_CUSTOM_HEADERS="$STALE"
+check 'T25 [case 4s] no derivable header -> the INHERITED one is stripped' \
+  '<UNSET>' "$(got_hdrs)"
+assert_launch 'T25 [case 4s]'
+
+run "$SH" CLAUDE_CONFIG_DIR="$NOTAP" ANTHROPIC_CUSTOM_HEADERS="$STALE" \
+    ANTHROPIC_BASE_URL=http://inherited.example/v1
+check 'T25b [case 3s] base URL only -> the INHERITED header is still stripped' \
+  '<UNSET>' "$(got_hdrs)"
+check 'T25b2 [case 3s] and the base URL still passes through' \
+  'http://inherited.example/v1' "$(got_base)"
+assert_launch 'T25b [case 3s]'
+
+run "$SH" CLAUDE_CONFIG_DIR="$NOTAP" ANTHROPIC_CUSTOM_HEADERS="$STALE" \
+    CC_NO_GATEWAY=1 ANTHROPIC_BASE_URL=http://inherited.example/v1
+check 'T25c [case 4us] armed hatch -> both inherited values stripped' \
+  '<UNSET>' "$(got_hdrs)"
+check 'T25c2 [case 4us] base URL stripped too' '<UNSET>' "$(got_base)"
+assert_launch 'T25c [case 4us]'
+
+# T25d — the OTHER direction: when the wrapper DOES have something to say, its
+# own block replaces the inherited one rather than merging with it.
+run "$SH" MOCK_HOST=testbox ANTHROPIC_CUSTOM_HEADERS="$STALE"
+check 'T25d a derivable launch replaces the inherited block outright' \
+  "$(four 'testbox:?' primary)" "$(got_hdrs)"
+
+# --- T26 [dotfiles-kecb]: the zsh/.zshenv strip, AS COMMITTED ---------------
+# The remaining bypass is `env … claude`, which invokes the BINARY and never
+# reaches this wrapper at all (a shell function is not inherited by `env`).
+# That path is closed one tier down, in zsh/.zshenv, and this repo's rule 2
+# says a documented mechanism is executable: the block is EXTRACTED FROM THE
+# COMMITTED FILE by line range and those bytes are run, never a retyped copy.
+ZSHENV="$DIR/../../zsh/.zshenv"
+if [ -f "$ZSHENV" ]; then
+  awk '/^case "\$\{ANTHROPIC_CUSTOM_HEADERS-\}" in$/,/^esac$/' "$ZSHENV" > "$TMPROOT/strip.sh"
+  if [ -s "$TMPROOT/strip.sh" ]; then
+    pass 'T26 fixture: the strip block was extracted from the committed zsh/.zshenv'
+    _t26=$(env -i PATH=/usr/bin:/bin ANTHROPIC_CUSTOM_HEADERS="$STALE" \
+      "$SH" -c '. "$0"; printf "%s" "${ANTHROPIC_CUSTOM_HEADERS-<UNSET>}"' "$TMPROOT/strip.sh")
+    check 'T26 the committed block DROPS an inherited wrapper-shaped header' \
+      '<UNSET>' "$_t26"
+    _t26b=$(env -i PATH=/usr/bin:/bin ANTHROPIC_CUSTOM_HEADERS='X-Something-Else: mine' \
+      "$SH" -c '. "$0"; printf "%s" "${ANTHROPIC_CUSTOM_HEADERS-<UNSET>}"' "$TMPROOT/strip.sh")
+    check 'T26b it leaves a header block that is NOT ours alone' \
+      'X-Something-Else: mine' "$_t26b"
+    _t26c=$(env -i PATH=/usr/bin:/bin \
+      "$SH" -c '. "$0"; printf "%s" "${ANTHROPIC_CUSTOM_HEADERS-<UNSET>}"' "$TMPROOT/strip.sh")
+    check 'T26c and it is a no-op when nothing was inherited' '<UNSET>' "$_t26c"
+  else
+    fail 'T26 fixture: the strip block was extracted from the committed zsh/.zshenv' \
+      'a non-empty case…esac block' '<nothing matched — the block moved or was renamed>'
+  fi
+else
+  echo "  skip T26 (no zsh/.zshenv at $ZSHENV)"
 fi
 
 echo
