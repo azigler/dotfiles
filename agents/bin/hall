@@ -437,6 +437,7 @@ hall — the court view of the estate (v0, bead dotfiles-sb6s)
   hall <seat|alias>    visit a seat: switch to its window, or materialize it
                        (roster session, roster home, canonical name)
   hall home            the front desk (alias for: hall seneschal)
+  hall --interactive   court + a seat> prompt (the popup mode: name visits, Enter closes)
   hall --help          this
 
 The roster (agents/seats.yml) is truth; windows are cache. v0 reads the roster
@@ -445,10 +446,30 @@ daemon. Mail, brief, marshal queue, adopt/retire and tap failover are v1.
 EOF
 }
 
+# The popup mode (Zig, 2026-08-09 — he typed a seat name into the court
+# expecting a visit; that instinct is the UX): render the court, then hold a
+# `seat>` prompt. A seat name (or alias, or `home`) visits it — switch-client
+# works from inside a display-popup because popups inherit the server's $TMUX
+# (the sessionizer pattern). Empty Enter, EOF, or an unknown name after the
+# retry just closes. Lives HERE and not in tmux.conf because tmux expands $vars
+# in double-quoted config strings at source time.
+interactive() {
+  court
+  while :; do
+    printf 'seat> '
+    IFS= read -r _seat || return 0
+    [ -z "$_seat" ] && return 0
+    case "$_seat" in home) _seat=seneschal ;; esac
+    if visit "$_seat"; then return 0; fi
+    # visit already printed near-matches on stderr; loop for one more try
+  done
+}
+
 main() {
   case "${1:-}" in
     ''|court)        court ;;
     -h|--help|help)  usage ;;
+    --interactive)   interactive ;;
     home)            visit seneschal ;;
     -*)              printf 'hall: unknown option %s\n' "'$1'" >&2; usage >&2; exit 2 ;;
     *)
