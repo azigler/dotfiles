@@ -11,6 +11,7 @@ HOOKS="$(cd "$(dirname "$0")/.." && pwd)"
 . "$HOOKS/lib/portable.sh"
 GUARD="$HOOKS/stop-context-guard.sh"
 OBSERVE="$HOOKS/pre-compact-observe.sh"
+PRECOMPACT="$HOOKS/pre-compact.sh"
 STATUSLINE="$(cd "$HOOKS/../.." && pwd)/claude/statusline.sh"
 
 PASS=0
@@ -22,17 +23,34 @@ bad() { FAIL=$((FAIL + 1)); FAILED_NAMES+=("$1"); }
 
 STATE=$(mktemp -d)
 PROJ=$(mktemp -d)
+export HARNESS_STATE_DIR="$STATE/harness"
+TURN_END_DIR="$HARNESS_STATE_DIR/turn-end"
 trap 'rm -rf "$STATE" "$PROJ"' EXIT
 
 SID="test-session-1234"
 
+# guard()/guard_default() disable the 50% nudge (CONTEXT_GUARD_NUDGE_PCT=1000,
+# unreachable) so every pre-existing case below keeps testing ONLY the
+# backstop, exactly as it did before dotfiles-ygf8. Several of them (3d's
+# pct=74, 7's pct=80/threshold=90) land inside the real 50-75 nudge band and
+# would otherwise start returning exit 2 for the WRONG reason — a passing
+# suite that stopped proving what its case names claim. guard_raw() below,
+# with no overrides, is what exercises the shipped default.
 guard() {
-  printf '%s' "$1" | CONTEXT_GUARD_STATE_DIR="$STATE" CONTEXT_GUARD_PCT="${2:-75}" "$GUARD" 2>/tmp/guard-stderr-$$
+  printf '%s' "$1" | CONTEXT_GUARD_STATE_DIR="$STATE" CONTEXT_GUARD_PCT="${2:-75}" \
+    CONTEXT_GUARD_NUDGE_PCT=1000 "$GUARD" 2>/tmp/guard-stderr-$$
 }
 # The DEFAULT threshold, with no CONTEXT_GUARD_PCT in the environment. Separate
 # helper on purpose: guard() pins the threshold, so it can never observe the
 # default drifting — and the default is the number every real session gets.
 guard_default() {
+  printf '%s' "$1" | CONTEXT_GUARD_STATE_DIR="$STATE" CONTEXT_GUARD_NUDGE_PCT=1000 \
+    "$GUARD" 2>/tmp/guard-stderr-$$
+}
+# No overrides at all — the real shipped defaults (threshold 75, nudge 50,
+# nudge rate 4h). Used by the new turn-end/re-arm/nudge cases below, which
+# exist to prove those defaults, not to route around them.
+guard_raw() {
   printf '%s' "$1" | CONTEXT_GUARD_STATE_DIR="$STATE" "$GUARD" 2>/tmp/guard-stderr-$$
 }
 
@@ -162,6 +180,115 @@ printf '{"hook_event_name":"PreCompact","trigger":"auto","session_id":"%s","cwd"
 tail -1 "$OLOG" | grep -q "would=allow" && ok || bad "auto compact after offboard logged as allow"
 
 rm -f /tmp/guard-stderr-$$
+
+# --- THE TURN-END STAMP (dotfiles-ygf8) --------------------------------
+# Unconditional, before every early exit -- seat-molt.sh --self reads this
+# file's mtime instead of pane pixels, so it has to land even on the two
+# quietest paths: a plain below-threshold Stop, and stop_hook_active.
+
+# Case 11 left a FRESH last-offboard-session match in place (that's what it
+# was testing) -- every case below needs the backstop's offboard-release
+# rail OFF, or a 80%+ pct would silently exit 0 for the wrong reason.
+rm -f "$PROJ/.claude/last-offboard-session"
+
+rm -f "$STATE/$SID.fired" "$TURN_END_DIR/$SID"
+echo "10" > "$STATE/$SID"
+guard "$PAYLOAD_BASE"
+[ $? -eq 0 ] && ok || bad "stamp case: a quiet below-threshold Stop is still a no-op"
+[ -f "$TURN_END_DIR/$SID" ] && ok || bad "the turn-end stamp is written even on a quiet below-threshold Stop"
+
+rm -f "$TURN_END_DIR/$SID"
+ACTIVE=$(printf '{"hook_event_name":"Stop","session_id":"%s","cwd":"%s","stop_hook_active":true}' "$SID" "$PROJ")
+guard "$ACTIVE"
+[ -f "$TURN_END_DIR/$SID" ] && ok || bad "the turn-end stamp is written even under stop_hook_active"
+
+rm -f "$STATE/$SID.fired" "$STATE/$SID.nudged" "$TURN_END_DIR/$SID"
+
+# --- RE-ARM (hysteresis) -------------------------------------------------
+# A session that fires the 75% backstop then drops back below (threshold-20)
+# must re-arm WITHOUT anything manually clearing the marker -- that drop is
+# the dead-backstop case: same session_id, later climb, no guard firing.
+
+echo "80" > "$STATE/$SID"
+guard "$PAYLOAD_BASE"
+RC=$?
+[ $RC -eq 2 ] && ok || bad "re-arm setup: fires at 80% (got $RC)"
+[ -f "$STATE/$SID.fired" ] && ok || bad "re-arm setup: marker is set after firing"
+
+echo "54" > "$STATE/$SID"   # < 75-20 = 55, the hysteresis floor
+guard "$PAYLOAD_BASE"        # this call performs the re-arm itself
+[ $? -eq 0 ] && ok || bad "a pct drop below threshold-20 is itself a no-op"
+[ ! -f "$STATE/$SID.fired" ] && ok \
+  || bad "re-arm: the marker clears WITHOUT a manual rm -f when pct drops below threshold-20"
+
+echo "80" > "$STATE/$SID"
+guard "$PAYLOAD_BASE"
+RC=$?
+[ $RC -eq 2 ] && ok || bad "re-arm: the guard fires AGAIN after re-arm (the dead-backstop case; got $RC)"
+rm -f "$STATE/$SID.fired"
+
+# A drop that stays ABOVE threshold-20 (80 -> 70, still >= 55) must NOT
+# re-arm -- that would turn "fire once" back into a nag on every climb.
+echo "80" > "$STATE/$SID"
+guard "$PAYLOAD_BASE"
+echo "70" > "$STATE/$SID"
+guard "$PAYLOAD_BASE"
+[ -f "$STATE/$SID.fired" ] && ok || bad "a drop that stays above threshold-20 does NOT re-arm (no flap)"
+rm -f "$STATE/$SID.fired" "$STATE/$SID.nudged"
+
+# --- THE 50% NUDGE, shipped default (dotfiles-ygf8) -----------------------
+# guard_raw(): real threshold (75) and real nudge floor (50). One line on
+# stderr, rate-limited to once per CONTEXT_GUARD_NUDGE_RATE_SECS (4h), and
+# it must never fire in the same turn as the 75% backstop.
+
+echo "45" > "$STATE/$SID"
+guard_raw "$PAYLOAD_BASE"
+[ $? -eq 0 ] && ok || bad "below the 50% nudge floor is a no-op"
+
+echo "55" > "$STATE/$SID"
+guard_raw "$PAYLOAD_BASE"
+RC=$?
+[ $RC -eq 2 ] && ok || bad "the nudge fires at 55% (got $RC)"
+grep -q "context past 50% — molt at your next boundary: /offboard then seat-molt --self" /tmp/guard-stderr-$$ \
+  && ok || bad "the nudge message is the self-service one"
+
+guard_raw "$PAYLOAD_BASE"
+RC=$?
+[ $RC -eq 0 ] && ok || bad "the nudge is suppressed on a second call inside the rate window (got $RC)"
+
+# Aged past the rate window (4h = 14400s) -> due again.
+_p_touch_at "$(( $(date +%s) - 14401 ))" "$STATE/$SID.nudged"
+guard_raw "$PAYLOAD_BASE"
+RC=$?
+[ $RC -eq 2 ] && ok || bad "the nudge fires again once the rate window has elapsed (got $RC)"
+rm -f "$STATE/$SID.fired" "$STATE/$SID.nudged"
+
+# The nudge and the 75% backstop never fire in the same turn -- 80% is
+# strictly the backstop's, and its message must be the ONLY one on stderr.
+echo "80" > "$STATE/$SID"
+guard_raw "$PAYLOAD_BASE"
+RC=$?
+[ $RC -eq 2 ] && ok || bad "80% fires (the backstop, got $RC)"
+grep -q "Cycle this session YOURSELF" /tmp/guard-stderr-$$ && ok \
+  || bad "80% prints the BACKSTOP message, not the nudge"
+if grep -q "context past 50%" /tmp/guard-stderr-$$; then
+  bad "the nudge message must not appear alongside the backstop"
+else ok; fi
+rm -f "$STATE/$SID.fired" "$STATE/$SID.nudged" "$TURN_END_DIR/$SID"
+
+# --- RE-ARM, path b: pre-compact.sh clears BOTH markers (dotfiles-ygf8) ---
+# The belt for path (a) above: path (a) depends on the NEXT Stop finding a
+# rendered pct file, and the statusline may not have painted yet immediately
+# post-compaction. pre-compact.sh clears unconditionally, on every
+# PreCompact, with no such dependency. PATH is stripped to /usr/bin:/bin so
+# `command -v br` fails inside this call and the real bead store is never
+# touched by this test.
+touch "$STATE/$SID.fired" "$STATE/$SID.nudged"
+PC_PAYLOAD=$(printf '{"hook_event_name":"PreCompact","trigger":"auto","session_id":"%s","cwd":"%s"}' "$SID" "$PROJ")
+printf '%s' "$PC_PAYLOAD" | CONTEXT_GUARD_STATE_DIR="$STATE" PATH="/usr/bin:/bin" "$PRECOMPACT" >/dev/null 2>&1
+[ ! -f "$STATE/$SID.fired" ] && ok || bad "pre-compact.sh clears the .fired marker"
+[ ! -f "$STATE/$SID.nudged" ] && ok || bad "pre-compact.sh clears the .nudged marker"
+rm -f "$STATE/$SID.fired" "$STATE/$SID.nudged"
 
 # --- Summary ---
 TOTAL=$((PASS + FAIL))

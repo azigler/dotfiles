@@ -76,7 +76,10 @@ export MOLT_CLEAR_SETTLE=0.3
 export MOLT_COMPACT_GRACE=0.3
 export MOLT_COMPACT_TIMEOUT=6
 export MOLT_SELF_IDLE_TIMEOUT=2
-export MOLT_SELF_GRACE=1
+# The turn-end signal --self reads instead of pane-text stability (dotfiles-ygf8).
+# Isolated per-run, exactly like the ledger above.
+export HARNESS_STATE_DIR="$T/state"
+TURN_END_DIR="$HARNESS_STATE_DIR/turn-end"
 
 TYPED=""
 SESS=""
@@ -123,6 +126,16 @@ age_offboard()   { # <seconds ago>
   _p_touch_at "$(( $(date +%s) - $1 ))" "$PROJ/.claude/last-offboard-session"
 }
 reset_ledger()   { : > "$LEDGER"; }
+
+# turn_end_fresh/stale/no_turn_end <session_id=sess-abc> — the stamp
+# seat-molt.sh --self reads instead of pane-text stability (dotfiles-ygf8).
+turn_end_fresh() { mkdir -p "$TURN_END_DIR"; : > "$TURN_END_DIR/${1:-sess-abc}"; }
+turn_end_stale() { # <session_id=sess-abc> — older than any t0 this suite can produce
+  . "$HERE/../hooks/lib/portable.sh"
+  mkdir -p "$TURN_END_DIR"
+  _p_touch_at "$(( $(date +%s) - 3600 ))" "$TURN_END_DIR/${1:-sess-abc}"
+}
+no_turn_end() { rm -f "$TURN_END_DIR/${1:-sess-abc}"; }
 
 OUT=""; RC=0; VERDICT=""
 molt() { OUT=$("$SCRIPT" --socket "$SOCKPATH" --dir "$PROJ" "$@" 2>&1); RC=$?
@@ -294,12 +307,70 @@ else ok 22n "the look-alike session moltyX was left alone"; fi
 # --- 23: --self, and the invoker that never goes idle -----------------------
 echo
 echo "-- --self: detach, then wait for the invoker's turn to end"
-reset_ledger; fresh_offboard; mk_pane moltyG "🧠 seat"
+reset_ledger; fresh_offboard; no_turn_end; mk_pane moltyG "🧠 seat"
 OUT=$(MOLT_DETACH=0 "$SCRIPT" --self --target moltyG seat --socket "$SOCKPATH" --dir "$PROJ" \
         --mode auto --in-flight no 2>&1); RC=$?
 VERDICT=$(printf '%s\n' "$OUT" | grep -o 'SEAT_MOLT_RESULT=[a-z-]*' | tail -1)
-want_verdict   23 "--self whose invoker never goes idle times out" aborted-not-idle
+want_verdict   23 "--self with NO turn-end stamp times out (no --wait-idle-first case reaches pane-stability anymore)" aborted-not-idle
 want_untouched 23n "the timed-out --self pane was typed into NOT AT ALL"
+kill_pane
+
+# --- 23b: THE BUG (dotfiles-ygf8, FINDING 3) --------------------------------
+# A pane that NEVER stabilizes by the old pane-text measure (window name stuck
+# on 🧠 forever, exactly like case 23's fixture and a real background builder's
+# spinner) must still molt once a FRESH turn-end stamp lands — that stamp,
+# written after the invoker's turn genuinely ends, is the whole point of this
+# bead. The stamp write is deliberately at least 1 FULL second past t0 -- both
+# t0 and mtime are second-granularity `date +%s` values, so a write inside the
+# SAME calendar second as t0's capture risks mtime == t0, which fails the
+# strict -gt in wait_for_turn_end. This case overrides MOLT_SELF_IDLE_TIMEOUT
+# to 8s (well past the global 2s) so a loaded box's scheduling jitter on the
+# background flipper cannot cost the test the race either — a real pre-commit
+# run flaked aborted-not-idle here at the tight 2s/1s margin (dotfiles-ygf8).
+echo
+echo "-- --self: a churning pane molts on a fresh turn-end stamp (THE bug)"
+reset_ledger; fresh_offboard; no_turn_end; mk_pane moltyI "🧠 seat"
+( sleep 1.5; turn_end_fresh ) &
+_flip=$!
+OUT=$(MOLT_DETACH=0 MOLT_SELF_IDLE_TIMEOUT=8 "$SCRIPT" --self --target moltyI seat --socket "$SOCKPATH" --dir "$PROJ" \
+        --mode auto --in-flight no 2>&1); RC=$?
+wait "$_flip" 2>/dev/null   # allow-suppress: the flipper is done either way
+VERDICT=$(printf '%s\n' "$OUT" | grep -o 'SEAT_MOLT_RESULT=[a-z-]*' | tail -1)
+want_verdict 23b "a pane stuck on 🧠 forever still molts once the turn-end stamp lands" molted
+want_typed   23b2 "/clear was typed despite the pane never text-stabilizing" "/clear"
+want_typed   23b3 "/onboard was typed after the stamp-driven molt" "/onboard"
+kill_pane
+
+# --- 23c: a STALE turn-end stamp (older than t0) does NOT satisfy the wait --
+# A leftover stamp from a PREVIOUS turn must not be read as "this turn ended" —
+# only an mtime newer than t0 counts.
+echo
+echo "-- --self: a stale turn-end stamp (older than t0) does not satisfy the wait"
+reset_ledger; fresh_offboard; turn_end_stale; mk_pane moltyJ "🧠 seat"
+OUT=$(MOLT_DETACH=0 "$SCRIPT" --self --target moltyJ seat --socket "$SOCKPATH" --dir "$PROJ" \
+        --mode auto --in-flight no 2>&1); RC=$?
+VERDICT=$(printf '%s\n' "$OUT" | grep -o 'SEAT_MOLT_RESULT=[a-z-]*' | tail -1)
+want_verdict   23c "a stale (pre-t0) turn-end stamp times out just like no stamp at all" aborted-not-idle
+want_untouched 23cn "the stale-stamp pane was typed into NOT AT ALL"
+kill_pane
+
+# --- 23d: a MODAL pane with a fresh stamp keeps waiting, never molts -------
+# The turn did not end for MOLTING purposes if a dialog is open — send-keys
+# there would answer Andrew's question with the default. wait_for_turn_end
+# checks is_modal on every fresh-stamp sighting and keeps polling rather than
+# proceeding, so this times out as aborted-not-idle (NOT aborted-modal — that
+# verdict is --target's fast-return; --self's loop just never becomes eligible).
+echo
+echo "-- --self: a modal pane with a fresh stamp still does not molt"
+reset_ledger; fresh_offboard; no_turn_end; mk_pane moltyK "🔔 seat"
+( sleep 0.3; turn_end_fresh ) &
+_flip=$!
+OUT=$(MOLT_DETACH=0 "$SCRIPT" --self --target moltyK seat --socket "$SOCKPATH" --dir "$PROJ" \
+        --mode auto --in-flight no 2>&1); RC=$?
+wait "$_flip" 2>/dev/null   # allow-suppress: the flipper is done either way
+VERDICT=$(printf '%s\n' "$OUT" | grep -o 'SEAT_MOLT_RESULT=[a-z-]*' | tail -1)
+want_verdict   23d "a modal pane with a fresh stamp still times out (never molts)" aborted-not-idle
+want_untouched 23dn "the modal --self pane was typed into NOT AT ALL"
 kill_pane
 
 # --- 24: a lib-less copy FAILS CLOSED on the mtime (dotfiles-5vz2) ----------

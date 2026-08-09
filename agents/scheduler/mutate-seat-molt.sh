@@ -36,9 +36,11 @@
 # that must keep PASSING, which is what distinguishes "this rail broke" from
 # "the script broke" (dotfiles-77s4).
 #
-# COST, measured on this box: test-seat-molt.sh is ~43s a run, so baseline + 5
-# mutants is ~4.5 min. That is why pre-commit fires this on three files
-# (the script, its suite, this harness) and not on every scheduler edit.
+# COST, measured on this box: test-seat-molt.sh is ~43s a run (dotfiles-ygf8's
+# four new --self cases add real wall time, mostly MOLT_SELF_IDLE_TIMEOUT
+# waits), so baseline + 6 mutants is ~5.5 min. That is why pre-commit fires
+# this on three files (the script, its suite, this harness) and not on every
+# scheduler edit.
 #
 # ⚠️ NOT SAFE TO RUN CONCURRENTLY WITH ITSELF. Each suite run builds its own
 # private tmux server on a socket inside its own mktemp dir, so it does not
@@ -232,7 +234,11 @@ check "M3 rate-limit-removed (the molt loop)" \
 # M4 — THE IDLE-WAIT SKIPPED. wait_for_idle returns success immediately, so the
 # cycle types into a pane that is mid-turn. Cases 10/11 must keep PASSING: the
 # post-idle modal re-check is a SEPARATE rail and still catches a dialog, which
-# is exactly the distinction the two checks exist to draw.
+# is exactly the distinction the two checks exist to draw. --self no longer
+# calls wait_for_idle at ALL (dotfiles-ygf8 replaced it with the turn-end wait,
+# see M6 below) — 9/9n is therefore the SOLE detector now, and 23/23n must keep
+# PASSING as proof the two paths are genuinely split: this mutation cannot
+# touch --self's outcome.
 fresh_copy
 mutate "$SM" \
   'wait_for_idle() {
@@ -241,7 +247,20 @@ mutate "$SM" \
   return 0
   local timeout=$1 grace=${2:-0} t0 deadline eligible stable=0 name text'
 check "M4 idle-wait-skipped (types into a pane mid-turn)" \
-      "9 9n 23 23n" "6 10 11"
+      "9 9n" "6 10 11 23 23n"
+
+# M6 — --self REVERTS TO PANE-STABILITY (dotfiles-ygf8, undoing THE fix). The
+# --self branch calls wait_for_idle instead of wait_for_turn_end, exactly the
+# pre-fix bug: a pane whose glyph never clears (a background builder, or here
+# the fixture that never flips) can structurally never read as idle, so a
+# --self molt that a fresh turn-end stamp should have released now times out
+# instead. 23b is the scenario this whole bead exists for.
+fresh_copy
+mutate "$SM" \
+  '  wait_for_turn_end "$IDLE_TIMEOUT" "$T0" "$SESSION_ID"' \
+  '  wait_for_idle "$IDLE_TIMEOUT" 0  # MUTANT: self reverted to pane-stability'
+check "M6 self-still-uses-pane-stability (the dead-idle-wait bug returns)" \
+      "23b 23b2 23b3" "6 9 9n 10 11 23 23n"
 
 # M5 — THE NON-VACUITY CHECK for the freshness cases. M1 removes the whole rail,
 # which a suite could pass by merely noticing "the marker file exists". This one
