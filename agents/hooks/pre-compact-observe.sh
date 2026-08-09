@@ -9,9 +9,12 @@
 # Flip to enforce only after /tmp/claude-compact-observe.log shows a
 # real trigger=auto entry AND docs/behavior confirm blocking works
 # there (manual compacts must never be blocked — Andrew asked for
-# them). The Stop-hook guard (stop-context-guard.sh) fires at 85%,
-# well before auto-compaction, so this backstop is defense-in-depth,
-# not the primary mechanism.
+# them). The Stop-hook guard (stop-context-guard.sh) fires at its
+# CONTEXT_GUARD_PCT threshold — 75 since dotfiles-it06, was 85 — well
+# before auto-compaction, so this backstop is defense-in-depth, not the
+# primary mechanism. (Don't re-copy the number here: read it off that
+# file. The two-copies defect is how the 85 in this comment outlived the
+# threshold it described.)
 
 INPUT=$(cat 2>/dev/null || echo '{}')
 
