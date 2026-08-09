@@ -1,98 +1,72 @@
-# Session handoff — 2026-08-07 188ce668 (zig-computer, work:retreat, LinearB seat)
+# Session handoff — 2026-08-09, session 2cc9586e (zig-computer, dotfiles, personal tap)
 
-> ⚠️ This file overwrites whatever note was here — `dotfiles` still has no
-> `refs/.handoff-per-window` (`dotfiles-fmq6`). Check `git log -- refs/session-handoff.md`
-> for the note this replaced.
+> ⚠️ Overwrites the prior note (retreat-era). `git log -- refs/session-handoff.md` for history.
 
-**One session, five days, three machines.** Started on zig-computer 08-02, ran ON
-marketing-vps for most of the retreat, then was **moved back to zig-computer on 08-07** by
-pushing the transcript to the vault and resuming it in `work:retreat` on the LinearB seat.
+**The founding session.** Two days, ~36 agents dispatched/reviewed/merged, Fable orchestrating
+per the sandwich (Fable plans+reviews, Opus/Sonnet implement — now AGENTS.md doctrine).
+Main is clean and pushed at `771e429`; demesne, harnessd, explore, andrewzigler3, romd, aaif,
+creaturesd all pushed. No unmerged worktrees with content. Beads synced.
 
-## State at offboard
+## What this session built (query, don't trust prose)
 
-- Branch `main`, pushed, `local == remote` proven
-- Open beads: ~85; in-progress: 0
-- In-flight subagents: none — 21 dispatched across the session, all merged, worktrees removed
-- **marketing-vps: RETREAT COMPLETE.** Phases 1–4 done. `ssh` returns rc=255.
+`git log --oneline --since=2026-08-08` in dotfiles + demesne + harnessd. Highlights: demesne
+seeded (triple-verified) + CONSTITUTION ratified (`~/demesne/docs/constitution.md`); seat spec
+uikg authored+scrutinized+corrected (colon addresses, seat/tap, R1–R13); Wave 0 6/6 (probe
+retired the Opus-5 400 on CLI 2.1.226 — `refs/probes/fable5-envelope-2026-08-08.md`); freeze
+runbook (demesne-freeze.sh, 61 tests); hooks armed (agents_root resolver, symlink-triple);
+AGENTS.md rewritten (Effort de-universalized, model doctrine, glyph rule, machine baseline);
+config quick-wins ×6; home cleanup (~5.5G freed, worktree sweep, hermes retired); Audit N
+(548 handoff versions) → offboard Friction destinations discipline; roster of offices+sigils
+(ojjf); charter palette→constitution; endeavors epic; the HALL spec (sb6s); tap-type
+abstraction w/ codex baked in (d3ky); model-pin table (d0bk notes).
 
-## THE RETREAT — done
+## ⚠️ IN-FLIGHT WORK STOPPED PRE-COMPACTION — RE-DISPATCH FRESH
 
-| phase | result |
-|---|---|
-| 1 RESCUE | 6 orphan beads → `~/retreat-rescue-mvps-beads.jsonl` (sha `aedf5173`, matched). `~/work`/`~/bin` discarded per Zig. |
-| 2 STOP | 5 timers disabled, both tunnels killed, Linger=no, tmux server gone (took `di-fable`) |
-| 3 WIPE | **14G → 16K.** Order held: final sync (`memory=ok transcripts=ok`, stamps 0min, both `local==remote`) → disable sync timer → wipe with `~/dotfiles` LAST |
-| 4 SEVER | `4d → 4a → 4b → 4c`. All exit checks pass. |
+Six agents stopped by Zig before auto-compaction; **zero commits ahead in any worktree**
+(verified) — nothing to merge, nothing lost. Their contracts are ON THE BEADS. Re-dispatch:
 
-**The migration inside the retreat**: all seven LinearB pulse rows now run on zig-computer,
-`work:<row>` windows, LinearB seat (`~/.claude-work`), through pico's gateway. Verified in
-pico's request log (`group=zig-computer user=work:di-thursday`). All 7 timers scheduled.
+1. **btti + tzfr** (one Opus agent): seat-resolve lib + reverse-rename guard. Contract = uikg
+   R1–R13 + both beads. Don't touch session-start.sh (k50m owns it).
+2. **k50m** (Sonnet): session-start window-awareness via handoff-path helpers (source, don't edit).
+3. **lbxa + seats.yml seed** (Sonnet): roster file per uikg schema + ojjf roster + d0bk-notes
+   model pins + **d3ky tap types** (`type: claude` REQUIRED per tap, failover personal→work,
+   work never→personal) + validator incl. sigil emoji rule + pre-commit data arm.
+4. **2v8h** (Sonnet): reap ~35 leaked tmux test sockets + fixture traps; never touch `default`.
+5. **fkxf** (Sonnet, read-only): codex interop probe — fills d3ky's [PENDING] cells.
+6. **xicr** (Opus): dream fleet-scope per the v1 design on the bead. **MERGE ONLY AFTER the
+   2026-08-09 04:13 PT dream tick lands clean** (the jx71 rebuild's maiden run — check
+   explore's ledger row + gateway `gen_ai_request_model` for the dive/digest/dream users).
 
-## Decisions this session (`-t decision` beads)
+Stale worktrees from the stopped agents: remove `agent-{a581…,a677…,aa63…,aba7…,ae14…}`
+(0 commits ahead each — re-verify at removal per vqz8 discipline).
 
-- `dotfiles-ucl4` (open) — gateway failure fails HARD. **Its cost landed within a day**:
-  pico lost internet 6.5h and claude died fleet-wide. Decision stands; outcome recorded on
-  the bead. Lesson filed as `dotfiles-17k3`.
-- `dotfiles-dkmc` (open) — mutation-discipline clauses land in CLAUDE.md rule 1.
-- `dotfiles-volw` (closed, MOOT) — resolved a question about a guard that turned out not to
-  exist. See `dotfiles-aq6d`.
+## Then, in order
 
-Conversational decisions not filed as beads: rollout by force-fire not natural fire;
-gateway routing for the work seat; emptied-but-present end state; `--session work` not
-`zig-computer`; drop the 3 stale skills-library commits; leave the unidentified ecdsa key.
+- **d0bk** (pulse-inject honors seats.yml model pins, gateway-verified) → **hall v0** (sb6s —
+  court view + visit; spec carries the Zig-approved walkthrough + tap failover).
+- **The cutover evening** (Zig schedules): phases in this transcript + ocm7's runbook —
+  freeze → demesne re-sync + identity gate → flip (860z: evict aaif lock per 32j4, symlink,
+  six ~/.claude links, neuter sync.sh clobber) → retargets (n3b6+6ttp, kvrl, n77t, 5tn3,
+  zwvu serialized) → unfreeze → /clear all → soak → zga2 (P0) + k579 + pvlp + 1vpm.
+- Marshal (4d57) + fleet-drain spec (69qr) + outward gate (htqt) + seneschal v0 (faty) follow.
 
-## Filed after the first offboard (this note was re-written 2026-08-07)
+## Awaiting Zig (nothing blocks)
 
-- **`dotfiles-effn`** — the six silent-wrong-answer tool idioms, see Watch-outs.
-- **`dotfiles-vhys`** — the unidentified ecdsa key, below.
-- memory `feedback-on-the-record-means-a-bead`, indexed in `MEMORY.md`.
-- `dotfiles-9o46` appears in the decision harvest for this span but belongs to the
-  **marketing-vps session**, not this one.
+Model-pin vetoes (table on d0bk notes / in transcript); cutover scheduling; his cut-off
+rationale tails if he wants them on record (1iir "benefit from them" — recorded).
 
-## OPEN — and the first one is the only security item
+## Friction (destinations per the new discipline)
 
-1. **`dotfiles-vhys` — an UNIDENTIFIED ecdsa key has unrestricted inbound access to
-   zig-computer.** Matches neither GitHub account, nor pico, nor any local `.pub`. metis and
-   the iPhone (Termius, which generates ecdsa-nistp256) were NOT checked. Left in place at
-   Zig's instruction. Backup with the key still in it:
-   `~/.ssh/authorized_keys.bak.2026-08-07`.
-2. **`/etc/sudoers.d/90-andrew-nopasswd` was removed but NEVER VALIDATED.** The removal
-   revoked my own sudo, so `visudo -c` could not run afterwards. Risk is low (pre-removal
-   state parsed OK; a `rm` of one independent drop-in cannot corrupt the others) but it is
-   an argument, not a check — on a box shared with kevin/mike/ben. **Zig chose to proceed
-   and disclose to the box owner.** The correct form was one invocation:
-   `sudo -n sh -c 'rm -f … && visudo -c'` — the retreat doc has the same flaw.
-3. **Phase 7 paperwork** — `dotfiles-xi5b` (3 per-host files), `dotfiles-y3u8` (conduit
-   machinery; ⚠️ `pulse-dispatch-remote.sh` is referenced by `pre-commit-checks.sh`),
-   `dotfiles-9neb` (files that keep living), `dotfiles-mmxy` (infra.md, P1).
-4. `dotfiles-3137`, `dotfiles-g2vg`, `dotfiles-folq`, `dotfiles-fmq6`, `dotfiles-17k3`.
-5. **The repo is PUBLIC** with 26 files carrying IPs and 6 carrying colleague names.
-   Raised; Zig said nevermind. No bead filed — deliberately, it is his call.
+- PreToolUse hook-block killed compound br calls 3× this session → `dotfiles-fdvs` (doc landed)
+- Shell cwd resets between Bash calls → foreign-repo sequences must be single-call → one-off
+  (harness behavior; standalone-cd rule holds)
+- pre-bead-close lint evaluated the WRONG STORE when a compound cd'd to another repo first →
+  one-off (same class as fdvs; the split-calls rule covers it)
+- Context guard fired at 100% with 6 agents in flight → the fleet-drain spec should define
+  in-flight handoff conventions → noted on `dotfiles-69qr` scope (predict recurrence)
+- Nerdfont glyph fallbacks required 3 corrections → AGENTS.md glyph rule + lbxa validator arm
 
-## What shipped besides the retreat
+## Decisions
 
-CLAUDE.md rule 1 (mutation discipline) and rule 2 (run the example as committed);
-`/commit`'s pipe-masked-push anti-pattern; `lb-claude`; the statusline seat indicator;
-`claude-seat-link.sh`; `lb-granola-publish-guard.sh`; the Monday routing fix; and 14+ defects
-closed, every one of which had green mechanical gates.
-
-## Watch-outs
-
-**→ `dotfiles-effn` is the record.** Six tool idioms on this fleet that return a confident
-WRONG answer instead of an error — `find` without `-L` on the project-slug symlinks,
-`deferred` in the vault ledger, `rm` aliased to `-iv`, self-matching `pkill -f`,
-leading-dash arguments, and uutils `ps`. Each with the wrong answer it actually produced
-and the correct form. Cross-referenced from `dotfiles-cxle`, its consumer-side twin.
-
-*This section used to duplicate that list. Zig's correction, 2026-08-07: a durable finding
-belongs in a queryable bead, and prose points AT it rather than copying it — a handoff is
-overwritten by the next `/offboard`, so anything only recorded here is already half-lost.
-Filed as memory `feedback-on-the-record-means-a-bead`.*
-
-Session-specific, not in that bead:
-
-- **The seat is the ACCOUNT, not the path** — `~/.claude` is personal on zig-computer and
-  the LinearB seat on marketing-vps. A path-based statusline rule labelled a company
-  session `(me)`; Zig caught it. Fixed in `b0b95da`; the reasoning is in the script.
-- **The recurring shape, five days running:** every defect had green mechanical gates, and
-  the tell was always silence rather than error.
+All on beads (the on-the-record rule held all session): `br list --type decision` +
+closed-bead reasons. Constitution = `~/demesne/docs/constitution.md`.
