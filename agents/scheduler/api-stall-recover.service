@@ -1,0 +1,49 @@
+[Unit]
+Description=api stall recovery — nudge sessions whose turn a dead upstream killed back into work
+Documentation=file:///home/ubuntu/dotfiles/agents/scheduler/api-stall-recover.sh
+Documentation=file:///home/ubuntu/dotfiles/agents/scheduler/gateway-health.sh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/dotfiles
+ExecStart=/home/ubuntu/dotfiles/agents/scheduler/api-stall-recover.sh
+
+# SUCCESSEXITSTATUS POSTURE, stated because the absence is the decision — same
+# as pico-health and gateway-health, and for the same reason.
+#
+# There is deliberately no `SuccessExitStatus=0 10`. Exit 10 means at least one
+# seat was found dead at an idle prompt and had to be typed back into life. That
+# is not a quiet success: on 2026-08-09 four sessions sat that way for 2.5 hours
+# with the tmux glyph still reading 🧠, and the whole defect was that nothing
+# ever said so. A failed unit in `systemctl --user --failed` is how the fleet
+# learns it happened — and, if it keeps happening, that something upstream is
+# flapping.
+#
+# Exit 0 covers every quiet outcome, INCLUDING `upstream-down` and `no-panes`.
+# `upstream-down` is gateway-health.service's finding, and it is already failing
+# loudly about it; two units alarming on one outage is how alarm fatigue starts.
+#
+# Exit 1 means THIS CHECKER is broken — an unwritable cooldown state, a probe
+# binary that will not execute. Also a failed unit: a guard that cannot remember
+# whom it nudged would nudge them again every two minutes.
+
+# One 8s-capped probe, then a capture-pane per pane. Well under a minute on a
+# fleet this size; the next tick is 120 seconds away, so a hung run must never
+# outlive its own cadence.
+TimeoutStartSec=90
+Nice=10
+NoNewPrivileges=true
+
+# NO PrivateTmp / ProtectHome / ProtectSystem. PrivateTmp is the fatal one: the
+# tmux server socket lives in /tmp/tmux-1000/, so a private /tmp would give this
+# unit a namespace with no tmux server in it — `list-panes` would fail, the
+# guard would report `no-panes`, and it would look like a healthy fleet with
+# nothing to do while every seat sat stalled. That is the exact silent-success
+# shape this whole pair exists to end. ProtectHome would take the state file and
+# the log with it, and ProtectSystem's namespace has already been measured to
+# break ssh on the sibling units.
+
+[Install]
+WantedBy=default.target
