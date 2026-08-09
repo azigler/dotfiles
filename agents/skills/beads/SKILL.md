@@ -40,8 +40,14 @@ br lint <id>                     # check for missing template sections (use as p
 br doctor                        # diagnose + repair DB / JSONL drift
 br comments add <id> "..."       # per-event log entries with author metadata
 br audit                         # append-only JSONL of agent interactions (orchestrator visibility)
-br query save "<name>" "<query>" # save a frequently-run filter
-br query run <name>              # run a saved query
+br query save <name> [flags]      # save the CURRENT filter flags, not a
+                                  # query-language string — e.g. `br query
+                                  # save ready-p1s --status open
+                                  # --priority-max 1 --sort priority -d
+                                  # "P0/P1 open work, triage's first stop"`
+br query run <name>              # `br query run ready-p1s --format toon`
+                                  # reruns those exact flags — reusable
+                                  # instead of retyping the filter each time
 br graph                         # text-art dep graph
 br stats                         # high-level project counts
 br epic status                   # epics + close-eligibility
