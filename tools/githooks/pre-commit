@@ -344,11 +344,11 @@ fi
 # None of them turn a timer red, which is exactly why suite-green is not
 # evidence here. Measured on a 12-core box:
 #
-#     test-pulse-inject.sh (full, 113 cases)             107s
+#     test-pulse-inject.sh (full, 158 cases)             130s
 #     mutate-pulse-seat.sh (5 mutants + baseline)        252s
 #
 # The harness runs the suite with PULSE_TEST_ONLY=seat (48 cases, ~45s a run)
-# rather than the full 107s, and asserts that exact count so a filter matching
+# rather than the full suite, and asserts that exact count so a filter matching
 # nothing cannot read as a green baseline. The test file is a trigger on purpose
 # — S21d is the SOLE detector for the guard being opt-in, so deleting one case
 # loses the bite while the suite stays green.
@@ -358,6 +358,32 @@ if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(pulse-inject\.sh|test-
     bash "$ROOT/agents/scheduler/mutate-pulse-seat.sh" || FAILED=1
   else
     echo "pre-commit: FAIL — agents/scheduler/mutate-pulse-seat.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
+# --- the MODEL-PIN logic in pulse-inject.sh -> prove IT still bites --------
+# Fourth instance, on the same script's other silent decision: WHICH QUALITY
+# TIER (and rate) a row runs at (dotfiles-pulse-row-model-seat-d0bk). Same
+# argument as the seat block above and the same failure shape — a pin that never
+# reaches the launched process, a warm pane still on last week's model, a roster
+# lookup that quietly resolves to nothing. None turn a timer red. One failure
+# mode is NOT the seat's: the pin is spliced into a launch string that gets
+# send-keys'd into a shell, so a non-token roster value is keystroke injection.
+# Measured on a 12-core box:
+#
+#     mutate-pulse-model.sh (4 mutants + baseline)       125s
+#
+# It runs the suite with PULSE_TEST_ONLY=model (45 cases, ~25s a run) and
+# asserts that exact count. The test file is a trigger on purpose: MD31b/MD31c
+# are the SOLE detectors for the pin staying scoped to a `claude` launcher, so
+# deleting one case loses the bite while the suite stays green.
+if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(pulse-inject\.sh|test-pulse-inject\.sh|mutate-pulse-model\.sh)$'; then
+  echo "pre-commit: staged changes touch the pulse-inject model-pin logic -> running mutation harness (~2 min)"
+  if [ -f "$ROOT/agents/scheduler/mutate-pulse-model.sh" ]; then
+    bash "$ROOT/agents/scheduler/mutate-pulse-model.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/scheduler/mutate-pulse-model.sh is missing" >&2
     FAILED=1
   fi
 fi

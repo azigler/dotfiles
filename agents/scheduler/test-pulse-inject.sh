@@ -61,15 +61,25 @@ assert_verdict() {
   if [ "$got_rc" -eq "$want_rc" ]; then ok; else bad "$label: exit code UNCHANGED at $want_rc (got $got_rc)"; fi
 }
 
-# PULSE_TEST_ONLY=seat runs ONLY the --config-dir / seat cases (18-22) at the
-# bottom of this file. It exists for ONE caller: mutate-pulse-seat.sh, which
-# runs this suite once per mutant and would otherwise pay ~60s of unrelated
-# cases each time. It is a SUBSET, never a substitute — tools/githooks/pre-commit
-# runs the full suite on every staged edit to the injector, and the mutation
-# harness asserts an exact case count so a filter that silently matched nothing
-# is a harness error rather than a green run.
+# PULSE_TEST_ONLY selects ONE of the bottom sections and skips everything else.
+# It exists for the mutation harnesses, which run this suite once per mutant and
+# would otherwise pay ~60s of unrelated cases each time:
+#
+#   seat   -> only the --config-dir cases (18-22)   caller: mutate-pulse-seat.sh
+#   model  -> only the --model cases (23-31)        caller: mutate-pulse-model.sh
+#
+# Each is a SUBSET, never a substitute — tools/githooks/pre-commit runs the FULL
+# suite on every staged edit to the injector, and each mutation harness asserts
+# an exact case count so a filter that silently matched nothing is a harness
+# error rather than a green run. Adding a case to one section therefore means
+# bumping exactly one EXPECT_CASES; that coupling is the point.
 RUN_LEGACY=1
-[ "${PULSE_TEST_ONLY:-}" = "seat" ] && RUN_LEGACY=0
+RUN_SEAT=1
+RUN_MODEL=1
+case "${PULSE_TEST_ONLY:-}" in
+  seat)  RUN_LEGACY=0; RUN_MODEL=0 ;;
+  model) RUN_LEGACY=0; RUN_SEAT=0 ;;
+esac
 
 if [ "$RUN_LEGACY" = 1 ]; then
 # ↓↓↓ cases 1-17 are deliberately NOT re-indented: keeping them byte-identical
@@ -537,7 +547,12 @@ else
   ok
 fi
 
-fi   # ↑↑↑ end of cases 1-17 (skipped by PULSE_TEST_ONLY=seat)
+fi   # ↑↑↑ end of cases 1-17 (skipped by PULSE_TEST_ONLY=seat|model)
+
+if [ "$RUN_SEAT" = 1 ]; then
+# ↓↓↓ cases 18-22 are likewise NOT re-indented under this guard: mutate-pulse-
+#     seat.sh asserts their exact count, and a reindent would make "no change to
+#     the seat cases" unreviewable as a diff.
 
 # ===========================================================================
 # 18-22. --config-dir: RUNNING A TICK ON A NAMED CLAUDE SEAT (dotfiles-nnmm).
@@ -842,6 +857,363 @@ fi
 env -u TMUX -u TMUX_TMPDIR "$TMUX_BIN" -L "$PRIV" kill-server 2>/dev/null
 env -u TMUX -u TMUX_TMPDIR "$TMUX_BIN" -L "$PRIV2" kill-server 2>/dev/null
 rm -f "$PRIV_SOCKDIR/$PRIV" "$PRIV_SOCKDIR/$PRIV2"
+
+fi   # ↑↑↑ end of cases 18-22 (skipped by PULSE_TEST_ONLY=model)
+
+if [ "$RUN_MODEL" = 1 ]; then
+# ===========================================================================
+# 23-31. --model: RUNNING A ROW ON THE MODEL ITS SEAT PINS
+#        (dotfiles-pulse-row-model-seat-d0bk).
+# ===========================================================================
+#
+# Why these exist. Until this flag every one of the 24 pulse timers ran on the
+# machine default by INHERITANCE — `LAUNCH="claude"`, bare. The roster
+# (agents/seats.yml) now carries a per-seat `model:` under Zig's DEFAULT-UP /
+# PIN-DOWN policy, and the seam that makes a pin mean anything is this injector.
+# Every failure mode is silent in the same way the seat's was: a pin that never
+# reaches the launched process, a durable warm pane still running last week's
+# model, a roster lookup that quietly resolves to nothing. Nothing turns a timer
+# red for any of them.
+#
+# EVERY case here runs on a PRIVATE tmux server (-L), for the same reason cases
+# 18-22 do: they create panes, read process trees, and kill sessions.
+#
+# Case tags (MD23a, MD27c, …) are load-bearing: mutate-pulse-model.sh asserts
+# that a mutant kills the case it NAMES by matching those tags in the FAIL list.
+
+MPRIV="pulsemodel-$$"
+MPRIV_SOCKDIR="/tmp/tmux-$UID"
+MTMUX() { env -u TMUX -u TMUX_TMPDIR "$TMUX_BIN" -L "$MPRIV" "$@"; }
+# The seat sockets may not exist at all under PULSE_TEST_ONLY=model (that block
+# was skipped), so they are referenced through defaults — an unset expansion
+# under `set -u` inside a trap is a cleanup that dies before it cleans.
+_PRIVA=${PRIV:-__no-priv__}
+_PRIVB=${PRIV2:-__no-priv2__}
+trap 'env -u TMUX -u TMUX_TMPDIR "$TMUX_BIN" -L "$MPRIV" kill-server 2>/dev/null; env -u TMUX -u TMUX_TMPDIR "$TMUX_BIN" -L "$_PRIVA" kill-server 2>/dev/null; env -u TMUX -u TMUX_TMPDIR "$TMUX_BIN" -L "$_PRIVB" kill-server 2>/dev/null; rm -f "$MPRIV_SOCKDIR/$MPRIV" "$MPRIV_SOCKDIR/$_PRIVA" "$MPRIV_SOCKDIR/$_PRIVB"; "$TMUX_BIN" kill-session -t "=$SESSION" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION2" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION3" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION4" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION5" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION6" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION7" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION8" 2>/dev/null; rm -rf "$DIR"' EXIT
+
+MPRIV_TMUX="$DIR/tmux-model.sh"
+printf '#!/bin/bash\nexec env -u TMUX -u TMUX_TMPDIR %s -L %s "$@"\n' "$TMUX_BIN" "$MPRIV" > "$MPRIV_TMUX"
+chmod +x "$MPRIV_TMUX"
+MTMUX new-session -d -s modelserver -n idle -c "$DIR"
+sleep 0.5
+
+# The REAL resolver, never a second parser. Under mutate-pulse-model.sh this
+# suite and the injector both run from a scratch copy, so the harness exports
+# PULSE_SEAT_RESOLVE; run by hand it derives from the injector beside it.
+SEATLIB="${PULSE_SEAT_RESOLVE:-$(cd "$(dirname "$INJECT")/../lib" 2>/dev/null && pwd)/seat-resolve.sh}"
+if [ ! -f "$SEATLIB" ]; then
+  bad "MD00 the seat resolver is reachable at $SEATLIB (every model case depends on it)"
+fi
+
+# A FIXTURE roster — never agents/seats.yml. Two seats: one pinned, one that
+# declares no model at all (the roster-drift case a valid roster cannot express,
+# since validate-seats.py requires `model:` — but seat-resolve happily returns an
+# empty one, and "empty" must mean "no pin", not "pin the empty string").
+# Neither seat declares schedules, so the resolver's R7 session check is not in
+# play and these cases are about the MODEL lookup, nothing else.
+MROSTER="$DIR/seats-model.yml"
+cat > "$MROSTER" <<'EOS'
+schema: 1
+hosts: [zig-computer]
+charter: null
+taps:
+  personal:
+    type: claude
+    config_dir: ~/.claude
+    failover: []
+seats:
+  pinnedseat:
+    charter-line: "fixture seat carrying a model pin"
+    office: "The Fixture"
+    sigil: "🧪"
+    home: ~/
+    model: sonnet
+    effort: high
+    aliases:
+      - pinnedseat-old
+    history: refs/seats/pinnedseat.history.md
+    schedules: []
+  unpinnedseat:
+    charter-line: "fixture seat with NO model pin"
+    office: "The Unpinned"
+    sigil: "🧫"
+    home: ~/
+    effort: high
+    aliases: []
+    history: refs/seats/unpinnedseat.history.md
+    schedules: []
+EOS
+
+# A roster whose pin is NOT a bare token. The pin is TYPED INTO A SHELL as part
+# of the launch string, so this is the shell-injection fixture. The payload is a
+# COMMAND SUBSTITUTION rather than a `;` chain on purpose: `; touch` would run
+# only after the launcher exits, and the launcher holds the pane forever — so the
+# obvious payload would look harmless and the case would prove nothing. `$( )` is
+# expanded when the shell executes the line, i.e. immediately.
+MROSTER_BAD="$DIR/seats-model-bad.yml"
+sed 's|^    model: sonnet$|    model: "sonnet$(touch /tmp/pulse-model-pwn)"|' "$MROSTER" > "$MROSTER_BAD"
+
+# The launcher that RECORDS ITS OWN ARGV — the only thing that can answer "was
+# the pin actually applied to the process", as opposed to "did the flag parse".
+# It is NAMED `claude` on purpose: the injector only pins a `claude` launcher,
+# and a stub called anything else would test a path production never takes.
+# Being a shebang script, tmux reports its pane_current_command as `bash`, so
+# every invocation below passes --launch-detect bash (the existing seam).
+mkdir -p "$DIR/bin"
+MCLAUDE="$DIR/bin/claude"
+cat > "$MCLAUDE" <<'EOS'
+#!/bin/bash
+# fixture: record the argv this process was started with, then hold the pane
+REC="$1"; shift
+printf '%s\n' "$*" > "$REC"
+while IFS= read -r line; do printf '%s\n' "$line"; done
+EOS
+chmod +x "$MCLAUDE"
+
+# A NON-claude launcher, same recording behaviour (case 31).
+MNOTCLAUDE="$DIR/bin/goose-ish"
+cp "$MCLAUDE" "$MNOTCLAUDE"
+
+model_pane() {   # <session> <window> -> pane id on the private server
+  MTMUX list-panes -a -F '#{session_name} #{window_name} #{pane_id}' 2>/dev/null \
+    | awk -v s="$1" -v w="$2" '$1==s && $2==w {print $3; exit}'
+}
+
+# inject_model <state-dir> <extra args…> — every model case runs the injector
+# against the private server, the fixture roster and the real resolver.
+inject_model() {
+  local st=$1; shift
+  SEATS_YML="$MROSTER" PULSE_SEAT_RESOLVE="$SEATLIB" PULSE_TMUX_BIN="$MPRIV_TMUX" \
+    HARNESS_STATE_DIR="$st" PULSE_READY_MARKER='' "$INJECT" "$@"
+}
+MLEDGER() { printf '%s' "$1/pulse-models.jsonl"; }
+
+# --- 23. THE PIN REACHES THE LAUNCHED PROCESS -------------------------------
+#     The assertion this bead turns on. Not "the roster has a model", not "the
+#     flag parsed" — the argv of the process that started in the pane.
+S23SESSION="model23-$$"
+REC23="$DIR/rec23"
+ST23=$(mktemp -d)
+V_OUT=$(inject_model "$ST23" --session "$S23SESSION" --window pinnedseat --dir "$DIR" \
+  --launch "$MCLAUDE $REC23" --launch-detect bash --cmd "model-tick-23" 2>/dev/null); V_RC=$?
+assert_verdict "MD23a" injected 0 "$V_RC" "$V_OUT"
+if grep -q -- '--model sonnet' "$REC23" 2>/dev/null; then
+  ok
+else
+  bad "MD23b the LAUNCHED process was started with --model sonnet (argv: '$(cat "$REC23" 2>/dev/null)')"
+fi
+PANE23=$(model_pane "$S23SESSION" pinnedseat)
+sleep 1
+if MTMUX capture-pane -p -t "$PANE23" 2>/dev/null | grep -q "model-tick-23"; then
+  ok
+else
+  bad "MD23c the pinned tick is still injected"
+fi
+# …and the LEDGER row records what was requested, with its provenance, so the
+# gateway's gen_ai_request_model has something independent to be checked against.
+if grep -q '"model":"sonnet"' "$(MLEDGER "$ST23")" 2>/dev/null \
+   && grep -q '"source":"roster"' "$(MLEDGER "$ST23")" 2>/dev/null \
+   && grep -q '"seat":"pinnedseat"' "$(MLEDGER "$ST23")" 2>/dev/null \
+   && grep -q '"result":"injected"' "$(MLEDGER "$ST23")" 2>/dev/null; then
+  ok
+else
+  bad "MD23d the ledger row records model/source/seat/result (got: $(cat "$(MLEDGER "$ST23")" 2>/dev/null))"
+fi
+
+# --- 24. AN UNREGISTERED WINDOW BEHAVES EXACTLY AS BEFORE -------------------
+#     The backward-compatibility case, and the one that keeps this flag from
+#     being a fleet-wide behaviour change: a window with no seat gets no lookup
+#     result, no flag, and no ledger row.
+S24SESSION="model24-$$"
+REC24="$DIR/rec24"
+ST24=$(mktemp -d)
+V_OUT=$(inject_model "$ST24" --session "$S24SESSION" --window not-a-seat-24 --dir "$DIR" \
+  --launch "$MCLAUDE $REC24" --launch-detect bash --cmd "unpinned-tick-24" 2>/dev/null); V_RC=$?
+assert_verdict "MD24a" injected 0 "$V_RC" "$V_OUT"
+if grep -q -- '--model' "$REC24" 2>/dev/null; then
+  bad "MD24b an unregistered window gets NO --model (argv: '$(cat "$REC24" 2>/dev/null)')"
+else
+  ok
+fi
+if [ -f "$(MLEDGER "$ST24")" ]; then
+  bad "MD24c an unpinned tick writes NO model ledger row"
+else
+  ok
+fi
+
+# --- 25. A REGISTERED SEAT WITH NO `model:` IS ALSO "NO PIN" ----------------
+#     Roster drift, not a crash: an empty model must never become `--model ''`.
+S25SESSION="model25-$$"
+REC25="$DIR/rec25"
+ST25=$(mktemp -d)
+V_OUT=$(inject_model "$ST25" --session "$S25SESSION" --window unpinnedseat --dir "$DIR" \
+  --launch "$MCLAUDE $REC25" --launch-detect bash --cmd "unpinned-seat-25" 2>/dev/null); V_RC=$?
+assert_verdict "MD25a" injected 0 "$V_RC" "$V_OUT"
+if grep -q -- '--model' "$REC25" 2>/dev/null; then
+  bad "MD25b a seat with no model: gets NO --model (argv: '$(cat "$REC25" 2>/dev/null)')"
+else
+  ok
+fi
+
+# --- 26. THE ROSTER'S ALIAS MACHINERY IS THE RESOLVER'S, NOT A COPY ---------
+#     A renamed window resolves through `aliases:` to the canonical seat and
+#     inherits ITS pin. This is here to prove the injector asks seat-resolve.sh
+#     rather than growing a second roster parser.
+S26SESSION="model26-$$"
+REC26="$DIR/rec26"
+ST26=$(mktemp -d)
+inject_model "$ST26" --session "$S26SESSION" --window pinnedseat-old --dir "$DIR" \
+  --launch "$MCLAUDE $REC26" --launch-detect bash --cmd "alias-tick-26" >/dev/null 2>&1
+if grep -q -- '--model sonnet' "$REC26" 2>/dev/null; then
+  ok
+else
+  bad "MD26a an ALIAS window inherits its canonical seat's pin (argv: '$(cat "$REC26" 2>/dev/null)')"
+fi
+
+# --- 27. THE WARM PANE: A PROVEN MISMATCH WARNS, RECORDS, AND PROCEEDS ------
+#     A running launcher cannot change model mid-flight, so the reuse path has
+#     the same hole --config-dir has. The DECISION here is the other one: wrong
+#     model is a quality tier, visible afterwards in gen_ai_request_model, and
+#     refusing would strand every pane launched before pins existed. Warn.
+#     The pane from case 23 is warm on sonnet; ask for opus.
+ST27=$(mktemp -d)
+V_OUT=$(inject_model "$ST27" --session "$S23SESSION" --window pinnedseat --dir "$DIR" \
+  --launch "$MCLAUDE $REC23" --launch-detect bash --model opus --cmd "warm-mismatch-27" 2>/dev/null); V_RC=$?
+assert_verdict "MD27a" injected 0 "$V_RC" "$V_OUT"
+sleep 1
+if MTMUX capture-pane -p -t "$PANE23" 2>/dev/null | grep -q "warm-mismatch-27"; then
+  ok
+else
+  bad "MD27b a warn-level mismatch still delivers the tick"
+fi
+V_ERR=$(inject_model "$ST27" --session "$S23SESSION" --window pinnedseat --dir "$DIR" \
+  --launch "$MCLAUDE $REC23" --launch-detect bash --model opus --cmd "warm-mismatch-27b" 2>&1 >/dev/null)
+if printf '%s\n' "$V_ERR" | grep -q 'MODEL MISMATCH' \
+   && printf '%s\n' "$V_ERR" | grep -q 'sonnet' \
+   && printf '%s\n' "$V_ERR" | grep -q 'opus'; then
+  ok
+else
+  bad "MD27c the mismatch names the model that IS running and the one asked for (got: $V_ERR)"
+fi
+if grep -q '"mismatch":true' "$(MLEDGER "$ST27")" 2>/dev/null \
+   && grep -q '"observed_model":"sonnet"' "$(MLEDGER "$ST27")" 2>/dev/null \
+   && grep -q '"model":"opus"' "$(MLEDGER "$ST27")" 2>/dev/null \
+   && grep -q '"source":"flag"' "$(MLEDGER "$ST27")" 2>/dev/null; then
+  ok
+else
+  bad "MD27d the mismatch is RECORDED as an event, requested vs observed (got: $(cat "$(MLEDGER "$ST27")" 2>/dev/null))"
+fi
+
+# --- 28. …and the ruling is flippable without a code change -----------------
+#     PULSE_MODEL_ON_MISMATCH=fail is the warn path's tested twin. A guard whose
+#     other arm was never executed is a guard nobody can turn on in an incident.
+ST28=$(mktemp -d)
+V_OUT=$(PULSE_MODEL_ON_MISMATCH=fail inject_model "$ST28" --session "$S23SESSION" --window pinnedseat \
+  --dir "$DIR" --launch "$MCLAUDE $REC23" --launch-detect bash --model opus \
+  --cmd "must-not-appear-28" 2>/dev/null); V_RC=$?
+assert_verdict "MD28a" failed-wrong-model 77 "$V_RC" "$V_OUT"
+sleep 1
+if MTMUX capture-pane -p -t "$PANE23" 2>/dev/null | grep -q "must-not-appear-28"; then
+  bad "MD28b a fail-level mismatch types NOTHING into the pane"
+else
+  ok
+fi
+
+# --- 29. THE GUARD MUST NOT CRY WOLF ----------------------------------------
+#     Same warm pane, the model it is actually running: no mismatch, no warning,
+#     and the ledger says so. Without this, MD27/MD28 are equally satisfied by a
+#     guard that fires on everything.
+ST29=$(mktemp -d)
+V_OUT=$(inject_model "$ST29" --session "$S23SESSION" --window pinnedseat --dir "$DIR" \
+  --launch "$MCLAUDE $REC23" --launch-detect bash --cmd "warm-right-model-29" 2>/dev/null); V_RC=$?
+assert_verdict "MD29a" injected 0 "$V_RC" "$V_OUT"
+if grep -q '"mismatch":false' "$(MLEDGER "$ST29")" 2>/dev/null \
+   && grep -q '"observed_model":"sonnet"' "$(MLEDGER "$ST29")" 2>/dev/null; then
+  ok
+else
+  bad "MD29b a matching warm pane records mismatch:false (got: $(cat "$(MLEDGER "$ST29")" 2>/dev/null))"
+fi
+
+# --- 30. UNVERIFIABLE IS NOT MISMATCH ---------------------------------------
+#     THE PRODUCTION HAZARD, stated exactly: every durable pane in the fleet was
+#     launched BEFORE pins existed, so its launcher carries no --model at all.
+#     That is the normal state, not a wrong one, and it must proceed even under
+#     the strict setting — otherwise turning the knob on would stall every row
+#     until a human killed its window.
+S30SESSION="model30-$$"
+REC30="$DIR/rec30"
+ST30=$(mktemp -d)
+inject_model "$ST30" --session "$S30SESSION" --window not-a-seat-30 --dir "$DIR" \
+  --launch "$MCLAUDE $REC30" --launch-detect bash --cmd "prepin-window-30" >/dev/null 2>&1
+if grep -q -- '--model' "$REC30" 2>/dev/null; then
+  bad "MD30a the fixture pane really is pin-less (argv: '$(cat "$REC30" 2>/dev/null)')"
+else
+  ok
+fi
+V_OUT=$(PULSE_MODEL_ON_MISMATCH=fail inject_model "$ST30" --session "$S30SESSION" --window not-a-seat-30 \
+  --dir "$DIR" --launch "$MCLAUDE $REC30" --launch-detect bash --model sonnet \
+  --cmd "unverifiable-30b" 2>/dev/null); V_RC=$?
+assert_verdict "MD30b" injected 0 "$V_RC" "$V_OUT"
+sleep 1
+PANE30=$(model_pane "$S30SESSION" not-a-seat-30)
+if MTMUX capture-pane -p -t "$PANE30" 2>/dev/null | grep -q "unverifiable-30b"; then
+  ok
+else
+  bad "MD30c an unverifiable warm pane still receives the tick, even under =fail"
+fi
+
+# --- 31. SCOPE + SAFETY -----------------------------------------------------
+#     a) A pin is only ever spliced into a `claude` launcher. dive's launcher is
+#        tick-jailed.sh, which execs bwrap and would swallow `--model` as its own
+#        argument; a pin that silently rewrote a jail's argv is worse than an
+#        unpinned tick. Nothing is recorded either, because nothing was applied.
+S31SESSION="model31-$$"
+REC31="$DIR/rec31"
+ST31=$(mktemp -d)
+V_OUT=$(inject_model "$ST31" --session "$S31SESSION" --window pinnedseat --dir "$DIR" \
+  --launch "$MNOTCLAUDE $REC31" --launch-detect bash --cmd "non-claude-31" 2>/dev/null); V_RC=$?
+assert_verdict "MD31a" injected 0 "$V_RC" "$V_OUT"
+if grep -q -- '--model' "$REC31" 2>/dev/null; then
+  bad "MD31b a non-claude launcher is never given --model (argv: '$(cat "$REC31" 2>/dev/null)')"
+else
+  ok
+fi
+if [ -f "$(MLEDGER "$ST31")" ]; then
+  bad "MD31c a pin that could not be APPLIED is not recorded as requested"
+else
+  ok
+fi
+
+#     b) The pin is typed into a shell, so a roster value that is not a bare
+#        token is refused rather than spliced. seats.yml has its own validator,
+#        but this injector must not borrow another file's gate for its own
+#        keystroke safety.
+S31BSESSION="model31b-$$"
+REC31B="$DIR/rec31b"
+ST31B=$(mktemp -d)
+rm -f /tmp/pulse-model-pwn
+V_OUT=$(SEATS_YML="$MROSTER_BAD" PULSE_SEAT_RESOLVE="$SEATLIB" PULSE_TMUX_BIN="$MPRIV_TMUX" \
+  HARNESS_STATE_DIR="$ST31B" PULSE_READY_MARKER='' "$INJECT" \
+  --session "$S31BSESSION" --window pinnedseat --dir "$DIR" \
+  --launch "$MCLAUDE $REC31B" --launch-detect bash --cmd "metachar-31d" 2>/dev/null); V_RC=$?
+assert_verdict "MD31d" injected 0 "$V_RC" "$V_OUT"
+if grep -q -- '--model' "$REC31B" 2>/dev/null; then
+  bad "MD31e a non-token pin is refused, never spliced (argv: '$(cat "$REC31B" 2>/dev/null)')"
+else
+  ok
+fi
+if [ -e /tmp/pulse-model-pwn ]; then
+  bad "MD31f the refused pin did not execute anything in the pane"
+  rm -f /tmp/pulse-model-pwn
+else
+  ok
+fi
+
+env -u TMUX -u TMUX_TMPDIR "$TMUX_BIN" -L "$MPRIV" kill-server 2>/dev/null
+rm -f "$MPRIV_SOCKDIR/$MPRIV"
+rm -rf "$ST23" "$ST24" "$ST25" "$ST26" "$ST27" "$ST28" "$ST29" "$ST30" "$ST31" "$ST31B"
+
+fi   # ↑↑↑ end of cases 23-31 (skipped by PULSE_TEST_ONLY=seat)
 
 # --- Summary ---
 TOTAL=$((PASS + FAIL))
