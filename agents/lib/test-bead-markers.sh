@@ -89,6 +89,20 @@ some prose"
 _bm_br_show_description() { printf '%s' "${FAKE_DESC[$1]:-}"; }
 _bm_br_update_description() { FAKE_DESC[$1]=$2; }
 
+# Fake label store — space-delimited label list per id, e.g.
+# FAKE_LABELS[bead-4]=" fleet outward ". Default (unset) = no labels, so
+# marker_is_fleet/marker_is_outward fall through to the description form —
+# this is what keeps T11c/T13a/T13b hermetic even though those functions
+# now check labels FIRST.
+declare -A FAKE_LABELS
+_bm_br_has_label() {
+  local id=$1 label=$2
+  case " ${FAKE_LABELS[$id]:-} " in
+    *" $label "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 marker_set bead-1 fleet yes >/dev/null 2>&1
 RC=$?
 [ "$RC" -eq 0 ] && ok || bad "T11a: marker_set fleet yes -> rc=$RC"
@@ -125,6 +139,41 @@ RC=$?
 # --- T15: marker_set rejects an unrecognized marker name ---------------
 marker_set bead-1 bogus yes >/dev/null 2>&1
 [ $? -eq 2 ] && ok || bad "T15: unrecognized marker name must be rejected"
+
+# --- T16: marker_is_fleet is LABEL-BACKED — true via label alone, with NO
+#          description-line marker present at all (dotfiles-pcdq) ---------
+FAKE_DESC[bead-4]="## Context
+no marker lines here"
+FAKE_LABELS[bead-4]="fleet"
+marker_is_fleet bead-4
+[ $? -eq 0 ] && ok || bad "T16: label-only 'fleet' must be fleet-eligible"
+
+# --- T17: marker_is_outward is LABEL-BACKED the same way ----------------
+FAKE_DESC[bead-5]="## Context
+no marker lines here"
+FAKE_LABELS[bead-5]="outward"
+marker_is_outward bead-5
+[ $? -eq 0 ] && ok || bad "T17: label-only 'outward' must be outward-eligible"
+
+# --- T18: label takes precedence over a CONTRADICTING description line --
+FAKE_DESC[bead-6]="Fleet: no"
+FAKE_LABELS[bead-6]="fleet"
+marker_is_fleet bead-6
+[ $? -eq 0 ] && ok || bad "T18: label 'fleet' must win over a stale 'Fleet: no' line"
+
+# --- T19: no label AND no description line -> false for both -----------
+FAKE_DESC[bead-7]="## Context
+nothing marker-related"
+marker_is_fleet bead-7
+[ $? -eq 1 ] && ok || bad "T19a: absent label + absent description must not be fleet-eligible"
+marker_is_outward bead-7
+[ $? -eq 1 ] && ok || bad "T19b: absent label + absent description must not be outward-eligible"
+
+# --- T20: description-line fallback still works with NO label (transition
+#          case — a bead migrated by neither label nor re-write) ---------
+FAKE_DESC[bead-8]="Outward: yes"
+marker_is_outward bead-8
+[ $? -eq 0 ] && ok || bad "T20: description-line 'Outward: yes' fallback must still work"
 
 # --- Summary ---
 TOTAL=$((PASS + FAIL))

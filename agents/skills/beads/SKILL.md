@@ -197,12 +197,20 @@ work it is — the label is the cross-cutting marker.
 markers on beads — `fleet: yes`, `fleet-model: opus`, `outward: yes` — that
 control machine behavior: whether the overnight drain may claim a bead at
 all, which model it dispatches on, and whether the outward gate must be
-consulted. These are **not** the same mechanism as a label. br 0.2.16 has no
-key/value metadata verb (`--agent-context` is a different subsystem's
-governing-instructions JSON, not a general marker store; `br label` is real
-but flat/valueless — right shape for `friction`, wrong shape for a marker
-that needs a VALUE). So a marker is a plain-text line inside the bead's
-`--description`, one marker per line, **strict grammar**:
+consulted. br 0.2.16 has no key/value metadata verb — `--agent-context` sets
+a schema-v11 governing-instructions JSON blob that is DB-ONLY, never
+exported to JSONL at all (field census on this repo's own `issues.jsonl`:
+zero rows carry it), so a marker stored there would not survive clone or
+machine transfer. That leaves two real mechanisms, split by shape:
+
+- **`fleet` and `outward` are booleans** — presence IS the value — so as of
+  dotfiles-pcdq they are **label-backed**: `br label add <id> -l fleet` /
+  `-l outward`. This is the canonical, current form: `br list --label
+  fleet`, `bv -l fleet` scoping, and `BV_ROBOT_NOT_READY_LABELS`
+  claimability gating all read it directly, no marker parsing needed.
+- **`fleet-model` needs an arbitrary VALUE** (`opus`, `sonnet`, …), so a
+  flat label is the wrong shape for it — it stays a plain-text line inside
+  the bead's `--description`, one marker per line, **strict grammar**:
 
 ```
 <Key>: <token>
@@ -213,10 +221,17 @@ that needs a VALUE). So a marker is a plain-text line inside the bead's
 `Fleet:`). `<token>` is `[A-Za-z0-9_-]+` — no spaces. Boolean markers
 (`fleet`, `outward`) are true iff the token is EXACTLY `yes`
 (case-insensitive) — `fleet: yesterday` is a well-formed line with a real
-value, it is just not a *true* one. Full grammar + implementation:
+value, it is just not a *true* one.
+
+The description-line form for `fleet`/`outward` is **read-fallback only**,
+kept so beads marked before the migration (or by a writer that hasn't moved
+to labels yet) still resolve — `marker_is_fleet` / `marker_is_outward` check
+the label first and only consult the description line if the label is
+absent. Full grammar + implementation:
 [`agents/lib/bead-markers.sh`](../../lib/bead-markers.sh) (`marker_get`,
-`marker_set`, `marker_is_fleet` — the ONE shared implementation the drain and
-the outward guard both import; do not hand-roll a second grep for this).
+`marker_set`, `marker_is_fleet`, `marker_is_outward` — the ONE shared
+implementation the drain and the outward guard both import; do not
+hand-roll a second grep or label check for this).
 
 **Who may set each marker** (the contract; the library only implements the
 grammar, it does not enforce authorship):

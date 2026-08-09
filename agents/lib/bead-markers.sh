@@ -5,14 +5,25 @@
 # codebase (dotfiles-dh89 — grep proved them prose-only).
 #
 # CONVENTION DECIDED (dotfiles-dh89, 2026-08-09): br 0.2.16 has NO key/value
-# metadata verb. `br update --agent-context` sets a governing-instructions
-# JSON blob for a different subsystem (beads_rust#297, descendant-inherited
-# context), not a general marker store. `br label` DOES exist and is real,
-# but it is a flat, valueless tag namespace — right shape for `friction`
-# (SKILL.md's existing convention), wrong shape for `fleet-model: opus`,
-# which needs a VALUE, not just presence/absence. So markers live as plain
-# text lines inside the bead's `--description`, one marker per line, with a
-# STRICT grammar both this file's readers and its writer share:
+# metadata verb. `br update --agent-context` sets a schema-v11
+# governing-instructions JSON blob that is DB-ONLY — it is not exported to
+# the JSONL at all, so a marker stored there would not survive clone or
+# machine transfer (this replaces dh89's earlier "different subsystem"
+# framing with the concrete, checkable reason: field census on this repo's
+# own issues.jsonl shows zero rows carrying it). `br label` DOES exist, is
+# real, and IS exported to JSONL — but a label is flat/valueless, so it is
+# the right shape for `friction` (SKILL.md's existing convention) and, as of
+# dotfiles-pcdq, for the two BOOLEAN markers `fleet` and `outward` (presence
+# IS the value). It is still the wrong shape for `fleet-model: opus`, which
+# needs an arbitrary VALUE, not just presence/absence — so `fleet-model`
+# stays a description-line marker. `fleet` and `outward` therefore now have
+# TWO representations: `br label add <id> -l fleet` / `-l outward` is
+# canonical going forward; the plain-text description line documented below
+# is READ-FALLBACK ONLY, kept so beads marked before the migration (or by a
+# writer that hasn't moved to labels yet) still resolve correctly. Markers
+# without a clean label shape (`fleet-model`) live as plain text lines
+# inside the bead's `--description`, one marker per line, with a STRICT
+# grammar both this file's readers and its writer share:
 #
 #   <Key>:<one-or-more-spaces><token><optional trailing spaces><end of line>
 #
@@ -66,6 +77,26 @@ except Exception:
 _bm_br_update_description() {
   local id=$1 desc=$2
   br update "$id" --description "$desc" >/dev/null
+}
+
+# _bm_br_has_label <bead-id> <label> -> return 0 iff the bead's `labels`
+# array (as reported by `br show <id> --json`) contains <label> exactly;
+# return 1 for absence OR any read failure (an unreadable bead is treated as
+# label-absent, which sends callers to the description-line fallback rather
+# than erroring). Same `--json` LIST-not-object quirk as
+# _bm_br_show_description above — index [0].
+_bm_br_has_label() {
+  local id=$1 label=$2
+  br show "$id" --json 2>/dev/null | python3 -c '
+import json, sys
+label = sys.argv[1]
+try:
+    rows = json.load(sys.stdin)
+    row = rows[0] if isinstance(rows, list) else rows
+    sys.exit(0 if label in (row.get("labels") or []) else 1)
+except Exception:
+    sys.exit(1)
+' "$label"
 }
 
 # ---------------------------------------------------------------------------
@@ -136,11 +167,24 @@ marker_get() {
   marker_extract "$marker" "$text"
 }
 
-# marker_is_fleet <bead-id> -> return 0 iff the bead carries `fleet: yes`
-# (grammar-exact), 1 otherwise (absent, malformed, or any other value).
+# marker_is_fleet <bead-id> -> return 0 iff the bead is fleet-eligible, 1
+# otherwise. LABEL-BACKED FIRST (dotfiles-pcdq): `br label add <id> -l
+# fleet` is checked before anything else, since presence of the label IS
+# the true value for a boolean marker. Falls back to the description-line
+# form (`Fleet: yes`, grammar-exact) for beads not yet migrated.
 marker_is_fleet() {
   local id=$1 value
+  _bm_br_has_label "$id" fleet && return 0
   value=$(marker_get "$id" fleet) || return 1
+  marker_bool_from_value "$value"
+}
+
+# marker_is_outward <bead-id> -> same label-first / description-fallback
+# shape as marker_is_fleet, for the htqt outward gate's `outward: yes`.
+marker_is_outward() {
+  local id=$1 value
+  _bm_br_has_label "$id" outward && return 0
+  value=$(marker_get "$id" outward) || return 1
   marker_bool_from_value "$value"
 }
 
