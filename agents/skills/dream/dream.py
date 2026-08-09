@@ -23,6 +23,14 @@ Three entry points
                                 recurrence store (phase two of collect→remember).
 ``dream.py slugs``              what fleet scope would iterate, after the
                                 denylist and the caps. Reads nothing else.
+``dream.py laurels --place FILE``
+                                place this week's 0-3 evidence-cited laurels
+                                (``dotfiles-qnfk`` R2): a history entry via
+                                ``agents/lib/seat-history.sh`` plus one ledger
+                                row, all-or-none, capped, Remembrancer-excluded.
+                                The ONE thing this loop writes directly — the
+                                block comment above ``cmd_laurels`` says why
+                                that does not breach the propose-only invariant.
 
 Seams
 -----
@@ -152,6 +160,31 @@ DEFAULT_MEMORY_GIT_DIR = Path.home() / ".claude" / "vaults" / "memory.git"
 DEFAULT_SKILLS_REPO = Path.home() / "dotfiles"
 DEFAULT_SKILL_PATHSPEC = "agents/skills/*/SKILL.md"
 DEFAULT_HANDOFF_PATHSPEC = "refs/session-handoff*.md"
+
+# --- laurels (dotfiles-qnfk R2) -------------------------------------------- #
+# The Remembrancer places 0-3 laurels FLEET-WIDE per weekly run. The cap is the
+# anti-inflation mechanism and it is deliberately small: recognition that
+# arrives every week for everyone is a participation trophy, which Art. II's
+# refusal to optimize attention rules out. Over-cap placements are DROPPED and
+# LOGGED, never silently truncated — the tick has to see what it lost.
+LAUREL_WEEKLY_CAP = 3
+DEFAULT_LAURELS_LEDGER = Path(
+    os.environ.get(
+        "DREAM_LAURELS_LEDGER",
+        str(
+            Path.home() / ".local" / "share" / "fleet-health" / "laurels.jsonl"
+        ),
+    )
+)
+# The ONLY writer of a seat history (dotfiles-qnfk R1/T6). dream.py never opens
+# a .history.md itself — it shells to the lib, which owns the format, the
+# refusals and the integrity checksum. Two writers would be two formats.
+DEFAULT_SEAT_HISTORY_LIB = Path(
+    os.environ.get(
+        "DREAM_SEAT_HISTORY_LIB",
+        str(DEFAULT_SKILLS_REPO / "agents" / "lib" / "seat-history.sh"),
+    )
+)
 
 # --- fleet caps ------------------------------------------------------------ #
 # Fleet scope multiplies cost by the number of slugs, so the caps are the thing
@@ -2159,7 +2192,7 @@ def build_collect_output(
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
-SUBCOMMANDS = ("collect", "remember", "seams", "slugs")
+SUBCOMMANDS = ("collect", "remember", "seams", "slugs", "laurels")
 
 
 def _add_common_scope_flags(p: argparse.ArgumentParser) -> None:
@@ -2788,6 +2821,247 @@ def cmd_remember(argv: list[str]) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------- #
+# laurels — R2's placement, the ONE direct-place class in a propose-only loop
+# --------------------------------------------------------------------------- #
+# WHY THIS IS NOT PROPOSE-ONLY, in the loop whose whole invariant is
+# propose-only. The trust-ladder invariant governs the ALWAYS-LOADED MEMORY
+# TIER and skill bodies: an auto-writer there silently changes how every future
+# session behaves, so a human must gate it. A laurel changes no behaviour. It
+# is an ADDITIVE, evidence-cited record in a file nothing loads as instruction,
+# placed under a hard weekly cap by the one office that cannot receive one, and
+# Zig sees every placement in the next brief. Propose-gating it would put a
+# recognition in a review queue for a week, which is a different thing than
+# recognition. The spec (dotfiles-qnfk R2) draws exactly this line; keep the
+# two classes distinct rather than collapsing them in either direction.
+def build_laurels_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="dream.py laurels",
+        description=(
+            "Place 0-3 evidence-cited laurels for the week (dotfiles-qnfk R2). "
+            "Appends the seat history (via agents/lib/seat-history.sh, the only "
+            "writer) and one ledger row per placement, all-or-none."
+        ),
+    )
+    p.add_argument(
+        "--place",
+        required=True,
+        help="JSON file: a list of placements, or {'run_id':…,'placements':[…]}. "
+        "Each: {seat, title (<=8 words), why, bead, commit}. '-' reads stdin.",
+    )
+    p.add_argument(
+        "--ledger",
+        default=None,
+        help=f"laurels ledger (default {DEFAULT_LAURELS_LEDGER})",
+    )
+    p.add_argument(
+        "--history-lib",
+        default=None,
+        help=f"seat-history.sh (default {DEFAULT_SEAT_HISTORY_LIB})",
+    )
+    p.add_argument(
+        "--history-dir",
+        default=None,
+        help="override where <seat>.history.md lives (tests; the lib decides)",
+    )
+    p.add_argument(
+        "--cap",
+        type=int,
+        default=LAUREL_WEEKLY_CAP,
+        help=f"fleet-wide placements this run (default {LAUREL_WEEKLY_CAP})",
+    )
+    p.add_argument("--run-id", default=None)
+    p.add_argument(
+        "--now",
+        default=None,
+        help="ISO-8601 timestamp (pass it for determinism)",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="validate every placement, write nothing",
+    )
+    return p
+
+
+def _laurel_lib_call(
+    lib: Path, args: Sequence[str], history_dir: str | None
+) -> tuple[int, str]:
+    env = dict(os.environ)
+    if history_dir:
+        env["SEAT_HISTORY_DIR"] = history_dir
+    try:
+        proc = subprocess.run(
+            ["bash", str(lib), "laurel", *args],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+            env=env,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return 1, f"{type(exc).__name__}: {exc}"
+    return proc.returncode, (proc.stderr or proc.stdout).strip()
+
+
+def cmd_laurels(argv: list[str]) -> int:
+    args = build_laurels_parser().parse_args(argv)
+
+    now_iso = iso_z(parse_since(args.now) if args.now else datetime.now(UTC))
+    run_id = args.run_id or now_iso
+    lib = Path(args.history_lib or DEFAULT_SEAT_HISTORY_LIB)
+    ledger = Path(args.ledger or DEFAULT_LAURELS_LEDGER).expanduser()
+
+    if not lib.is_file():
+        sys.stderr.write(
+            f"dream: seat-history.sh not found at {lib} — it is the ONLY writer "
+            "of a seat history; refusing to write one myself.\n"
+        )
+        return 2
+
+    try:
+        raw = (
+            sys.stdin.read()
+            if args.place == "-"
+            else Path(args.place).read_text(encoding="utf-8")
+        )
+        data = json.loads(raw)
+    except (OSError, json.JSONDecodeError) as exc:
+        sys.stderr.write(f"dream: cannot read placements: {exc}\n")
+        return 2
+    placements = data.get("placements") if isinstance(data, dict) else data
+    if isinstance(data, dict):
+        run_id = args.run_id or data.get("run_id") or run_id
+    if not isinstance(placements, list):
+        sys.stderr.write(
+            "dream: placements must be a JSON list or an object with 'placements'\n"
+        )
+        return 2
+
+    placed: list[dict] = []
+    refused: list[dict] = []
+    dropped: list[dict] = []
+
+    if args.dry_run:
+        arm_no_write()
+
+    for raw_p in placements:
+        p = raw_p if isinstance(raw_p, dict) else {}
+        seat = str(p.get("seat") or "")
+        title = str(p.get("title") or "")
+        why = str(p.get("why") or "")
+        bead = str(p.get("bead") or "")
+        commit = str(p.get("commit") or "")
+        row = {
+            "ts": now_iso,
+            "run_id": run_id,
+            "seat": seat,
+            "title": title,
+            "why": why,
+            "bead": bead,
+            "commit": commit,
+            "placed_by": "dream",
+        }
+
+        # THE CAP, before any work: over-cap placements are dropped LOUDLY.
+        if len(placed) >= max(0, args.cap):
+            dropped.append(
+                {**row, "reason": f"over the weekly cap of {args.cap}"}
+            )
+            sys.stderr.write(
+                f"dream: laurel for '{seat}' DROPPED — over the weekly cap of "
+                f"{args.cap} (dotfiles-qnfk R2/T3)\n"
+            )
+            continue
+
+        # Confidentiality, same denylist as every other output of this loop.
+        # refs/seats/*.history.md is git-tracked and PUSHED, so a laurel whose
+        # seat or citation names a denied project would carry that project's
+        # content off-box — feedback_linearb_beads_confidential. Refusing costs
+        # one recognition; placing it costs the rule.
+        blob = " ".join([seat, title, why, bead, commit])
+        if is_confidential_path(seat) or is_confidential_path(blob):
+            refused.append({**row, "rc": 7, "reason": "confidential project"})
+            sys.stderr.write(
+                f"dream: laurel for '{seat}' REFUSED — it or its citation names a "
+                "denied project, and a seat history is a pushed artifact.\n"
+            )
+            continue
+
+        lib_args = [
+            "--seat", seat, "--title", title, "--why", why,
+            "--bead", bead, "--commit", commit, "--date", now_iso[:10],
+        ]  # fmt: skip
+        rc, msg = _laurel_lib_call(
+            lib, [*lib_args, "--check-only"], args.history_dir
+        )
+        if rc != 0:
+            refused.append({**row, "rc": rc, "reason": msg})
+            sys.stderr.write(msg + "\n" if msg else "")
+            continue
+        if args.dry_run:
+            placed.append({**row, "dry_run": True})
+            continue
+
+        # --- ALL THREE OR NONE (T2) ---------------------------------------
+        # Three artifacts carry a placement: the history entry, the ledger row,
+        # and the LAURELS section of the next brief. The brief is DERIVED from
+        # the ledger, not written here — so there are two writes, and the third
+        # artifact exists exactly when the ledger row does.
+        #
+        # Order is deliberate. The ledger is a plain append and is therefore
+        # the only one that can be rolled back byte-exactly (truncate to the
+        # pre-write size). The history is append-only AND checksummed — undoing
+        # it would mean rewriting a record. So: write the undoable one first,
+        # then the durable one, and unwind the ledger if the history refuses.
+        before = ledger.stat().st_size if ledger.exists() else 0
+        try:
+            ledger.parent.mkdir(parents=True, exist_ok=True)
+            with ledger.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+        except OSError as exc:
+            refused.append(
+                {**row, "rc": 8, "reason": f"ledger unwritable: {exc}"}
+            )
+            sys.stderr.write(f"dream: laurel for '{seat}' REFUSED — {exc}\n")
+            continue
+
+        rc, msg = _laurel_lib_call(lib, lib_args, args.history_dir)
+        if rc != 0:
+            try:
+                with ledger.open("r+b") as fh:
+                    fh.truncate(before)
+            except OSError as exc:
+                sys.stderr.write(
+                    f"dream: CANNOT UNWIND the ledger row for '{seat}' ({exc}) — "
+                    "a row now exists with no history entry. Fix by hand.\n"
+                )
+            refused.append({**row, "rc": rc, "reason": msg})
+            sys.stderr.write(msg + "\n" if msg else "")
+            continue
+        placed.append(row)
+
+    summary = {
+        "run_id": run_id,
+        "ts": now_iso,
+        "cap": args.cap,
+        "ledger": str(ledger),
+        "history_lib": str(lib),
+        "dry_run": bool(args.dry_run),
+        "n_placed": len(placed),
+        "n_refused": len(refused),
+        "n_dropped": len(dropped),
+        "placed": placed,
+        "refused": refused,
+        "dropped": dropped,
+    }
+    sys.stdout.write(json.dumps(summary) + "\n")
+    # 4, not 0, when anything was refused: a run whose every placement bounced
+    # writes nothing and would otherwise be indistinguishable from a week with
+    # nothing to recognize — the searched-vs-found conflation, one loop over.
+    return 4 if refused else 0
+
+
 def cmd_seams(argv: list[str]) -> int:
     p = argparse.ArgumentParser(
         prog="dream.py seams", description="List the available input seams."
@@ -2871,6 +3145,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_remember(rest)
         if sub == "slugs":
             return cmd_slugs(rest)
+        if sub == "laurels":
+            return cmd_laurels(rest)
         return cmd_seams(rest)
     return cmd_legacy(args)
 

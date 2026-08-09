@@ -202,7 +202,16 @@ mapped_suites_for() { # <staged path> -> newline-separated suite paths
     agents/skills/dream/dream.py|agents/skills/dream/tests/test_dream_fleet.py|agents/skills/dream/tests/mutate-fleet-guards.sh)
       printf '%s\n' \
         agents/skills/dream/tests/run-suite.sh \
-        agents/skills/dream/tests/mutate-fleet-guards.sh ;;
+        agents/skills/dream/tests/mutate-fleet-guards.sh \
+        agents/lib/test-seat-history.sh ;;
+    # The LAURELS chain (dotfiles-qnfk) spans three dirs, and the property the
+    # spec cares about — a placement lands in the history AND the ledger AND
+    # the brief, or in none of them — is only observable END TO END. Each
+    # file's own suite passes while the chain is broken, which is the
+    # dotfiles-dijt shape one level up: three green suites, one silent defect.
+    # So every link names the shared suite. dream.py's arm above does too.
+    agents/lib/seat-history.sh|agents/lib/mutate-laurels.sh|agents/lib/validate-seats.py|agents/scheduler/seneschal-gather.py)
+      printf '%s\n' agents/lib/test-seat-history.sh ;;
     agents/skills/dream/tests/test_dream.py|agents/skills/dream/tests/test_dream_seams.py|agents/skills/dream/tests/_dream_helpers.py|agents/skills/dream/tests/conftest.py|agents/skills/dream/tests/run-suite.sh)
       printf '%s\n' agents/skills/dream/tests/run-suite.sh ;;
     # agents/bin/ is NOT one of the four convention-covered dirs (hooks,
@@ -265,6 +274,12 @@ while IFS= read -r f; do
     agents/bin/test-*.sh)             add_suite "$f" ;;
     agents/bin/hall)                  add_suite "agents/bin/test-hall.sh" ;;
     agents/lib/test-*.sh)             add_suite "$f" ;;
+    # A mutation harness IS a gate; it has no test-<n>.sh of its own and never
+    # will. Same arm as agents/scheduler/mutate-*.sh above, same reason: without
+    # it the convention asks for a suite that cannot exist and the UNCOVERED
+    # banner cries wolf on every edit to the harness. Handled by name in the
+    # laurels block at the bottom.
+    agents/lib/mutate-*.sh)           ;;
     agents/lib/*.sh)                  add_suite "agents/lib/test-$base.sh" ;;
     agents/lib/*.py)                  add_suite "agents/lib/test-$base.sh" ;;
     agents/doclint/test-*.sh)         add_suite "$f" ;;
@@ -610,15 +625,58 @@ fi
 # the roster had no commit-time gate at all (Review J). A wrong pin here
 # misattributes every downstream row from the next tick, so this blocks
 # rather than warns, same posture as the banned-git-verb doc lint above.
-if printf '%s\n' "$STAGED" | grep -qx 'agents/seats.yml'; then
+#
+# The SEAT HISTORIES (refs/seats/*.history.md, dotfiles-qnfk R1) ride the same
+# arm, and are data in the same sense. Two things are checked and both are
+# invisible to every other gate: the roster and refs/seats/ must AGREE (a seat
+# with no history file, or an orphan history belonging to no live-or-retired
+# seat), and every history file must match its OWN integrity checksum. The
+# second is the T6 mechanism — a seat that hand-edits its history to award
+# itself a laurel produces a file whose checksum no longer matches, and this is
+# where that stops being a diff nobody reads and starts being a blocked commit.
+if printf '%s\n' "$STAGED" | grep -qE '^(agents/seats\.yml|agents/lib/validate-seats\.py|refs/seats/.*\.history\.md)$'; then
   if [ -f "$ROOT/agents/lib/validate-seats.py" ]; then
-    echo "pre-commit: validating staged agents/seats.yml"
-    if ! python3 "$ROOT/agents/lib/validate-seats.py" "$ROOT/agents/seats.yml"; then
+    HIST_ARGS=()
+    if [ -d "$ROOT/refs/seats" ]; then
+      HIST_ARGS=(--histories "$ROOT/refs/seats")
+      echo "pre-commit: validating agents/seats.yml + refs/seats/ histories"
+    else
+      echo "pre-commit: validating staged agents/seats.yml (no refs/seats/ in this tree)"
+    fi
+    if ! python3 "$ROOT/agents/lib/validate-seats.py" "$ROOT/agents/seats.yml" \
+           ${HIST_ARGS+"${HIST_ARGS[@]}"}; then
       echo "pre-commit: FAIL — agents/seats.yml failed validate-seats.py" >&2
       FAILED=1
     fi
   else
     echo "pre-commit: FAIL — agents/seats.yml is staged but agents/lib/validate-seats.py is missing" >&2
+    FAILED=1
+  fi
+fi
+
+# --- the LAURELS guards -> prove THEY still bite (dotfiles-qnfk) -----------
+# Fifth instance of the mutation-harness argument, on a chain whose every
+# failure mode is silent: an uncited laurel is a well-formed entry, a dropped
+# ledger row leaves a history file that reads perfectly, an un-rolled-back row
+# leaves a brief line for an entry that does not exist, and a cap that stops
+# capping merely places more. The suite is 73 assertions and green against all
+# of those in isolation — only the mutants show the guards biting. Measured on
+# a 12-core box:
+#
+#     test-seat-history.sh (73 assertions, 11 cases)      6s
+#     mutate-laurels.sh (8 mutants + baseline)           30s
+#
+# The convention arm above already runs the 6s suite, so this adds ~24s, to
+# commits touching FOUR files. The test file is a trigger on purpose: T2's
+# brief assertion is the SOLE detector for the dropped ledger write (the
+# history file alone looks fine), so deleting one case loses the bite while the
+# suite stays green.
+if printf '%s\n' "$STAGED" | grep -qE '^(agents/lib/(seat-history|test-seat-history|mutate-laurels)\.sh|agents/skills/dream/dream\.py)$'; then
+  echo "pre-commit: staged changes touch the laurel-placement chain -> running mutation harness (~30s)"
+  if [ -f "$ROOT/agents/lib/mutate-laurels.sh" ]; then
+    bash "$ROOT/agents/lib/mutate-laurels.sh" "$ROOT" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/lib/mutate-laurels.sh is missing" >&2
     FAILED=1
   fi
 fi

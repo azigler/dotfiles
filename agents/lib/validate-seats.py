@@ -24,15 +24,25 @@ Checks enforced (each has a dedicated fixture in test-validate-seats.sh):
   MODEL every seat's `model` is one of the pinned aliases
   SIGIL every seat's `sigil` is emoji-presentation: reject U+2000-U+2BFF
         outside a small allowlist, reject the learned denylist, reject VS16
+  RETIRED an optional top-level `retired:` mapping holds seats that have ended
+        (Art. IV: job seats retire, history preserved). Same name grammar; a
+        retired name may not collide with a live seat name or any alias.
+  HISTORY (only with --histories DIR, dotfiles-qnfk R1/T1/T6/T7) every LIVE and
+        every RETIRED seat has <DIR>/<name>.history.md; every history file in
+        DIR belongs to a live-or-retired seat; and every file's `integrity:`
+        checksum matches its own body, so a HAND-EDITED history — the self-award
+        this validator exists to catch — blocks the commit carrying it.
 
 Usage:
-  validate-seats.py [path]      # default: agents/seats.yml relative to CWD,
-                                 # or the path passed on argv[1]
+  validate-seats.py [path] [--histories DIR]
+                                 # default path: agents/seats.yml relative to
+                                 # CWD, or the path passed positionally
 Exit 0 + "OK" on success. Exit 1 + one line per violation on failure.
 """
 
 from __future__ import annotations
 
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -265,11 +275,124 @@ def sigil_violation(sigil: str) -> str | None:
     return None
 
 
+# --------------------------------------------------------------------------
+# Histories (dotfiles-qnfk R1) — the roster and refs/seats/ must AGREE
+# --------------------------------------------------------------------------
+HISTORY_SUFFIX = ".history.md"
+
+
+def history_body(text: str) -> str | None:
+    """Every byte after the closing frontmatter delimiter, or None if the file
+    has no frontmatter. Mirrors ``_hist_body`` in agents/lib/seat-history.sh —
+    the two must agree byte-for-byte or the checksum is meaningless, which is
+    why both are line-based: awk prints one trailing newline per line, so a
+    generated file (which always ends in one) hashes identically on both
+    sides. A file that does NOT — i.e. one somebody hand-edited — hashes
+    differently here, and differently is the whole signal."""
+    lines = text.splitlines(keepends=True)
+    if not lines or lines[0].rstrip("\n") != "---":
+        return None
+    for i in range(1, len(lines)):
+        if lines[i].rstrip("\n") == "---":
+            return "".join(lines[i + 1 :])
+    return None
+
+
+def history_front(text: str, key: str) -> str | None:
+    lines = text.split("\n")
+    if not lines or lines[0] != "---":
+        return None
+    for ln in lines[1:]:
+        if ln == "---":
+            return None
+        if ln.startswith(key + ": "):
+            return ln[len(key) + 2 :]
+    return None
+
+
+def history_violations(doc: dict, directory: Path) -> list:
+    errors = []
+    live = set((doc.get("seats") or {}).keys())
+    retired = set((doc.get("retired") or {}).keys())
+    known = live | retired
+
+    if not directory.is_dir():
+        return [
+            f"HISTORY: --histories {directory} is not a directory — every seat's "
+            f"career record is supposed to live there (dotfiles-qnfk R1)"
+        ]
+
+    on_disk = {
+        p.name[: -len(HISTORY_SUFFIX)]
+        for p in directory.iterdir()
+        if p.name.endswith(HISTORY_SUFFIX)
+    }
+
+    for name in sorted(known - on_disk):
+        kind = "retired" if name in retired else "seat"
+        errors.append(
+            f"HISTORY: {kind} '{name}' has NO history file "
+            f"({directory / (name + HISTORY_SUFFIX)}). Run: "
+            f"bash agents/lib/seat-history.sh init"
+        )
+    for name in sorted(on_disk - known):
+        errors.append(
+            f"HISTORY: orphan history '{name}{HISTORY_SUFFIX}' matches no live "
+            f"seat and no `retired:` entry. A retired seat KEEPS its history "
+            f"(Art. IV) — move its roster row to `retired:` rather than "
+            f"deleting either one."
+        )
+
+    for name in sorted(known & on_disk):
+        path = directory / (name + HISTORY_SUFFIX)
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            errors.append(f"HISTORY: cannot read {path}: {exc}")
+            continue
+        body = history_body(text)
+        want = history_front(text, "integrity")
+        if body is None or want is None:
+            errors.append(
+                f"HISTORY: {path.name} has no generated frontmatter "
+                f"(seat/office/appointed/generator/integrity). It was not "
+                f"written by agents/lib/seat-history.sh."
+            )
+            continue
+        got = "sha256:" + hashlib.sha256(body.encode("utf-8")).hexdigest()
+        if want != got:
+            errors.append(
+                f"HISTORY: {path.name} FAILS its own integrity checksum "
+                f"(frontmatter says {want}, body hashes to {got}). A history is "
+                f"machine-written only: a hand-added entry is exactly the "
+                f"self-award dotfiles-qnfk R6/T6 exists to refuse."
+            )
+    return errors
+
+
 def validate(doc: dict) -> list:
     errors = []
 
     taps = doc.get("taps") or {}
     seats = doc.get("seats") or {}
+    retired = doc.get("retired") or {}
+
+    # --- RETIRED: schema-forward, validator-enforced (R5) -----------------
+    # seats.yml has no `retired:` section yet — the first retirement writes
+    # one. Accepting and CHECKING it now means the day a job seat ends, the
+    # move is a data edit against a gate that already exists, not a schema
+    # change made under time pressure. Same posture as `charter: null`.
+    for name in retired:
+        if not SEAT_NAME_RE.match(name):
+            errors.append(
+                f"RETIRED: retired seat name {name!r} does not match "
+                f"^[a-z][a-z0-9-]{{1,31}}$"
+            )
+        if name in seats:
+            errors.append(
+                f"RETIRED: '{name}' is listed BOTH as a live seat and as retired "
+                f"— a seat is one or the other"
+            )
 
     # --- taps: type required + known -------------------------------------
     for tap_name, tap in taps.items():
@@ -377,7 +500,28 @@ def validate(doc: dict) -> list:
 
 
 def main(argv: list) -> int:
-    path = Path(argv[1]) if len(argv) > 1 else Path("agents/seats.yml")
+    # Hand-parsed, argparse-free, for the same reason the YAML parser is
+    # hand-written: this runs as a pre-commit gate on every box, and its only
+    # dependency is python3 itself.
+    positional: list = []
+    histories: Path | None = None
+    rest = list(argv[1:])
+    while rest:
+        arg = rest.pop(0)
+        if arg == "--histories":
+            if not rest:
+                print(
+                    "validate-seats: FAIL — --histories needs a directory",
+                    file=sys.stderr,
+                )
+                return 1
+            histories = Path(rest.pop(0))
+        elif arg.startswith("--histories="):
+            histories = Path(arg[len("--histories=") :])
+        else:
+            positional.append(arg)
+
+    path = Path(positional[0]) if positional else Path("agents/seats.yml")
     if not path.exists():
         print(f"validate-seats: FAIL — file not found: {path}", file=sys.stderr)
         return 1
@@ -396,6 +540,8 @@ def main(argv: list) -> int:
         return 1
 
     errors = validate(doc)
+    if histories is not None:
+        errors += history_violations(doc, histories)
     if errors:
         print(
             f"validate-seats: FAIL — {len(errors)} violation(s) in {path}:",
@@ -405,8 +551,12 @@ def main(argv: list) -> int:
             print(f"  - {e}", file=sys.stderr)
         return 1
 
+    n_retired = len(doc.get("retired") or {})
+    extra = f", {n_retired} retired" if n_retired else ""
+    extra += f", histories in {histories}" if histories is not None else ""
     print(
-        f"validate-seats: OK — {path} ({len(doc.get('seats') or {})} seats, {len(doc.get('taps') or {})} taps)"
+        f"validate-seats: OK — {path} ({len(doc.get('seats') or {})} seats, "
+        f"{len(doc.get('taps') or {})} taps{extra})"
     )
     return 0
 
