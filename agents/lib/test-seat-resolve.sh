@@ -102,7 +102,10 @@ seats:
     home: ~/gamma
     model: sonnet
     effort: high
-    aliases: []
+    # gamma-two: the bi2i rule (schedule windows must resolve to a seat name or
+    # alias) landed after this fixture; the alias is the fixture's compliance,
+    # and it also exercises alias-window resolution for free.
+    aliases: [gamma-two]
     history: refs/seats/gamma.history.md
     schedules:
       - unit: pulse-gamma-one
