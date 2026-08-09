@@ -6,7 +6,7 @@ Description=claude-transcripts vault — daily commit+push of the transcript tie
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/env bash %h/dotfiles/agents/vault/vault-push-transcripts.sh
+ExecStart=/usr/bin/env bash %h/.agents/agents/vault/vault-push-transcripts.sh
 # Bound the whole run so a wedged push can never hang forever.
 TimeoutStartSec=1800
 StandardOutput=append:%h/.claude/vault-transcripts.log

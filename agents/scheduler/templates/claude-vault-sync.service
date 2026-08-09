@@ -29,7 +29,7 @@ Description=claude-vault bidirectional sync — hourly PULL+push of memory + tra
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/env bash %h/dotfiles/agents/vault/vault-sync.sh
+ExecStart=/usr/bin/env bash %h/.agents/agents/vault/vault-sync.sh
 TimeoutStartSec=1800
 StandardOutput=append:%h/.claude/vault-sync.log
 StandardError=append:%h/.claude/vault-sync.log

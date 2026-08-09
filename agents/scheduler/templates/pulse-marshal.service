@@ -17,7 +17,7 @@
 #
 # THE MAIDEN LAUNCH, by hand, in the marshal window, with Zig watching:
 #
-#   ~/dotfiles/agents/scheduler/pulse-inject.sh --loop pulse-marshal \
+#   ~/.agents/agents/scheduler/pulse-inject.sh --loop pulse-marshal \
 #     --dir ~/dotfiles --session zig-computer --window marshal --fresh \
 #     --cmd "/marshal night"
 #
@@ -61,4 +61,4 @@ Description=Pulse tick: /marshal night (the fleet drain — the estate's overnig
 
 [Service]
 Type=oneshot
-ExecStart=%h/dotfiles/agents/scheduler/pulse-inject.sh --loop %p --dir %h/dotfiles --session zig-computer --window marshal --fresh --cmd "/marshal night"
+ExecStart=%h/.agents/agents/scheduler/pulse-inject.sh --loop %p --dir %h/dotfiles --session zig-computer --window marshal --fresh --cmd "/marshal night"

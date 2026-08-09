@@ -21,4 +21,4 @@ Type=oneshot
 # the model's context resets, and /clear re-reads CLAUDE.md + the memory tier
 # from disk. Opt-in per loop; default off. See pulse/SKILL.md "Session
 # durability and context" and bead dotfiles-6ycc.
-ExecStart=%h/dotfiles/agents/scheduler/pulse-inject.sh --loop %p --dir /home/ubuntu/<project-path> --cmd "/pulse tick"
+ExecStart=%h/.agents/agents/scheduler/pulse-inject.sh --loop %p --dir /home/ubuntu/<project-path> --cmd "/pulse tick"

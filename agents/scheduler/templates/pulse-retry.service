@@ -12,7 +12,7 @@ Description=Pulse retry watcher: re-fire bounced ticks when 🔔 clears
 
 [Service]
 Type=oneshot
-ExecStart=%h/dotfiles/agents/scheduler/pulse-retry.sh
+ExecStart=%h/.agents/agents/scheduler/pulse-retry.sh
 # Bound the whole run so a wedged systemctl / tmux can never hang the watcher forever.
 TimeoutStartSec=120
 StandardOutput=append:%h/.local/state/harness/pulse-retry.log

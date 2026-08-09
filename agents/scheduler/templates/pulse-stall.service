@@ -15,7 +15,7 @@ Description=Pulse stall reconciler: log a `stalled` row for a fire that never re
 
 [Service]
 Type=oneshot
-ExecStart=%h/dotfiles/agents/scheduler/pulse-stall-reconcile.py
+ExecStart=%h/.agents/agents/scheduler/pulse-stall-reconcile.py
 # Bound the run so a wedged systemctl can never hang the watcher forever.
 TimeoutStartSec=180
 StandardOutput=append:%h/.local/state/harness/pulse-stall.log

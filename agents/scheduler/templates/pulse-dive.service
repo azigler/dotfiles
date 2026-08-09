@@ -29,4 +29,4 @@ Description=Pulse tick: dive (tmux-injection into the dive window)
 
 [Service]
 Type=oneshot
-ExecStart=%h/dotfiles/agents/scheduler/pulse-inject.sh --loop %p --fresh --dir %h/explore --session zig-computer --window dive --cmd "/pulse tick — Zig has standing-requested subagent dispatch for this tick (2026-07-31): run /dive's blank-context generative pass AND the mandatory independent /scrutinize pass. Do not self-review." --launch %h/explore/tools/tick-jail/tick-jailed.sh --launch-detect bwrap
+ExecStart=%h/.agents/agents/scheduler/pulse-inject.sh --loop %p --fresh --dir %h/explore --session zig-computer --window dive --cmd "/pulse tick — Zig has standing-requested subagent dispatch for this tick (2026-07-31): run /dive's blank-context generative pass AND the mandatory independent /scrutinize pass. Do not self-review." --launch %h/explore/tools/tick-jail/tick-jailed.sh --launch-detect bwrap
