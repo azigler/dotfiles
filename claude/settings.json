@@ -6,9 +6,7 @@
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5[1m]"
   },
   "permissions": {
-    "allow": [
-      "Read(/home/ubuntu/.local/state/harness/conduit/**)"
-    ],
+    "allow": ["Read(/home/ubuntu/.local/state/harness/conduit/**)"],
     "defaultMode": "default"
   },
   "model": "claude-fable-5[1m]",
@@ -59,6 +57,11 @@
             "type": "command",
             "command": "~/.claude/hooks/tmux-status.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/post-tool-model-guard.sh",
+            "timeout": 10
           }
         ]
       },

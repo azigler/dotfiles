@@ -579,6 +579,35 @@ if printf '%s\n' "$STAGED" | grep -qE '^agents/hooks/(stop-context-guard\.sh|tes
   fi
 fi
 
+# --- the MODEL-DEGRADATION guard -> prove IT still bites -------------------
+# Same argument again (dotfiles-p89v), on a guard whose entire subject matter is
+# a SILENT failure: Anthropic's precaution fallback switches a session off Fable
+# 5 onto Opus 4.8 mid-arc and nothing in the pane says so — measured nine times
+# in one night, session 2cc9586e. A guard for a silent bug fails silently too:
+# the <synthetic> skip, the [1m] normalisation, the sidechain filter and the
+# cooldown can each be neutered without reddening a single assertion elsewhere,
+# and the two failure directions are equally bad — a guard that stops firing
+# hides the downgrade, a guard that over-fires gets switched off by the person
+# it interrupts. Measured on this box:
+#
+#     test-post-tool-model-guard.sh (22 cases, hermetic)   ~2s
+#     mutate-model-guard.sh (7 mutants + baseline)         ~16s
+#
+# The convention arm above already runs the suite for these files; this adds
+# ~14s. The test file and the FIXTURE are triggers on purpose: C13/C15/C14/C4/C9
+# are each the SOLE detector for one mutant, and the fixture is the only real-byte
+# evidence in the suite — regenerating it from anything but a genuine transcript
+# would quietly turn every case into a test of a guess.
+if printf '%s\n' "$STAGED" | grep -qE '^agents/hooks/(post-tool-model-guard\.sh|test/test-post-tool-model-guard\.sh|test/mutate-model-guard\.sh|test/model-guard-transcript\.fixture\.jsonl)$'; then
+  echo "pre-commit: staged changes touch the model-degradation guard -> running mutation harness (~16s)"
+  if [ -f "$ROOT/agents/hooks/test/mutate-model-guard.sh" ]; then
+    bash "$ROOT/agents/hooks/test/mutate-model-guard.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/hooks/test/mutate-model-guard.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
 # --- the WORKS WATCHER's finding logic -> prove IT still bites -------------
 # Fifth instance of the same argument, on a script whose decision is WHETHER THE
 # WORKS ARE FINE (dotfiles-kkpq). Every way it can be wrong is silent: a
