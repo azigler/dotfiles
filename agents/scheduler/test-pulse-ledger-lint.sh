@@ -181,6 +181,61 @@ else
   no "missing_ledger_exits_2" "rc=$rc $out"
 fi
 
+# --- 11. FLEET ROW SHAPE (dotfiles-iyhh) -------------------------------------
+# Modeled on the real row agents/skills/dream/SKILL.md's "Ledger + dedupe"
+# example documents for a fleet-scope /dream tick: slug:"(fleet)" plus the
+# n_slugs/denied keys. This is the FIRST row that shape ever hits a real
+# ledger (tonight's 04:13 PT dream tick) — it must be accepted, not just
+# tolerated as unrecognized extra keys.
+FLEET_GOOD='{"ts":"2026-08-09T11:00:00Z","row":"fixture-row","outcome":"done","slug":"(fleet)","n_slugs":12,"denied":30,"scanned_sessions":12,"candidates":4,"proposals":2,"note":"2 memory proposals filed"}'
+R="$ROOT/fleet"
+mk_project "$R"
+printf '%s\n' "$FLEET_GOOD" > "$R/refs/pulse-ledger.jsonl"
+out=$(python3 "$LINT" --project "$R" 2>&1)
+rc=$?
+if [ "$rc" -eq 0 ] && [[ "$out" == *"verdict: CLEAN"* ]]; then
+  ok "fleet_row_shape_accepted"
+else
+  no "fleet_row_shape_accepted" "rc=$rc $out"
+fi
+
+# --- 12. THE LEAK GUARD: denied must be a COUNT, never names -----------------
+# Proves the BEFORE/AFTER the bead exists for: git-checkout the pre-fix lint
+# from HEAD~ would verdict-CLEAN this row (denied wasn't looked at at all);
+# the fixed lint must reject it.
+FLEET_LEAKY='{"ts":"2026-08-09T11:00:00Z","row":"fixture-row","outcome":"done","slug":"(fleet)","n_slugs":12,"denied":["explore-secret-proj","other-hidden-proj"]}'
+printf '%s\n' "$FLEET_LEAKY" > "$R/refs/pulse-ledger.jsonl"
+out=$(python3 "$LINT" --project "$R" 2>&1)
+rc=$?
+if [ "$rc" -eq 1 ] && [[ "$out" == *"never a list/dict of names"* ]]; then
+  ok "fleet_denied_leak_rejected"
+else
+  no "fleet_denied_leak_rejected" "rc=$rc $out"
+fi
+
+# --- 13. a fleet-slug row missing n_slugs/denied is rejected ------------------
+FLEET_INCOMPLETE='{"ts":"2026-08-09T11:00:00Z","row":"fixture-row","outcome":"done","slug":"(fleet)"}'
+printf '%s\n' "$FLEET_INCOMPLETE" > "$R/refs/pulse-ledger.jsonl"
+out=$(python3 "$LINT" --project "$R" 2>&1)
+rc=$?
+if [ "$rc" -eq 1 ] && [[ "$out" == *'"n_slugs" is missing'* ]] \
+  && [[ "$out" == *'"denied" is missing'* ]]; then
+  ok "fleet_row_missing_breadth_keys_rejected"
+else
+  no "fleet_row_missing_breadth_keys_rejected" "rc=$rc $out"
+fi
+
+# --- 14. a per-slug (non-fleet) row with a bare "slug" stays additive --------
+PER_SLUG='{"ts":"2026-08-09T11:00:00Z","row":"fixture-row","outcome":"done","slug":"-home-ubuntu-explore"}'
+printf '%s\n' "$PER_SLUG" > "$R/refs/pulse-ledger.jsonl"
+out=$(python3 "$LINT" --project "$R" 2>&1)
+rc=$?
+if [ "$rc" -eq 0 ] && [[ "$out" == *"verdict: CLEAN"* ]]; then
+  ok "per_slug_row_still_additive"
+else
+  no "per_slug_row_still_additive" "rc=$rc $out"
+fi
+
 # --- summary -----------------------------------------------------------------
 echo
 if [ "$FAIL" -gt 0 ]; then
