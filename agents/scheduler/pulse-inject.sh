@@ -16,7 +16,7 @@
 # Usage:
 #   pulse-inject.sh --dir <project-path> --cmd "<prompt or /skill>" \
 #                   [--session zig-computer] [--window pulse] [--launch claude] [--loop <id>] \
-#                   [--config-dir <claude-seat>]
+#                   [--config-dir <claude-seat>] [--model <pin>]
 #
 #   --dir      project directory the Claude session anchors in (required)
 #   --cmd      the text typed into the session, submitted with Enter (required)
@@ -80,6 +80,83 @@
 #              seat read out of /proc and a mismatch is a HARD FAILURE
 #              (failed-wrong-seat, exit 77) — never a silent proceed. Same class
 #              as dotfiles-ucl4: no silent fallback.
+#   --model    OPT-IN OVERRIDE (default: ASK THE ROSTER). The model tier this
+#              tick runs on (dotfiles-pulse-row-model-seat-d0bk). Passing it
+#              skips the roster entirely; omitting it makes this injector resolve
+#              the TARGET WINDOW to its seat in `agents/seats.yml` and use that
+#              seat's `model:` pin. Either way the pin is delivered the SAME way
+#              --config-dir is: spliced into the LAUNCH STRING (`claude --model
+#              <pin>`), explicit and verifiable, never inherited from an ambient
+#              env — the whole argument in the --config-dir block above applies
+#              here verbatim, because the delivery mechanism is identical (a
+#              send-keys into a shell whose environment this process does not own).
+#
+#              NO PIN => TODAY'S BEHAVIOUR, BYTE FOR BYTE. An unregistered
+#              window, a missing/unparseable roster, a seat with no `model:`, or
+#              a resolver refusal (R7 session mismatch) all mean "no pin": no
+#              flag is appended, no verification runs, nothing is recorded. Rows
+#              that never had a pin keep inheriting the machine default exactly
+#              as before; the only trace is one line in $LOG.
+#
+#              LAUNCHER SCOPE: the flag is only ever appended when the launcher
+#              is `claude` (same guard as the wrapper re-source below). A jailed
+#              launcher (tick-jailed.sh -> bwrap) or any other program gets NO
+#              --model — passing an unknown flag to a jail wrapper would break
+#              the launch, and a pin that silently changed a jail's argv would be
+#              worse than an unpinned tick. A pin that cannot be applied is
+#              logged as a WARN and NOT recorded as requested; `dive` (roster pin
+#              `opus`, launcher tick-jailed.sh) is the live instance and needs the
+#              jail to forward the flag before its pin can bite.
+#
+#              ⚠️ WARM-PANE RULE, AND WHY IT IS NOT `failed-wrong-seat`. A warm
+#              pane's launcher CANNOT change model mid-flight — the process is
+#              already running — so the same reuse hole --config-dir has exists
+#              here, and the same read-it-from-/proc check answers it (the
+#              launcher's own `--model` in /proc/<pid>/cmdline). The DECISION is
+#              deliberately the other one: a mismatch is a LOGGED, RECORDED WARN
+#              and the tick proceeds. The asymmetry is the point.
+#                * wrong seat  = wrong BILLING + IDENTITY. Invisible everywhere
+#                  (it looks like a normal tick on the wrong account), not
+#                  recoverable after the fact, and refusing costs one deferred
+#                  tick. Hard failure is right.
+#                * wrong model = wrong QUALITY TIER. It is visible after the fact
+#                  — `gen_ai_request_model` in the gateway's request_logs, which
+#                  is why the ledger key below exists — and the failure direction
+#                  under DEFAULT-UP/PIN-DOWN is OVER-spend, never under-think.
+#                  Hard-failing would be strictly worse than the status quo it
+#                  replaces: every durable pane in the fleet was launched BEFORE
+#                  pins existed, so a hard gate would stall those rows
+#                  indefinitely (nothing in the loop kills a warm pane) and trade
+#                  "ran on the wrong tier" for "produced nothing at all".
+#                * an UNVERIFIABLE warm pane (no launcher to read, unreadable
+#                  /proc, or a launcher with no explicit --model) is NEVER a
+#                  failure: "no --model on the cmdline" is the normal state of
+#                  every pane started before this flag and of every window Zig
+#                  started by hand. Conflating it with a proven mismatch is how a
+#                  guard starts refusing correct panes.
+#              PULSE_MODEL_ON_MISMATCH=warn (default) | fail — `fail` turns a
+#              PROVEN mismatch into verdict `failed-wrong-model` (exit 77) and
+#              types nothing. It exists so the ruling above can be flipped
+#              without a code change, and so the warn path has a tested twin.
+#              LIMIT, stated plainly: /proc/<pid>/cmdline is a LOWER BOUND on
+#              truth — an in-session `/model` switch does not appear there. The
+#              gateway cross-check is what closes that gap, not this.
+#
+#              LEDGER (additive, new key `model`): when a pin is actually applied
+#              the tick appends one line to
+#              $HARNESS_STATE_DIR/pulse-models.jsonl (default
+#              ~/.local/state/harness/) recording the model REQUESTED, so
+#              agentgateway's `gen_ai_request_model` can be cross-checked against
+#              what was asked for rather than against a config read back:
+#                {"ts":…,"loop":…,"session":…,"window":…,"seat":…,
+#                 "model":"fable","source":"roster|flag",
+#                 "observed_model":…,"mismatch":true|false,"result":…}
+#              Written ONLY when a pin was applied (so an unpinned fleet writes
+#              nothing at all) and only on the paths where the tick was actually
+#              delivered or refused for the model — never on a bounce/defer,
+#              which produce no gateway request to join against.
+#              PULSE_MODEL_MAX_LINES (default 10000) bounds it with the same
+#              keep-the-newest-half atomic trim as the bounce log.
 #   --fresh    OPT-IN (default OFF): warm process, COLD CONTEXT. When the pane
 #              already runs the launcher, send `/clear` + Enter and settle before
 #              typing the tick command, so the tick starts near the onboard floor
@@ -115,6 +192,14 @@
 #  11. --config-dir present -> the LAUNCHED process has CLAUDE_CONFIG_DIR set to
 #      it (asserted from /proc, not from tmux's opinion), and a warm pane on any
 #      other seat is REFUSED rather than reused.
+#  12. A window that resolves to a seat with a `model:` pin -> the launcher is
+#      started as `claude --model <pin>` and the request is recorded; a window
+#      that resolves to no seat, or to a seat with no pin, gets NO --model and
+#      writes NO record (byte-identical to the pre-pin injector).
+#  13. A warm pane whose launcher provably runs a DIFFERENT --model -> logged +
+#      recorded mismatch, tick proceeds (PULSE_MODEL_ON_MISMATCH=fail turns it
+#      into failed-wrong-model / exit 77); an UNVERIFIABLE warm pane proceeds
+#      under either setting.
 #
 # OUTCOME CONTRACT — PULSE_INJECT_RESULT (dotfiles-q0qi).
 #
@@ -146,6 +231,11 @@
 #                                                     asked for; typed NOTHING (exit 77)
 #     PULSE_INJECT_RESULT=failed-seat-unverifiable    --config-dir was asked for and the launcher's
 #                                                     seat could not be READ; typed NOTHING (exit 77)
+#     PULSE_INJECT_RESULT=failed-wrong-model          the live launcher in the pane provably runs a
+#                                                     DIFFERENT --model than the pin asked for, AND
+#                                                     PULSE_MODEL_ON_MISMATCH=fail; typed NOTHING
+#                                                     (exit 77). UNREACHABLE by default — the
+#                                                     default is warn-and-proceed, see --model.
 #     PULSE_INJECT_RESULT=failed                      any other non-zero exit (crash/EXIT trap)
 #
 #   STREAM: STDOUT, always. note() writes only to $LOG (/tmp/pulse-inject.log) and
@@ -206,6 +296,36 @@ FRESH=0
 # ask for a seat execute exactly the instructions they executed before.
 CONFIG_DIR=""
 CONFIG_DIR_ABS=""
+# The MODEL PIN this tick runs on (dotfiles-pulse-row-model-seat-d0bk). Empty =>
+# OFF, and — exactly like CONFIG_DIR above — every model code path is behind
+# `[ -n "$MODEL" ]` / `[ "$MODEL_ACTIVE" = 1 ]`, so a fleet with no pins executes
+# the instructions it executed before this flag existed.
+#   MODEL         the pin itself ("" = none)
+#   MODEL_SOURCE  flag | roster   (provenance, for the ledger row)
+#   MODEL_SEAT    the seat the roster resolved $WINDOW to ("" when --model was
+#                 explicit or nothing resolved)
+#   MODEL_ACTIVE  1 once `--model <pin>` is actually ON the launch string. A pin
+#                 that could not be applied (non-claude launcher) is NOT active
+#                 and is never recorded as requested.
+MODEL=""
+MODEL_SOURCE=""
+MODEL_SEAT=""
+MODEL_ACTIVE=0
+OBSERVED_MODEL=""
+MODEL_MISMATCH=0
+# Test seam, same idiom as PULSE_TMUX_BIN: the seat resolver this injector asks
+# for the roster pin. Production resolves it beside the script (agents/lib/);
+# the suite and the mutation harness point it at the real tree because they run
+# a COPY of this file from a scratch dir.
+SEAT_RESOLVE_BIN=${PULSE_SEAT_RESOLVE:-"$(cd "$(dirname -- "$0")" 2>/dev/null && pwd)/../lib/seat-resolve.sh"}
+# Bound for the model ledger, same shape + same argument as BOUNCE_MAX_LINES
+# below: keep the newest HALF via an atomic rename. What it discards is the
+# OLDEST rows, and the consumer is a JOIN against agentgateway's request_logs,
+# whose own retention is far shorter than the 5000 rows a trim always leaves
+# (~7 months at the fleet's ~24 ticks/day). Nothing reads this file in full on a
+# hot path — unlike the bounce log, which harnessd re-reads on every state
+# generation and which is why that cap is an order of magnitude tighter.
+MODEL_MAX_LINES="${PULSE_MODEL_MAX_LINES:-10000}"
 # Retention bound for the bounce log (explore-foda). It was append-only and read IN FULL
 # on every harnessd state generation, so a loop bouncing on every tick while Andrew is
 # away grew it without limit. Same idiom + same trim shape as the vault-sync ledger's
@@ -260,6 +380,7 @@ while [ $# -gt 0 ]; do
     --loop)    LOOP=$2; shift 2 ;;
     --fresh)   FRESH=1; shift ;;
     --config-dir) CONFIG_DIR=$2; shift 2 ;;
+    --model)   MODEL=$2; shift 2 ;;
     *) echo "pulse-inject: unknown arg $1" >&2; emit_result failed-usage; exit 64 ;;
   esac
 done
@@ -410,6 +531,151 @@ assert_seat() {
   note "seat verified ($ctx): pane $PANE pid $pid on CLAUDE_CONFIG_DIR=$canon"
 }
 
+# --------------------------------------------------------------------------
+# MODEL PIN (--model / agents/seats.yml). See the --model block in the header
+# for the decision record; this section is the mechanism.
+# --------------------------------------------------------------------------
+#
+# record_model <result> — the ledger row (new key `model`). ONE line, appended
+# where the harness state already lives, ONLY when a pin was actually applied,
+# so an unpinned fleet writes nothing at all and the file's mere existence means
+# "pins are live here". Best-effort like record_bounce: a ledger that cannot be
+# written must never cost the tick.
+#
+# It records what was REQUESTED, deliberately — the whole point is to have
+# something independent to cross-check agentgateway's `gen_ai_request_model`
+# against. Reading the model back out of a config file would only prove the
+# config, which is the mistake the seat work already paid for.
+record_model() {
+  local result=$1
+  [ "$MODEL_ACTIVE" = 1 ] || return 0
+  local _mdir="${HARNESS_STATE_DIR:-$HOME/.local/state/harness}"   # override for tests
+  local _mfile="$_mdir/pulse-models.jsonl"
+  local _mm=false
+  [ "$MODEL_MISMATCH" = 1 ] && _mm=true
+  { mkdir -p "$_mdir" 2>/dev/null \
+    && printf '{"ts":"%s","loop":"%s","session":"%s","window":"%s","seat":"%s","model":"%s","source":"%s","observed_model":"%s","mismatch":%s,"result":"%s"}\n' \
+         "$(date -u +%FT%TZ)" "$LOOP" "$SESSION" "$WINDOW" "$MODEL_SEAT" \
+         "$MODEL" "$MODEL_SOURCE" "$OBSERVED_MODEL" "$_mm" "$result" >> "$_mfile" 2>/dev/null ; } \
+    || note "model-record failed (model=$MODEL result=$result, non-fatal)"
+  local _lines
+  _lines=$(wc -l < "$_mfile" 2>/dev/null || echo 0)
+  if [ "${_lines:-0}" -gt "$MODEL_MAX_LINES" ] 2>/dev/null; then
+    tail -n $((MODEL_MAX_LINES / 2)) "$_mfile" > "$_mfile.tmp" 2>/dev/null \
+      && mv -f "$_mfile.tmp" "$_mfile" 2>/dev/null \
+      && note "model ledger trimmed to the newest $((MODEL_MAX_LINES / 2)) lines (was $_lines)"
+  fi
+}
+
+# resolve_model — decide THIS tick's pin, before any tmux window is touched.
+#
+# Precedence: an explicit --model wins outright (it is the operator saying so on
+# this invocation); otherwise the ROSTER is asked, via agents/lib/seat-resolve.sh
+# — the merged resolver, invoked as a subprocess rather than sourced so nothing
+# it defines can leak into this script's namespace or change an unpinned tick.
+# There is exactly ONE roster parser on this box and it is not here.
+#
+# Every failure is "no pin", never a guess and never a hard stop: an
+# unregistered window, a missing roster, a resolver refusal (R7 session
+# mismatch), or a seat with no `model:` all land on today's behaviour.
+resolve_model() {
+  if [ -n "$MODEL" ]; then
+    MODEL_SOURCE=flag
+  else
+    [ -f "$SEAT_RESOLVE_BIN" ] || {
+      note "model: no pin — seat resolver not found at $SEAT_RESOLVE_BIN (behaving as before)"
+      return 0
+    }
+    local _out _rc _errf
+    _errf="${TMPDIR:-/tmp}/pulse-inject-seat.$$"
+    # stderr is CAPTURED, not discarded: a roster parse error is exactly the
+    # thing that must not read as "this window has no pin" with no explanation.
+    _out=$(bash "$SEAT_RESOLVE_BIN" --quiet --window "$WINDOW" --session "$SESSION" 2>"$_errf")
+    _rc=$?
+    [ -s "$_errf" ] && note "  seat-resolve: $(tr '\n' ' ' < "$_errf")"
+    rm -f "$_errf"
+    if [ "$_rc" -ne 0 ]; then
+      note "model: no pin — window '$WINDOW' did not resolve to a seat (seat-resolve rc=$_rc); behaving as before"
+      return 0
+    fi
+    MODEL_SEAT=$(printf '%s\n' "$_out" | awk -F= '$1=="seat"{print $2; exit}')
+    MODEL=$(printf '%s\n' "$_out" | awk -F= '$1=="model"{print $2; exit}')
+    if [ -z "$MODEL" ]; then
+      note "model: no pin — seat '${MODEL_SEAT:-?}' (window '$WINDOW') declares no model: in the roster; behaving as before"
+      return 0
+    fi
+    MODEL_SOURCE=roster
+  fi
+  # The pin is about to be TYPED INTO A SHELL as part of the launch string, so it
+  # is validated as a token before it goes anywhere near send-keys. seats.yml is
+  # gated by validate-seats.py at commit time, but this injector must not depend
+  # on a data file's other gate for its own shell safety — a hand-edited roster
+  # or a --model from a script is the same keystroke sequence either way.
+  case "$MODEL" in
+    *[!A-Za-z0-9._-]*|"")
+      note "WARN: refusing model pin '$MODEL' (source=$MODEL_SOURCE) — not a bare [A-Za-z0-9._-] token, and it would be typed into a shell. No pin applied."
+      MODEL=""; MODEL_SOURCE=""; MODEL_SEAT=""
+      return 0 ;;
+  esac
+  note "model: pin '$MODEL' (source=$MODEL_SOURCE${MODEL_SEAT:+ seat=$MODEL_SEAT} window=$WINDOW)"
+}
+
+# _proc_model <pid> — the `--model <x>` / `--model=<x>` that process was STARTED
+# with, from its own cmdline. Empty output + rc 0 means "no explicit --model",
+# which is NOT a mismatch (see the header): it is the normal state of every pane
+# launched before pins existed. rc 1 means "could not read", a different outcome.
+#
+# cmdline, not environ, because the pin travels as an ARGUMENT: the identity
+# wrapper's `claude()` function passes "$@" through to `command claude`, so the
+# flag survives into the real binary's argv. It is a LOWER BOUND on truth — an
+# in-session `/model` switch never appears here — and the gateway cross-check,
+# not this, is what closes that gap.
+_proc_model() {
+  [ -r "/proc/$1/cmdline" ] || return 1
+  tr '\0' '\n' < "/proc/$1/cmdline" | awk '
+    prev == "--model" { print; exit }
+    /^--model=/       { sub(/^--model=/, ""); print; exit }
+                      { prev = $0 }'
+  return 0
+}
+
+# verify_model <context> — read the launcher's effective model where it is
+# verifiable and RECORD the comparison. Unlike assert_seat this returns on a
+# mismatch by default: wrong model is a quality tier, not a billing identity,
+# and the header carries the full argument. PULSE_MODEL_ON_MISMATCH=fail is the
+# escape hatch that turns a PROVEN mismatch into a refusal.
+verify_model() {
+  local ctx=$1 pid seen
+  if ! pid=$(_pane_launcher_pid); then
+    note "model: unverifiable ($ctx): no foreground launcher in pane $PANE — proceeding on pin '$MODEL'"
+    return 0
+  fi
+  if ! seen=$(_proc_model "$pid"); then
+    note "model: unverifiable ($ctx): /proc/$pid/cmdline unreadable — proceeding on pin '$MODEL'"
+    return 0
+  fi
+  OBSERVED_MODEL="$seen"
+  if [ -z "$seen" ]; then
+    note "model: unverifiable ($ctx): pane $PANE pid $pid was started with no explicit --model (it inherits the machine default) — proceeding on pin '$MODEL'"
+    return 0
+  fi
+  if [ "$seen" = "$MODEL" ]; then
+    note "model verified ($ctx): pane $PANE pid $pid runs --model $seen"
+    return 0
+  fi
+  MODEL_MISMATCH=1
+  if [ "${PULSE_MODEL_ON_MISMATCH:-warn}" = fail ]; then
+    echo "pulse-inject: MODEL MISMATCH ($ctx). Pane $PANE runs pid $pid on --model $seen, but the pin asked for --model $MODEL. PULSE_MODEL_ON_MISMATCH=fail, so nothing was typed. A warm launcher cannot change model mid-flight: exit that window's session and let the next tick launch it on the pinned model." >&2
+    note "FAIL: wrong model ($ctx): pane $PANE pid $pid runs '$seen', wanted '$MODEL' (PULSE_MODEL_ON_MISMATCH=fail)"
+    record_model failed-wrong-model
+    emit_result failed-wrong-model
+    exit 77
+  fi
+  echo "pulse-inject: MODEL MISMATCH ($ctx). Pane $PANE runs pid $pid on --model $seen, but the pin asked for --model $MODEL. Proceeding on the warm launcher (a running launcher cannot change model mid-flight); the mismatch is recorded in the model ledger and is visible as gen_ai_request_model in the gateway's request_logs. Exit that window's session to let the next tick launch it pinned." >&2
+  note "WARN: wrong model ($ctx): pane $PANE pid $pid runs '$seen', wanted '$MODEL' — proceeding (recorded)"
+  return 0
+}
+
 if [ -z "$DIR" ] || [ -z "$CMD" ]; then
   echo "pulse-inject: --dir and --cmd are required" >&2
   emit_result failed-usage
@@ -446,6 +712,12 @@ if [ -n "$CONFIG_DIR" ]; then
   fi
   note "seat requested: CLAUDE_CONFIG_DIR=$CONFIG_DIR_ABS"
 fi
+
+# Model pin — resolved AT DISPATCH, beside the seat preflight and for the same
+# reason: it is a property of the row, decided before any window is touched, and
+# a roster lookup must not depend on tmux being reachable. Nothing here can fail
+# the tick; the worst case is "no pin", which is what every row does today.
+resolve_model
 
 # Hand the tick an ABSOLUTE project anchor. A long-lived pulse session's
 # shell cwd can drift (a stray `cd` in one tick persists), so a bare
@@ -495,6 +767,21 @@ PANE="$WIN_ID.0"
 
 # 3. Ensure the launch program is running in the pane.
 LAUNCH_BASE=$(basename "${LAUNCH%% *}")
+
+# 3.1 Splice the model pin into the LAUNCH STRING — the same delivery the seat
+#     gets, for the same reason: what a launched process was actually started
+#     with is verifiable from /proc, and an ambient env is not (see the header).
+#     Guarded to a `claude` launcher, exactly like the wrapper re-source below:
+#     tick-jailed.sh execs bwrap and would take `--model` as its own argument.
+if [ -n "$MODEL" ]; then
+  if [ "$LAUNCH_BASE" = "claude" ]; then
+    LAUNCH="$LAUNCH --model $MODEL"
+    MODEL_ACTIVE=1
+    note "model: launch string pinned -> $LAUNCH"
+  else
+    note "WARN: model pin '$MODEL' (source=$MODEL_SOURCE) NOT applied — launcher '$LAUNCH_BASE' is not claude. The tick runs on the launcher's own model; nothing is recorded as requested."
+  fi
+fi
 # EXPECT = the process name that means "the launcher is live in this pane".
 # Defaults to the launcher basename; jailed loops override via --launch-detect
 # (pane_current_command reads 'bwrap' under tick-jailed.sh, so without this a
@@ -525,6 +812,15 @@ WAS_WARM=0
 #   verdict that looks routine.
 if [ -n "$CONFIG_DIR_ABS" ] && [ "$WAS_WARM" = 1 ]; then
   assert_seat "reuse"
+fi
+
+# 3.26 The same reuse hole, for the MODEL pin — and deliberately AFTER the seat
+#      check, because identity outranks tier: if a pane is on the wrong account
+#      that is the sentence the operator needs, and reporting a tier mismatch
+#      first would bury it. Default outcome is warn-and-proceed (see --model in
+#      the header for why this asymmetry is the right one).
+if [ "$MODEL_ACTIVE" = 1 ] && [ "$WAS_WARM" = 1 ]; then
+  verify_model "reuse"
 fi
 
 if [ "$CURRENT_CMD" != "$EXPECT" ]; then
@@ -591,6 +887,14 @@ if [ "$CURRENT_CMD" != "$EXPECT" ]; then
   # wrong seat is a hard failure, not a warning — there is nothing to retry into.
   if [ -n "$CONFIG_DIR_ABS" ]; then
     assert_seat "launched"
+  fi
+
+  # Same proof for the model, on the process we just started: the flag was typed
+  # into somebody else's shell and can be eaten by a wrapper, a re-exec, or a
+  # launcher that rewrites its own argv. Asserting the RESULT is what makes the
+  # ledger row below a claim about the process rather than about our intention.
+  if [ "$MODEL_ACTIVE" = 1 ]; then
+    verify_model "launched"
   fi
 
   # Liveness (the process exists) is NOT readiness (the TUI can accept typed
@@ -757,6 +1061,11 @@ fi
 sleep 0.3
 "$TMUX_BIN" send-keys -t "$PANE" Enter
 note "injected into $PANE"
+
+# The ledger row, written only on the path where a pinned tick was actually
+# delivered — a bounce or a defer produces no gateway request to join against,
+# so recording one there would manufacture rows with no counterpart.
+record_model injected
 
 emit_result injected
 exit 0
