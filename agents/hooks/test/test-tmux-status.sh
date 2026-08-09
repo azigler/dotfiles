@@ -340,6 +340,41 @@ assert_logged_window "childed-pid tick recovers window from cache (not empty)" "
 # live pane), so the emoji doesn't freeze on a bg-forked session. Stop -> ✅.
 assert_name "childed-pid glyph recovery renames window by name" "✅ cockpit"
 
+# --- Jailed-session window recovery ($CLAUDE_TMUX_WINDOW, explore-tick-jail-latch-u08c) ---
+# A bubblewrapped tick resolves its window by NO live path AND has no cache entry (the
+# sticky cache is keyed by session id, which does not exist until CC starts inside the
+# jail) — so before this seam every jailed transition logged window:"" and harnessd's
+# buildFleet could not join the session to its window. The launcher passes the
+# host-resolved name in as $CLAUDE_TMUX_WINDOW. C3 is the FAILING-BEFORE case: with the
+# fallback removed it logs "".
+JSTATE=$(mktemp -d); JLOG=$(mktemp -d)
+trap '"$TMUX_BIN" kill-session -t "$SESSION" 2>/dev/null; rm -rf "$LEXSTATE" "$LEXLOG" "$CPSTATE" "$CPLOG" "$JSTATE" "$JLOG"' EXIT
+JSID="jailed-tick-sess"
+CPLOGFILE="$JLOG/$(date -u +%F).jsonl"   # assert_logged_window reads this
+
+# C3. Jailed tick: dead pane (no tmux reachable) AND an empty state dir (no cache entry).
+printf '%s' "$(printf '{"hook_event_name":"UserPromptSubmit","session_id":"%s"}' "$JSID")" \
+  | TMUX="$SOCKET,0,0" TMUX_PANE='%999' CLAUDE_TMUX_WINDOW="dive" \
+    CLAUDE_LEXICON_STATE_DIR="$JSTATE" CLAUDE_LEXICON_LOG_DIR="$JLOG" "$HOOK"
+assert_logged_window "jailed tick logs the launcher-supplied window (not empty)" "dive"
+
+# C4. ...and it SEEDS the sticky cache, which is the file lexicon-relay.sh matches on to
+#     find this session's token and apply the glyph from outside the jail.
+if [ "$(cat "$JSTATE/$JSID.window" 2>/dev/null)" = "dive" ]; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1)); FAILED_NAMES+=("jailed tick seeds the window cache for the relay (got '$(cat "$JSTATE/$JSID.window" 2>/dev/null)')")
+fi
+
+# C5. NEGATIVE CONTROL: an un-jailed session with a LIVE pane must ignore the variable
+#     entirely — the live window always wins, so a stale/exported value can never
+#     mislabel a normal session's telemetry.
+"$TMUX_BIN" rename-window -t "$PANE" "cockpit"
+printf '%s' "$(printf '{"hook_event_name":"Stop","session_id":"%s"}' "$JSID")" \
+  | TMUX="$SOCKET,0,0" TMUX_PANE="$PANE" CLAUDE_TMUX_WINDOW="dive" \
+    CLAUDE_LEXICON_STATE_DIR="$JSTATE" CLAUDE_LEXICON_LOG_DIR="$JLOG" "$HOOK"
+assert_logged_window "live pane beats \$CLAUDE_TMUX_WINDOW (no mislabeling)" "cockpit"
+
 # --- Summary ---
 TOTAL=$((PASS + FAIL))
 if [ "$FAIL" -eq 0 ]; then

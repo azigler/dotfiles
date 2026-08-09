@@ -131,6 +131,28 @@ if [ -n "$CURRENT" ]; then
   [ -z "$BASE" ] && BASE="claude"
 fi
 
+# Out-of-band window name (explore-tick-jail-latch-u08c). A BUBBLEWRAPPED session — a
+# jailed pulse tick, ~/explore/tools/tick-jail/tick-jailed.sh — can resolve its window by
+# NO live path: $TMUX_PANE is not passed in, the tmux socket is shadowed by the jail's
+# `--tmpfs /tmp`, and `--unshare-all`'s PID namespace makes the ancestry walk structurally
+# impossible (every ancestor is a jail pid; the chain ends at bwrap-as-PID-1, which can
+# never equal a host pane_pid — measured from inside a live jail 2026-08-09). CURRENT is
+# therefore ALWAYS empty in there, so every transition row logged window:"" and harnessd's
+# buildFleet — which joins a window label to a session — could never emit a fleet row for a
+# jailed tick. That is the "invisible to the harness" half of the bug.
+#
+# The launcher DOES know the window (it resolves it on the host, before bwrap) and hands it
+# in as $CLAUDE_TMUX_WINDOW. Consulted ONLY after live resolution has already failed, so an
+# un-jailed session — where the variable is unset — is byte-for-byte unaffected.
+#
+# This does not rename anything: with no tmux socket the rename below still no-ops. It
+# repairs the LOG's window field and seeds the sticky cache, which is what the fleet joins
+# on; the VISIBLE glyph is applied out-of-jail by ~/explore/tools/tick-jail/lexicon-relay.sh,
+# which reads that same sticky cache. Binding the tmux socket into the jail instead would
+# have fixed both in one line and handed a low-input-trust sandbox `tmux send-keys` into
+# every unconfined pane on the machine — which is why the seam is an env var, not a socket.
+[ -n "$BASE" ] || BASE="${CLAUDE_TMUX_WINDOW:-}"
+
 # Childed-pid recovery (root-caused 2026-07-14): a background-forked session
 # (`claude bg-pty-host --fork-session`) is re-parented under the CC daemon, so
 # it resolves NEITHER $TMUX_PANE NOR a pane ancestor — CURRENT/BASE come back
