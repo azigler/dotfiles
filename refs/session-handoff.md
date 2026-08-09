@@ -1,106 +1,55 @@
-# Session handoff — 2026-08-09, session d7033a72 → RESTART TO FABLE (dotfiles, personal tap)
+# Session handoff — 2026-08-09, session d7033a72 (dotfiles, personal tap) — MID-FLIGHT MOLT
 
-> Written to hand this session to a FRESH Fable session mid-flight. The founding arc
-> continues under Zig's standing cutover authority. Main is clean at HEAD, pushed.
-> `git log -- refs/session-handoff.md` for prior notes.
+> Written for the post-molt context (same session, compacted). The founding arc's END-GAME
+> is running. Standing authority: cutover + marshal + maiden drain (ezeu comments). Six
+> builders in flight — MERGE AS THEY LAND, guarded sequence, close with evidence.
 
-## ⚠️ RESTART RECOVERY — DO THESE TWO THINGS FIRST (they did NOT survive the process)
+## IN FLIGHT (6) — merge each on its completion notification, never before
+1. **MARSHAL BUILD** (opus, capstone): 69qr's drain — marshal-drain.sh (plan/record/budget/verify),
+   budget calculator vs pico requests.db, /marshal skill, pulse-marshal templates NOT installed
+   (maiden is supervised+manual), seats.yml marshal schedules + 9060 threshold binding.
+   Trailers 69qr + 9060. On merge: close 9060; 69qr closes AFTER the maiden run.
+2. **HALL INPUT FIX** (opus): 4 live bugs (undeletable first char, Esc-with-text, arrow-closes,
+   phone shows only awake seats/all-asleep message) — single raw input loop. Trailer hnhl.
+   On merge: tmux source-file, tell Zig to retest Ctrl-b W. hnhl stays open for his verify.
+3. **DOCS** (sonnet): 62ce dep-reference rewrite + n10e doc-bug sweep. Close both on merge.
+4. **DISCIPLINE** (sonnet): dqsm comments-for-logs + wfrn discovered-from + w6mn waits-for
+   (adds kkv0->ezeu and 9up1->860z edges). Close all three on merge.
+5. **LABELS** (sonnet): pcdq marker-split (label-backed booleans, 12 harnessd beads migrated)
+   + iypf taxonomy/backfill + a bv label-health run. Close both on merge.
+6. **TOON/DBRQ** (sonnet): 6f8s gather-reads-via-br + aavn caller fix + UPSTREAM GH ISSUE
+   (posted under Zig's gh identity per his blanket directive — FLAGGED to him, he may veto).
+   On merge: close 6f8s + aavn; close dbrq citing aavn.
 
-**1. RE-ARM THE SCHEDULED AUTOMATION (was a session-only cron, now GONE).**
-The old session held a one-shot cron (`4373abdb`, 11:37 UTC / ~04:37 PT today) that
-(a) verifies tonight's MAIDEN FLEET DREAM tick then (b) runs pico's Tahoe upgrade.
-A new process does NOT inherit it. **Re-create it** with CronCreate, one-shot, same
-time (`37 11 9 8 *`) and this intent:
-- Verify the 04:13 PT dream tick: `dream` window/ledger row has `slug:"(fleet)"` +
-  `n_slugs`/`denied` keys (the lint now knows this shape — iyhh closed); cross-check
-  the tick's model at pico's gateway `requests.db` vs the dream seat pin; spot-check
-  its filed proposal beads for ZERO linearb/cfp content.
-- If clean AND `/tmp/tahoe-download.log` on pico shows the payload finished: run the
-  pico **Tahoe 26.6.1** upgrade per `dotfiles-xh18`'s recorded plan. Credential is
-  STAGED: `pico:~/.secrets` → `$PICO_LOGIN_PASSWORD` (verified `dscl . -authonly pico`
-  = AUTH-OK; account is `pico`, there is no `kevin`). Fully autonomous:
-  `sudo softwareupdate -i 'macOS Tahoe 26.6.1-25G76' --restart --user pico --stdinpass`.
-  FileVault off + auto-login → services return hands-free. Post-checklist: ports
-  re-listening, gateway 401-healthy, vs14 200s, colima autostart VERIFIED, RomM up.
-- Anomaly anywhere = stop and surface. Never improvise past a failed gate.
+## SEQUENCED BEHIND marshal+hall merges (binary swap would break their live br calls)
+- **ri8b**: br 0.2.16->0.2.22 + schema 13->17 migration of EVERY store (backups at
+  ~/.local/bin/{br,bv}.bak-*; per-store br doctor migrate-schema plan->apply->verify;
+  warn the peer session first; bv version mystery in the bead) — Zig said DO IT (not freeze-gated).
+- **nbr5**: policy.yaml engine (blocked on migrated schema).
 
-**2. HARVEST THE IN-FLIGHT WORKTREES (agent handles died; COMMITTED work survived).**
-The old session had ~7 builders running. Their live handles are gone, but every
-commit they made is durable on `worktree-agent-*` branches. Procedure:
-```
-cd /home/ubuntu/dotfiles && git fetch --all
-for wt in $(git worktree list --porcelain | grep '^branch' | sed 's|branch refs/heads/||' | grep worktree-agent); do
-  echo "== $wt : $(git rev-list --count main..$wt) commits ahead"
-  git log --oneline main..$wt
-done
-```
-For each branch WITH commits → run the guarded merge (below), suites on main, close
-its bead(s) with evidence, cleanup. For each dispatched bead whose branch is EMPTY
-(agent killed before committing) → the bead is still OPEN; **re-dispatch it**.
+## THEN THE CUTOVER (order, all mechanical now)
+freeze (demesne-freeze.sh; re-derive its unit set first — it grew) -> demesne-sync.sh + --gate
+(exit 0 required) -> 860z flip -> n3b6+6ttp -> kvrl (re-derive list, ~66 units) -> n77t+5tn3 ->
+zwvu serialized -> unfreeze -> /clear all windows -> soak -> zga2(P0)+vtx4+k579 one motion ->
+pvlp+1vpm. Then SUPERVISED MAIDEN DRAIN on harnessd's 12 fleet-labeled beads (campaign
+plan-of-record harnessd-mo5l; lman ratified; peer lane done). Seams -> beads -> fixes (Zig's
+endgame directive). qmrp D1-D7 AskUserQuestion walkthrough with Zig at the post-flip pause.
 
-### The guarded merge (unchanged, the house sequence)
-Standalone `cd /home/ubuntu/dotfiles`; commit dirty `.beads/issues.jsonl` first;
-assert on main; BEFORE/AFTER sha moved; `git merge-base --is-ancestor <agent-sha> HEAD`;
-run the touched suites ON MAIN; `br close` with `## Guard` evidence (from dotfiles cwd,
-standalone calls); push; `git worktree remove --force --force <path>` + `git branch -D`.
+## TONIGHT'S CLOCKWORK (armed)
+Dream tick 11:13 UTC (maiden FLEET dream + possible first LAUREL placement); one-shot cron
+4373abdb at 11:37: verify dream (fleet ledger row shape, gateway model = d0bk's CLOSING
+EVIDENCE — close d0bk then faty on it) -> pico Tahoe upgrade per xh18 (payload downloaded,
+$PICO_LOGIN_PASSWORD staged+verified in pico:~/.secrets, fully autonomous, post-checklist).
 
-## The dispatched builders at handoff — branch → bead → what to expect
+## CONTEXT LIFECYCLE (this molt)
+This note precedes a live seat-molt --self --in-flight yes (compact mode — 6 handles must
+survive; measured safe). ygf8 filed: the 75% guard's fired-marker survives compaction (dead
+backstop — re-arm mechanism) + the 50% boundary nudge. After onboard: check `git log
+--oneline -15`, ListAgents for the 6 builders, and merge as notifications arrive.
 
-| Branch (agent) | Bead(s) | State at handoff |
-|---|---|---|
-| a76b89a0 | `dotfiles-front-desk-faty` (seneschal v0) | DONE, 1 commit `d775c01`, timer installed live. MERGE + close. Note: seats.yml seneschal row `schedules:[]` now stale → file bead to add `unit: pulse-seneschal`. |
-| a09fe9bf | works batch: `9h8n` (journald) done; `6384`,`3sc4` may follow | partial — merge what's committed, re-dispatch unfinished. |
-| a8ccfee4 | small batch: `bi2i` done; `o9vi`,`v8k8` may follow | partial — same. |
-| ab9ee62446 | `dotfiles-sb6s` (hall v0) | was still running — branch may be empty; re-dispatch if so. |
-| a21ef03749 | `dotfiles-kkpq` (pico-health, **P0**) | still running; re-dispatch if empty. |
-| af51a0e86a | `dotfiles-1x4g` (pico backup pull, **P0**) | still running; re-dispatch if empty. |
-| a352c65cde | `dotfiles-415c` (orphan reaper) | still running; re-dispatch if empty. |
-| a855826cf | `dotfiles-7qif` (cleanroom polish; trailer uses 7qif) | still running; re-dispatch if empty. |
-| a82c251c2f | `vs14d-k8q`,`vs14d-b4s`,`vs14d-np2` | commits to **vs14d** (pushed there), 0 dotfiles commits is NORMAL. Read its report / vs14d git log; close those 3 beads in vs14d after verifying. |
-| a9084a47 | `lin-euc` | DONE + already merged/closed (guard chmod fix, commit 477d9e2). Its worktree is harvest-none — just clean it. |
-
-Anything already merged+closed this session must NOT be re-dispatched — check `br show`
-before acting (closed = done).
-
-## STANDING AUTHORITY (Zig, on `dotfiles-agent-brain-split-ezeu` notes) — STILL IN FORCE
-"i want it all built and then you can proceed with the full cutover when its ready, you
-have my authority." Proceed without per-gate approval; stop on any failed gate; anomaly
-= surface, never improvise. Model policy: **Fable plans+reviews, opus/sonnet implement**
-(the sandwich). Seneschal AND marshal are `fable`. linearb seat = fable all schedules.
-
-## Remaining sequence after the harvest
-1. Finish merging the wave above; close beads with evidence.
-2. **`dotfiles-69qr`** — the fleet-drain spec (Fable-authored; consumes the molt `it06`
-   + marshal `4d57`, both now closed). This is the last pre-cutover design piece.
-3. **THE CUTOVER** (epic `ezeu`, full order on the prior handoff / `ocm7` runbook):
-   freeze (`demesne-freeze.sh`) → demesne re-sync + identity gate (`diff -r` empty) →
-   flip `860z` (evict aaif lock per 32j4 → `~/.agents`→`~/demesne` → six `~/.claude`
-   links → neuter sync.sh clobber + session-start re-assert) → `n3b6`+`6ttp` → `kvrl`
-   → `n77t`+`5tn3` → `zwvu` (serialized cross-repo) → unfreeze → `/clear` all → soak →
-   `k579` (prune agent tier from PUBLIC dotfiles) + `zga2`(P0 depublish)+`vtx4` (one
-   motion, vtx4 rides zga2) → `pvlp`+`1vpm`. Estate lexicon ratified (`gadu`): ESTATE /
-   KEEP (zig-computer) / WORKS (pico) / ROADS (zig-zone). ONE tmux session per server
-   (`work` abolished 2026-08-09). After k579, ALL skills are PRIVATE → un-split gdoc
-   (`4fx8`, blocked on k579).
-
-## Merge gates still open
-- **`dotfiles-pulse-row-model-seat-d0bk`** merged but NOT closed — its gateway-verified
-  AC rides tonight's live pinned dream tick. Close it on that evidence (the re-armed
-  cron should capture it; else verify by hand at pico requests.db).
-
-## What landed this session (query, don't trust prose)
-`git log --oneline --since=2026-08-09` in dotfiles/vs14d/linearb/demesne/harnessd.
-Highlights: seat-resolve + reverse-rename guard (btti/tzfr), Remembrancer fleet-scope
-(xicr, gate ran clean), socket sweep + fleet tmux-kill guard (2v8h, the 01:06 incident
-class closed), model pins (d0bk), THE MOLT (it06 — seats self-cycle; 75% guard now
-self-service, frozen-window exception retired), marshal reserved (4d57), works audit
-(3 P0s: xh18 patch / 1x4g backups / kkpq watcher), the hevyd-orphan → 42 leaked
-scratchpad procs reaped → reaper class (415c), lin-euc (keep now 0 failed units),
-ledger-lint fleet row (iyhh). harnessd PWA audit (13 beads) — that campaign is
-POST-cutover per Zig.
-
-## Awaiting Zig (nothing blocks the harvest)
-- metis attribution (`7zk1`) needs a way to reach metis (his access).
-- HA version token (`ys6x`) — 1-min mint in the HA UI.
-- Codex is config+auth-blocked on `codex login` (his interactive step); d3ky's build
-  list is ready, no duplication of the harness (his ruling, on d3ky).
+## Friction this arc (destinations)
+- duplicate-dispatch after interrupt -> yoyb (mechanism specced)
+- premature worktree reap -> 3135 (guard LIVE, first firing recorded)
+- suite-map anchor conflicts x4 -> union rule now in 69qr R3b (mechanical for the drain)
+- seats.json staleness caught twice by its own gate -> working as designed
+- guard fired-marker survives compaction -> ygf8 (this molt's finding)
