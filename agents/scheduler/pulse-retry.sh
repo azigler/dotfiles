@@ -20,7 +20,10 @@
 #        d. Window STILL starts with 🔔 → SKIP, leave UNACTED (poll again next run).
 #           KEY: never re-fire into a 🔔 window — that just re-bounces and grows the
 #           bounce log unboundedly while Andrew is away.
-#        e. 🔔 CLEARED → `systemctl --user start <loop>.service` and mark last-acted.
+#        d.5 A BOUNCE IS A CLAIM ABOUT THE PAST — re-verify it against the PRESENT
+#           before acting on it (dotfiles-t5fj). Two independent staleness signals;
+#           EITHER one ⇒ the bounce is RESOLVED ⇒ skip and mark ACTED.
+#        e. Still live → `systemctl --user start <loop>.service` and mark last-acted.
 #   4. Write retry-state atomically.
 #
 # Idempotency: the last-acted dedup ⇒ one re-fire per bounce (after a delivered
@@ -30,6 +33,52 @@
 # Best-effort per loop: a failing systemctl / tmux for ONE loop must not abort the
 # rest. Hence `set -uo pipefail` (no -e — matching pulse-inject.sh, which chose the
 # same for the same reason); each loop iteration tolerates its own failures.
+#
+# ---------------------------------------------------------------------------
+# STALENESS: RE-VERIFY THE BOUNCE BEFORE RE-FIRING (dotfiles-t5fj, step 3d.5)
+# ---------------------------------------------------------------------------
+# The dedup above answers "have I acted on this bounce?" — it does NOT answer "is
+# this bounce still worth acting on?". Measured 2026-08-09, 15:50:55Z: two
+# blocked_on_andrew bounces for pulse-marshal (15:47:16, 15:48:32) were sitting
+# unacted; a supervising session cleared the blockage and injected the tick BY HAND
+# at 15:50:51; four seconds later this watcher saw a cleared 🔔 and re-fired the
+# unit anyway. The re-fired pulse-inject typed `/clear` + `/marshal night` into the
+# now-🧠 composer of the LIVE run, where it QUEUED — a delayed wipe of the running
+# drain's context, armed to fire at whatever turn boundary came next.
+#
+# So a bounce older than the present is checked against the present, two ways.
+# EITHER signal resolves it:
+#
+#   (i)  DELIVERY — pulse-inject.sh writes one row per delivered injection to
+#        $STATE_DIR/pulse-injections.jsonl (dotfiles-t5fj). A row for this loop
+#        NEWER than the bounce means somebody already delivered this tick — by
+#        hand, by an earlier retry, by the natural timer — so the bounce is spent.
+#        And a row naming THIS session+window while that window is mid-turn
+#        (🧠/🌀) means the tick is running RIGHT NOW: re-firing would queue behind
+#        it, which is the incident above.
+#   (ii) LEDGER — a completion row newer than the bounce. Where the loop is
+#        registered in the harnessd manifest (~/harnessd/refs/harness-manifest.json),
+#        that manifest already pins its ledger + ledger_row per loop; the lookup and
+#        the jq query here are REPLICATED from pulse-ledger-watch.sh so there is one
+#        discovery mechanism on this box, not a third. A loop with no manifest entry
+#        simply has no ledger signal, and the log says so rather than implying a
+#        check that never ran.
+#
+# Resolved ⇒ SKIP, and mark ACTED (unlike the 🔔 skip, which stays unacted on
+# purpose): the bounce is spent, so re-checking it every two minutes until its next
+# scheduled fire would be pure noise.
+#
+# ⚠️ AND THE LOG SAYS ONLY WHAT WAS OBSERVED. The incident's own re-fire line read
+# "window cleared 🔔" — this script did not clear it; the supervisor's verified
+# rename did, and the engine merely outlived it. Every line below names the
+# OBSERVATION (a ledger row's ts, a delivery row's ts, a window's current glyph),
+# never a causal claim it cannot support. Same rule as pulse-escalate.sh's "AND THE
+# LOG SAYS ONLY WHAT THIS SCRIPT DID".
+#
+# COUNTERPART: pulse-escalate.sh's "SINGLE OWNERSHIP OF THE RE-FIRE DECISION" block.
+# That script clears a lying 🔔 and STOPS — it never re-fires, precisely so this
+# watcher stays the only re-fire path. This section is the other half of that pair:
+# the single owner re-fires only after proving the bounce is still live.
 #
 # ---------------------------------------------------------------------------
 # IT ALSO DRAINS DEFERRED SURFACES (dotfiles-5ts2) — and that is a DIFFERENT verb.
@@ -72,6 +121,8 @@
 #                         disables the drain; tests point it at a recorder stub).
 #   PULSE_LEDGER_WATCH  — path to pulse-ledger-watch.sh (a non-existent path
 #                         disables the watch; tests point it at a recorder stub).
+#   HARNESS_MANIFEST    — the harnessd loop manifest the staleness check resolves
+#                         ledgers through (same seam name pulse-ledger-watch.sh uses).
 
 set -uo pipefail
 
@@ -80,11 +131,24 @@ mkdir -p "$STATE_DIR" 2>/dev/null || true
 LOG="${PULSE_RETRY_LOG:-$STATE_DIR/pulse-retry.log}"
 BOUNCES="$STATE_DIR/pulse-bounces.jsonl"
 RETRY_STATE="$STATE_DIR/pulse-retry-state.jsonl"
+# Written by pulse-inject.sh on every DELIVERED injection (dotfiles-t5fj) — the
+# staleness check's first signal. Absent file ⇒ no delivery has ever been recorded
+# ⇒ the signal is simply unavailable, never "nothing was delivered".
+INJECTIONS="$STATE_DIR/pulse-injections.jsonl"
+# The loop → ledger mapping. Same file, same seam name, same query as
+# pulse-ledger-watch.sh (which this script already invokes): ONE discovery
+# mechanism for "where does this loop record its completions".
+MANIFEST="${HARNESS_MANIFEST:-$HOME/harnessd/refs/harness-manifest.json}"
 
 TMUX_BIN=$(command -v tmux 2>/dev/null)
 [ -x "${TMUX_BIN:-}" ] || TMUX_BIN=/usr/bin/tmux
 SYSTEMCTL_BIN=$(command -v systemctl 2>/dev/null)
 [ -x "${SYSTEMCTL_BIN:-}" ] || SYSTEMCTL_BIN=/usr/bin/systemctl
+# jq is only needed by the staleness check's LEDGER signal. Its absence disables
+# that one signal (and says so at the decision point); everything else — including
+# the DELIVERY signal, which is a plain grep — is unaffected.
+JQ_BIN=$(command -v jq 2>/dev/null)
+[ -x "${JQ_BIN:-}" ] || JQ_BIN=""
 
 note() { echo "$(date -u +%FT%TZ) $*" >> "$LOG"; }
 
@@ -107,6 +171,68 @@ strip_lexicon() { printf '%s' "$1" | sed -E 's/^(🧠|✅|🔔|🌀) ?//'; }
 # Pull the token following a flag out of a `systemctl show -p ExecStart` line.
 # e.g. execstart_flag "$es" --session → "work". Empty if the flag is absent.
 execstart_flag() { printf '%s' "$1" | grep -oE -- "$2 [^ ]+" | head -1 | awk '{print $2}'; }
+
+# --- Staleness helpers (dotfiles-t5fj; see the header block) -----------------
+
+# newest_injection <loop> — the newest delivery row pulse-inject.sh recorded for
+# this loop, or empty. Append-only file ⇒ the LAST matching line is the newest,
+# the same assumption pulse-ledger-watch.sh makes about a ledger.
+newest_injection() {
+  # The readability guard above is what makes an unsuppressed grep safe here: an
+  # absent file is answered before grep runs, so any stderr grep DOES produce is a
+  # real error and belongs in the log rather than in /dev/null.
+  [ -r "$INJECTIONS" ] || return 0
+  grep -F "\"loop\":\"$1\"" "$INJECTIONS" 2>>"$LOG" | tail -n1
+}
+
+# turn_in_flight <window-name> — does the lexicon say a turn is running there?
+# 🧠 mid-turn, 🌀 compacting. ✅ / a bare name mean idle; 🔔 has its own earlier
+# guard and never reaches here.
+turn_in_flight() {
+  [ "$1" != "${1#🧠}" ] && return 0
+  [ "$1" != "${1#🌀}" ] && return 0
+  return 1
+}
+
+# loop_ledger <loop> — echo "<absolute-ledger-path>\t<row-pin>" for a loop that
+# the manifest registers, or nothing. row-pin empty means "match any row" (the
+# manifest's documented `ledger_row: null`).
+#
+# The jq expression is copied from pulse-ledger-watch.sh rather than re-derived:
+# the mapping question is identical, and two spellings of one query is how the two
+# scripts would eventually disagree about where a loop's completions live.
+loop_ledger() {
+  local _loop=$1 _entry _proj _rel _row _path
+  [ -n "$JQ_BIN" ] || return 1
+  [ -r "$MANIFEST" ] || return 1
+  _entry=$("$JQ_BIN" -c --arg t "$_loop" '
+      [ .projects[]? | . as $p | (.loops[]? | select(.timer == $t)
+        | {path: $p.path, ledger: .ledger, row: .ledger_row}) ] | first // empty' \
+    "$MANIFEST" 2>>"$LOG") || return 1
+  [ -n "$_entry" ] || return 1
+  _proj=$(printf '%s' "$_entry" | "$JQ_BIN" -r '.path // empty' 2>>"$LOG")
+  _rel=$(printf '%s' "$_entry" | "$JQ_BIN" -r '.ledger // empty' 2>>"$LOG")
+  _row=$(printf '%s' "$_entry" | "$JQ_BIN" -r 'if .row == null then "" else .row end' 2>>"$LOG")
+  [ -n "$_proj" ] && [ -n "$_rel" ] || return 1
+  case "$_rel" in
+    /*) _path="$_rel" ;;
+    *)  _path="${_proj%/}/$_rel" ;;
+  esac
+  printf '%s\t%s' "$_path" "$_row"
+}
+
+# ledger_newest_ts <ledger> <row-pin> — the newest matching row's ts, or empty.
+# Same jq shape as pulse-ledger-watch.sh's newest-row read, for the same reason.
+ledger_newest_ts() {
+  local _ledger=$1 _row=$2 _out
+  [ -n "$JQ_BIN" ] || return 1
+  [ -r "$_ledger" ] || return 1
+  _out=$("$JQ_BIN" -sr --arg r "$_row" '
+      [ .[] | select(type == "object") | select(has("ts"))
+            | select($r == "" or ((.row // "") == $r)) ] | last // empty | .ts // empty' \
+    "$_ledger" 2>>"$LOG") || return 1
+  printf '%s' "$_out"
+}
 
 # Normalize a `systemctl show -p NextElapseUSecRealtime --value` reading into epoch SECONDS.
 # systemd renders this property in DIFFERENT forms across versions / timer kinds:
@@ -281,9 +407,64 @@ for loop in "${!LATEST_BOUNCE[@]}"; do
     continue
   fi
 
-  # 3e. 🔔 cleared (or window absent ⇒ definitely not blocked) ⇒ re-fire.
+  # 3d.5 IS THE BOUNCE STILL LIVE? (dotfiles-t5fj — see the header block.)
+  #      Two independent signals; EITHER resolves the bounce. Resolved ⇒ skip AND
+  #      mark acted: a spent bounce re-checked every 2 minutes is pure noise.
+  #      Every message below states what was OBSERVED, never a cause.
+  resolved=""
+  inj_line=$(newest_injection "$loop")
+  if [ -n "$inj_line" ]; then
+    its=$(json_field "$inj_line" ts)
+    isess=$(json_field "$inj_line" session)
+    iwin=$(json_field "$inj_line" window)
+    ikey=$(ts_key "$its"); bkey_s=$(ts_key "$bts")
+    if [ "$found" = 1 ] && [ "$isess" = "$session" ] && [ "$iwin" = "$window" ] \
+       && turn_in_flight "$target_name"; then
+      # The incident's own shape: a tick of THIS loop is running in the very pane
+      # a re-fire would inject into. Re-firing queues /clear behind a live run.
+      resolved="tick already running: window '$target_name' ($session) is mid-turn and pulse-inject last delivered '$loop' to $isess:$iwin at $its"
+    elif [ "${ikey:-0}" -gt "${bkey_s:-0}" ]; then
+      resolved="already delivered at $its (pulse-inject recorded a delivery of '$loop' NEWER than the bounce $bts)"
+    fi
+  fi
+  if [ -z "$resolved" ]; then
+    if lref=$(loop_ledger "$loop"); then
+      ledger_path=${lref%%$'\t'*}
+      ledger_row=${lref#*$'\t'}
+      lts=$(ledger_newest_ts "$ledger_path" "$ledger_row")
+      lkey=$(ts_key "${lts:-}"); bkey_s=$(ts_key "$bts")
+      if [ -n "$lts" ] && [ "${lkey:-0}" -gt "${bkey_s:-0}" ]; then
+        resolved="resolved by ledger row $lts (row '${ledger_row:-<any>}' in $ledger_path is newer than the bounce $bts)"
+      fi
+    else
+      # NOT "no completions" — "no way to look". Said out loud at the decision
+      # point, because a signal that silently never fires is indistinguishable
+      # from one that fired negative. The three reasons are kept apart because
+      # they need different fixes (install jq / place the manifest / register
+      # the loop).
+      if [ -z "$JQ_BIN" ]; then
+        why="jq is not installed"
+      elif [ ! -r "$MANIFEST" ]; then
+        why="$MANIFEST is unreadable"
+      else
+        why="$loop has no loops[] entry in $MANIFEST"
+      fi
+      note "note $loop: LEDGER signal unavailable ($why) — this decision rests on the delivery signal alone, not on a ledger that reported nothing"
+    fi
+  fi
+  if [ -n "$resolved" ]; then
+    note "skip $loop: bounce $bts is RESOLVED — $resolved. NOT re-firing (re-firing a spent bounce queues into a live run); marking acted."
+    LAST_ACTED[$loop]="$bts"
+    changed=1
+    continue
+  fi
+
+  # 3e. Still live ⇒ re-fire. The wording is deliberately OBSERVATIONAL: this
+  #     script did not clear the 🔔, it only found none — the 2026-08-09 log line
+  #     that claimed the clearing was the credit-for-another-mechanism defect this
+  #     bead also names.
   if [ "$found" = 1 ]; then
-    where="window '$target_name' ($session) cleared 🔔"
+    where="window '$target_name' ($session) shows no 🔔"
   else
     where="window '$window' ($session) absent"
   fi

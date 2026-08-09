@@ -184,6 +184,64 @@
 #              always-loaded snapshot.
 #              PULSE_FRESH_SETTLE (default 2) = seconds to settle after /clear.
 #
+#              ⚠️ AND IT NEVER QUEUES BEHIND A LIVE SAME-LOOP RUN (dotfiles-t5fj,
+#              measured 2026-08-09). send-keys into a 🧠 pane QUEUES by design —
+#              the composer holds the text and submits it at end-of-turn — and
+#              for a plain tick that is the right behaviour. For a --fresh
+#              SCHEDULED tick the same design inverts: what gets queued is
+#              `/clear`, so the delivery is a DELAYED CONTEXT WIPE of the run
+#              that is still going, fired at whatever turn boundary comes next
+#              (including an abnormal one, mid-night, with builder handles in
+#              flight — the dotfiles-3135 family). Live instance: pulse-retry
+#              re-fired pulse-marshal two seconds after a supervisor had already
+#              injected it by hand, and `/clear` + `/marshal night` sat queued in
+#              the running drain's composer. So --fresh REFUSES with verdict
+#              `deferred-already-running` when the pane's current turn was
+#              started by THIS loop's own tick.
+#
+#              THE MECHANISM, and it is deliberately not a pane-content heuristic:
+#              a pane cannot prove WHOSE tick is running in it (the scrollback of
+#              a warm session shows every command ever typed, and a /clear repaint
+#              erases the evidence). So the injector WRITES the fact it later
+#              reads — one row per DELIVERED injection to
+#              $HARNESS_STATE_DIR/pulse-injections.jsonl:
+#                {"ts":…,"loop":…,"session":…,"window":…,"pane":…,"fresh":0|1}
+#              and "a same-loop tick is running here" is the CONJUNCTION of two
+#              independent observations:
+#                (a) the window's lexicon glyph says a turn is in flight (🧠 mid-
+#                    turn, 🌀 compacting). ✅/bare/absent ⇒ nothing is running.
+#                (b) the newest injection row for THIS loop names THIS
+#                    session+window and is younger than PULSE_SAME_LOOP_TTL
+#                    (default 86400s).
+#              PULSE_INJECTION_MAX_LINES (default 2000) bounds the file with the
+#              same keep-the-newest-half atomic trim as the bounce log.
+#
+#              FAILURE MODES, stated rather than hidden — and note which way each
+#              one errs, because the asymmetry is the design: a FALSE "running"
+#              costs one deferred tick that pulse-retry re-delivers within two
+#              minutes; a FALSE "not running" is the context wipe. So every
+#              unknown resolves to "running".
+#                * The glyph is maintained by tmux-status.sh's hooks. A seat whose
+#                  hooks are not wired shows a bare name forever, so (a) never
+#                  fires and this guard cannot protect it. That is the dangerous
+#                  direction and it is NOT closed here — the glyph is the only
+#                  per-turn signal the harness publishes.
+#                * A STALE 🧠 (a session that died mid-turn) defers a tick that
+#                  could have been delivered. Safe direction; the bounce is
+#                  recorded, pulse-retry polls, and pulse-escalate owns stale-glyph
+#                  reconciliation.
+#                * No --loop ⇒ no row identity ⇒ the guard cannot run at all, and
+#                  says so in the log rather than pretending it checked.
+#                * An unparseable ts on the newest row is treated as RUNNING.
+#              Only --fresh is gated. A plain tick queueing behind a live turn is
+#              the composer working as designed and is left exactly as it was.
+#
+#              COUNTERPART: pulse-escalate.sh's "SINGLE OWNERSHIP OF THE RE-FIRE
+#              DECISION" block. Escalate never re-fires; pulse-retry re-fires only
+#              after re-verifying that the bounce is still live (its step 3d.5,
+#              which reads the same injections file this one writes); and this
+#              guard is the last line, at the pane itself.
+#
 # Behavior contract (tested in test-pulse-inject.sh):
 #   1. No tmux server / no session  -> created detached.
 #   2. No window named <window>     -> created with cwd <dir>.
@@ -207,6 +265,10 @@
 #      recorded mismatch, tick proceeds (PULSE_MODEL_ON_MISMATCH=fail turns it
 #      into failed-wrong-model / exit 77); an UNVERIFIABLE warm pane proceeds
 #      under either setting.
+#  14. --fresh into a pane whose CURRENT TURN was started by this same loop ->
+#      REFUSED (deferred-already-running): no /clear, no cmd, a bounce recorded.
+#      A plain (non---fresh) tick is unaffected, and so is a --fresh tick into an
+#      idle pane or into a pane last delivered for a DIFFERENT loop.
 #
 # OUTCOME CONTRACT — PULSE_INJECT_RESULT (dotfiles-q0qi).
 #
@@ -226,6 +288,10 @@
 #     PULSE_INJECT_RESULT=injected                    the cmd was typed + Enter sent
 #     PULSE_INJECT_RESULT=bounced-not-ready           readiness gate timed out; typed NOTHING
 #     PULSE_INJECT_RESULT=deferred-blocked-on-human   window is 🔔-blocked; typed NOTHING
+#     PULSE_INJECT_RESULT=deferred-already-running    --fresh, and the pane's current turn was
+#                                                     started by THIS loop's own tick; typed
+#                                                     NOTHING — queuing /clear there is a delayed
+#                                                     context wipe (dotfiles-t5fj)
 #     PULSE_INJECT_RESULT=failed-usage                bad/missing args (exit 64)
 #     PULSE_INJECT_RESULT=failed-no-dir               --dir does not exist (exit 66)
 #     PULSE_INJECT_RESULT=failed-no-tmux              tmux binary not found (exit 69)
@@ -348,6 +414,15 @@ MODEL_MAX_LINES="${PULSE_MODEL_MAX_LINES:-10000}"
 # fire, which is the hard TTL pulse-retry.sh already refuses to retry past. Nothing else
 # reads this file: it is not history, it is a latest-state signal with a log's shape.
 BOUNCE_MAX_LINES="${PULSE_BOUNCE_MAX_LINES:-2000}"   # ~160 KB; trims to the newest 1000
+# Retention bound for the DELIVERY log (dotfiles-t5fj), same idiom + same trim shape as the
+# bounce log and for the same reason. Both consumers want only the NEWEST row per loop — this
+# script's own same-loop-running guard and pulse-retry.sh's staleness check — so what the bound
+# discards (the oldest rows) is never read by either.
+INJECTION_MAX_LINES="${PULSE_INJECTION_MAX_LINES:-2000}"
+# How long a delivery row may still be taken as "that turn is the one running now". It exists
+# only so a marker cannot become eternally load-bearing; the fleet's longest single tick is
+# hours, so a day is comfortably past any real turn while still bounding a forgotten row.
+SAME_LOOP_TTL="${PULSE_SAME_LOOP_TTL:-86400}"
 
 # emit_result <verdict> — the outcome contract (see the header). ONE line, on
 # STDOUT, on every terminal path.
@@ -456,6 +531,98 @@ record_bounce() {
       && mv -f "$_bfile.tmp" "$_bfile" 2>/dev/null \
       && note "bounce log trimmed to the newest $((BOUNCE_MAX_LINES / 2)) lines (was $_lines)"
   fi
+}
+
+# --------------------------------------------------------------------------
+# DELIVERY LOG + THE SAME-LOOP-RUNNING GUARD (dotfiles-t5fj). See --fresh in the
+# header for the decision record and the failure modes; this is the mechanism.
+# --------------------------------------------------------------------------
+#
+# record_injection — ONE row per DELIVERED injection, written where the harness
+# state already lives. This is the fact nothing else on the box records: a bounce
+# proves a tick did NOT land, a ledger row proves a tick FINISHED, and between
+# them sits "this loop was typed into this pane at this time", which is exactly
+# what both the guard below and pulse-retry.sh's staleness check need.
+#
+# Loop-scoped (only with --loop) and best-effort, both for the same reasons
+# record_bounce is: a row that cannot be written must never cost the tick.
+record_injection() {
+  [ -n "$LOOP" ] || return 0
+  local _idir="${HARNESS_STATE_DIR:-$HOME/.local/state/harness}"   # override for tests
+  local _ifile="$_idir/pulse-injections.jsonl"
+  { mkdir -p "$_idir" 2>/dev/null \
+    && printf '{"ts":"%s","loop":"%s","session":"%s","window":"%s","pane":"%s","fresh":%s}\n' \
+         "$(date -u +%FT%TZ)" "$LOOP" "$SESSION" "$WINDOW" "$PANE" "$FRESH" >> "$_ifile" 2>/dev/null ; } \
+    || note "injection-record failed for loop '$LOOP' (non-fatal)"
+  local _lines
+  _lines=$(wc -l < "$_ifile" 2>/dev/null || echo 0)
+  if [ "${_lines:-0}" -gt "$INJECTION_MAX_LINES" ] 2>/dev/null; then
+    tail -n $((INJECTION_MAX_LINES / 2)) "$_ifile" > "$_ifile.tmp" 2>/dev/null \
+      && mv -f "$_ifile.tmp" "$_ifile" 2>/dev/null \
+      && note "injection log trimmed to the newest $((INJECTION_MAX_LINES / 2)) lines (was $_lines)"
+  fi
+}
+
+# _inject_field <line> <key> — pull a "key":"value" out of one flat row. Same
+# fixed-shape sed as pulse-retry.sh's json_field, and safe for the same reason:
+# these rows are written by this script, not by an arbitrary producer.
+_inject_field() { printf '%s' "$1" | sed -n -E "s/.*\"$2\":\"([^\"]*)\".*/\1/p"; }
+
+# _last_injection — the newest delivery row for $LOOP, or empty. The file is
+# append-only, so the LAST matching line is the newest (the same assumption
+# pulse-ledger-watch.sh makes about a ledger's rows).
+_last_injection() {
+  local _f="${HARNESS_STATE_DIR:-$HOME/.local/state/harness}/pulse-injections.jsonl"
+  # The readability guard is what makes an unsuppressed grep safe: an absent file
+  # is answered before grep runs, so any stderr it does produce is a real error
+  # and belongs in the log rather than in /dev/null.
+  [ -r "$_f" ] || return 0
+  grep -F "\"loop\":\"$LOOP\"" "$_f" 2>>"$LOG" | tail -n1
+}
+
+# _turn_in_flight <window-name> — does the lexicon say a turn is running in this
+# window? 🧠 = mid-turn, 🌀 = compacting. ✅, a bare name, and 🔔 (handled by its
+# own guard, earlier and separately) all mean no turn is in flight.
+_turn_in_flight() {
+  [ "$1" != "${1#🧠}" ] && return 0
+  [ "$1" != "${1#🌀}" ] && return 0
+  return 1
+}
+
+# _same_loop_running <window-name> — rc 0 iff the pane's CURRENT turn was started
+# by this loop's own tick. Both observations must hold; see the header for why
+# every unknown answers "running" instead of "not running".
+_same_loop_running() {
+  local _win_name=$1 _row _ts _sess _win _epoch _age
+  _turn_in_flight "$_win_name" || return 1
+  _row=$(_last_injection)
+  if [ -z "$_row" ]; then
+    note "same-loop check: window '$_win_name' is mid-turn but this injector has never recorded a delivery for loop '$LOOP' — that turn is not provably ours, proceeding"
+    return 1
+  fi
+  _ts=$(_inject_field "$_row" ts)
+  _sess=$(_inject_field "$_row" session)
+  _win=$(_inject_field "$_row" window)
+  if [ "$_sess" != "$SESSION" ] || [ "$_win" != "$WINDOW" ]; then
+    note "same-loop check: loop '$LOOP' was last delivered to ${_sess:-?}:${_win:-?}, not $SESSION:$WINDOW — the turn running here belongs to something else, proceeding"
+    return 1
+  fi
+  # Shape-check BEFORE date(1), so an unusable stamp is a decision this function
+  # makes rather than an error it swallows.
+  case "$_ts" in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) : ;;
+    *)
+      note "same-loop check: newest delivery row for '$LOOP' has ts '${_ts:-<none>}', not YYYY-MM-DDTHH:MM:SSZ — treating the live turn as OURS (an unreadable marker must never read as 'nothing is running')"
+      return 0 ;;
+  esac
+  _epoch=$(date -u -d "$_ts" +%s)
+  _age=$(( $(date +%s) - _epoch ))
+  if [ "$_age" -gt "$SAME_LOOP_TTL" ]; then
+    note "same-loop check: this loop's last delivery here was ${_age}s ago, past the ${SAME_LOOP_TTL}s TTL — the live turn is too old to still be that tick, proceeding"
+    return 1
+  fi
+  note "same-loop check: window '$_win_name' is mid-turn and loop '$LOOP' was delivered to $SESSION:$WINDOW at $_ts (${_age}s ago) — that turn is OURS"
+  return 0
 }
 
 # --------------------------------------------------------------------------
@@ -1055,6 +1222,33 @@ if [ "$WIN_NAME" != "${WIN_NAME#🔔}" ]; then
   exit 0
 fi
 
+# 3.6 --fresh NEVER QUEUES /clear BEHIND A LIVE SAME-LOOP RUN (dotfiles-t5fj).
+#
+#   ORDERING, and both halves are load-bearing. AFTER the 🔔 guard, because a
+#   blocked window is a different and older answer and must keep its own verdict
+#   (a 🔔 pane is not "running our tick", it is waiting on Zig). BEFORE the
+#   --fresh block below, because the whole point is that the /clear is never
+#   typed — by the time send-keys has run, the wipe is already queued and there
+#   is nothing to take back.
+#
+#   ONLY --fresh, and only a WARM pane. A plain tick queueing behind a live turn
+#   is the composer working as designed; a cold launch has no prior turn of ours
+#   to collide with. Without --loop there is no delivery identity to check, so
+#   the guard says it could not look rather than pretending it did.
+if [ "$FRESH" = 1 ] && [ "$WAS_WARM" = 1 ]; then
+  if [ -z "$LOOP" ]; then
+    note "same-loop check: SKIPPED — no --loop, so a delivery cannot be attributed to a loop. A --fresh tick with no loop id can still queue /clear behind a live run; pass --loop (units pass %p)."
+  elif _same_loop_running "$WIN_NAME"; then
+    note "deferred: window '$WIN_NAME' is mid-turn on THIS loop's own tick — not sending /clear or '$CMD'. Queuing them behind a live same-loop run is a delayed context wipe, not a delivery (dotfiles-t5fj). The bounce is recorded; pulse-retry re-delivers once the turn ends."
+    # Recorded through the SAME writer as the other two non-delivery paths, so the
+    # three cannot drift into different record shapes, and so the state bus renders
+    # this tick 'bounced' rather than a false 'tick in flight'.
+    record_bounce "already_running"
+    emit_result deferred-already-running
+    exit 0
+  fi
+fi
+
 # 3.75 --fresh: warm process, COLD CONTEXT (dotfiles-6ycc).
 #
 #   ORDERING IS LOAD-BEARING — this MUST come after the 🔔 guard above, not
@@ -1094,6 +1288,12 @@ fi
 sleep 0.3
 "$TMUX_BIN" send-keys -t "$PANE" Enter
 note "injected into $PANE"
+
+# The delivery row (dotfiles-t5fj) — written HERE and only here, on the one path
+# where something was actually typed. It is what lets the next tick's same-loop
+# guard, and pulse-retry.sh's staleness check, distinguish "this loop was already
+# delivered" from "this loop's bounce is still live".
+record_injection
 
 # The ledger row, written only on the path where a pinned tick was actually
 # delivered — a bounce or a defer produces no gateway request to join against,

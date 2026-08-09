@@ -67,6 +67,7 @@ assert_verdict() {
 #
 #   seat   -> only the --config-dir cases (18-22)   caller: mutate-pulse-seat.sh
 #   model  -> only the --model cases (23-32)        caller: mutate-pulse-model.sh
+#   t5fj   -> only the same-loop-running cases (33) caller: mutate-t5fj-staleness.sh
 #
 # Each is a SUBSET, never a substitute — tools/githooks/pre-commit runs the FULL
 # suite on every staged edit to the injector, and each mutation harness asserts
@@ -76,9 +77,11 @@ assert_verdict() {
 RUN_LEGACY=1
 RUN_SEAT=1
 RUN_MODEL=1
+RUN_T5FJ=1
 case "${PULSE_TEST_ONLY:-}" in
-  seat)  RUN_LEGACY=0; RUN_MODEL=0 ;;
-  model) RUN_LEGACY=0; RUN_SEAT=0 ;;
+  seat)  RUN_LEGACY=0; RUN_MODEL=0; RUN_T5FJ=0 ;;
+  model) RUN_LEGACY=0; RUN_SEAT=0;  RUN_T5FJ=0 ;;
+  t5fj)  RUN_LEGACY=0; RUN_SEAT=0;  RUN_MODEL=0 ;;
 esac
 
 if [ "$RUN_LEGACY" = 1 ]; then
@@ -1307,6 +1310,248 @@ rm -f "$MPRIV_SOCKDIR/$MPRIV"
 rm -rf "$ST23" "$ST24" "$ST25" "$ST26" "$ST27" "$ST28" "$ST29" "$ST30" "$ST31" "$ST31B" "$ST32"
 
 fi   # ↑↑↑ end of cases 23-32 (skipped by PULSE_TEST_ONLY=seat)
+
+if [ "$RUN_T5FJ" = 1 ]; then
+# ===========================================================================
+# 33. --fresh NEVER QUEUES /clear BEHIND A LIVE SAME-LOOP RUN (dotfiles-t5fj).
+# ===========================================================================
+#
+# Why these exist. send-keys into a 🧠 pane QUEUES — the composer holds the text
+# and submits it at end-of-turn — and for a plain tick that is correct. For a
+# --fresh SCHEDULED tick it inverts: what queues is `/clear`, so the "delivery"
+# is a DELAYED CONTEXT WIPE of the run still in progress, armed to fire at
+# whatever turn boundary comes next. Measured 2026-08-09: pulse-retry re-fired
+# pulse-marshal two seconds after a supervisor had already injected it by hand,
+# and `/clear` + `/marshal night` sat queued in the LIVE drain's composer.
+#
+# The pane cannot prove whose tick is running in it, so the injector writes the
+# fact it later reads: one row per DELIVERED injection in
+# $HARNESS_STATE_DIR/pulse-injections.jsonl. "Running" is the CONJUNCTION of the
+# window's lexicon glyph (🧠/🌀) and a delivery row for THIS loop naming THIS
+# session+window inside the TTL. Case T33a pins the write; T33b the refusal; and
+# T33c-T33i are the controls that stop the guard from becoming "never inject".
+#
+# EVERY case here runs on a PRIVATE tmux server (-L) with an inert launcher
+# (`cat`), for the same reason cases 18-32 do.
+#
+# Case tags (T33a, T33b, …) are load-bearing: mutate-t5fj-staleness.sh asserts
+# that a mutant kills the case it NAMES by matching those tags in the FAIL list.
+
+TPRIV="pulset5fj-$$"
+TPRIV_SOCKDIR="/tmp/tmux-$UID"
+TTMUX() { env -u TMUX -u TMUX_TMPDIR "$TMUX_BIN" -L "$TPRIV" "$@"; }
+# The earlier sections' sockets may not exist under PULSE_TEST_ONLY=t5fj (those
+# blocks were skipped), so they are referenced through defaults — an unset
+# expansion under `set -u` inside a trap is a cleanup that dies before it cleans.
+_PRIVC=${PRIV:-__no-priv__}
+_PRIVD=${PRIV2:-__no-priv2__}
+_PRIVE=${MPRIV:-__no-mpriv__}
+trap 'env -u TMUX -u TMUX_TMPDIR "$TMUX_BIN" -L "$TPRIV" kill-server 2>/dev/null; env -u TMUX -u TMUX_TMPDIR "$TMUX_BIN" -L "$_PRIVC" kill-server 2>/dev/null; env -u TMUX -u TMUX_TMPDIR "$TMUX_BIN" -L "$_PRIVD" kill-server 2>/dev/null; env -u TMUX -u TMUX_TMPDIR "$TMUX_BIN" -L "$_PRIVE" kill-server 2>/dev/null; rm -f "$TPRIV_SOCKDIR/$TPRIV" "$TPRIV_SOCKDIR/$_PRIVC" "$TPRIV_SOCKDIR/$_PRIVD" "$TPRIV_SOCKDIR/$_PRIVE"; "$TMUX_BIN" kill-session -t "=$SESSION" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION2" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION3" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION4" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION5" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION6" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION7" 2>/dev/null; "$TMUX_BIN" kill-session -t "=$SESSION8" 2>/dev/null; rm -rf "$DIR"' EXIT
+
+TPRIV_TMUX="$DIR/tmux-t5fj.sh"
+printf '#!/bin/bash\nexec env -u TMUX -u TMUX_TMPDIR %s -L %s "$@"\n' "$TMUX_BIN" "$TPRIV" > "$TPRIV_TMUX"
+chmod +x "$TPRIV_TMUX"
+
+T5SESS="t5fjserver"
+TTMUX new-session -d -s "$T5SESS" -n idle -c "$DIR"
+sleep 0.5
+
+ST33=$(mktemp -d)
+T5PANE=""
+
+# t5_inject <state-dir> [extra args…] — one invocation against the private server.
+# Echoes the injector's stdout so a case can read the verdict marker.
+t5_inject() {
+  local st=$1; shift
+  PULSE_TMUX_BIN="$TPRIV_TMUX" HARNESS_STATE_DIR="$st" PULSE_FRESH_SETTLE=1 \
+    "$INJECT" --session "$T5SESS" --window marshal --dir "$DIR" --launch cat "$@" 2>/dev/null
+}
+t5_fence() { TTMUX send-keys -t "$T5PANE" "$1" Enter; sleep 0.4; }
+t5_tail()  { TTMUX capture-pane -p -t "$T5PANE" 2>/dev/null | sed -n "/$1/,\$p"; }
+
+# --- T33a: the DELIVERY ROW is written, and only on a real delivery ----------
+# The whole mechanism rests on this file existing and being honest, so it is
+# pinned before anything reads it: written on an injected tick WITH --loop,
+# carrying the loop + the session + the window it was delivered to; NOT written
+# without --loop; NOT written on a path that typed nothing.
+T33A_OUT=$(t5_inject "$ST33" --loop pulse-marshal --cmd "/marshal night" --fresh)
+sleep 1
+T5PANE=$(TTMUX list-panes -t "=$T5SESS" -a -F '#{window_name} #{pane_id}' 2>/dev/null | awk '$1=="marshal"{print $2; exit}')
+if [ -n "$T5PANE" ]; then ok; else bad "T33a the marshal window exists on the private server"; fi
+if [ "$(printf '%s\n' "$T33A_OUT" | tail -n1)" = "PULSE_INJECT_RESULT=injected" ]; then
+  ok
+else
+  bad "T33a a cold --fresh tick still INJECTS (got '$(printf '%s\n' "$T33A_OUT" | tail -n1)')"
+fi
+if grep -q '"loop":"pulse-marshal"' "$ST33/pulse-injections.jsonl" 2>/dev/null \
+   && grep -q "\"session\":\"$T5SESS\"" "$ST33/pulse-injections.jsonl" 2>/dev/null \
+   && grep -q '"window":"marshal"' "$ST33/pulse-injections.jsonl" 2>/dev/null; then
+  ok
+else
+  bad "T33a a delivered injection records loop+session+window in pulse-injections.jsonl"
+fi
+ST33_NOLOOP=$(mktemp -d)
+t5_inject "$ST33_NOLOOP" --cmd "no-loop-tick" >/dev/null
+sleep 0.5
+if [ -f "$ST33_NOLOOP/pulse-injections.jsonl" ]; then
+  bad "T33a WITHOUT --loop nothing is recorded (backward compat: a delivery has no loop identity)"
+else
+  ok
+fi
+
+# --- T33b: THE REFUSAL — the incident, reconstructed ------------------------
+# The pane is warm and 🧠 (mid-turn), and the newest delivery row for THIS loop
+# names THIS session+window: the turn in flight is ours. A --fresh tick here must
+# type NOTHING — not the /clear, not the command — and say so in its verdict.
+TTMUX rename-window -t "$T5PANE" "🧠 marshal"
+sleep 0.3
+t5_fence "FENCE-T33B"
+T33B_OUT=$(t5_inject "$ST33" --loop pulse-marshal --cmd "should-not-appear-t33b" --fresh)
+sleep 1
+T33B_TAIL=$(t5_tail FENCE-T33B)
+if [ "$(printf '%s\n' "$T33B_OUT" | tail -n1)" = "PULSE_INJECT_RESULT=deferred-already-running" ]; then
+  ok
+else
+  bad "T33b --fresh into a live same-loop run REFUSES with deferred-already-running (got '$(printf '%s\n' "$T33B_OUT" | tail -n1)')"
+fi
+if printf '%s\n' "$T33B_TAIL" | grep -q '/clear'; then
+  bad "T33b the refusal types NO /clear (queuing it behind a live run is a delayed context wipe)"
+else
+  ok
+fi
+if printf '%s\n' "$T33B_TAIL" | grep -q 'should-not-appear-t33b'; then
+  bad "T33b the refusal types NO command either"
+else
+  ok
+fi
+if grep -q '"reason":"already_running"' "$ST33/pulse-bounces.jsonl" 2>/dev/null; then
+  ok
+else
+  bad "T33b the refusal records a bounce, so the state bus renders 'bounced' and pulse-retry can re-deliver"
+fi
+# …and the refusal does NOT write a delivery row (nothing was delivered).
+# Counted through a helper that answers 0 for an ABSENT file rather than letting
+# grep write to stderr and collapse the comparison to an empty string.
+t5_rows() { if [ -f "$1" ]; then grep -c "$2" "$1"; else echo 0; fi; }
+if [ "$(t5_rows "$ST33/pulse-injections.jsonl" '"loop":"pulse-marshal"')" = "1" ]; then
+  ok
+else
+  bad "T33b a refused tick records NO new delivery row (got $(t5_rows "$ST33/pulse-injections.jsonl" '"loop":"pulse-marshal"') rows)"
+fi
+
+# --- T33c: an IDLE pane with the same delivery row still injects -------------
+# The non-vacuity control for the glyph half. Same state dir, same loop, same
+# window — only the glyph changes. Without this, a guard that refused everything
+# would pass T33b.
+TTMUX rename-window -t "$T5PANE" "marshal"
+sleep 0.3
+t5_fence "FENCE-T33C"
+T33C_OUT=$(t5_inject "$ST33" --loop pulse-marshal --cmd "t33c-should-appear" --fresh)
+sleep 1
+T33C_TAIL=$(t5_tail FENCE-T33C)
+if [ "$(printf '%s\n' "$T33C_OUT" | tail -n1)" = "PULSE_INJECT_RESULT=injected" ] \
+   && printf '%s\n' "$T33C_TAIL" | grep -q 't33c-should-appear' \
+   && printf '%s\n' "$T33C_TAIL" | grep -q '/clear'; then
+  ok
+else
+  bad "T33c an IDLE pane with a same-loop delivery row still gets /clear + the tick (verdict '$(printf '%s\n' "$T33C_OUT" | tail -n1)')"
+fi
+
+# --- T33d: a DIFFERENT loop's turn is not ours ------------------------------
+# The non-vacuity control for the identity half: the pane is 🧠, but this loop
+# has never been delivered here, so the live turn belongs to something else and
+# --fresh proceeds.
+TTMUX rename-window -t "$T5PANE" "🧠 marshal"
+sleep 0.3
+t5_fence "FENCE-T33D"
+T33D_OUT=$(t5_inject "$ST33" --loop pulse-somebody-else --cmd "t33d-should-appear" --fresh)
+sleep 1
+if [ "$(printf '%s\n' "$T33D_OUT" | tail -n1)" = "PULSE_INJECT_RESULT=injected" ] \
+   && t5_tail FENCE-T33D | grep -q 't33d-should-appear'; then
+  ok
+else
+  bad "T33d a 🧠 pane whose live turn belongs to ANOTHER loop still receives this loop's --fresh tick (verdict '$(printf '%s\n' "$T33D_OUT" | tail -n1)')"
+fi
+
+# --- T33i: a delivery of THIS loop to ANOTHER pane is not this pane's turn ---
+# T33d covers "this loop has never been delivered anywhere". This one is the case
+# that mutation found missing: the loop HAS a delivery row, it is recent, and it
+# names a DIFFERENT session/window — so the live turn here still is not ours.
+# Without it, dropping the session/window comparison entirely was invisible
+# (mutant I4 survived a green suite).
+ST33_OTHER=$(mktemp -d)
+printf '{"ts":"%s","loop":"pulse-marshal","session":"some-other-host","window":"marshal","pane":"x","fresh":1}\n' \
+  "$(date -u +%FT%TZ)" > "$ST33_OTHER/pulse-injections.jsonl"
+t5_fence "FENCE-T33I"
+T33I_OUT=$(t5_inject "$ST33_OTHER" --loop pulse-marshal --cmd "t33i-should-appear" --fresh)
+sleep 1
+if [ "$(printf '%s\n' "$T33I_OUT" | tail -n1)" = "PULSE_INJECT_RESULT=injected" ] \
+   && t5_tail FENCE-T33I | grep -q 't33i-should-appear'; then
+  ok
+else
+  bad "T33i a recent delivery of this loop to a DIFFERENT session/window does not claim this pane's live turn (verdict '$(printf '%s\n' "$T33I_OUT" | tail -n1)')"
+fi
+
+# --- T33e: only --fresh is gated --------------------------------------------
+# A plain tick queueing behind a live turn is the composer working as designed —
+# no /clear is involved, so there is nothing to wipe. The guard must not have
+# quietly become "never inject into a busy pane".
+t5_fence "FENCE-T33E"
+T33E_OUT=$(t5_inject "$ST33" --loop pulse-marshal --cmd "t33e-should-appear")
+sleep 1
+if [ "$(printf '%s\n' "$T33E_OUT" | tail -n1)" = "PULSE_INJECT_RESULT=injected" ] \
+   && t5_tail FENCE-T33E | grep -q 't33e-should-appear'; then
+  ok
+else
+  bad "T33e WITHOUT --fresh a live same-loop turn is not gated (queuing a plain tick is by design) (verdict '$(printf '%s\n' "$T33E_OUT" | tail -n1)')"
+fi
+
+# --- T33f: the TTL bounds the marker ----------------------------------------
+# A delivery row must not be load-bearing forever. Same 🧠 pane, same loop, same
+# window — only the row's AGE changes, so this isolates the TTL alone.
+ST33_OLD=$(mktemp -d)
+printf '{"ts":"2020-01-01T00:00:00Z","loop":"pulse-marshal","session":"%s","window":"marshal","pane":"x","fresh":1}\n' \
+  "$T5SESS" > "$ST33_OLD/pulse-injections.jsonl"
+t5_fence "FENCE-T33F"
+T33F_OUT=$(t5_inject "$ST33_OLD" --loop pulse-marshal --cmd "t33f-should-appear" --fresh)
+sleep 1
+if [ "$(printf '%s\n' "$T33F_OUT" | tail -n1)" = "PULSE_INJECT_RESULT=injected" ] \
+   && t5_tail FENCE-T33F | grep -q 't33f-should-appear'; then
+  ok
+else
+  bad "T33f a delivery row older than PULSE_SAME_LOOP_TTL no longer claims the live turn (verdict '$(printf '%s\n' "$T33F_OUT" | tail -n1)')"
+fi
+
+# --- T33g / T33h: 🔔 still beats everything, and 🌀 counts as a live turn ----
+# Ordering: the modal guard is older and more specific, so a blocked window keeps
+# its own verdict rather than being relabelled 'already running'. And 🌀
+# (compacting) is a turn in flight exactly like 🧠 — a /clear queued behind a
+# compaction is the same delayed wipe.
+TTMUX rename-window -t "$T5PANE" "🔔 marshal"
+sleep 0.3
+T33G_OUT=$(t5_inject "$ST33" --loop pulse-marshal --cmd "t33g-should-not-appear" --fresh)
+if [ "$(printf '%s\n' "$T33G_OUT" | tail -n1)" = "PULSE_INJECT_RESULT=deferred-blocked-on-human" ]; then
+  ok
+else
+  bad "T33g a 🔔 window keeps its own verdict (got '$(printf '%s\n' "$T33G_OUT" | tail -n1)')"
+fi
+TTMUX rename-window -t "$T5PANE" "🌀 marshal"
+sleep 0.3
+t5_fence "FENCE-T33G2"
+T33G2_OUT=$(t5_inject "$ST33" --loop pulse-marshal --cmd "t33g2-should-not-appear" --fresh)
+sleep 1
+if [ "$(printf '%s\n' "$T33G2_OUT" | tail -n1)" = "PULSE_INJECT_RESULT=deferred-already-running" ] \
+   && ! t5_tail FENCE-T33G2 | grep -q 't33g2-should-not-appear'; then
+  ok
+else
+  bad "T33h 🌀 (compacting) is a live turn too (got '$(printf '%s\n' "$T33G2_OUT" | tail -n1)')"
+fi
+
+env -u TMUX -u TMUX_TMPDIR "$TMUX_BIN" -L "$TPRIV" kill-server 2>/dev/null
+rm -f "$TPRIV_SOCKDIR/$TPRIV"
+rm -rf "$ST33" "$ST33_NOLOOP" "$ST33_OLD" "$ST33_OTHER"
+
+fi   # ↑↑↑ end of case 33 (skipped by PULSE_TEST_ONLY=seat|model)
 
 # --- Summary ---
 TOTAL=$((PASS + FAIL))
