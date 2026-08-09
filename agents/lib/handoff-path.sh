@@ -46,6 +46,12 @@
 _handoff_self="${BASH_SOURCE[0]:-$0}"
 _handoff_dir="$(cd "$(dirname -- "$_handoff_self")" 2>/dev/null && pwd)"
 [ -n "$_handoff_dir" ] && [ -f "$_handoff_dir/tmux-pane-resolve.sh" ] && . "$_handoff_dir/tmux-pane-resolve.sh"
+# SEAT resolution (seat-resolve.sh, bead dotfiles-seat-resolve-lib-btti) is
+# OPTIONAL here on purpose: if the lib or the roster is absent, every function
+# below behaves exactly as it did before seats existed. A shared lib that
+# started failing in projects with no roster would be a worse bug than the one
+# the seat guard fixes.
+[ -n "$_handoff_dir" ] && [ -f "$_handoff_dir/seat-resolve.sh" ] && . "$_handoff_dir/seat-resolve.sh"
 unset _handoff_self _handoff_dir
 
 # _handoff_key -> the glyph-stripped window name on stdout, or non-zero if it
@@ -97,6 +103,24 @@ handoff_path()          { local d="${1:-.}"; printf '%s/refs/session-handoff%s.m
 offboard_pending_path() { local d="${1:-.}"; printf '%s/.offboard-pending%s'        "$d" "$(_handoff_suffix "$d")"; }
 last_offboard_path()    { local d="${1:-.}"; printf '%s/.claude/last-offboard-session%s' "$d" "$(_handoff_suffix "$d")"; }
 
+# _handoff_seat_diagnosis <window> — one or two lines, on the CALLER'S stream
+# (the missing-note block already redirects the whole group to stderr), saying
+# whether this window is a registered seat. Silent when there is no seat lib
+# and no roster, so nothing changes in a project that has neither.
+_handoff_seat_diagnosis() {
+  local win="${1:-}" seat roster
+  command -v seat_resolve >/dev/null 2>&1 || return 0
+  roster=$(seat_roster_path) || return 0
+  if seat=$(seat_self_name --quiet) && [ -n "$seat" ]; then
+    printf '    seat: this window is seat "%s" (%s) — the note is missing for the SEAT, not just the window.\n' \
+      "$seat" "$roster"
+    return 0
+  fi
+  printf '    seat: "%s" is NOT a registered seat (%s). An unregistered window has no seat and no\n' "$win" "$roster"
+  printf '          scoped history; if it was renamed, add "%s" to the old seat aliases: — the\n' "$win"
+  printf '          resolver refuses to guess (R5, dotfiles-seat-address-spec-uikg).\n'
+}
+
 # Reader — the note THIS session should read. /onboard reads THIS.
 #
 # Three cases, and the middle one is a bug fix (bd-msi5):
@@ -144,6 +168,10 @@ handoff_read_path() {
       printf '    scoped notes that DO exist: %s\n' "${others:-(none)}"
       [ -f "$legacy" ] && printf '    %s exists but was NOT read — in a per-window project it belongs to no window (bd-msi5).\n' "$legacy"
       printf '    If a window was renamed, this window is carrying the OLD name. Read the right scoped note by hand, or rename the window.\n'
+      # ...and say whether this window is a SEAT at all. An unregistered window
+      # is the upstream cause of "no note for this window" often enough that
+      # naming it here is the difference between a puzzle and an instruction.
+      _handoff_seat_diagnosis "$win"
     } >&2
     printf '%s' "$p"
     return 0
