@@ -234,4 +234,4 @@ alias ssh-pico='ssh pico@$(tailscale ip -4 pico 2>/dev/null || echo pico)'
 # (sk-goose, from ~/.secrets) as OPENAI_API_KEY so its LLM calls are attributed to
 # "goose"; the omni MCP header (~/.config/goose/config.yaml) carries the same key for
 # tool scoping. Usage: goose-gw run -t "..."
-alias goose-gw='OPENAI_API_KEY="$GATEWAY_GOOSE_KEY" OPENAI_HOST=http://100.72.47.4:15003 goose'
+alias goose-gw='OPENAI_API_KEY="$GATEWAY_GOOSE_KEY" OPENAI_HOST=http://pico:15003 goose'

@@ -28,7 +28,7 @@
 # ALREADY-RUNNING shell or claude — the value is read once at launch and an
 # `exec zsh` INHERITS it. Per-pane recovery is an explicit `unset
 # ANTHROPIC_BASE_URL`, then relaunch.
-export ANTHROPIC_BASE_URL="http://100.72.47.4:17017/claude"
+export ANTHROPIC_BASE_URL="http://pico:17017/claude"
 
 # --- lb-claude — a Claude Code session on the LinearB WORK seat ------------------
 # Zig, 2026-08-05. The seven migrated pulse rows get the work seat via

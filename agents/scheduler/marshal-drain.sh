@@ -176,7 +176,7 @@ json_escape() { python3 -c 'import json,sys; sys.stdout.write(json.dumps(sys.std
 # with a named reason. THE ONE THING IT MUST NEVER DO is emit a large number
 # it cannot defend: a silent huge budget is a night that spends Zig's week.
 #
-# ⚠️ TWO requests.db TRAPS, both paid for already (agents/infra.md):
+# ⚠️ TWO requests.db TRAPS, both paid for already (~/.agents/infra.md):
 #   1. `started_at` is ISO8601 WITH a `T` and an offset, so a bare string
 #      comparison against a `datetime()` value compares 'T' > ' ' at position
 #      10 and silently matches every row with today's DATE. Measured side by

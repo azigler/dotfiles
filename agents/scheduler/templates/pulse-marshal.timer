@@ -24,7 +24,7 @@
 # Zig's own working hours, spending the tap he is trying to use. A missed night
 # is a night the queue simply waits; the next 01:07 drains it.
 #
-# ⚠️ TIMER-RENAME / FIRST-ENABLE GOTCHA (agents/infra.md). systemd's
+# ⚠️ TIMER-RENAME / FIRST-ENABLE GOTCHA (~/.agents/infra.md). systemd's
 # persistence state lives in ~/.local/share/systemd/timers/stamp-<unit>.timer,
 # NOT in the unit file — a unit name that has never run has no stamp. With
 # Persistent=false that cannot fire an immediate catch-up, but touch the stamp

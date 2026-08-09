@@ -169,7 +169,7 @@ The two cheapest, highest-leverage moves, learned from hevyd:
    an API key, hit it (`curl`, no secret echoed) and confirm the data exists and
    the account/tier is right. Grounds every later decision in reality and catches
    "this won't work" before you've built on it.
-2. **Discover the machine topology** (or read `agents/infra.md` if it's current):
+2. **Discover the machine topology** (or read `~/.agents/infra.md` if it's current):
    which box am I, what's the public IP / DNS, tailnet peers, nginx vhosts, used
    ports, installed runtimes, and **who else already consumes this resource**
    (a sibling project sharing the API key changes rate-limit posture). The

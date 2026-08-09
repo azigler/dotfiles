@@ -1,7 +1,7 @@
 # <project> — Infra & Network Topology
 
 Operational facts for running <project>. **Verified live <date>.** (See the
-global `agents/infra.md` for the machine baseline; this captures project-specific
+global `~/.agents/infra.md` for the machine baseline; this captures project-specific
 routing.)
 
 ## Where things run
