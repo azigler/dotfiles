@@ -205,6 +205,14 @@ mapped_suites_for() { # <staged path> -> newline-separated suite paths
         agents/skills/dream/tests/mutate-fleet-guards.sh ;;
     agents/skills/dream/tests/test_dream.py|agents/skills/dream/tests/test_dream_seams.py|agents/skills/dream/tests/_dream_helpers.py|agents/skills/dream/tests/conftest.py|agents/skills/dream/tests/run-suite.sh)
       printf '%s\n' agents/skills/dream/tests/run-suite.sh ;;
+    # agents/bin/ is NOT one of the four convention-covered dirs (hooks,
+    # scheduler, lib, doclint) -- the switch-case arm below never reaches it,
+    # so without this entry every edit to the process reaper (dotfiles-415c,
+    # a script that decides WHICH PROCESSES TO KILL, unattended, on a timer)
+    # would be gated on NOTHING (the dotfiles-dijt shape). Name both files so
+    # editing either the script or its suite triggers the suite.
+    agents/bin/orphan-reaper.sh|agents/bin/test-orphan-reaper.sh)
+      printf '%s\n' agents/bin/test-orphan-reaper.sh ;;
   esac
 }
 
@@ -507,6 +515,29 @@ if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(pico-backup-pull\.sh|t
     bash "$ROOT/agents/scheduler/mutate-pico-backup-pull.sh" || FAILED=1
   else
     echo "pre-commit: FAIL — agents/scheduler/mutate-pico-backup-pull.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
+# --- the orphan-reaper's LIVE-worktree safety gate -> prove IT still bites -
+# Fifth instance of the same argument, on a script whose decision is WHICH
+# PROCESSES TO KILL, unattended, on a timer (dotfiles-415c). The one property
+# that makes it safe to run unattended at all is that the sweep NEVER matches
+# a LIVE (non-deleted) worktree cwd — a builder mid-test must survive. Nothing
+# turns a timer red if that gate silently inverts; the process is just gone.
+# Measured on this box:
+#
+#     test-orphan-reaper.sh (12 cases, real /proc fixtures)   ~15s
+#     mutate-orphan-reaper.sh (2 mutants + baseline)          ~30s
+#
+# The convention arm above already runs the 15s suite for these files; this
+# adds ~15s, to commits touching THREE files.
+if printf '%s\n' "$STAGED" | grep -qE '^agents/bin/(orphan-reaper\.sh|test-orphan-reaper\.sh|mutate-orphan-reaper\.sh)$'; then
+  echo "pre-commit: staged changes touch the orphan-reaper's safety gate -> running mutation harness (~30s)"
+  if [ -f "$ROOT/agents/bin/mutate-orphan-reaper.sh" ]; then
+    bash "$ROOT/agents/bin/mutate-orphan-reaper.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/bin/mutate-orphan-reaper.sh is missing" >&2
     FAILED=1
   fi
 fi
