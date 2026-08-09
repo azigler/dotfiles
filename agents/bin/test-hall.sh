@@ -378,15 +378,19 @@ sed -i "s|\$HOME/dotfiles|$ROOT|g" "$CONF"
 
 tm "$SOCK2" new-session -d -s seed -c "$BASE" 2>"$ERR"
 tm "$SOCK2" set-environment -g SEATS_YML "$ROSTER" 2>"$ERR"
-# tmux-pain-control owns `prefix H` (resize-pane -L 5). The hall block sits
-# AFTER the tpm run for exactly this reason; simulate the plugin, then source
-# the block, and assert the hall won.
+# The hall lives on `prefix W` (Zig, 2026-08-09 — unbound, zero displacement).
+# The block still sits AFTER the tpm run (last-writer-wins is the general
+# hazard); simulate a plugin binding on W, source the block, assert the hall
+# won — AND assert pain-control's `prefix H` resize was NOT displaced.
 tm "$SOCK2" bind-key -r -T prefix H resize-pane -L 5 2>"$ERR"
+tm "$SOCK2" bind-key -r -T prefix W resize-pane -R 5 2>"$ERR"
 if tm "$SOCK2" source-file "$CONF" 2>"$ERR"; then ok
 else bad "the committed HALL block must parse ($(cat "$ERR"))"; fi
-BINDING=$(tm "$SOCK2" list-keys -T prefix | grep -E "^bind-key( -r)? +-T prefix +H ")
-has "prefix H opens the hall in a popup" "display-popup" "$BINDING"
-hasnt "prefix H no longer resizes"       "resize-pane"   "$BINDING"
+BINDING=$(tm "$SOCK2" list-keys -T prefix | grep -E "^bind-key( -r)? +-T prefix +W ")
+has "prefix W opens the hall in a popup" "display-popup" "$BINDING"
+hasnt "prefix W no longer holds a plugin bind" "resize-pane" "$BINDING"
+HBIND=$(tm "$SOCK2" list-keys -T prefix | grep -E "^bind-key( -r)? +-T prefix +H ")
+has "prefix H keeps pain-control's resize (nothing displaced)" "resize-pane" "$HBIND"
 
 # The attach default: a session named for the HOST gets the front desk.
 tm "$SOCK2" new-session -d -s "$(hostname -s)" -c "$BASE" 2>"$ERR"
