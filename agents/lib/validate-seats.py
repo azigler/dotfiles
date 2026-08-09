@@ -21,12 +21,26 @@ Checks enforced (each has a dedicated fixture in test-validate-seats.sh):
         listed alias (dotfiles-bi2i) — an unlisted window has no
         resolvable seat and R5 would refuse it
   TAP  every tap declares a `type`, and it is one of the known types
+  FAILOVER (dotfiles-kf2i, spec dotfiles-d3ky) every tap's `failover:` list
+        entries must (1) be non-empty/non-null, (2) name a DECLARED tap, and
+        (3) share the source tap's `type:` — cross-type failover is FORBIDDEN
+        v1 ("a seat's charter work is tuned per vendor — silent vendor swap
+        mid-loop is a silent-quality event, not a convenience"). Unenforced
+        before this bead: only tap-type presence was checked, not the rule
+        d3ky actually specified.
   SEATTAP every seat declares a `tap`, and it names a declared tap
+  SEATTAP-CONSISTENCY (dotfiles-e8l0) a seat's own `tap:` and every one of
+        its schedules' `tap:` must agree — a seat drawing from `personal`
+        cannot have a schedule that bills `work` without the roster
+        contradicting itself about which vendor is actually loaded.
   MODEL every seat's `model` is one of the pinned aliases
   SIGIL every seat's `sigil` is EMOJI-PRESENTATION BY PROPERTY
         (Emoji_Presentation=Yes, embedded data below), and additionally
         outside U+2000-U+2BFF bar a small allowlist, off the learned
         denylist, and free of VS16
+  SIGIL-UNIQUE (dotfiles-e8l0) no two LIVE seats may share a sigil — the
+        court renders the sigil as the row's only glyph column, and two
+        seats sharing one makes that column stop disambiguating rows.
   RETIRED an optional top-level `retired:` mapping holds seats that have ended
         (Art. IV: job seats retire, history preserved). Same name grammar; a
         retired name may not collide with a live seat name or any alias.
@@ -35,6 +49,34 @@ Checks enforced (each has a dedicated fixture in test-validate-seats.sh):
         DIR belongs to a live-or-retired seat; and every file's `integrity:`
         checksum matches its own body, so a HAND-EDITED history — the self-award
         this validator exists to catch — blocks the commit carrying it.
+  UNIT  (dotfiles-hfm5) every schedule's `unit:` names a `.timer` file
+        actually installed under --systemd-dir (default
+        ~/.config/systemd/user) — the roster claiming a unit that was never
+        shipped, or was renamed/removed underneath it.
+  UNIT-ORPHAN (dotfiles-hfm5) the reverse direction: every ENABLED
+        `pulse-*.timer` under --systemd-dir/timers.target.wants/ names a
+        seat's schedule OR is listed in the top-level `unit_allowlist:` —
+        a live timer nobody in the roster claims (son4's shape: the file
+        existing said nothing about whether the roster KNEW about it).
+
+  UNIT/UNIT-ORPHAN ARE WARN-BY-DEFAULT, STRICT VIA --strict-units. Unlike
+  every other rule above, these two read HOST STATE (the filesystem under
+  --systemd-dir), not just the document — the one input this validator does
+  not otherwise depend on. Three reasons that state must not be allowed to
+  block a commit by default: (1) a `br`/roster edit legitimately precedes the
+  unit install by one commit (chicken-and-egg: you write the schedule row,
+  THEN run pulse-inject to lay the timer down) — blocking that ordering makes
+  the honest edit sequence impossible; (2) a machine with no
+  ~/.config/systemd/user at all (a fresh clone, a non-systemd box, CI) must
+  not fail every commit touching seats.yml on that basis alone — WARN reduces
+  cleanly to "0 installed, 0 enabled, nothing to flag" wherever the directory
+  is simply absent; (3) this is the caution this bead was filed under: "a
+  validator that flakes with timer state breaks every roster commit." WARN
+  mode never touches the exit code — every violation is still printed, to
+  stderr, so nothing is silent — and `--strict-units` promotes the same
+  findings to blocking, for a deliberate, out-of-band check (a human running
+  it by hand, or a scheduled audit) rather than every pre-commit gate on this
+  box.
 
 --emit-json OUT (dotfiles-btw8): after the checks above all pass, write the
         parsed roster to OUT as JSON — the VERBATIM sidecar harnessd relays
@@ -48,8 +90,10 @@ Checks enforced (each has a dedicated fixture in test-validate-seats.sh):
 
 Usage:
   validate-seats.py [path] [--histories DIR] [--emit-json OUT]
+                    [--systemd-dir DIR] [--strict-units]
                                  # default path: agents/seats.yml relative to
                                  # CWD, or the path passed positionally
+                                 # default --systemd-dir: ~/.config/systemd/user
 Exit 0 + "OK" on success. Exit 1 + one line per violation on failure.
 """
 
@@ -551,6 +595,74 @@ def glyph_violation(ch: str) -> str | None:
     return sigil_violation(ch)
 
 
+# --------------------------------------------------------------------------
+# Units (dotfiles-hfm5) — the roster and the installed systemd state must
+# AGREE, both directions. See the UNIT/UNIT-ORPHAN docstring above for why
+# this is WARN-by-default.
+# --------------------------------------------------------------------------
+
+
+def systemd_state(systemd_dir: Path) -> tuple:
+    """(installed, enabled) — bare unit names (no ".timer" suffix).
+
+    installed: every *.timer file directly under systemd_dir.
+    enabled:   every *.timer entry under systemd_dir/timers.target.wants/ —
+               that symlink is what `systemctl --user enable` actually
+               writes, so reading it is equivalent to `systemctl is-enabled`
+               without shelling out to systemctl (the seam: a test points
+               --systemd-dir at a scratch tree with no systemd, no dbus, and
+               no live-box dependency at all).
+    A missing directory yields an empty set on that side, not an error —
+    see the WARN-by-default rationale above.
+    """
+    installed = set()
+    if systemd_dir.is_dir():
+        for p in systemd_dir.glob("*.timer"):
+            installed.add(p.name[: -len(".timer")])
+    enabled = set()
+    wants = systemd_dir / "timers.target.wants"
+    if wants.is_dir():
+        for p in wants.iterdir():
+            if p.name.endswith(".timer"):
+                enabled.add(p.name[: -len(".timer")])
+    return installed, enabled
+
+
+def unit_violations(doc: dict, systemd_dir: Path) -> list:
+    """Both directions of the UNIT rule. Always returns the full tagged list
+    regardless of strict/warn mode — main() decides whether these block."""
+    errors = []
+    seats = doc.get("seats") or {}
+    allowlist = {x for x in (doc.get("unit_allowlist") or []) if x}
+    installed, enabled = systemd_state(systemd_dir)
+
+    scheduled = set()
+    for seat_name, seat in seats.items():
+        seat = seat or {}
+        for sched in seat.get("schedules") or []:
+            sched = sched or {}
+            unit = sched.get("unit")
+            if not unit:
+                continue
+            scheduled.add(unit)
+            if unit not in installed:
+                errors.append(
+                    f"UNIT: seat '{seat_name}' schedule names unit '{unit}', "
+                    f"which has no installed {unit}.timer under {systemd_dir} "
+                    f"(schedule -> unit direction, dotfiles-hfm5)"
+                )
+
+    for unit in sorted(enabled - scheduled - allowlist):
+        if not unit.startswith("pulse-"):
+            continue  # non-pulse timers are out of the roster's jurisdiction
+        errors.append(
+            f"UNIT-ORPHAN: '{unit}.timer' is ENABLED under {systemd_dir} but "
+            f"no seat schedule names it and it is not listed in "
+            f"unit_allowlist: (unit -> schedule direction, dotfiles-hfm5)"
+        )
+    return errors
+
+
 def validate(doc: dict) -> list:
     errors = []
 
@@ -586,6 +698,36 @@ def validate(doc: dict) -> list:
                 f"TAP: tap '{tap_name}' has unknown type {ttype!r}; "
                 f"allowed: {sorted(KNOWN_TAP_TYPES)}"
             )
+
+    # --- FAILOVER (dotfiles-kf2i, d3ky v1): exist, be known, be same-type --
+    # d3ky's own words: "same-TYPE failover is free; cross-type failover
+    # FORBIDDEN v1". This was previously unenforced — only tap-TYPE presence
+    # was checked, never the failover list's own contract.
+    for tap_name, tap in taps.items():
+        tap = tap or {}
+        ttype = tap.get("type")
+        for target in tap.get("failover") or []:
+            if not target:
+                errors.append(
+                    f"FAILOVER: tap '{tap_name}' has an empty/null failover "
+                    f"entry — every failover target must name a real tap"
+                )
+                continue
+            if target not in taps:
+                errors.append(
+                    f"FAILOVER: tap '{tap_name}' fails over to {target!r}, "
+                    f"which is not a declared tap; known: {sorted(taps)}"
+                )
+                continue
+            target_type = (taps[target] or {}).get("type")
+            if target_type != ttype:
+                errors.append(
+                    f"FAILOVER: tap '{tap_name}' (type {ttype!r}) fails over "
+                    f"to '{target}' (type {target_type!r}) — cross-type "
+                    f"failover is FORBIDDEN v1 (dotfiles-d3ky): a seat's "
+                    f"charter work is tuned per vendor, a silent vendor "
+                    f"swap mid-loop is a silent-quality event"
+                )
 
     seat_names = list(seats.keys())
     seat_name_set = set(seat_names)
@@ -634,6 +776,31 @@ def validate(doc: dict) -> list:
                 f"declared under `taps:`; known: {sorted(taps)}"
             )
 
+    # --- SEATTAP-CONSISTENCY (dotfiles-e8l0): seat tap <-> schedule tap ------
+    # A seat's own `tap:` is the seat's declared billing source; a schedule
+    # binding a DIFFERENT tap is the roster contradicting itself about which
+    # vendor a given run actually draws from — the exact drift this bead was
+    # filed against ("a seat could declare tap: personal while its schedules
+    # bind work").
+    for seat_name, seat in seats.items():
+        seat = seat or {}
+        seat_tap = seat.get("tap")
+        for sched in seat.get("schedules") or []:
+            sched = sched or {}
+            sched_tap = sched.get("tap")
+            unit = sched.get("unit", "<unnamed>")
+            if (
+                seat_tap is not None
+                and sched_tap is not None
+                and sched_tap != seat_tap
+            ):
+                errors.append(
+                    f"SEATTAP-CONSISTENCY: seat '{seat_name}' draws from tap "
+                    f"{seat_tap!r} but its schedule '{unit}' binds tap "
+                    f"{sched_tap!r} — a seat's schedules must draw from the "
+                    f"same tap as the seat itself"
+                )
+
     # --- MODEL: pinned set ---------------------------------------------------
     for seat_name, seat in seats.items():
         seat = seat or {}
@@ -652,6 +819,25 @@ def validate(doc: dict) -> list:
             errors.append(
                 f"SIGIL: seat '{seat_name}' sigil rejected — {reason}"
             )
+
+    # --- SIGIL-UNIQUE (dotfiles-e8l0): no two live seats share a sigil -------
+    # The court renders the sigil as the row's only glyph column; two seats
+    # sharing one collapses that column back to ambiguous, the exact gap the
+    # hall-wave builder reported.
+    sigil_owner: dict = {}
+    for seat_name, seat in seats.items():
+        seat = seat or {}
+        sigil = seat.get("sigil")
+        if not sigil:
+            continue
+        if sigil in sigil_owner and sigil_owner[sigil] != seat_name:
+            errors.append(
+                f"SIGIL-UNIQUE: sigil {sigil!r} is shared by both "
+                f"'{sigil_owner[sigil]}' and '{seat_name}' — the court's "
+                f"glyph column must disambiguate rows, not merge them"
+            )
+        else:
+            sigil_owner.setdefault(sigil, seat_name)
 
     # --- WINDOW: schedule window must resolve to a seat name or alias --------
     resolvable = seat_name_set | set(alias_owner.keys())
@@ -774,6 +960,8 @@ def main(argv: list) -> int:
     positional: list = []
     histories: Path | None = None
     emit_json_path: Path | None = None
+    systemd_dir = Path("~/.config/systemd/user").expanduser()
+    strict_units = False
     rest = list(argv[1:])
     while rest:
         arg = rest.pop(0)
@@ -797,6 +985,18 @@ def main(argv: list) -> int:
             emit_json_path = Path(rest.pop(0))
         elif arg.startswith("--emit-json="):
             emit_json_path = Path(arg[len("--emit-json=") :])
+        elif arg == "--systemd-dir":
+            if not rest:
+                print(
+                    "validate-seats: FAIL — --systemd-dir needs a directory",
+                    file=sys.stderr,
+                )
+                return 1
+            systemd_dir = Path(rest.pop(0)).expanduser()
+        elif arg.startswith("--systemd-dir="):
+            systemd_dir = Path(arg[len("--systemd-dir=") :]).expanduser()
+        elif arg == "--strict-units":
+            strict_units = True
         else:
             positional.append(arg)
 
@@ -819,6 +1019,20 @@ def main(argv: list) -> int:
         return 1
 
     errors = validate(doc)
+
+    uviol = unit_violations(doc, systemd_dir)
+    if uviol:
+        if strict_units:
+            errors += uviol
+        else:
+            print(
+                f"validate-seats: WARN — {len(uviol)} unit-state note(s) "
+                f"against {systemd_dir} (pass --strict-units to enforce):",
+                file=sys.stderr,
+            )
+            for u in uviol:
+                print(f"  - {u}", file=sys.stderr)
+
     if histories is not None:
         errors += history_violations(doc, histories)
     if errors:

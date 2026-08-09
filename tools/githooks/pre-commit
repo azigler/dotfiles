@@ -274,13 +274,29 @@ while IFS= read -r f; do
     agents/scheduler/*.sh|agents/scheduler/*.py)
                                       add_suite "agents/scheduler/test-$base.sh" ;;
     # agents/bin/ holds operator scripts, and hall (dotfiles-sb6s) is the first
-    # one with a suite. Named rather than globbed: a blanket agents/bin/*.sh arm
-    # would put every other operator script into the UNCOVERED banner on every
-    # commit that touches one, which is a coverage question for those scripts,
-    # not a gate this change gets to answer. The suite is a trigger for itself —
-    # weakening a guard is usually an edit to its test.
+    # one with a suite. The suite is a trigger for itself — weakening a guard
+    # is usually an edit to its test.
     agents/bin/test-*.sh)             add_suite "$f" ;;
     agents/bin/hall)                  add_suite "agents/bin/test-hall.sh" ;;
+    # A mutation harness IS a gate; it has no test-<n>.sh of its own and never
+    # will. Same arm/reason as agents/scheduler/mutate-*.sh and
+    # agents/lib/mutate-*.sh above. Must precede the general agents/bin/*.sh
+    # arm below or the convention asks for a suite that cannot exist and the
+    # UNCOVERED banner cries wolf on every edit. mutate-orphan-reaper.sh is
+    # handled by its own dedicated invocation block further down.
+    agents/bin/mutate-*.sh)           ;;
+    # dotfiles-e8l0: agents/bin/ was NOT one of the four convention-covered
+    # dirs (hooks, scheduler, lib, doclint) — the two named arms above are the
+    # only ones that ever reached it, so an operator script with neither a
+    # test-<n>.sh NOR a name this hook already knew (claude-seat-link.sh,
+    # restart-loop-check.sh, sync-tick-settings.sh, tmux-fixture-sweep.sh, at
+    # the time this arm was added) was invisible to BOTH the gate and the
+    # UNCOVERED banner — worse than the other three dirs' gap, where an
+    # untested script at least gets NAMED. This general arm closes that: it
+    # reports the same way lib/scheduler/doclint already do, coverage gaps and
+    # all — a coverage question for those scripts to answer, not something
+    # this arm silently answers FOR them by staying invisible.
+    agents/bin/*.sh)                  add_suite "agents/bin/test-$base.sh" ;;
     agents/lib/test-*.sh)             add_suite "$f" ;;
     # A mutation harness IS a gate; it has no test-<n>.sh of its own and never
     # will. Same arm as agents/scheduler/mutate-*.sh above, same reason: without

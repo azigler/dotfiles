@@ -408,5 +408,9 @@
       "failover": [],
       "type": "claude"
     }
-  }
+  },
+  "unit_allowlist": [
+    "pulse-retry",
+    "pulse-stall"
+  ]
 }

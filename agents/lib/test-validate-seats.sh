@@ -19,8 +19,32 @@ bad() { FAIL=$((FAIL + 1)); FAILED+=("$1"); }
 BASE=$(mktemp -d)
 trap 'rm -rf "$BASE"' EXIT
 
-run() { # run <fixture-file> -> sets OUT, RC
-  OUT=$(python3 "$VALIDATOR" "$1" 2>&1)
+# A hermetic --systemd-dir every fixture gets BY DEFAULT (dotfiles-hfm5): both
+# units every fixture below is derived from (pulse-desk, pulse-dream) are
+# installed AND enabled, nothing else is. Without this, every `run "$F"` call
+# that omits --systemd-dir falls through to validate-seats.py's own default
+# (~/.config/systemd/user) -- THIS BOX'S real, live timer state -- and every
+# fixture's WARN-mode output fills up with however many real pulse-* timers
+# happen to be enabled here today. That noise never fails a test (warn mode
+# never blocks), but it is not hermetic, and it is exactly the kind of
+# host-state coupling the UNIT/UNIT-ORPHAN caution in the module docstring
+# argues against — even a WARN should not depend on what this particular box
+# happens to have enabled right now.
+NEUTRAL_SD="$BASE/neutral-systemd"
+mkdir -p "$NEUTRAL_SD/timers.target.wants"
+touch "$NEUTRAL_SD/pulse-desk.timer" "$NEUTRAL_SD/pulse-dream.timer"
+touch "$NEUTRAL_SD/timers.target.wants/pulse-desk.timer" \
+      "$NEUTRAL_SD/timers.target.wants/pulse-dream.timer"
+
+run() { # run <fixture-file> [extra validator args...] -> sets OUT, RC
+  local f=$1
+  shift
+  local args=("$@") a has_sd=0
+  for a in ${args[@]+"${args[@]}"}; do
+    case "$a" in --systemd-dir|--systemd-dir=*) has_sd=1 ;; esac
+  done
+  [ "$has_sd" -eq 0 ] && args+=(--systemd-dir "$NEUTRAL_SD")
+  OUT=$(python3 "$VALIDATOR" "$f" ${args[@]+"${args[@]}"} 2>&1)
   RC=$?
 }
 
@@ -182,10 +206,12 @@ done
 
 # --- 8c. SIGIL-EPRES-GOOD: the four REPLACEMENTS must pass ------------------
 # The other half of the same fact. A rule that rejects everything would satisfy
-# 8b; these four are the glyphs the roster now carries.
+# 8b; these four are the glyphs the roster now carries. dream's sigil is
+# retargeted to a neutral valid glyph first (dotfiles-e8l0's SIGIL-UNIQUE rule
+# would otherwise reject desk=🔮 as colliding with GOOD's own dream=🔮).
 for GLYPH in 🔑 🔭 🔮 🪶; do
   F="$BASE/sigil-epres-ok.yml"
-  sed "s/sigil: \"📜\"/sigil: \"$GLYPH\"/" "$GOOD" > "$F"
+  sed -e 's/sigil: "🔮"/sigil: "🎯"/' -e "s/sigil: \"📜\"/sigil: \"$GLYPH\"/" "$GOOD" > "$F"
   run "$F"
   if [ "$RC" -eq 0 ]; then ok; else bad "SIGIL-EPRES-GOOD $GLYPH must pass: $OUT"; fi
 done
@@ -228,9 +254,14 @@ if [ "$RC" -ne 0 ]; then ok; else bad "WINDOW: must fail"; fi
 case "$OUT" in *"WINDOW:"*) ok ;; *) bad "WINDOW: expected that tag, got: $OUT" ;; esac
 
 # --- 10. the REAL agents/seats.yml must pass its own validator --------------
+# Explicitly opts OUT of the hermetic NEUTRAL_SD default (the whole point of
+# this case is checking the roster against THIS BOX'S real installed units) —
+# still non-strict, so a legitimate roster-edits-before-unit-install ordering
+# never fails this suite; see the WARN-by-default rationale in the module
+# docstring.
 REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 if [ -f "$REPO_ROOT/agents/seats.yml" ]; then
-  run "$REPO_ROOT/agents/seats.yml"
+  run "$REPO_ROOT/agents/seats.yml" --systemd-dir "$HOME/.config/systemd/user"
   if [ "$RC" -eq 0 ]; then ok; else bad "REAL-ROSTER agents/seats.yml must pass: $OUT"; fi
 else
   bad "REAL-ROSTER agents/seats.yml not found at $REPO_ROOT/agents/seats.yml"
@@ -297,6 +328,185 @@ if [ -f "$REPO_ROOT/agents/seats.yml" ]; then
   run_emit "$REPO_ROOT/agents/seats.yml" "$REAL_EMIT"
   if [ "$ERC" -eq 0 ]; then ok; else bad "EMIT-REAL-ROSTER real seats.yml must emit cleanly (rc=$ERC): $EOUT"; fi
 fi
+# --- 11-15. UNIT / UNIT-ORPHAN (dotfiles-hfm5): schedules <-> installed units,
+# both directions, WARN-by-default / strict-via-flag. Every case below points
+# --systemd-dir at a SCRATCH fixture tree, never the real box, so these never
+# depend on this machine's actual timer state (the seam the bead demanded).
+
+# 11. UNIT (strict): a schedule's unit has no installed .timer -> must fail,
+# tagged, and name the missing unit.
+SD1="$BASE/systemd1"
+mkdir -p "$SD1"
+touch "$SD1/pulse-desk.timer"   # pulse-dream.timer deliberately absent
+run "$GOOD" --systemd-dir "$SD1" --strict-units
+if [ "$RC" -ne 0 ]; then ok; else bad "UNIT (strict): missing unit must fail"; fi
+case "$OUT" in
+  *"UNIT:"*"pulse-dream"*) ok ;;
+  *) bad "UNIT (strict): expected a UNIT: violation naming pulse-dream, got: $OUT" ;;
+esac
+
+# 12. UNIT (default/warn): the SAME missing-unit fixture must NOT fail the
+# build, but must still say so (nothing silent) -- the whole point of the seam.
+run "$GOOD" --systemd-dir "$SD1"
+if [ "$RC" -eq 0 ]; then ok; else bad "UNIT (warn): must NOT block by default, got rc=$RC: $OUT"; fi
+case "$OUT" in
+  *"WARN"*"UNIT:"*"pulse-dream"*) ok ;;
+  *) bad "UNIT (warn): expected a WARN-prefixed UNIT: note naming pulse-dream, got: $OUT" ;;
+esac
+
+# 13. UNIT (strict, passing): both units installed -> must pass.
+touch "$SD1/pulse-dream.timer"
+run "$GOOD" --systemd-dir "$SD1" --strict-units
+if [ "$RC" -eq 0 ]; then ok; else bad "UNIT (strict): both units installed must pass: $OUT"; fi
+
+# 14. UNIT-ORPHAN (strict): an ENABLED pulse-* timer nobody's schedule claims
+# and that is not in unit_allowlist -> must fail, tagged.
+SD2="$BASE/systemd2"
+mkdir -p "$SD2/timers.target.wants"
+touch "$SD2/pulse-desk.timer" "$SD2/pulse-dream.timer" "$SD2/pulse-orphan.timer"
+touch "$SD2/timers.target.wants/pulse-desk.timer" \
+      "$SD2/timers.target.wants/pulse-dream.timer" \
+      "$SD2/timers.target.wants/pulse-orphan.timer"
+run "$GOOD" --systemd-dir "$SD2" --strict-units
+if [ "$RC" -ne 0 ]; then ok; else bad "UNIT-ORPHAN (strict): unclaimed enabled timer must fail"; fi
+case "$OUT" in
+  *"UNIT-ORPHAN:"*"pulse-orphan"*) ok ;;
+  *) bad "UNIT-ORPHAN (strict): expected that tag naming pulse-orphan, got: $OUT" ;;
+esac
+
+# 15. UNIT-ORPHAN (strict, passing via unit_allowlist): the SAME enabled
+# orphan, but now recorded in the roster's unit_allowlist: -> must pass.
+F="$BASE/unit-allowlist.yml"
+{ cat "$GOOD"; echo "unit_allowlist: [pulse-orphan]"; } > "$F"
+run "$F" --systemd-dir "$SD2" --strict-units
+if [ "$RC" -eq 0 ]; then ok; else bad "UNIT-ORPHAN (strict, allowlisted): must pass: $OUT"; fi
+
+# --- 16-19. FAILOVER (dotfiles-kf2i, spec dotfiles-d3ky): exist, be known,
+# be same-type. Cases 16-17 reuse GOOD's two same-type taps; 18-19 need a
+# THIRD tap of a different type, since GOOD's personal/work are both `claude`.
+
+# 16. FAILOVER: an empty/null entry must fail, tagged, without naming a
+# nonexistent tap as if it were real.
+F="$BASE/failover-null.yml"
+sed 's/failover: \[\]/failover: [null]/' "$GOOD" > "$F"
+run "$F"
+if [ "$RC" -ne 0 ]; then ok; else bad "FAILOVER (null entry): must fail"; fi
+case "$OUT" in
+  *"FAILOVER:"*"empty/null"*) ok ;;
+  *) bad "FAILOVER (null entry): expected the empty/null tag, got: $OUT" ;;
+esac
+
+# 17. FAILOVER: a target that names no declared tap must fail, tagged, and
+# name the offending target.
+F="$BASE/failover-unknown.yml"
+sed 's/failover: \[work\]/failover: [nosuchtap]/' "$GOOD" > "$F"
+run "$F"
+if [ "$RC" -ne 0 ]; then ok; else bad "FAILOVER (unknown target): must fail"; fi
+case "$OUT" in
+  *"FAILOVER:"*"nosuchtap"*) ok ;;
+  *) bad "FAILOVER (unknown target): expected that tag naming nosuchtap, got: $OUT" ;;
+esac
+
+# 18. FAILOVER: cross-type failover is FORBIDDEN v1 (d3ky) -- a THIRD tap of a
+# different `type:` is added, and `personal` (type claude) is pointed at it.
+F="$BASE/failover-crosstype.yml"
+python3 - "$GOOD" "$F" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+text = open(src).read()
+text = text.replace("failover: [work]", "failover: [codex-tap]")
+marker = "seats:\n"
+insert = (
+    "  codex-tap:\n"
+    "    type: codex\n"
+    "    config_dir: ~/.codex\n"
+    "    failover: []\n"
+)
+idx = text.index(marker)
+text = text[:idx] + insert + text[idx:]
+open(dst, "w").write(text)
+PY
+run "$F"
+if [ "$RC" -ne 0 ]; then ok; else bad "FAILOVER (cross-type): must fail"; fi
+case "$OUT" in
+  *"FAILOVER:"*"cross-type"*"FORBIDDEN"*) ok ;;
+  *) bad "FAILOVER (cross-type): expected the cross-type/FORBIDDEN tag, got: $OUT" ;;
+esac
+
+# 19. FAILOVER: the failing-then-passing pair -- SAME fixture, but codex-tap's
+# type is fixed to match `personal`'s (claude) -> must now pass.
+F2="$BASE/failover-crosstype-fixed.yml"
+sed 's/type: codex/type: claude/' "$F" > "$F2"
+run "$F2"
+if [ "$RC" -eq 0 ]; then ok; else bad "FAILOVER (cross-type, fixed to same-type): must pass: $OUT"; fi
+
+# --- 20-21. SIGIL-UNIQUE (dotfiles-e8l0): no two live seats share a sigil --
+
+# 20. two seats sharing a sigil must fail, tagged.
+F="$BASE/sigil-unique.yml"
+sed 's/sigil: "🔮"/sigil: "📜"/' "$GOOD" > "$F"
+run "$F"
+if [ "$RC" -ne 0 ]; then ok; else bad "SIGIL-UNIQUE (shared glyph): must fail"; fi
+case "$OUT" in *"SIGIL-UNIQUE:"*) ok ;; *) bad "SIGIL-UNIQUE (shared glyph): expected that tag, got: $OUT" ;; esac
+
+# 21. the failing-then-passing pair -- SAME fixture, ONLY dream's sigil
+# changed to a DIFFERENT valid glyph instead of colliding with desk's -> must
+# pass. (dream's is the second "📜" occurrence in $F after case 20's sed.)
+F2="$BASE/sigil-unique-fixed.yml"
+python3 - "$F" "$F2" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+text = open(src).read()
+idx_dream = text.index("  dream:")
+before, after = text[:idx_dream], text[idx_dream:]
+old = 'sigil: "📜"'
+assert after.count(old) == 1, after.count(old)
+after = after.replace(old, 'sigil: "🪶"')
+open(dst, "w").write(before + after)
+PY
+run "$F2"
+if [ "$RC" -eq 0 ]; then ok; else bad "SIGIL-UNIQUE (fixed to distinct glyphs): must pass: $OUT"; fi
+
+# --- 22-23. SEATTAP-CONSISTENCY (dotfiles-e8l0): seat tap <-> schedule tap --
+
+# 22. desk's SCHEDULE tap set to `work` while desk's own (seat-level) tap
+# stays `personal` -- the roster contradicting itself about which vendor a
+# given run draws from -- must fail, tagged.
+F="$BASE/seattap-consistency.yml"
+python3 - "$GOOD" "$F" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+text = open(src).read()
+old = "        tap: personal\n        window: desk"
+new = "        tap: work\n        window: desk"
+assert text.count(old) == 1, text.count(old)
+open(dst, "w").write(text.replace(old, new))
+PY
+run "$F"
+if [ "$RC" -ne 0 ]; then ok; else bad "SEATTAP-CONSISTENCY (desk schedule vs seat tap): must fail"; fi
+case "$OUT" in
+  *"SEATTAP-CONSISTENCY:"*"desk"*) ok ;;
+  *) bad "SEATTAP-CONSISTENCY: expected that tag naming desk, got: $OUT" ;;
+esac
+
+# 23. the failing-then-passing pair -- SAME fixture, desk's SEAT-level tap
+# (only, not dream's) brought into agreement with its schedule -> must pass.
+F2="$BASE/seattap-consistency-fixed.yml"
+python3 - "$F" "$F2" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+text = open(src).read()
+idx_desk = text.index("  desk:")
+idx_dream = text.index("  dream:")
+block = text[idx_desk:idx_dream]
+old = "    tap: personal"
+assert block.count(old) == 1, block.count(old)
+block = block.replace(old, "    tap: work")
+text = text[:idx_desk] + block + text[idx_dream:]
+open(dst, "w").write(text)
+PY
+run "$F2"
+if [ "$RC" -eq 0 ]; then ok; else bad "SEATTAP-CONSISTENCY (fixed): must pass: $OUT"; fi
 
 # --- Summary ---
 TOTAL=$((PASS + FAIL))
