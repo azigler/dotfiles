@@ -204,7 +204,12 @@ MODAL_MARKER="${PULSE_ESCALATE_MODAL_MARKER-Enter to select|Tab/Arrow keys to na
 # to mean "this pane accepts typed input", which is the claim clearing a 🔔 makes.
 # A pane showing a dialog renders NONE of it (measured: 0 matches on the live 🔔
 # capture, 1 on the live ✅ capture).
-IDLE_MARKER="${PULSE_ESCALATE_IDLE_MARKER-shift\+tab to cycle|\? for shortcuts|bypass permissions on|accept edits on|plan mode on}"
+# `manual mode on` added at install (2026-08-09): the arming drill launched a real
+# claude whose footer read `⏸ manual mode on · ← for agents` — a permission-mode
+# variant READY_MARKER never met, so a truly stale 🔔 over such a pane classified
+# AMBIGUOUS and would escalate instead of reconciling. Safe direction, wrong
+# outcome; the fleet's seats run bypass mode, so this is belt for scratch panes.
+IDLE_MARKER="${PULSE_ESCALATE_IDLE_MARKER-shift\+tab to cycle|\? for shortcuts|bypass permissions on|accept edits on|plan mode on|manual mode on}"
 
 TMUX_BIN=$(command -v tmux 2>>"$LOG")
 [ -x "${TMUX_BIN:-}" ] || TMUX_BIN=/usr/bin/tmux
