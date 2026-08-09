@@ -299,8 +299,9 @@ while IFS= read -r f; do
     # will. Same arm/reason as agents/scheduler/mutate-*.sh and
     # agents/lib/mutate-*.sh above. Must precede the general agents/bin/*.sh
     # arm below or the convention asks for a suite that cannot exist and the
-    # UNCOVERED banner cries wolf on every edit. mutate-orphan-reaper.sh is
-    # handled by its own dedicated invocation block further down.
+    # UNCOVERED banner cries wolf on every edit. mutate-orphan-reaper.sh and
+    # mutate-hall-prompt.sh each have their own dedicated invocation block
+    # further down.
     agents/bin/mutate-*.sh)           ;;
     # dotfiles-e8l0: agents/bin/ was NOT one of the four convention-covered
     # dirs (hooks, scheduler, lib, doclint) — the two named arms above are the
@@ -714,6 +715,35 @@ if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(demesne-sync\.sh|demes
     bash "$ROOT/agents/scheduler/mutate-demesne-sync.sh" || FAILED=1
   else
     echo "pre-commit: FAIL — agents/scheduler/mutate-demesne-sync.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
+# --- the HALL's interactive court -> prove ITS guards still bite -----------
+# Same argument as every block above, on the one script in this repo Zig drives
+# WITH HIS THUMBS. Every defect it has shipped (dotfiles-hnhl) was reported live
+# against a green suite, and every one of them exits 0: a popup that dismisses
+# itself on an arrow key, a backspace that cannot reach the first character, an
+# Esc that types instead of closing, a phone court that lists 18 seats none of
+# which are running. Nothing goes red — the failure IS the rendering, or the
+# absence of one. Measured on this box:
+#
+#     test-hall.sh (206 cases, real fixture tmux servers)     62s
+#     mutate-hall-prompt.sh (3 mutants + baseline)           218s
+#
+# The convention arm above already runs the 62s suite for these files; this adds
+# ~156s, to commits touching THREE files. The test file is a trigger on purpose:
+# PROMPTARROWLIVE is the SOLE detector for the escape-sequence drain (an
+# early-closing popup and a correct one both exit 0 and leave the court alone),
+# PROMPTBKSP the sole one for backspace reaching the first character, and
+# BPLIVE/BPASLEEP the sole ones for WHICH ROWS the phone draws — so deleting one
+# case loses the bite while the suite stays green.
+if printf '%s\n' "$STAGED" | grep -qE '^agents/bin/(hall|test-hall\.sh|mutate-hall-prompt\.sh)$'; then
+  echo "pre-commit: staged changes touch the hall's interactive court -> running mutation harness (~220s)"
+  if [ -f "$ROOT/agents/bin/mutate-hall-prompt.sh" ]; then
+    bash "$ROOT/agents/bin/mutate-hall-prompt.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/bin/mutate-hall-prompt.sh is missing" >&2
     FAILED=1
   fi
 fi
