@@ -155,6 +155,21 @@ mapped_suites_for() { # <staged path> -> newline-separated suite paths
     # an ORDERING bug (dotfiles-v26x), the kind an unrun suite is written for.
     mac.upgrade.sh)
       printf '%s\n' agents/hooks/test/test-mac-upgrade-brew-order.sh ;;
+    # A Python skill helper with a pytest suite: it matches no convention arm
+    # below, so before this entry every edit to the /dream helper — the loop
+    # that reads the whole fleet's transcripts and files beads from them — was
+    # gated on NOTHING, silently (the dotfiles-dijt shape). run-suite.sh is a
+    # bash wrapper so the gate can call it like every other suite; the mutation
+    # harness is named alongside it because the fleet-scope guards
+    # (denylist, caps, per-repo filing, --dry-run) all fail SILENTLY, which is
+    # precisely the class a green suite does not cover. The TEST FILES are
+    # triggers too: weakening a guard is usually an edit to its test.
+    agents/skills/dream/dream.py|agents/skills/dream/tests/test_dream_fleet.py|agents/skills/dream/tests/mutate-fleet-guards.sh)
+      printf '%s\n' \
+        agents/skills/dream/tests/run-suite.sh \
+        agents/skills/dream/tests/mutate-fleet-guards.sh ;;
+    agents/skills/dream/tests/test_dream.py|agents/skills/dream/tests/test_dream_seams.py|agents/skills/dream/tests/_dream_helpers.py|agents/skills/dream/tests/conftest.py|agents/skills/dream/tests/run-suite.sh)
+      printf '%s\n' agents/skills/dream/tests/run-suite.sh ;;
   esac
 }
 

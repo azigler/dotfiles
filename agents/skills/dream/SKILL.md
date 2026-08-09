@@ -1,5 +1,5 @@
 ---
-description: The harness's weekly SLEEP-TIME CONSOLIDATION loop — a propose-only pulse tick that mines recent sessions (via /recall) for durable harness learnings and drafts HUMAN-GATED proposal beads (MEMORY.md entries / skill hardening). It NEVER writes MEMORY.md and NEVER auto-promotes — its only output is proposal beads a human reviews. The slow write-path of the claude-vault arc; the read primitive (/recall) it builds on already ships.
+description: The harness's weekly SLEEP-TIME CONSOLIDATION loop — a propose-only pulse tick that mines recent sessions ACROSS THE WHOLE FLEET (every slug except a confidentiality denylist) for durable harness learnings and drafts HUMAN-GATED proposal beads (MEMORY.md entries / skill hardening), each filed in the repo it came from. It NEVER writes MEMORY.md and NEVER auto-promotes — its only output is proposal beads a human reviews. The slow write-path of the claude-vault arc; the read primitive (/recall) it builds on already ships.
 when_to_use: A scheduled "/dream tick" fires (Sun 04:13 PT, pulse-dream.timer, the `dream` window) and you consolidate the window of sessions since the last run into candidate learnings, then file proposal beads for the ones worth a MEMORY entry. NOT for interactive/inline use — this is a slow, scheduled, propose-only loop. Also invoked for "/dream status" (ledger + open proposals).
 ---
 
@@ -43,38 +43,104 @@ the write **proposal-only + human-gated** preserves the trust ladder: the loop
 reviewed human action. If you ever feel tempted to "just add the obvious one to
 MEMORY.md" — that is exactly the temptation the invariant exists to stop.
 
-## Scope: the CURRENT slug only (confidential-safe MVP)
+## Scope: THE WHOLE FLEET, minus a denylist
 
-The tick distills **only the slug it runs in** (`dream.py` defaults to the
-current-cwd slug). It does **not** sweep other slugs.
+The tick distills **every permitted slug** under the projects root — not just the
+one it runs in. `dream.py collect` with no `--slug` is fleet scope; `--slug=X`
+narrows to one; `--no-fleet` restores the old current-slug-only behaviour.
 
-This is deliberate and load-bearing: a proposal bead lands in a git-pushed
-`.beads/` (off-box), and the `feedback_linearb_beads_confidential` memory forbids
-sweeping `linearb*` / `cfp*` content into off-box / pushed artifacts. (The
-2026-07-08 tailnet-dashboard exception is a *tailnet-bound-and-authed* exception,
-**not** a github-push exception — a pushed bead is off-box.) So a proposal bead
-mined from a confidential slug and pushed to GitHub would violate that rule.
-Restricting to the current slug means a tick running in `~/explore` only ever
-proposes from explore sessions; run the loop inside each project you want
-distilled.
+**The confidentiality mechanism is a DENYLIST, not narrowness** (`dotfiles-xicr`,
+2026-08-09). A proposal bead lands in a git-pushed `.beads/` (off-box), and
+`feedback_linearb_beads_confidential` forbids sweeping `linearb*` / `cfp*`
+content into off-box / pushed artifacts. (The 2026-07-08 tailnet-dashboard
+exception is a *tailnet-bound-and-authed* exception, **not** a github-push
+exception — a pushed bead is off-box.) Until 2026-08-09 that rule was enforced by
+*looking at one slug*, which protected two projects at the cost of the other
+hundred: on the night this changed, the live root held **112 slugs, 30 of them
+denied** — so the old rule was paying 82 slugs to exclude 30. The rule is now
+stated once, as a constant, and enforced in three layers:
 
-**Future `--all` / cross-slug mode is explicitly OUT of scope here.** If it is
-ever built it must be gated on confidential-exclusion (skip `linearb*`/`cfp*`, or
-route their proposals to a local-only tracker) BEFORE it sweeps. Do not build it
-as part of this loop.
+| layer | what it stops | where |
+|---|---|---|
+| **slug denylist** | a denied slug is never enumerated, opened or globbed | `CONFIDENTIAL_PREFIXES` in `discover_slugs()` |
+| **path guard** | any path any seam touches that names a denied project | `guard_path()` (unchanged, defence in depth) |
+| **text denylist** | a candidate from a PERMITTED repo whose text *mentions* a denied project | `drop_confidential_text()` |
 
-**Every seam inherits this, and it is enforced in code, not prose.** Each seam is
-scoped to the current slug (`memory-history` is pathspec-scoped to
-`<slug>/memory`) or the current repo, and every path a seam opens, globs, or hands
-to git passes through `dream.py`'s `guard_path()` — which refuses any component
-naming a `linearb*` / `cfp*` project. A confidential `--slug` is a hard exit 2.
-Set `DREAM_PATH_AUDIT=<file>` to log every permitted traversal (and every
-`REFUSED:` one); that audit is how the test suite proves the negative, with the
-explore paths in the same file as the positive control.
+The third layer is new with fleet scope and is not paranoia: a cross-slug
+candidate is offered to **both** repos' filing plans, so a line that only ever
+lived in repo A can be filed into repo B. The first live dry-run found exactly
+one — a `refs/session-handoff.md` line reading *"…LinearB seat
+(`~/.claude-work`)…"*. Its cost is real and accepted: a genuine harness learning
+that merely *names* a denied project is dropped with it. **A false positive costs
+one candidate; a false negative pushes confidential content off-box.**
 
-⚠️ The seam sizes quoted when this was designed (560 handoff revisions across 7
-repos, 329 twice-revised memory files) were measured **fleet-wide**. That was a
-measurement, **not** a licence to traverse.
+**A denied slug is never NAMED in the output — only counted** (`denied.count`).
+Naming it would put the existence of a confidential project into the pushed
+artifact. An explicit `--slug=<denied>` is still a hard exit 2. Set
+`DREAM_PATH_AUDIT=<file>` to log every permitted traversal and every `REFUSED:`
+one; that audit is how the suite proves the negative, with permitted paths in
+the same file as the positive control.
+
+**Adding a project to the denylist is a one-line change** to
+`CONFIDENTIAL_PREFIXES` in `dream.py`. Prefix matching is deliberately over-broad
+(`linearb-notes`, `cfp2026`, `-home-ubuntu-cfp` all match).
+
+⚠️ The seam sizes quoted when this loop was designed (560 handoff revisions
+across 7 repos, 329 twice-revised memory files) were measured **fleet-wide** —
+and as of `dotfiles-xicr` the loop can finally *reach* them.
+
+### Per-slug vs global seams
+
+Fleet scope forced a per-seam decision, and the split is in code
+(`GLOBAL_SEAMS`), not prose:
+
+- **Per-slug** — `session-recall`, `memory-history` (slug-scoped), and
+  `offboard-history`, `findings-corrections` (scoped to **that slug's own
+  repo**, resolved from the slug). These iterate; that is where the breadth
+  comes from.
+- **Global** — `skill-history`. There is exactly ONE harness repo, so running it
+  per slug would emit N identical candidate sets at N times the git cost, and
+  each copy would dedupe back into the first — inflating `n_sources` with
+  self-corroboration, which is evidence the recurrence bar reads. It runs once
+  and its candidates carry the pseudo-slug `(fleet)`.
+
+### Cost: the caps are load-bearing
+
+Fleet scope multiplies cost by the slug count, so two conservative,
+call-site-overridable caps bound it:
+
+| flag | default | what it bounds |
+|---|---|---|
+| `--max-slugs` | 12 | slugs iterated, **most-recently-active first** |
+| `--max-per-slug` | 60 | merged candidates kept per slug, before `--max-candidates` |
+
+Measured 2026-08-09: `--max-slugs=3` over a 3-day window took **4m13s**, nearly
+all of it `session-recall` (five `recall.py` passes per slug). Budget roughly
+90s per slug and set `--max-slugs` from the time you have, not from the slug
+count. The global `--max-candidates` round-robins over `(slug, seam)` before it
+truncates — a seam-only round robin would hand the tick the freshest slug's whole
+week and nothing from the other eleven.
+
+### Where proposals go: EACH REPO'S OWN STORE
+
+Bead-location discipline reaches the dream loop. `collect` emits a
+`filing_plan`: one row per slug naming the repo its proposals belong to and that
+repo's bead store. File a learning mined from `~/hevyd` **in `~/hevyd`**.
+
+The robust invocation is **`cwd=<repo>` + plain `br`** (let it auto-discover);
+`filing_plan[].db` is populated only when exactly one `.beads/*.db` exists,
+because several repos hold two (`beads.db` beside `issues.db`) and guessing
+between them misfiles silently.
+
+```bash
+jq -r '.filing_plan[] | select(.store_ok) | "\(.slug)\t\(.br_cwd)"' candidates.json
+( cd "$REPO" && br create -t note -p 3 "propose-memory: …" )
+```
+
+**A repo with no bead store is a LOUD SKIP** — `store_ok:false`, a named
+`skip_reason`, and a stderr line. Never redirect its proposals into another
+repo's store to "not lose them"; that is the bead-location violation the plan
+exists to prevent, and it would look exactly like success.
 
 ## Sleep-time, not hot-path
 
@@ -111,10 +177,22 @@ Run `dream.py collect` — the stdlib-only helper — to surface candidate durab
 learnings from every **seam** at once:
 
 ```bash
-python3 "$SKILL_DIR/dream.py" collect --since "$SINCE" --slug="$SLUG" \
+python3 "$SKILL_DIR/dream.py" collect --since "$SINCE" \
   --max-candidates 20000 \
   > "$SCRATCH/candidates.json"
 # first run: drop --since (7-day lookback kicks in)
+# no --slug: that IS fleet scope. --slug=… narrows to one slug.
+```
+
+Before a run you are unsure of — and always after changing `dream.py` — do the
+**dry run** first. It is the same pipeline against the real fleet, printing the
+plan it would file (repo, title, body preview) and writing **nothing**
+(enforced by a write guard, not by inspection):
+
+```bash
+python3 "$SKILL_DIR/dream.py" collect --dry-run --max-slugs 3 \
+  --since "$SINCE" > /dev/null      # the plan goes to stderr; JSON to stdout
+python3 "$SKILL_DIR/dream.py" slugs --resolve | jq '{n_permitted, denied}'
 ```
 
 ⚠️ **`--max-candidates 20000` is load-bearing — do not drop it.** The library default
@@ -140,13 +218,13 @@ the sweep found **zero** uncaptured corrections). Precision was 100% — 5 propo
 5 promoted — and **recall** was the problem. The four added seams are all
 **churn histories**, where the signal *is* what changed.
 
-| seam | source (current slug / current repo ONLY) | why it carries signal |
-|---|---|---|
-| `session-recall` | `recall.py` over this slug's transcripts | the original seam: turns matching a learning-signal regex |
-| `offboard-history` | `git log -p -- refs/session-handoff*.md` in the current repo | `/offboard` **overwrites** its note, so the friction it recorded survives only in git |
-| `memory-history` | `git log -p` over `<slug>/memory/*.md` in the claude-vault memory repo | what we believed, then **un**believed |
-| `skill-history` | `git log -p -- agents/skills/*/SKILL.md` in `~/dotfiles` | which prompt wording keeps getting **re-fixed** — harness rot, directly |
-| `findings-corrections` | `## Corrections` / `## Scrutiny` blocks in `*/FINDINGS.md` | the highest-density corrections surface in the compendium |
+| seam | scope | source | why it carries signal |
+|---|---|---|---|
+| `session-recall` | per-slug | `recall.py` over the slug's transcripts | the original seam: turns matching a learning-signal regex |
+| `offboard-history` | per-slug (its repo) | `git log -p -- refs/session-handoff*.md` | `/offboard` **overwrites** its note, so the friction it recorded survives only in git |
+| `memory-history` | per-slug | `git log -p` over `<slug>/memory/*.md` in the claude-vault memory repo | what we believed, then **un**believed |
+| `skill-history` | **GLOBAL** | `git log -p -- agents/skills/*/SKILL.md` in `~/dotfiles` | which prompt wording keeps getting **re-fixed** — harness rot, directly |
+| `findings-corrections` | per-slug (its repo) | `## Corrections` / `## Scrutiny` blocks in `*/FINDINGS.md` | the highest-density corrections surface in the compendium |
 
 Toggle them with `--seams a,b,c` (default: all). Each is independent and each
 **degrades to empty rather than erroring** when its source is absent.
@@ -169,16 +247,34 @@ recent history over all of it.
 #### `searched` is reported separately from `found` — always
 
 ```json
-{"since":"…","history_since":"…","slug":"…","repo":"/home/ubuntu/explore",
- "scanned_sessions":144,"window_sessions":9,
- "seams":{"session-recall":{"searched":true,"found":40,"note":"144 sessions scanned, 9 in-window"},
+{"since":"…","history_since":"…","slug":"(fleet)","repo":"/home/ubuntu/explore",
+ "fleet":true,"dry_run":false,
+ "scanned_sessions":441,"window_sessions":37,
+ "seams":{"session-recall":{"searched":true,"found":36,"note":"3/3 scope(s) searched"},
           "skill-history":{"searched":false,"found":0,"note":"skills repo not found: …"}},
  "seams_requested":5,"seams_searched":4,
+ "slugs":[{"slug":"-home-ubuntu-hevyd","repo":"/home/ubuntu/hevyd","store_ok":true,
+           "n_candidates":5,"seams_searched":4}],
+ "n_slugs":3,"denied":{"count":30,"total_slugs_seen":112,"candidates_dropped":1,
+                       "mechanism":"CONFIDENTIAL_PREFIXES denylist"},
+ "n_cross_slug":2,"filing_skipped":0,
+ "filing_plan":[{"slug":"-home-ubuntu-hevyd","repo":"/home/ubuntu/hevyd",
+                 "store":"/home/ubuntu/hevyd/.beads","store_ok":true,"db":"…","br_cwd":"…",
+                 "n_candidates":5,"n_cross_slug":1,"skip_reason":null,
+                 "proposals":[{"title":"propose-memory: …","cross_slug":true,"body_preview":"…"}]}],
  "n_candidates":40,"truncated":false,
- "candidates":[{"seams":["offboard-history"],"signals":["gotcha"],"ts":"…","text":"…",
+ "candidates":[{"seams":["offboard-history"],"slugs":["-home-ubuntu-hevyd"],"cross_slug":false,
+                "signals":["gotcha"],"ts":"…","text":"…",
                 "source":"…","n_sources":1,"detail":{"commit":"…","file":"…","kind":"diff-line"}}],
- "memory_digest":{"path":"…","exists":true,"n_entries":12,"n_qualified":3,"entries":[…]}}
+ "memory_digest":{"path":"…","exists":true,"n_entries":12,"n_qualified":3,
+                  "n_cross_slug":1,"entries":[…]}}
 ```
+
+**A denied slug appears NOWHERE in this object** — `denied.count` is the only
+trace, and that is deliberate (see Scope). `slugs[]` is the per-slug roll-up;
+`seams[]` stays the flat per-seam report the ledger reads, with `searched`
+aggregated as ANY and `found` as the sum, so a seam that could look in 1 of 12
+scopes says `1/12 scope(s) searched` rather than passing as healthy.
 
 **Exit contract: `0` = found · `1` = searched and found nothing · `3` = could not
 search** (no seam was able to look) · `2` = error or confidentiality refusal.
@@ -252,9 +348,10 @@ recurrence is what consolidation MEANS.
 cat > "$SCRATCH/observations.json" <<'EOF'
 {"run_id":"run-2026-08-09","observations":[
   {"key":"flock-drops-on-fork","gist":"flock silently releases across fork",
-   "seams":["skill-history","offboard-history"],"disposition":"observed"},
+   "seams":["skill-history","offboard-history"],
+   "slugs":["-home-ubuntu-explore","-home-ubuntu-hevyd"],"disposition":"observed"},
   {"key":"pulse-row-never-null","gist":"…","seams":["session-recall"],
-   "disposition":"proposed","bead":"explore-ab1"}
+   "slug":"-home-ubuntu-explore","disposition":"proposed","bead":"explore-ab1"}
 ]}
 EOF
 python3 "$SKILL_DIR/dream.py" remember --observations "$SCRATCH/observations.json"
@@ -266,11 +363,24 @@ later run by re-observing the key with `"disposition":"promoted"` or `"rejected"
 
 #### The recurrence bar
 
-A learning qualifies as a **proposal** when EITHER:
+A learning qualifies as a **proposal** when ANY of:
 
+- it was observed in **≥ 2 distinct slugs** (**CROSS-SLUG** recurrence — the same
+  lesson in two independent projects is a *harness* fact, not a project fact;
+  only reachable since fleet scope), **or**
 - it has been seen in **≥ 2 distinct runs** (recurrence over time), **or**
 - it was seen in **≥ 2 distinct seams within one run** (independent corroboration —
   the same lesson in a skill diff *and* a FINDINGS correction).
+
+Cross-slug is checked first so `qualify_reason` names the strongest evidence, and
+that sentence — `CROSS-SLUG: observed in N distinct slugs (…)` — is quoted
+verbatim into the proposal bead. Within a single run the same flag rides on the
+candidate (`cross_slug: true`) and `dream.py` renders the banner into the
+`filing_plan` body preview itself, so it reaches the proposal text mechanically
+rather than depending on the tick to remember. **Record the slug on every
+observation** (`{"key":…, "slug":"-home-ubuntu-hevyd"}` or `"slugs":[…]`) —
+without it the cross-slug clause can never fire. The pseudo-slug `(fleet)` does
+not count toward it; it is not a project.
 
 Two standing suppressions, both phantom-backlog guards:
 
@@ -287,8 +397,10 @@ that it was below the bar.
 
 ### d. Propose (human-gated) — file a proposal bead, NEVER write MEMORY.md
 
-For each keeper, file **one proposal bead** (the orchestrator owns bead
-lifecycle). Two shapes:
+For each keeper, file **one proposal bead in the repo the learning came from** —
+read `filing_plan` for the target (`br_cwd`), and never redirect a
+`store_ok:false` row's proposals into another repo. The orchestrator owns bead
+lifecycle. Two shapes:
 
 **MEMORY-entry proposal** — `-t note`, titled `propose-memory: <short>`:
 
@@ -340,13 +452,18 @@ gate.
 Append **one line per run** to `refs/dream-ledger.jsonl`:
 
 ```json
-{"ts":"2026-07-08T09:00:00Z","row":"dream","since":"2026-07-01T00:00:00Z","slug":"-home-ubuntu-explore","scanned_sessions":12,"window_sessions":3,"seams_searched":5,"seams_requested":5,"candidates":4,"observations":3,"proposals":2,"proposal_beads":["explore-ab1","explore-ab2"],"note":"2 memory proposals filed"}
+{"ts":"2026-07-08T09:00:00Z","row":"dream","since":"2026-07-01T00:00:00Z","slug":"(fleet)","n_slugs":12,"denied":30,"scanned_sessions":12,"window_sessions":3,"seams_searched":5,"seams_requested":5,"candidates":4,"cross_slug":1,"observations":3,"proposals":2,"proposal_beads":["explore-ab1","explore-ab2"],"note":"2 memory proposals filed"}
 ```
 
 **Carry `seams_searched` / `seams_requested` from the `collect` output.** A run
 where they differ searched fewer places than it thinks it did — and that is
 invisible in `candidates` alone, which is the failure the positive control exists
 to surface. `observations` is how many keys the run handed `remember`.
+
+**Fleet runs also carry `n_slugs` and `denied`** (the count, never names).
+`n_slugs` is the run's real breadth; a tick that quietly fell back to one slug is
+otherwise indistinguishable from a quiet week — the same conflation `searched`
+exists to break, one level up. `slug` is `(fleet)` for a fleet run.
 
 **`row` is MANDATORY and never null.** The canonical row for this loop is
 **`dream`** (declared in the pulse project's routing doc — for
@@ -414,13 +531,20 @@ above), and the `since` the next tick would use. No writes.
 Add the recurrence state — it is the part a human cannot get from `br list`:
 
 ```bash
-python3 "$SKILL_DIR/dream.py" collect --seams=findings-corrections --max-candidates=0 \
-  | jq '.memory_digest | {n_entries, n_qualified,
+python3 "$SKILL_DIR/dream.py" collect --no-fleet --seams=findings-corrections --max-candidates=0 \
+  | jq '.memory_digest | {n_entries, n_qualified, n_cross_slug,
         qualified: [.entries[] | select(.qualified) | {key, count, disposition}]}'
 ```
 
-(`--seams` is narrowed only to keep `status` fast; the digest is read from
+(`--seams` is narrowed and `--no-fleet` passed only to keep `status` fast — a
+read-only status must not pay for a fleet sweep. The digest is read from
 `--memory` regardless of which seams ran.)
+
+Add the fleet's shape too — one cheap call, no seams at all:
+
+```bash
+python3 "$SKILL_DIR/dream.py" slugs | jq '{n_permitted, n_iterated, denied}'
+```
 
 ## Scheduling — WIRED, weekly, Sun 04:13 PT
 
@@ -454,8 +578,16 @@ saying "no" before comprehension rot (the cognitive-surrender guard).
   yourself). The human is the gate; the bead waits.
 - ❌ **AskUserQuestion in a tick** — freezes the window. File the proposal bead
   (and, if genuinely blocked, a `human:` bead + push) and end.
-- ❌ **Cross-slug / `--all` sweep** — pushes confidential (`linearb*`/`cfp*`)
-  content off-box. Current slug only until a confidential-exclusion gate exists.
+- ❌ **Widening scope by weakening the denylist** — `CONFIDENTIAL_PREFIXES` is
+  the whole confidentiality mechanism now that narrowness is gone. Add prefixes;
+  never remove one to "get more material", and never name a denied slug in
+  output, a ledger row, or a bead.
+- ❌ **Filing a slug's proposals into the tick's own repo** because that repo has
+  a store and the slug's does not. A storeless repo is a LOUD SKIP; redirecting
+  is the bead-location violation, and it looks exactly like success.
+- ❌ **Running fleet scope with the caps removed** — `--max-slugs`/`--max-per-slug`
+  are what keep a weekly tick weekly (~90s per slug, measured). Raise them
+  deliberately, against a measured budget, at the call site.
 - ❌ **Over-proposing** — a flood of low-signal proposals is worse than none; it
   trains Zig to ignore the channel. Conservative bar; when in doubt, drop.
 - ❌ **Re-proposing shipped learnings** — always dedupe against `MEMORY.md` + open
@@ -485,4 +617,5 @@ saying "no" before comprehension rot (the cognitive-surrender guard).
 - Spec + decisions: `br show explore-76oc` (§4.4; the propose-only trust-ladder
   rationale; §1 the claude-vault arc).
 - `project_golem_phantom_backlog` (MEMORY) — why propose-only + dedupe-first.
-- `feedback_linearb_beads_confidential` (MEMORY) — why current-slug-only.
+- `feedback_linearb_beads_confidential` (MEMORY) — why the denylist exists (and,
+  before `dotfiles-xicr`, why this loop was current-slug-only).
