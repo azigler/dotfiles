@@ -162,6 +162,12 @@ Since `dotfiles-qnfk` it also PLACES LAURELS — 0-3 a week, fleet-wide, each ci
 **Prereqs/side-effects:** lint-on-write auto-fixes on save (respects prettier-configured repos); pre-commit lints commit files; task-completed runs heavy checks.
 **Anti-pattern:** Disabling rules to unblock without a root-cause justification; linting files you didn't modify.
 
+### /marshal
+**Job:** THE FLEET DRAIN — the estate's overnight consumer: budget the night in tokens, select fleet-MARKED beads across the opt-in repos, swarm worktree builders, merge each landing under AGENTS.md's guarded sequence, leave an explainable ledger.
+**Fire when:** The 01:07 PT tick (`/marshal night`, pulse-marshal.timer, the `marshal` window — NOT installed yet; the maiden run is supervised and hand-launched post-cutover). `/marshal status` for the seat's own health.
+**Prereqs/side-effects:** Drives `agents/scheduler/marshal-drain.sh` (`plan`/`budget`/`record`/`verify`) with knobs in `agents/scheduler/marshal.conf`; budget is read from pico's requests.db over ssh and DEGRADES to the config floor when it cannot be computed; dispatches real subagents and merges real branches; appends `~/.local/state/harness/drain-ledger.jsonl`; molts between beads at the shared pacing threshold (`agents/lib/molt-thresholds.sh`). Full spec: bead `dotfiles-69qr`.
+**Anti-pattern:** Claiming an UNMARKED bead (the marker certifies "written for a cold builder" — auto-eligibility ships confident wrong-goal code, the one failure scrutiny cannot catch); improvising a semantic merge at 3am instead of parking; two agents in one foreign repo (the isolation hook cannot see that and passes the dispatch); closing on red; asking Zig a question from a timer tick.
+
 ### /nginx
 **Job:** Global reverse-proxy ops — vhost layout, certbot TLS, test+reload discipline.
 **Fire when:** Auto-loads on nginx config paths; any vhost/TLS task.
