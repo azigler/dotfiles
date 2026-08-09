@@ -1,6 +1,6 @@
 # TOOLKIT — global skills digest
 
-The per-skill digest `/onboard` Step 2 reads instead of all 37 full
+The per-skill digest `/onboard` Step 2 reads instead of all 38 full
 bodies. Each entry: what the skill does, when it fires, what it
 needs/touches, and the single most load-bearing anti-pattern. Full
 bodies still load on invocation (progressive disclosure) — read a body
@@ -226,6 +226,12 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 **Fire when:** After every impl-wave merge, before merge-to-main / bead close. Skip only for atomic mechanical changes.
 **Prereqs/side-effects:** Panel mode (default for substantial waves): saved workflow scrutinize-panel.workflow.mjs — 5 parallel hunt lenses + per-finding refuters. Single-agent mode for small waves (general-purpose/Explore, never worktree). Verdict SHIP / FIX-FIRST / REJECT recorded on the impl bead (hook-enforced for close). For user-facing surfaces: EXECUTE & OBSERVE (run/Playwright-click/inspect real output), don't certify by reading. Structural separation (fresh agent) is the primary mechanism; different-model is a supplementary lever. **SOLE OWNER of the post-impl audit** (2026-08-01, dotfiles-oec6): "The audit checklist" §1 stub bodies (+ triage greps) and §2 composition — absorbed from /impl and /orchestrator, which now point here; the `skills-library-8l6` incident is told once, there.
 **Anti-pattern:** Skipping because the report looked clean — that's exactly when the gate earns its keep; inventing findings ("found nothing" is valid). Certifying a user-facing change by reading code instead of running it. Re-copying the audit checklist into an orchestrator-side skill (that's how it drifted into 3 copies).
+
+### /seneschal
+**Job:** The estate's FRONT DESK — one daily brief answering "what needs Zig, everywhere": blocked-on-Zig beads + 🔔 seats, last 24h shipped, the works, today's timers.
+**Fire when:** The 06:44 PT tick (`/seneschal brief`, pulse-seneschal.timer, the `seneschal` window); or Zig asks what needs him / what happened overnight. `/seneschal status` for the seat's own health.
+**Prereqs/side-effects:** Runs `agents/scheduler/seneschal-gather.py` (reads the harnessd state bus, falls back to a local roster scan); writes only `refs/seneschal-brief.md` (gitignored); ends on AskUserQuestion when anything is blocked.
+**Anti-pattern:** Acting on what the brief surfaces — the seat holds NO dispatch authority (the marshal dispatches); and rendering a degraded read as an empty section, which turns "I could not ask" into "nothing needs you".
 
 ### /spec
 **Job:** Formal specification as a typed `spec` BEAD (not a file) — Overview/Baseline/Changes/Formal Spec/Test Cases/OQs/Future in --description.

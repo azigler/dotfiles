@@ -45,6 +45,13 @@ ts4
 # agents/skills/gdoc/node_modules — not a global store, not a $HOME install.)
 node_modules/
 
+# the seneschal's daily brief — a live-state artifact, overwritten every tick
+# (dotfiles-front-desk-faty). Never committed: refs/ is pushed, and the brief
+# aggregates the whole fleet, so a committed copy would be both instantly stale
+# and a standing exfiltration path for anything the confidentiality denylist in
+# seneschal-gather.py has not yet been taught about.
+refs/seneschal-brief.md
+
 # session state — created by harness hooks, never committed
 .offboard-pending
 .claude/scheduled_tasks.lock
