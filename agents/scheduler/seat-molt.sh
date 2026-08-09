@@ -422,11 +422,21 @@ if [ "$SELF" -eq 1 ]; then
   # while the invoker sat in the other pane. Resolve it here (same reasoning as
   # the socket: the foreground still has env/ancestry; the setsid child has
   # neither) and pass it explicitly.
+  # R14b (dotfiles, 2026-08-09): a pane id is only meaningful on the server
+  # that issued it. Pass the invoker pane to the child ONLY when the invoker's
+  # own server socket (the first component of $TMUX) IS the child's target
+  # socket — on any other server the id can collide with an unrelated pane
+  # (measured: this suite's fake server owns a %3, and a live session whose
+  # TMUX_PANE=%3 leaked it in; send-keys then lands in the wrong pane). No
+  # $TMUX → no proof of same-server → no passthrough; the child falls back to
+  # window-name resolution, the pre-R14 path.
   PANE_SELF=""
-  if [ -n "${TMUX_PANE:-}" ]; then
-    PANE_SELF="$TMUX_PANE"
-  elif command -v _tpr_by_ancestry >/dev/null 2>&1; then
-    PANE_SELF=$(_tpr_by_ancestry '#{pane_id}') || PANE_SELF=""
+  if [ -n "${TMUX:-}" ] && [ "${TMUX%%,*}" = "$SOCKET" ]; then
+    if [ -n "${TMUX_PANE:-}" ]; then
+      PANE_SELF="$TMUX_PANE"
+    elif command -v _tpr_by_ancestry >/dev/null 2>&1; then
+      PANE_SELF=$(_tpr_by_ancestry '#{pane_id}') || PANE_SELF=""
+    fi
   fi
   CHILD=(--target "$SESSION" "$WINDOW" --mode "$MODE" --socket "$SOCKET" --wait-idle-first --t0 "$SELF_T0")
   [ -n "$PANE_SELF" ] && CHILD+=(--pane "$PANE_SELF")

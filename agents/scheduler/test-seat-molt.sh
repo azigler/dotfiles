@@ -341,6 +341,40 @@ want_typed   23b2 "/clear was typed despite the pane never text-stabilizing" "/c
 want_typed   23b3 "/onboard was typed after the stamp-driven molt" "/onboard"
 kill_pane
 
+# --- 23e: R14b — a cross-server invoker pane id must NOT ride to the child --
+# The invoker's $TMUX_PANE is an id on the INVOKER's server. When the molt
+# targets a different socket (this suite's fake server), a colliding id there
+# belongs to an unrelated pane; before R14b the parent passed it anyway and
+# the child typed /clear into whatever that id resolved to here (measured
+# live: a session with TMUX_PANE=%3 leaked it into this suite and 23b2/23b3
+# went red because the keystrokes landed in another fixture's pane).
+# Deterministic reproduction: a victim session whose real pane id on THIS
+# fake server we pass as TMUX_PANE, with $TMUX naming a DIFFERENT server.
+echo
+echo "-- --self: a cross-server invoker pane id is refused (R14b)"
+reset_ledger; fresh_offboard; no_turn_end
+mk_pane moltyV "🧠 victim"
+VICTIM_TYPED="$TYPED"
+VICTIM_PANE=$("${TM[@]}" list-panes -t "=moltyV" -F '#{pane_id}' | head -1)
+mk_pane moltyW "🧠 seat"
+( sleep 1.5; turn_end_fresh ) &
+_flip=$!
+OUT=$(TMUX="/nonexistent-molt-test.sock,1,0" TMUX_PANE="$VICTIM_PANE" \
+      MOLT_DETACH=0 MOLT_SELF_IDLE_TIMEOUT=8 \
+      "$SCRIPT" --self --target moltyW seat --socket "$SOCKPATH" --dir "$PROJ" \
+      --mode auto --in-flight no 2>&1); RC=$?
+wait "$_flip" 2>/dev/null   # allow-suppress: the flipper is done either way
+VERDICT=$(printf '%s\n' "$OUT" | grep -o 'SEAT_MOLT_RESULT=[a-z-]*' | tail -1)
+want_verdict 23e  "cross-server pane id: molt still lands via window-name resolution" molted
+want_typed   23e2 "/clear went to the NAMED window's pane, not the colliding id" "/clear"
+if grep -qF "/clear" "$VICTIM_TYPED"; then
+  bad 23e3 "the colliding victim pane was typed into"
+else
+  ok 23e3 "the colliding victim pane was untouched"
+fi
+"${TM[@]}" kill-session -t "=moltyV" 2>/dev/null   # allow-suppress: already-gone is fine
+kill_pane
+
 # --- 23c: a STALE turn-end stamp (older than t0) does NOT satisfy the wait --
 # A leftover stamp from a PREVIOUS turn must not be read as "this turn ended" —
 # only an mtime newer than t0 counts.
