@@ -251,19 +251,73 @@ check "M6 tap-filter-loosened (the work tap's spend becomes Zig's)" \
       "T3.1 T3.3 T3.4 T3.5" "T15.1 T1.1"
 
 # M7 — THE TICK FOLD IS DROPPED (dotfiles-iez1). `tick` is a jail PROFILE of
-# `personal`, not a tap — ~/.claude and ~/.claude-tick carry the identical
-# account fingerprint. Reverting the personal predicate's `IN ('personal','tick')`
-# back to `= 'personal'` alone silently UNDERCOUNTS personal's weekly window
-# exactly when budget-truth matters: the dive/digest jail's spend vanishes from
-# both the window total and the daytime reserve, and every number still looks
-# plausible. T3.1's OWN db has no `tick` rows, so it and M6's cases must keep
-# passing untouched — only T3e (the isolated tick-fixture db) can see this one.
+# primary's account, not a tap — ~/.claude and ~/.claude-tick carry the
+# identical account fingerprint. Dropping the fold from the GENERATED predicate
+# silently UNDERCOUNTS the pool's weekly window exactly when budget-truth
+# matters: the dive/digest jail's spend vanishes from both the window total and
+# the daytime reserve, and every number still looks plausible. T3.1's OWN db
+# has no `tick` rows, so it and M6's cases must keep passing untouched — only
+# T3e (the isolated tick-fixture db) and TE1.1 can see this one.
 fresh_copy
-mutate "$CHK" \
-  "IN ('personal','tick') OR (COALESCE(agentgateway_group,'') NOT IN ('personal','work','tick') AND COALESCE(agentgateway_user,'') NOT LIKE 'work:%'))\"" \
-  "= 'personal' OR (COALESCE(agentgateway_group,'') NOT IN ('personal','work','tick') AND COALESCE(agentgateway_user,'') NOT LIKE 'work:%'))\""
-check "M7 tick-fold-dropped (tick jail spend vanishes from personal's budget)" \
-      "T3e.1" "T3.1 T3.3 T3.4 T3.5 T3e.2 T15.1 T1.1"
+mutate "$CHK" 'groups="$groups,tick"' 'groups="$groups"'
+check "M7 tick-fold-dropped (tick jail spend vanishes from the pool's budget)" \
+      "T3e.1 TE1.1" "T3.1 T3.3 T3.4 T3.5 T3e.2 T15.1 T1.1"
+
+# M8 — THE EPOCH-3 MIXED SWEEP (dotfiles-5gob, the defect this bead fixes).
+# Narrow the legacy pool's catch-all exclusion back to its OWN group values and
+# every epoch-3 row from every OTHER pool — 'secondary', 'linearb' — falls
+# through it and counts as the legacy pool's spend. Mixed-pool spend divided by
+# one arbitrary pool's utilization is incoherent in EITHER direction; it is not
+# conservative. The shared $DB has no epoch-3 rows, so T3.* must keep passing:
+# TE1.1 is the ONLY case that can see it, which is precisely why TE1.1 exists.
+fresh_copy
+mutate "$CHK" '  all=""
+  for p in $(taps_pools); do
+    all="$all${all:+,}$(taps_get "pool.$p.groups")"
+  done
+  all="$all,tick"' '  all="$groups,work"'
+check "M8 epoch3-mixed-sweep (a foreign pool spends the launch pool's budget)" \
+      "TE1.1" "T3.1 T3.3 T3.5 T3e.1 TE1.2 TE1.3 T15.1"
+
+# M9 — THE COLD-POOL WAIVER STOPS PROVING COLDNESS. Waive the 5h brake
+# whenever there is no fresh reading, instead of only when the pool's spend
+# proves it cold, and "I could not measure the live window" becomes "the live
+# window is empty" — on a pool that may be mid-burn. The night then budgets big
+# off a transferred cap with no brake at all. Fails OPEN, silently, and only on
+# the nights it matters.
+fresh_copy
+mutate "$CHK" '    if spent < minspend:
+        print(f"waive brake-waived-cold-pool' '    if True:
+        print(f"waive brake-waived-cold-pool'
+check "M9 brake-waiver-unconditional (unmeasured becomes cold)" \
+      "TB3.1" "TB1.1 TB1.2 TB2.1 TT1.8 T15.1"
+
+# M10 — POOL RESOLUTION IGNORES THE LAUNCH ENV. CLAUDE_CONFIG_DIR is what the
+# identity wrapper fixed at exec — the pool the process IS on. Skip that rung
+# and the budget is metered against whatever the roster/config SAYS, which is
+# exactly the divergence that made this bead: a re-homed marshal budgeting a
+# pool it is not spending. Nothing errors; the number is simply about another
+# account.
+fresh_copy
+mutate "$CHK" '[ "$(taps_expand_dir "$home")" = "$ccd" ] || continue' \
+              '[ "$(taps_expand_dir "$home")" = "no-such-config-dir" ] || continue'
+check "M10 launch-env-ignored (the budget meters a pool the process is not on)" \
+      "TP1.1 TP1.2 TP2.2" "TP2.1 TP3.1 TP3.4 T3.5"
+
+# M11 — THE BRAKE IS NOT ENFORCED ON THE TRANSFER PATH. The one thing a
+# borrowed cap must never paper over is a HOT 5h window on the pool actually
+# being spent. Turning the transfer path's brake degrade into a no-op leaves
+# every other case green — including the waiver — and only fires on the night
+# the live window is already burning.
+fresh_copy
+mutate "$CHK" '        degrade) budget_degrade "$floor" "${bg#degrade }" "$window_start" "$spent" "$daytime"; return 0 ;;
+        waive)   brake_state=waived-cold-pool; brake_reason=${bg#waive } ;;
+        *)       brake_state=enforced; u5h=${bg#ok } ;;' \
+              '        degrade) brake_state=ignored-degrade ;;
+        waive)   brake_state=waived-cold-pool; brake_reason=${bg#waive } ;;
+        *)       brake_state=enforced; u5h=${bg#ok } ;;'
+check "M11 transfer-skips-the-brake (a borrowed cap buries a hot 5h window)" \
+      "TB2.1 TB3.1" "TB1.1 TT1.8 TD4 T15.1"
 
 echo
 if [ "$HARNESS_ERR" -ne 0 ]; then

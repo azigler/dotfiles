@@ -196,6 +196,32 @@ CONF
 CONF="$FIX/marshal.conf"
 mkconf "$CONF"
 
+# --- the fixture taps.conf (dotfiles-5gob) --------------------------------
+# mktaps <path> [extra lines...] — the production pool grammar with fixture
+# config_dirs. The BASE fixture deliberately carries NO seat_home.marshal, so
+# resolution falls through to rung 3 (marshal.conf tap=personal -> pool
+# primary) and every pre-5gob budget case above keeps meaning what it meant.
+# Cases that exercise the re-home write their own taps with the override.
+mktaps() {
+  local out=$1; shift
+  cat > "$out" <<TAPS
+order=primary,secondary,linearb
+pool.primary.taps=primary,tick
+pool.primary.config_dir=$FIX/cfg/primary
+pool.primary.groups=primary,personal
+pool.secondary.taps=secondary
+pool.secondary.config_dir=$FIX/cfg/secondary
+pool.secondary.groups=secondary
+pool.linearb.taps=linearb
+pool.linearb.config_dir=$FIX/cfg/linearb
+pool.linearb.groups=linearb,work
+TAPS
+  local kv
+  for kv in "$@"; do printf '%s\n' "$kv" >> "$out"; done
+}
+TAPS="$FIX/taps.conf"
+mktaps "$TAPS"
+
 # A freeze stub, both ways.
 cat > "$FIX/bin/freeze-clear" <<'F'
 #!/bin/bash
@@ -217,6 +243,12 @@ export MARSHAL_SQL_CMD="sqlite3 $DB"
 export MARSHAL_CONF="$CONF"
 export MARSHAL_LEDGER="$FIX/state/drain-ledger.jsonl"
 export MARSHAL_POST_LIB="$FIX/no-such-post.sh"
+export MARSHAL_TAPS_CONF="$TAPS"
+export MARSHAL_HOME="$FIX/home"
+# CLAUDE_CONFIG_DIR is the FIRST rung of pool resolution and it is a REAL
+# variable in any live agent session — a suite that inherited it would resolve
+# a different pool on Zig's box than in CI. Cleared here, set per case.
+unset CLAUDE_CONFIG_DIR
 
 run() { bash "$SCRIPT" "$@" 2>/dev/null; }
 run_err() { bash "$SCRIPT" "$@" 2>&1; }
@@ -296,10 +328,14 @@ OUT=$(MARSHAL_SQL_CMD="sqlite3 $DB2" run budget --weekly-cap 10000000)
 eq "T3e.1 group='tick' rows count toward the personal tap (dotfiles-iez1)" \
    "$(jq_py "$(plan_json "$OUT")" 'd["spent_this_window"]')" "800000"
 
+# `tap: tick` still refuses to resolve under the epoch-3 pool ladder (5gob):
+# tick is a jail PROFILE of primary's account, and a schedule that names it as
+# a tap of its own is a config error that must be LOUD. The vocabulary moved
+# from unknown-tap: to unknown-pool: — the pool is what gets metered now.
 mkconf "$FIX/conf-tick-tap" tap=tick
 OUT=$(MARSHAL_CONF="$FIX/conf-tick-tap" MARSHAL_SQL_CMD="sqlite3 $DB2" run budget --weekly-cap 10000000)
 assert_verdict "T3e.2 tap: tick in config degrades -- tick is a profile, not a tap" "$OUT" "MARSHAL_BUDGET=" \
-  '^MARSHAL_BUDGET=degraded fallback_tokens=150000 reason=unknown-tap:tick$'
+  '^MARSHAL_BUDGET=degraded fallback_tokens=150000 reason=unknown-pool:tick$'
 
 # --- T18 the config parser refuses anything that is not key=value ---------
 printf 'repos=x:%s\nevil=$(touch %s/pwned)\n' "$FIX/repos/harnessd" "$FIX" > "$FIX/conf-evil"
@@ -349,8 +385,12 @@ eq "TD1.6 derived: budget_tokens"                                      "$(jq_py 
 eq "TD1.7 derived: cap source is named"                                "$(jq_py "$J" 'd["weekly_cap_source"]')" "derived"
 eq "TD1.8 derived: both utilizations ride into the JSON verbatim" \
    "$(jq_py "$J" 'd["utilization_7d"]+"/"+d["utilization_5h"]')" "0.60/0.57"
+eq "TD1.10 derived: the METERED POOL rides into the JSON, with the rung that resolved it" \
+   "$(jq_py "$J" 'd["pool"]+"/"+d["pool_source"]')" "primary/conf-tap-epoch2"
+eq "TD1.11 derived: the 5h brake says it was enforced on a fresh observation" \
+   "$(jq_py "$J" 'd["brake_5h_state"]')" "enforced"
 assert_verdict "TD1.9 the derived verdict carries every input (re-derivable by hand)" "$OUT" "MARSHAL_BUDGET=" \
-  '^MARSHAL_BUDGET=57143 status=derived reason=derived-cap\(u7d=0\.60,u5h=0\.57,spend=3000000,cap_est=5000000,obs_age_h=2\.0\)$'
+  '^MARSHAL_BUDGET=57143 status=derived reason=derived-cap\(pool=primary,u7d=0\.60,u5h=0\.57,spend=3000000,cap_est=5000000,obs_age_h=2\.0\)$'
 
 # --- TD2 an EXPLICIT cap outranks derivation, on both routes ---------------
 OUT=$(MARSHAL_SQL_CMD="sqlite3 $DRV" run budget --weekly-cap 10000000)
@@ -400,6 +440,242 @@ assert_verdict "TD7 spend below derive_min_spend_tokens floors" "$OUT" "MARSHAL_
 OUT=$(MARSHAL_SQL_CMD="sqlite3 $DB2" run budget)
 assert_verdict "TD8 an unanswerable observation query floors as derive-db-error" "$OUT" "MARSHAL_BUDGET=" \
   '^MARSHAL_BUDGET=degraded fallback_tokens=150000 reason=derive-db-error$'
+
+echo "=== POOL RESOLUTION (dotfiles-5gob) ======================================="
+
+# The marshal was re-homed onto the fresh `secondary` pool and the budget verb
+# could not see it: it read `tap` out of marshal.conf and metered a pool the
+# process was not running on. These cases walk the whole ladder, in order.
+mkdir -p "$FIX/cfg/primary" "$FIX/cfg/secondary" "$FIX/cfg/linearb"
+
+pool_of() { # pool_of <budget stdout> -> "<pool>/<source>"
+  jq_py "$(plan_json "$1")" 'str(d["pool"])+"/"+str(d["pool_source"])'
+}
+
+# --- TP1 rung 1: the LAUNCH ENV wins. CLAUDE_CONFIG_DIR is what the identity
+# wrapper fixes at exec, so it is what the process IS using — derived from what
+# runs, never asserted from a roster.
+OUT=$(CLAUDE_CONFIG_DIR="$FIX/cfg/secondary" run budget --weekly-cap 10000000)
+eq "TP1.1 CLAUDE_CONFIG_DIR resolves the pool through taps.conf config_dir" \
+   "$(pool_of "$OUT")" "secondary/env-config-dir"
+OUT=$(CLAUDE_CONFIG_DIR="$FIX/cfg/secondary/" run budget --weekly-cap 10000000)
+eq "TP1.2 a trailing slash is the same directory" "$(pool_of "$OUT")" "secondary/env-config-dir"
+
+# --- TP2 rung 2: taps.conf seat_home.<seat> — Zig's re-home ruling.
+mktaps "$FIX/taps-rehome" seat_home.marshal=secondary
+OUT=$(MARSHAL_TAPS_CONF="$FIX/taps-rehome" run budget --weekly-cap 10000000)
+eq "TP2.1 seat_home.marshal re-homes the drain with no config edit at all" \
+   "$(pool_of "$OUT")" "secondary/seat-home"
+OUT=$(MARSHAL_TAPS_CONF="$FIX/taps-rehome" CLAUDE_CONFIG_DIR="$FIX/cfg/linearb" run budget --weekly-cap 10000000)
+eq "TP2.2 the launch env OUTRANKS seat_home (what runs beats what is ruled)" \
+   "$(pool_of "$OUT")" "linearb/env-config-dir"
+# A seat_home naming a pool that does not exist is a config error, and it is
+# LOUD: falling through to the next rung would meter a pool nobody chose.
+mktaps "$FIX/taps-badseat" seat_home.marshal=nosuchpool
+OUT=$(MARSHAL_TAPS_CONF="$FIX/taps-badseat" run budget --weekly-cap 10000000)
+assert_verdict "TP2.3 seat_home naming an unknown pool degrades, never falls through" "$OUT" \
+  "MARSHAL_BUDGET=" '^MARSHAL_BUDGET=degraded fallback_tokens=150000 reason=unknown-pool:nosuchpool$'
+# `seat` selects WHICH override applies: a differently-named seat ignores it.
+mkconf "$FIX/conf-seat-other" seat=consul
+OUT=$(MARSHAL_CONF="$FIX/conf-seat-other" MARSHAL_TAPS_CONF="$FIX/taps-rehome" run budget --weekly-cap 10000000)
+eq "TP2.4 seat_home.<seat> is keyed on the configured seat name" \
+   "$(pool_of "$OUT")" "primary/conf-tap-epoch2"
+
+# --- TP3 rung 3: marshal.conf `tap`, mapped epoch-2 -> pool.
+OUT=$(run budget --weekly-cap 10000000)
+eq "TP3.1 tap=personal maps to pool primary (epoch 2 -> epoch 3)" \
+   "$(pool_of "$OUT")" "primary/conf-tap-epoch2"
+mkconf "$FIX/conf-tap-work" tap=work
+OUT=$(MARSHAL_CONF="$FIX/conf-tap-work" run budget --weekly-cap 10000000)
+eq "TP3.2 tap=work maps to pool linearb" "$(pool_of "$OUT")" "linearb/conf-tap-epoch2"
+mkconf "$FIX/conf-tap-sec" tap=secondary
+OUT=$(MARSHAL_CONF="$FIX/conf-tap-sec" run budget --weekly-cap 10000000)
+eq "TP3.3 an epoch-3 pool NAME in tap= is taken as-is" "$(pool_of "$OUT")" "secondary/conf-tap"
+# An unmatched CLAUDE_CONFIG_DIR is not a resolution: the ladder continues.
+OUT=$(CLAUDE_CONFIG_DIR="$FIX/cfg/nowhere" run budget --weekly-cap 10000000)
+eq "TP3.4 a CLAUDE_CONFIG_DIR matching no pool falls through, it does not guess" \
+   "$(pool_of "$OUT")" "primary/conf-tap-epoch2"
+
+# --- TP4 nothing resolves -> the FLOOR, with a named reason. A budget metered
+# against a pool nobody chose is wrong in both directions at once.
+mkconf "$FIX/conf-tap-bogus" tap=nosuchtap
+OUT=$(MARSHAL_CONF="$FIX/conf-tap-bogus" run budget --weekly-cap 10000000)
+assert_verdict "TP4.1 an unresolvable tap degrades to the floor, naming it" "$OUT" "MARSHAL_BUDGET=" \
+  '^MARSHAL_BUDGET=degraded fallback_tokens=150000 reason=unknown-pool:nosuchtap$'
+eq "TP4.2 the degraded row carries a NULL pool, never a default" \
+   "$(jq_py "$(plan_json "$OUT")" 'str(d["pool"])')" "None"
+OUT=$(MARSHAL_TAPS_CONF="$FIX/no-such-taps.conf" run budget --weekly-cap 10000000)
+assert_verdict "TP4.3 no taps.conf at all degrades, it does not fall back to a literal" "$OUT" \
+  "MARSHAL_BUDGET=" '^MARSHAL_BUDGET=degraded fallback_tokens=150000 reason=taps-conf-unreadable$'
+
+echo "=== EPOCH-3 PREDICATES (the MIXED SWEEP, dotfiles-5gob) ==================="
+
+# THE DEFECT THIS SECTION GUARDS. Epoch 3 renamed the taps (personal->primary,
+# work->linearb) and added a genuinely new pool (secondary), and the epoch-2
+# `personal` predicate's catch-all excluded only ('personal','work','tick') —
+# so EVERY epoch-3 row fell through it and counted as personal spend. The
+# fixture below carries all three epochs at once; the old predicate sweeps
+# 2,250,000 of it into primary, the generated one counts 650,000.
+DB3="$FIX/requests-epoch3.db"
+sqlite3 "$DB3" <<'SQL'
+CREATE TABLE request_logs (
+  id TEXT PRIMARY KEY, started_at TEXT NOT NULL, total_tokens INTEGER,
+  agentgateway_user TEXT, agentgateway_group TEXT, attributes_json TEXT);
+INSERT INTO request_logs (id,started_at,total_tokens,agentgateway_user,agentgateway_group) VALUES
+ ('p3','2026-08-06T18:00:00.000000+00:00',200000,'zig-computer:dotfiles','primary'),
+ ('p2','2026-08-06T18:00:00.000000+00:00',300000,'zig-computer:dotfiles','personal'),
+ ('tk','2026-08-07T18:00:00.000000+00:00',100000,'zig-computer:dive','tick'),
+ ('h1','2026-08-07T18:00:00.000000+00:00', 50000,'dive:1','zig-computer'),
+ ('hw','2026-08-07T18:00:00.000000+00:00',400000,'work:di-monday','zig-computer'),
+ ('s1','2026-08-08T09:00:00.000000+00:00',700000,'zig-computer:marshal','secondary'),
+ ('l3','2026-08-06T18:00:00.000000+00:00',900000,'zig-computer:linearb','linearb'),
+ ('l2','2026-08-06T18:00:00.000000+00:00',1100000,'zig-computer:linearb','work');
+SQL
+
+spend_of() { jq_py "$(plan_json "$1")" 'd["spent_this_window"]'; }
+
+SPEND_PRIMARY=$(spend_of "$(MARSHAL_SQL_CMD="sqlite3 $DB3" run budget --weekly-cap 10000000)")
+eq "TE1.1 primary counts BOTH epochs of its own names, plus the tick jail (200k+300k+100k) and the epoch-1 hostname row (50k) -- and NOTHING from secondary/linearb" \
+   "$SPEND_PRIMARY" "650000"
+SPEND_SECONDARY=$(spend_of "$(MARSHAL_CONF="$FIX/conf-tap-sec" MARSHAL_SQL_CMD="sqlite3 $DB3" run budget --weekly-cap 10000000)")
+eq "TE1.2 secondary sees ONLY its own group -- a fresh pool never inherits spend it did not make" \
+   "$SPEND_SECONDARY" "700000"
+SPEND_LINEARB=$(spend_of "$(MARSHAL_CONF="$FIX/conf-tap-work" MARSHAL_SQL_CMD="sqlite3 $DB3" run budget --weekly-cap 10000000)")
+eq "TE1.3 linearb is exact group-list membership across epochs (linearb 900k + work 1100k)" \
+   "$SPEND_LINEARB" "2000000"
+# The three MEASURED sums must PARTITION the log against the db's own total:
+# nothing counted twice, nothing invented. The only unattributed row is the
+# epoch-1 `work:` one (400k) — the legacy catch-all excludes it on purpose
+# rather than handing LinearB's spend to primary, and epoch-3 linearb is
+# group-matched, so it has no home. Erring toward unattributed is the
+# conservative direction (it shrinks cap_est and remaining together).
+TOTAL3=$(sqlite3 "$DB3" "SELECT COALESCE(SUM(total_tokens),0) FROM request_logs;")
+eq "TE1.4 the three pools partition the whole log against its own total" \
+   "$(( SPEND_PRIMARY + SPEND_SECONDARY + SPEND_LINEARB + 400000 ))" "$TOTAL3"
+
+echo "=== CROSS-POOL CAP TRANSFER (dotfiles-5gob / decision dotfiles-bg71) ======"
+
+# mkxferdb <path> <primary-spend> <primary-attrs> <secondary-spend> <secondary-attrs>
+# A two-pool fixture: primary carries history (and the observation the cap is
+# derived from), secondary is the fresh pool the marshal was re-homed onto.
+# An EMPTY attrs argument means the pool has no observation at all — the real
+# shape of a pool nothing has run on.
+mkxferdb() {
+  local db=$1 pspend=$2 pattrs=$3 sspend=$4 sattrs=$5
+  rm -f "$db"
+  sqlite3 "$db" <<SQL
+CREATE TABLE request_logs (
+  id TEXT PRIMARY KEY, started_at TEXT NOT NULL, total_tokens INTEGER,
+  agentgateway_user TEXT, agentgateway_group TEXT, attributes_json TEXT);
+INSERT INTO request_logs (id,started_at,total_tokens,agentgateway_user,agentgateway_group) VALUES
+ ('p','2026-08-06T18:00:00.000000+00:00',$pspend,'zig-computer:dotfiles','primary'),
+ ('s','2026-08-06T18:00:00.000000+00:00',$sspend,'zig-computer:marshal','secondary');
+SQL
+  [ -n "$pattrs" ] && sqlite3 "$db" "INSERT INTO request_logs VALUES ('po','2026-08-09T04:00:00.000000+00:00',0,'zig-computer:dotfiles','primary','$pattrs');"
+  [ -n "$sattrs" ] && sqlite3 "$db" "INSERT INTO request_logs VALUES ('so','2026-08-09T04:00:00.000000+00:00',0,'zig-computer:marshal','secondary','$sattrs');"
+  return 0
+}
+
+# The re-homed shape: taps.conf says secondary, marshal.conf names primary as
+# the same-tier reference.
+mkconf "$FIX/conf-xfer" cap_reference_pool=primary
+XFER="$FIX/requests-xfer.db"
+
+# --- TT1 THE TRANSFER. secondary is empty and has never carried an
+# observation; primary has 3,000,000 at u7d=0.60 -> cap_est 5,000,000. The cap
+# crosses, the SPEND does not: remaining 5,000,000 / 4 days = 1,250,000, no
+# daytime spend on secondary to reserve, 20% margin -> 1,000,000.
+mkxferdb "$XFER" 3000000 '{"anthropic.ratelimit.5h":"0.10","anthropic.ratelimit.7d":"0.60"}' 0 ''
+OUT=$(MARSHAL_CONF="$FIX/conf-xfer" MARSHAL_TAPS_CONF="$FIX/taps-rehome" MARSHAL_SQL_CMD="sqlite3 $XFER" run budget)
+J=$(plan_json "$OUT")
+eq "TT1.1 the LAUNCH pool is what is metered"        "$(pool_of "$OUT")" "secondary/seat-home"
+eq "TT1.2 spend stays the launch pool's (fresh = 0)" "$(jq_py "$J" 'd["spent_this_window"]')" "0"
+eq "TT1.3 the CAP is the reference pool's estimate"  "$(jq_py "$J" 'd["weekly_cap_tokens"]')" "5000000"
+eq "TT1.4 the cap source names the transfer"         "$(jq_py "$J" 'd["weekly_cap_source"]')" "transfer"
+eq "TT1.5 and the reference pool is named in the row" "$(jq_py "$J" 'd["cap_reference_pool"]')" "primary"
+eq "TT1.6 the reference pool's spend rides along (the numerator)" \
+   "$(jq_py "$J" 'd["cap_reference_spend_this_window"]')" "3000000"
+eq "TT1.7 the budget the fresh pool actually funds"  "$(jq_py "$J" 'd["budget_tokens"]')" "1000000"
+assert_verdict "TT1.8 the transfer verdict names BOTH pools and every input (re-derivable by hand)" "$OUT" \
+  "MARSHAL_BUDGET=" \
+  '^MARSHAL_BUDGET=1000000 status=derived reason=derived-cap-transfer\(pool=secondary,cap_from=primary,u7d=0\.60,spend=3000000,cap_est=5000000,obs_age_h=2\.0\)$'
+
+# --- TT2 the reference is underivable TOO -> the floor, honestly, naming both
+# refusals. A transfer that fell back to a guess would be the invented cap this
+# whole mechanism exists to avoid.
+mkxferdb "$XFER" 500000 '{"anthropic.ratelimit.5h":"0.10","anthropic.ratelimit.7d":"0.60"}' 0 ''
+OUT=$(MARSHAL_CONF="$FIX/conf-xfer" MARSHAL_TAPS_CONF="$FIX/taps-rehome" MARSHAL_SQL_CMD="sqlite3 $XFER" run budget)
+assert_verdict "TT2.1 an underivable reference denies the transfer, naming both reasons" "$OUT" \
+  "MARSHAL_BUDGET=" \
+  '^MARSHAL_BUDGET=degraded fallback_tokens=150000 reason=derive-transfer-denied\(pool=secondary,cap_from=primary,launch=derive-no-observation,ref=derive-low-spend\(spend=500000,min=1000000\)\)$'
+
+# the reference has history but its observation is STALE -> still denied
+mkxferdb "$XFER" 3000000 '{"anthropic.ratelimit.5h":"0.10","anthropic.ratelimit.7d":"0.60"}' 0 ''
+mkconf "$FIX/conf-xfer-fresh1" cap_reference_pool=primary derive_freshness_hours=1
+OUT=$(MARSHAL_CONF="$FIX/conf-xfer-fresh1" MARSHAL_TAPS_CONF="$FIX/taps-rehome" MARSHAL_SQL_CMD="sqlite3 $XFER" run budget)
+has "TT2.2 a STALE reference observation denies the transfer (a cap is never guessed forward)" \
+    "$(last_line "$OUT")" "ref=derive-stale-observation(obs_age_h=2.0,limit_h=1)"
+
+# --- TT3 no reference configured -> the launch pool's own reason stands,
+# exactly as it did before this bead (the dw3r contract, unchanged).
+mkxferdb "$XFER" 3000000 '{"anthropic.ratelimit.5h":"0.10","anthropic.ratelimit.7d":"0.60"}' 0 ''
+mkconf "$FIX/conf-noref"
+OUT=$(MARSHAL_CONF="$FIX/conf-noref" MARSHAL_TAPS_CONF="$FIX/taps-rehome" MARSHAL_SQL_CMD="sqlite3 $XFER" run budget)
+assert_verdict "TT3.1 with cap_reference_pool unset the pre-5gob degrade is untouched" "$OUT" \
+  "MARSHAL_BUDGET=" \
+  '^MARSHAL_BUDGET=degraded fallback_tokens=150000 reason=derive-no-observation$'
+# reference == launch pool is not a transfer either: there is nothing to
+# transfer FROM, and pretending otherwise would derive a pool's cap from itself.
+OUT=$(MARSHAL_CONF="$FIX/conf-xfer" MARSHAL_SQL_CMD="sqlite3 $DRV" run budget)
+eq "TT3.2 reference == launch pool is not a transfer" \
+   "$(jq_py "$(plan_json "$OUT")" 'd["weekly_cap_source"]')" "derived"
+
+# --- TT4 an EXPLICIT cap still outranks everything, transfer included
+# (unchanged dw3r contract; brake-on-explicit-cap is dotfiles-vosr's scope).
+mkxferdb "$XFER" 3000000 '{"anthropic.ratelimit.5h":"0.10","anthropic.ratelimit.7d":"0.60"}' 0 ''
+OUT=$(MARSHAL_CONF="$FIX/conf-xfer" MARSHAL_TAPS_CONF="$FIX/taps-rehome" MARSHAL_SQL_CMD="sqlite3 $XFER" run budget --weekly-cap 8000000)
+J=$(plan_json "$OUT")
+eq "TT4.1 --weekly-cap wins over the transfer"  "$(jq_py "$J" 'd["weekly_cap_source"]')" "flag"
+eq "TT4.2 and it is the flag's number that budgets" "$(jq_py "$J" 'd["weekly_cap_tokens"]')" "8000000"
+
+echo "=== THE 5h BRAKE ON A RE-HOMED POOL (dotfiles-5gob) ======================="
+
+# --- TB1 THE COLD-POOL WAIVER. A pool with no fresh observation AND less than
+# derive_min_spend_tokens of weekly spend is PROVABLY cold: there is no hot 5h
+# window to protect, and no observation because nothing has run on it. The
+# waiver is NAMED in the row — a silent waiver would be indistinguishable from
+# a brake that never ran.
+mkxferdb "$XFER" 3000000 '{"anthropic.ratelimit.5h":"0.10","anthropic.ratelimit.7d":"0.60"}' 0 ''
+OUT=$(MARSHAL_CONF="$FIX/conf-xfer" MARSHAL_TAPS_CONF="$FIX/taps-rehome" MARSHAL_SQL_CMD="sqlite3 $XFER" run budget)
+J=$(plan_json "$OUT")
+eq "TB1.1 a provably cold launch pool waives the 5h brake" \
+   "$(jq_py "$J" 'd["brake_5h_state"]')" "waived-cold-pool"
+eq "TB1.2 and the waiver says WHY, with the numbers that proved it" \
+   "$(jq_py "$J" 'd["brake_5h_reason"]')" "brake-waived-cold-pool(spend=0,min=1000000,obs_age_h=none)"
+
+# --- TB2 THE BRAKE STILL BITES ON THE LAUNCH POOL. Same fresh pool, but this
+# time it HAS a reading and the 5h window is hot: the transfer must not paper
+# over it. This is the case a transfer that skipped the brake would fail open.
+mkxferdb "$XFER" 3000000 '{"anthropic.ratelimit.5h":"0.10","anthropic.ratelimit.7d":"0.60"}' \
+         0 '{"anthropic.ratelimit.5h":"0.90","anthropic.ratelimit.7d":"0.03"}'
+OUT=$(MARSHAL_CONF="$FIX/conf-xfer" MARSHAL_TAPS_CONF="$FIX/taps-rehome" MARSHAL_SQL_CMD="sqlite3 $XFER" run budget)
+assert_verdict "TB2.1 a hot 5h window on the LAUNCH pool floors the night, transfer or not" "$OUT" \
+  "MARSHAL_BUDGET=" '^MARSHAL_BUDGET=degraded fallback_tokens=150000 reason=brake-5h\(u5h=0\.90,brake_pct=85\)$'
+
+# --- TB3 NO FRESH READING ON A POOL WITH REAL SPEND -> DEGRADE. Never fail
+# open: unmeasured is not the same as cold, and only coldness is provable.
+mkxferdb "$XFER" 3000000 '{"anthropic.ratelimit.5h":"0.10","anthropic.ratelimit.7d":"0.60"}' 2000000 ''
+OUT=$(MARSHAL_CONF="$FIX/conf-xfer" MARSHAL_TAPS_CONF="$FIX/taps-rehome" MARSHAL_SQL_CMD="sqlite3 $XFER" run budget)
+assert_verdict "TB3.1 real spend and no reading degrades -- unmeasured never means unlimited" "$OUT" \
+  "MARSHAL_BUDGET=" \
+  '^MARSHAL_BUDGET=degraded fallback_tokens=150000 reason=brake-no-fresh-observation\(obs_age_h=none,limit_h=6,spend=2000000\)$'
+
+# a STALE reading on a pool with real spend is not a reading either
+mkxferdb "$XFER" 3000000 '{"anthropic.ratelimit.5h":"0.10","anthropic.ratelimit.7d":"0.60"}' \
+         2000000 '{"anthropic.ratelimit.5h":"0.10","anthropic.ratelimit.7d":"0.60"}'
+OUT=$(MARSHAL_CONF="$FIX/conf-xfer-fresh1" MARSHAL_TAPS_CONF="$FIX/taps-rehome" MARSHAL_SQL_CMD="sqlite3 $XFER" run budget)
+has "TB3.2 a stale reading on a spending pool is refused, naming its age" \
+    "$(last_line "$OUT")" "derive-stale-observation(obs_age_h=2.0,limit_h=1)"
 
 echo "=== SELECTION ============================================================="
 
@@ -646,12 +922,19 @@ done
 # The label-backed upgrade of that library is a separate bead: consuming the
 # ID-based API is what makes this script INHERIT it. A local grep for `Fleet:`
 # would be a second grammar that silently stops agreeing with the first.
-if printf '%s' "$SRC" | grep -q 'marker_is_fleet'; then
+# ⚠️ HERESTRING, NOT `printf … | grep -q` (measured 2026-08-09). Under
+# `set -o pipefail` that idiom FLAKES: grep -q exits the moment it matches, the
+# still-writing printf takes EPIPE/SIGPIPE (141), pipefail hands the pipeline
+# that status, and the `if` reads a PRESENT string as ABSENT. 300 trials on
+# this very check: 18 false failures at HEAD's 33,888-byte source, 68 at the
+# 43,100-byte one — i.e. a guard that gets flakier as the file it guards grows,
+# and whose only symptom is a red case nobody can reproduce. `<<<` has no pipe.
+if grep -q 'marker_is_fleet' <<< "$SRC"; then
   ok "T1d.1 the drain calls the library ID-based marker_is_fleet"
 else
   bad "T1d.1 the drain calls the library ID-based marker_is_fleet" "not found"
 fi
-if printf '%s' "$SRC" | grep -qE '(grep|sed|awk)[^|]*[Ff]leet:'; then
+if grep -qE '(grep|sed|awk)[^|]*[Ff]leet:' <<< "$SRC"; then
   bad "T1d.2 no second marker grammar" "the drain greps for the marker itself"
 else
   ok "T1d.2 no second marker grammar (one implementation, dh89)"

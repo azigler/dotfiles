@@ -121,11 +121,19 @@ WHERE agentgateway_group IN ('personal', 'tick')
 The value-shape epoch query above (`agentgateway_group IN ('personal','work','tick')`
 => epoch2) is UNCHANGED by this — `'tick'` is still a value epoch-2 rows can
 carry, forever, for every row logged before this date; it just no longer means
-a distinct tap when you group by it for billing. `agents/scheduler/marshal-drain.sh`'s
-`tap_predicate()` implements exactly this fold (`group IN ('personal','tick')`
-for the `personal` tap; `tap: tick` in a schedule's own config now degrades
+a distinct tap when you group by it for billing. `agents/scheduler/marshal-drain.sh`
+implemented exactly this fold in `tap_predicate()` (`group IN ('personal','tick')`
+for the `personal` tap; `tap: tick` in a schedule's own config degraded
 honestly with `reason=unknown-tap:tick`, since `tick` is no longer a
 config-accepted tap value either).
+
+⚠️ **Superseded on the code side by epoch 3** (`dotfiles-5gob`, 2026-08-09):
+`tap_predicate()` no longer exists. The predicates are GENERATED per POOL from
+`agents/scheduler/taps.conf`'s `pool.<p>.groups`, the tick fold and the epoch-1
+hostname catch-all now belong to whichever pool the conf says owns them, and
+the degrade vocabulary moved from `unknown-tap:` to `unknown-pool:`. The fold
+described above is unchanged as a FACT about the rows; only the code that
+expresses it moved. See `gateway-attribution-epoch3.md`.
 
 ## The epoch seam — and why the boundary is NOT a date
 
