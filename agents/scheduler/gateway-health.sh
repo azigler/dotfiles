@@ -22,7 +22,7 @@
 #
 # OUTCOME CONTRACT. The last line is always
 #
-#     GATEWAY_HEALTH_RESULT=<ok|restored|down-unrecovered|pico-unreachable>
+#     GATEWAY_HEALTH_RESULT=<ok|restored|down-unrecovered|pico-unreachable|probe-degraded>
 #
 # Exit codes: 0 the door is open · 10 a real finding (INCLUDING `restored` — a
 # fleet-wide outage that had to be repaired is news, not a quiet success) ·
@@ -35,9 +35,28 @@
 # (agents/infra.md), so an unauthenticated probe of /claude/v1/models gets 401
 # from Anthropic — which proves the relay is listening AND forwarding. Do not
 # "fix" this to expect 200, and do not narrow it to 401 either: a 429, a 500, a
-# 200 all mean the door is open. ONLY a connect failure (curl prints 000) means
-# down. Narrowing the accepted set would turn an Anthropic-side blip into a
-# launchctl kickstart of a perfectly healthy gateway.
+# 200 all mean the door is open. Narrowing the accepted set would turn an
+# Anthropic-side blip into a launchctl kickstart of a perfectly healthy gateway.
+#
+# ⚠️ AND `000` IS NOT ONE FACT, IT IS THREE — READ THE EXIT CODE, NOT THE BODY.
+# curl prints `000` for a refused connection AND for a timeout, and the two want
+# opposite actions: a gateway that is DOWN needs `kickstart -k`, while a gateway
+# that is merely SLOW must never be restarted — `-k` SIGKILLs it, dropping every
+# in-flight fleet request, and on a 2-minute timer it would do that again and
+# again for as long as the latency lasted. Slow is not dead. So the discriminator
+# is curl's exit code plus `time_connect`, measured here (2026-08-09) rather than
+# assumed:
+#
+#   refused (127.0.0.1:1)              rc=7   time_connect=0.000000  → DOWN
+#   connect-phase timeout (blackhole)  rc=28  time_connect=0.000000  → DOWN
+#   connected, then no answer          rc=28  time_connect=0.000278  → DEGRADED
+#
+# A non-zero time_connect means the TCP handshake COMPLETED — something is
+# listening on :17017 and accepting — so the job is alive whatever happens next.
+# Everything that is not cleanly up and not provably unconnected is
+# `probe-degraded`: a finding (exit 10, ledger row) that touches pico not at all.
+# That is why the probe uses a short --connect-timeout and a generous -m: the
+# connect window is the part the verdict turns on.
 #
 # THE RECOVERY, in the order the incident actually needed:
 #   1. `launchctl kickstart -k <job>` — the ordinary case, a wedged/crashed job.
@@ -46,7 +65,8 @@
 #      <plist>` first, then kickstart again.
 #   3. Re-probe (settle, then up to GW_PROBE_TRIES times). Up ⇒ `restored`.
 #      Still down ⇒ `down-unrecovered`: this guard has spent its authority and a
-#      human is needed.
+#      human is needed. Answering-but-slow after the restart ⇒ `probe-degraded`,
+#      which is also where the loop stops: it is listening again.
 # An ssh that cannot connect at all is `pico-unreachable` — a DIFFERENT fact
 # from "the gateway is down", and the one where waking a human is right.
 #
@@ -69,6 +89,8 @@
 #   GW_PLIST            plist for the bootstrap   (/Users/pico/Library/LaunchAgents/com.zig.agentgateway.plist)
 #   GW_LEDGER           durable verdict ledger    (~/.local/share/fleet-health/gateway.jsonl)
 #   GW_CONNECT_TIMEOUT  ssh ConnectTimeout, secs  (15)
+#   GW_PROBE_CONNECT    curl --connect-timeout    (5)  — the verdict turns on this
+#   GW_PROBE_MAX_TIME   curl -m, total budget     (20) — deliberately generous
 #   GW_SETTLE           seconds before a re-probe (5)
 #   GW_PROBE_TRIES      re-probes after a restart (2)
 
@@ -82,6 +104,8 @@ JOB="${GW_JOB:-gui/501/com.zig.agentgateway}"
 PLIST="${GW_PLIST:-/Users/pico/Library/LaunchAgents/com.zig.agentgateway.plist}"
 LEDGER="${GW_LEDGER:-$HOME/.local/share/fleet-health/gateway.jsonl}"
 CONNECT_TIMEOUT="${GW_CONNECT_TIMEOUT:-15}"
+PROBE_CONNECT="${GW_PROBE_CONNECT:-5}"
+PROBE_MAX_TIME="${GW_PROBE_MAX_TIME:-20}"
 SETTLE="${GW_SETTLE:-5}"
 TRIES="${GW_PROBE_TRIES:-2}"
 # The launchd DOMAIN is the job target minus its label — derived, never a second
@@ -95,6 +119,7 @@ VERDICT="down-unrecovered"
 CHECKER_BROKEN=0
 FINDINGS=()
 M_CODE=""      # last HTTP code seen; empty ⇒ never measured ⇒ null in the ledger
+M_CURL_RC=""   # last curl exit code — the fact the down/degraded split turns on
 M_KICKSTARTS=0
 M_BOOTSTRAPS=0
 
@@ -139,6 +164,7 @@ ledger_append() {
   line="$line"',"host":"'"$(json_escape "$HOST")"'"'
   line="$line"',"verdict":"'"$VERDICT"'"'
   line="$line"',"http_code":'"$(str_or_null "$M_CODE")"
+  line="$line"',"curl_rc":'"$(str_or_null "$M_CURL_RC")"
   line="$line"',"kickstarts":'"$M_KICKSTARTS"
   line="$line"',"bootstraps":'"$M_BOOTSTRAPS"
   line="$line"',"findings":['
@@ -170,25 +196,50 @@ finish() {
   [ "$CHECKER_BROKEN" -ne 0 ] && exit 1
   case "$VERDICT" in
   ok) exit 0 ;;
-  restored | down-unrecovered | pico-unreachable) exit 10 ;;
+  restored | down-unrecovered | pico-unreachable | probe-degraded) exit 10 ;;
   *) exit "$((rc == 0 ? 1 : rc))" ;; # the checker itself lost the plot
   esac
 }
 trap finish EXIT
 
-# Exactly one HTTP code, or 000 when nothing answered. No `2>/dev/null`: curl is
-# output-bearing here and a suppressed failure would read as "no data", i.e. as
-# an outage (repo rule 3). `-s` already keeps the ordinary refused path quiet.
+# THE PROBE. Sets P_STATE to one of up | down | degraded | broken, plus P_CODE /
+# P_RC / P_TCONN for the record. No `2>/dev/null`: curl is output-bearing here
+# and a suppressed failure would read as "no data", i.e. as an outage (repo rule
+# 3). `-s` already keeps the ordinary refused path quiet.
+#
+# The three-way split is the whole point — see the header's measured table. Only
+# `down` may lead to a kickstart, because only `down` is a gateway that provably
+# never completed a TCP handshake.
+P_STATE=""
+P_CODE=""
+P_RC=""
+P_TCONN=""
 probe() {
-  local code rc
-  code=$("$CURL_BIN" -s -o /dev/null -m 8 -w '%{http_code}' "$PROBE_URL")
-  rc=$?
-  if [ "$rc" -ge 126 ] && [ "$rc" -le 127 ]; then
-    broken "cannot execute the probe binary '$CURL_BIN' (rc=$rc) — a 'down' verdict here would be this checker's fault, not the gateway's"
-    printf 'broken'
+  local out
+  out=$("$CURL_BIN" -s -o /dev/null --connect-timeout "$PROBE_CONNECT" -m "$PROBE_MAX_TIME" \
+    -w '%{http_code} %{time_connect}' "$PROBE_URL")
+  P_RC=$?
+  P_CODE="${out%% *}"
+  P_TCONN="${out##* }"
+  M_CODE="$P_CODE"
+  M_CURL_RC="$P_RC"
+  if [ "$P_RC" -ge 126 ] && [ "$P_RC" -le 127 ]; then
+    broken "cannot execute the probe binary '$CURL_BIN' (rc=$P_RC) — a 'down' verdict here would be this checker's fault, not the gateway's"
+    P_STATE="broken"
     return
   fi
-  printf '%s' "${code:-000}"
+  # "Did the TCP handshake complete?" — curl reports time_connect as a decimal,
+  # so a value made only of '0' and '.' is a connection that never happened.
+  # (No exponent forms: curl prints fixed-point for these timers.)
+  local connected=1
+  [ -z "$(printf '%s' "$P_TCONN" | tr -d '0.')" ] && connected=0
+  if [ "$P_RC" -eq 0 ] && [ "$P_CODE" != "000" ]; then
+    P_STATE="up"
+  elif [ "$P_RC" -eq 7 ] || { [ "$P_RC" -eq 28 ] && [ "$connected" -eq 0 ]; }; then
+    P_STATE="down"
+  else
+    P_STATE="degraded"
+  fi
 }
 
 # One remote command, output merged and surfaced as a note (never swallowed).
@@ -211,15 +262,27 @@ unreachable() {
 say "gateway-health — ${PROBE_URL} @ $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # --- 1. is the door open? ---------------------------------------------------
-CODE=$(probe)
-[ "$CODE" = "broken" ] && exit 1
-M_CODE="$CODE"
-if [ "$CODE" != "000" ]; then
-  say "  gateway answered HTTP ${CODE} — up (any status means the relay is listening; 401 is the healthy signature)"
+probe
+case "$P_STATE" in
+broken)
+  exit 1
+  ;;
+up)
+  say "  gateway answered HTTP ${P_CODE} — up (any status means the relay is listening; 401 is the healthy signature)"
   VERDICT="ok"
   exit 0
-fi
-finding "no answer from ${PROBE_URL} — the relay is not listening (connect failure)"
+  ;;
+degraded)
+  # It ACCEPTED the connection (time_connect > 0) or failed in some way that a
+  # restart cannot mend. Either way `kickstart -k` is the wrong verb: it would
+  # SIGKILL a listening gateway and drop every in-flight fleet request, once
+  # every two minutes, for as long as the condition lasted.
+  finding "gateway is NOT cleanly up but is NOT provably down either: curl rc=${P_RC}, http=${P_CODE}, time_connect=${P_TCONN}s. Slow (or otherwise odd) is not dead — NOT restarting it; a human should look."
+  VERDICT="probe-degraded"
+  exit 10
+  ;;
+esac
+finding "no answer from ${PROBE_URL} — the relay is not listening (curl rc=${P_RC}, the connection never completed)"
 
 # --- 2. kickstart ------------------------------------------------------------
 ssh_run "launchctl kickstart -k $JOB"
@@ -243,14 +306,23 @@ esac
 try=1
 while [ "$try" -le "$TRIES" ]; do
   sleep "$SETTLE"
-  CODE=$(probe)
-  [ "$CODE" = "broken" ] && exit 1
-  M_CODE="$CODE"
-  if [ "$CODE" != "000" ]; then
-    finding "gateway was DOWN and has been RESTARTED: HTTP ${CODE} on try ${try}/${TRIES} after ${M_KICKSTARTS} kickstart(s), ${M_BOOTSTRAPS} bootstrap(s)"
+  probe
+  case "$P_STATE" in
+  broken) exit 1 ;;
+  up)
+    finding "gateway was DOWN and has been RESTARTED: HTTP ${P_CODE} on try ${try}/${TRIES} after ${M_KICKSTARTS} kickstart(s), ${M_BOOTSTRAPS} bootstrap(s)"
     VERDICT="restored"
     exit 10
-  fi
+    ;;
+  degraded)
+    # It is listening again — the restart did its job — but the probe is not
+    # clean. Stop here rather than spending another try: whatever this is, a
+    # second kickstart is not the answer and the loop only re-probes.
+    finding "gateway is listening again after the restart but the probe is not clean: curl rc=${P_RC}, http=${P_CODE}, time_connect=${P_TCONN}s — no further restart; a human should look."
+    VERDICT="probe-degraded"
+    exit 10
+    ;;
+  esac
   note "still no answer after the restart (try ${try}/${TRIES})"
   try=$((try + 1))
 done

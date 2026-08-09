@@ -13,7 +13,9 @@ ExecStart=/home/ubuntu/dotfiles/agents/scheduler/gateway-health.sh
 # NOTE THE ABSENCE, same as pico-health and restart-loop-check. There is
 # deliberately no `SuccessExitStatus=0 10`. Exit 10 means a real finding about
 # the fleet's routing — the gateway was down, or is still down, or pico cannot
-# be reached to fix it — and that must NOT read as a successful run. It makes
+# be reached to fix it, or the probe is answering but not cleanly
+# (`probe-degraded`: listening yet slow, which this guard deliberately does NOT
+# restart) — and that must NOT read as a successful run. It makes
 # this a FAILED unit, visible in `systemctl --user --failed`, a surface the
 # fleet already reads.
 #

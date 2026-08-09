@@ -6,10 +6,16 @@
 # Style mirrors test-pulse-retry.sh (fakes on PATH, PASS/FAIL summary last).
 #
 # The shims read $GWT_FAKE (a per-case control dir):
-#   $GWT_FAKE/codes        — one HTTP code per line; the Nth curl call prints the
-#                            Nth line (the last line repeats once exhausted).
-#                            000 = connect failure, and the fake exits 7 like the
-#                            real curl does on a refused connection.
+#   $GWT_FAKE/codes        — one PROBE OUTCOME per line; the Nth curl call takes
+#                            the Nth line (the last line repeats once exhausted).
+#                            Either `<code>` alone — 401 ⇒ rc 0, 000 ⇒ rc 7 with
+#                            time_connect 0, i.e. a refused connection — or the
+#                            explicit triple `<code> <rc> <time_connect>`, which
+#                            is how the timeout shapes are scripted. The three
+#                            real shapes, measured with curl on 2026-08-09:
+#                              refused             000 7  0.000000
+#                              connect timeout     000 28 0.000000
+#                              connected-then-slow 000 28 0.000278
 #   $GWT_FAKE/curl-calls   — every curl invocation, one per line
 #   $GWT_FAKE/ssh-calls    — every remote command, one per line (ORDER MATTERS:
 #                            the bootstrap case asserts bootstrap-then-kickstart)
@@ -44,11 +50,16 @@ cat >"$BIN/fake-curl" <<'EOCURL'
 #!/bin/bash
 printf '%s\n' "$*" >> "$GWT_FAKE/curl-calls"
 n=$(wc -l < "$GWT_FAKE/curl-calls" | tr -d ' ')
-code=$(sed -n "${n}p" "$GWT_FAKE/codes")
-[ -n "$code" ] || code=$(tail -n 1 "$GWT_FAKE/codes")
-printf '%s' "$code"
-[ "$code" = "000" ] && exit 7
-exit 0
+line=$(sed -n "${n}p" "$GWT_FAKE/codes")
+[ -n "$line" ] || line=$(tail -n 1 "$GWT_FAKE/codes")
+set -- $line
+code="$1"; rc="${2:-}"; tconn="${3:-}"
+# Bare-code shorthand: 000 is the refused shape, anything else is a clean answer.
+if [ -z "$rc" ]; then
+  if [ "$code" = "000" ]; then rc=7; tconn=0.000000; else rc=0; tconn=0.001234; fi
+fi
+printf '%s %s' "$code" "$tconn"
+exit "$rc"
 EOCURL
 
 cat >"$BIN/fake-ssh" <<'EOSSH'
@@ -112,6 +123,42 @@ if [ "$(ledger_rows)" = "0" ]; then ok; else bad "plain ok → appends NOTHING t
 setup_case 500
 run_gh
 if [ "$LAST" = "GATEWAY_HEALTH_RESULT=ok" ] && [ "$(ssh_calls)" = "0" ]; then ok; else bad "HTTP 500 → still 'up' (any status means the relay is listening), no kickstart"; fi
+
+# ---------------------------------------------------------------------------
+# Case 1c: SLOW IS NOT DEAD. curl prints `000` for a timeout exactly as it does
+#   for a refused connection, but a non-zero time_connect proves the handshake
+#   COMPLETED — something is listening. `kickstart -k` here would SIGKILL a live
+#   gateway and drop every in-flight fleet request, once every two minutes, for
+#   as long as the latency lasted.
+setup_case '000 28 0.000278'
+run_gh
+if [ "$LAST" = "GATEWAY_HEALTH_RESULT=probe-degraded" ] && [ "$RC" = 10 ]; then
+  ok
+else
+  bad "connected-then-slow (rc 28, time_connect>0) ⇒ probe-degraded/exit10 (got '$LAST' rc=$RC)"
+fi
+if [ "$(ssh_calls)" = "0" ]; then ok; else bad "probe-degraded ⇒ NO kickstart, pico untouched (got $(ssh_calls) ssh calls)"; fi
+if [ "$(ledger_verdict)" = "probe-degraded" ]; then ok; else bad "probe-degraded → ledger row (got '$(ledger_verdict)')"; fi
+
+# Case 1d: a CONNECT-PHASE timeout (rc 28, time_connect 0 — the blackhole shape)
+#   never completed a handshake, so it IS down and must still be recovered.
+setup_case '000 28 0.000000' 401
+run_gh
+if [ "$LAST" = "GATEWAY_HEALTH_RESULT=restored" ] && [ "$(ssh_calls)" = "1" ]; then
+  ok
+else
+  bad "connect-phase timeout ⇒ still down ⇒ kickstart ⇒ restored (got '$LAST', $(ssh_calls) ssh calls)"
+fi
+
+# Case 1e: down, restarted, and it comes back LISTENING BUT SLOW ⇒ probe-degraded
+#   and the loop stops there — a second kickstart is not the answer.
+setup_case 000 '000 28 0.000278'
+run_gh
+if [ "$LAST" = "GATEWAY_HEALTH_RESULT=probe-degraded" ] && [ "$(ssh_calls)" = "1" ]; then
+  ok
+else
+  bad "degraded AFTER the restart ⇒ probe-degraded, no further kickstart (got '$LAST', $(ssh_calls) ssh calls)"
+fi
 
 # ---------------------------------------------------------------------------
 # Case 2: down → kickstart → back up ⇒ restored, exit 10, one ledger row.
