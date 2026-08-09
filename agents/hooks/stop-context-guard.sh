@@ -9,7 +9,9 @@
 # /tmp/claude-context-pct/<session_id> and this hook reads it on Stop.
 #
 # Behavior:
-# - pct >= threshold (default 75, CONTEXT_GUARD_PCT to override):
+# - pct >= threshold (default 75 — from agents/lib/molt-thresholds.sh, which
+#   owns the number and derives the marshal's 50% pacing from it;
+#   CONTEXT_GUARD_PCT still overrides for one run):
 #   exit 2 — the agent keeps working WITH the stderr instruction, i.e.
 #   the session offboards itself AND THEN CYCLES ITSELF (the MOLT,
 #   dotfiles-it06). 85 -> 75 because the old number left no room: an
@@ -57,6 +59,15 @@ _CG_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 _CG_LIB="$_CG_DIR/lib/portable.sh"
 [ -r "$_CG_LIB" ] && . "$_CG_LIB"
 
+# The 75 below is NOT this file's number to own (dotfiles-9060). It is the
+# BACKSTOP half of a two-tier pair whose other half — the marshal's 50%
+# proactive pacing (69qr R5) — is derived from it in agents/lib/molt-thresholds.sh.
+# Sourcing it here is what stops the two from drifting apart silently. The
+# literal fallback stays: a tree without that file (a mutant copy, a fixture
+# dir) must still guard at 75, never at nothing.
+_CG_MOLT_LIB="$_CG_DIR/../lib/molt-thresholds.sh"
+[ -r "$_CG_MOLT_LIB" ] && . "$_CG_MOLT_LIB"
+
 # The instruction below is an EXAMPLE, and in a prompt-driven harness an example
 # is EXECUTABLE (this repo's rule 2): the agent copies it verbatim. So the path
 # is resolved from this hook's own location and only printed as an absolute path
@@ -83,7 +94,7 @@ PCT_FILE="$STATE_DIR/$SESSION_ID"
 PCT=$(tr -dc '0-9' < "$PCT_FILE")
 [ -n "$PCT" ] || exit 0
 
-THRESHOLD="${CONTEXT_GUARD_PCT:-75}"
+THRESHOLD="${CONTEXT_GUARD_PCT:-${MOLT_BACKSTOP_PCT:-75}}"
 [ "$PCT" -ge "$THRESHOLD" ] || exit 0
 
 # Fire once per session.

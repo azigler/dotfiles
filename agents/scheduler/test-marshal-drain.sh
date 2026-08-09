@@ -348,7 +348,12 @@ not_has "T14.2 a marked decision bead is never picked"          "$PICKS"   "deci
 has     "T14b a marked SPEC bead is refused the same way"     "$REFUSED" "spec-1:type-outranks-marker(spec)"
 has     "T16.1 an outward-marked bead is skipped unconditionally" "$REFUSED" "outward-1:outward-marked"
 not_has "T16.2 an outward-marked bead is never picked"          "$PICKS"   "outward-1"
-has     "T1b `Fleet: yesterday` is well-formed but NOT true"  "$REFUSED" "yesterday-1:unmarked"
+# (no backticks in a case name: inside a double-quoted argument they are
+# COMMAND SUBSTITUTION, and this one really did run `Fleet: yesterday` as a
+# command — harmless noise here, arbitrary execution in the general case, and
+# it ate the words out of the printed name either way.)
+has     "T1b a fleet marker reading 'yesterday' is well-formed but NOT true" \
+        "$REFUSED" "yesterday-1:unmarked"
 has     "T1c.1 the marked beads ARE picked"                     "$PICKS"   "marked-1"
 has     "T1c.2 the marked beads ARE picked (2)"                 "$PICKS"   "marked-2"
 eq      "T22 a repo that never opted in contributes nothing" \
