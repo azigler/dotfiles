@@ -76,6 +76,16 @@ cat "$CLEAN" >> "$SIDEFB"
 SETTINGS="$T/settings.json"
 printf '%s\n' '{"model":"claude-fable-5[1m]"}' > "$SETTINGS"
 
+# The 2026-08-09 drift, byte for byte: live settings rewritten to the BARE
+# ALIAS by an in-session /model, which persists its argument into this file.
+# Same model, 200k window instead of 1M (dotfiles-lstn).
+SETTINGS_DRIFTED="$T/settings-drifted.json"
+printf '%s\n' '{"model":"fable"}' > "$SETTINGS_DRIFTED"
+# haiku's canonical carries NO [1m] — the tagged form is an API 400 — so this
+# file is CLEAN and a naive "does it end in [1m]" alarm would cry wolf on it.
+SETTINGS_HAIKU="$T/settings-haiku.json"
+printf '%s\n' '{"model":"claude-haiku-4-5"}' > "$SETTINGS_HAIKU"
+
 # --- runner -----------------------------------------------------------------
 # Every case gets its own state root. MODEL_GUARD_USE_PROC=0 by default because
 # this suite runs INSIDE a real claude process: without it the /proc ancestry
@@ -362,6 +372,101 @@ if [ "$EXITC" -eq 0 ] && [ -z "$STDERR" ]; then
   ok "C23 a SIDECHAIN model_refusal_fallback row does not become the expected model"
 else
   bad "C23 a SIDECHAIN model_refusal_fallback row does not become the expected model" "exit=$EXITC out=$STDERR"
+fi
+
+# ===========================================================================
+# C24-C29 — MODEL-ALIAS HYGIENE (dotfiles-lstn)
+# ===========================================================================
+# `/model` does not just switch the live session: it PERSISTS its argument into
+# settings.json. So an instruction that names an alias is a WRITE of the 200k
+# form into the machine default for every future session — which is how one
+# aliased seat became a fleet-wide 200k default on 2026-08-09. The comparison
+# must keep normalising (C15/C16 above); only the INSTRUCTION is canonicalised.
+
+# --- C24: the restore instruction names the CANONICAL literal ---------------
+# EXPECTED arrives as an alias in production (the roster's vocabulary is
+# fable/opus/sonnet/haiku) — this is the exact input that made the guard the
+# writer of the drift. FAILURE-BEFORE: the pre-fix hook printed "argument
+# 'fable'".
+runh "$FULL" c24 MODEL_GUARD_EXPECTED=fable
+if fires \
+   && printf '%s' "$STDERR" | grep -q "argument 'claude-fable-5\[1m\]'" \
+   && ! printf '%s' "$STDERR" | grep -q "argument 'fable'"; then
+  ok "C24 restore instructs /model with the CANONICAL id, never the bare alias"
+else
+  bad "C24 restore instructs /model with the CANONICAL id, never the bare alias" "exit=$EXITC out=$STDERR"
+fi
+
+# --- C25: a model the table does not govern is NOT rewritten ----------------
+# A seat deliberately parked on an older model must not be silently upgraded by
+# a hygiene helper. claude-opus-4-8 is not in the table; it passes through.
+runh "$CLEAN" c25 MODEL_GUARD_EXPECTED=claude-opus-4-8
+if fires \
+   && printf '%s' "$STDERR" | grep -q "argument 'claude-opus-4-8'" \
+   && ! printf '%s' "$STDERR" | grep -q 'claude-opus-5'; then
+  ok "C25 an un-tabled model (claude-opus-4-8) is instructed verbatim, never upgraded"
+else
+  bad "C25 an un-tabled model (claude-opus-4-8) is instructed verbatim, never upgraded" "exit=$EXITC out=$STDERR"
+fi
+
+# --- C26: the MOLT rung's /model argument is canonical too ------------------
+# The second rung types /model as well, so it is the same write and needs the
+# same literal. A fix applied to the restore rung alone leaves the loop open.
+runh "$FULL" c26 MODEL_GUARD_EXPECTED=fable
+runh "$FULL" c26 MODEL_GUARD_EXPECTED=fable
+if fires \
+   && printf '%s' "$STDERR" | grep -q 'seat-molt.sh' \
+   && printf '%s' "$STDERR" | grep -q "/model 'claude-fable-5\[1m\]'" \
+   && ! printf '%s' "$STDERR" | grep -q "/model 'fable'"; then
+  ok "C26 the molt rung's /model argument is the canonical id too"
+else
+  bad "C26 the molt rung's /model argument is the canonical id too" "exit=$EXITC out=$STDERR"
+fi
+
+# --- C27: THE SETTINGS-DRIFT ALARM fires on the live seam -------------------
+# The transcript is HEALTHY here on purpose: this alarm is about what the box
+# will LAUNCH next, not about what is being served now, and it stood silent for
+# hours on 2026-08-09 precisely because nothing watched that key.
+runh "$CLEAN" c27 MODEL_GUARD_USE_SETTINGS=1 MODEL_GUARD_SETTINGS="$SETTINGS_DRIFTED"
+if [ "$EXITC" -eq 2 ] \
+   && printf '%s' "$STDERR" | grep -q 'MODEL SETTINGS DRIFT' \
+   && printf '%s' "$STDERR" | grep -q 'claude-fable-5\[1m\]' \
+   && ledger | tail -n 1 | grep -q '"event":"settings-drift"' \
+   && ledger | tail -n 1 | grep -q '"served":"fable"' \
+   && ledger | tail -n 1 | grep -q '"row":"model-guard"'; then
+  ok "C27 settings drifted to the bare alias: alarms, names the canonical, ledgers it"
+else
+  bad "C27 settings drifted to the bare alias: alarms, names the canonical, ledgers it" \
+      "exit=$EXITC out=$STDERR row=$(ledger | tail -n 1)"
+fi
+
+# --- C28: …and does NOT cry wolf on a clean settings file -------------------
+# Two clean shapes, and the haiku one is the load-bearing half: its canonical
+# has NO [1m], so an alarm written as "does it end in [1m]" would fire on a
+# correct file and be turned off within the day.
+runh "$CLEAN" c28 MODEL_GUARD_USE_SETTINGS=1 MODEL_GUARD_SETTINGS="$SETTINGS"
+E28A=$EXITC; O28A=$STDERR
+runh "$CLEAN" c28b MODEL_GUARD_USE_SETTINGS=1 MODEL_GUARD_SETTINGS="$SETTINGS_HAIKU" \
+     MODEL_GUARD_EXPECTED=claude-fable-5
+if [ "$E28A" -eq 0 ] && [ -z "$O28A" ] && [ "$EXITC" -eq 0 ] && [ -z "$STDERR" ]; then
+  ok "C28 clean settings (canonical fable, tag-less haiku) raise no drift alarm"
+else
+  bad "C28 clean settings (canonical fable, tag-less haiku) raise no drift alarm" \
+      "fable=$E28A/'$O28A' haiku=$EXITC/'$STDERR'"
+fi
+
+# --- C29: the alarm is ONCE PER SESSION, not once per tool round ------------
+# The drift is a standing condition — a per-round (or even per-cooldown) alarm
+# would be a nag forever, and a nagging guard gets deleted.
+runh "$CLEAN" c29 MODEL_GUARD_USE_SETTINGS=1 MODEL_GUARD_SETTINGS="$SETTINGS_DRIFTED"
+E29A=$EXITC
+runh "$CLEAN" c29 MODEL_GUARD_USE_SETTINGS=1 MODEL_GUARD_SETTINGS="$SETTINGS_DRIFTED"
+if [ "$E29A" -eq 2 ] && [ "$EXITC" -eq 0 ] && [ -z "$STDERR" ] \
+   && [ "$(ledger | grep -c '"event":"settings-drift"')" -eq 1 ]; then
+  ok "C29 the settings-drift alarm emits once per session, then stays quiet"
+else
+  bad "C29 the settings-drift alarm emits once per session, then stays quiet" \
+      "first=$E29A second=$EXITC out=$STDERR rows=$(ledger | grep -c '"event":"settings-drift"')"
 fi
 
 echo

@@ -91,6 +91,32 @@
 #              here verbatim, because the delivery mechanism is identical (a
 #              send-keys into a shell whose environment this process does not own).
 #
+#              ⚠️ THE PIN IS CANONICALISED BEFORE IT IS SPLICED (dotfiles-lstn).
+#              The roster says `fable`; the launch string says
+#              `--model 'claude-fable-5[1m]'`. A bare alias — or a bare full id
+#              — silently drops the 1M context window: both run Fable 5, at
+#              200,000 tokens, and only the `[1m]` literal gets 1,000,000
+#              (measured 2026-08-09; the table and the probe output live in
+#              agents/lib/model-canon.sh, which is the ONE place the mapping
+#              exists). Alias resolution is additionally provider-dependent in
+#              the client's own catalog, so a full id is the only argument that
+#              means one thing everywhere. Three consequences to know:
+#                * the pin is SINGLE-QUOTED on the launch string, because `[1m]`
+#                  is a glob and an unmatched glob is a hard error in zsh —
+#                  unquoted, the entire launch line would die and the pane would
+#                  hold no launcher at all;
+#                * the LEDGER records the canonical id (what the process was
+#                  really started with, i.e. what the gateway will report), not
+#                  the roster's short name;
+#                * a warm pane launched before this carries `--model sonnet` on
+#                  its cmdline and is therefore a REAL mismatch against
+#                  `claude-sonnet-5[1m]` — same model, 200k instead of 1M. It is
+#                  reported as such rather than normalised away, and it clears
+#                  when that window's session is exited.
+#              A missing model-canon.sh is a WARN + verbatim passthrough, never
+#              a refusal: unpinning the whole fleet because a sibling file moved
+#              would be strictly worse than the window it would save.
+#
 #              NO PIN => TODAY'S BEHAVIOUR, BYTE FOR BYTE. An unregistered
 #              window, a missing/unparseable roster, a seat with no `model:`, or
 #              a resolver refusal (R7 session mismatch) all mean "no pin": no
@@ -156,7 +182,7 @@
 #              agentgateway's `gen_ai_request_model` can be cross-checked against
 #              what was asked for rather than against a config read back:
 #                {"ts":…,"loop":…,"session":…,"window":…,"seat":…,
-#                 "model":"fable","source":"roster|flag",
+#                 "model":"claude-fable-5[1m]","source":"roster|flag",
 #                 "observed_model":…,"mismatch":true|false,"result":…}
 #              Written ONLY when a pin was applied (so an unpinned fleet writes
 #              nothing at all) and only on the paths where the tick was actually
@@ -412,6 +438,10 @@ CONFIG_DIR_ABS=""
 #                 that could not be applied (non-claude launcher) is NOT active
 #                 and is never recorded as requested.
 MODEL=""
+# The pin BEFORE canonicalisation (the roster's alias), kept only for the log
+# line — the ledger, the launch string and the /proc comparison all use the
+# canonical form, because that is what the process is actually started with.
+MODEL_RAW=""
 MODEL_SOURCE=""
 MODEL_SEAT=""
 MODEL_ACTIVE=0
@@ -422,6 +452,11 @@ MODEL_MISMATCH=0
 # the suite and the mutation harness point it at the real tree because they run
 # a COPY of this file from a scratch dir.
 SEAT_RESOLVE_BIN=${PULSE_SEAT_RESOLVE:-"$(cd "$(dirname -- "$0")" 2>/dev/null && pwd)/../lib/seat-resolve.sh"}
+# Same seam, same reason, for the ALIAS->CANONICAL table (dotfiles-lstn). Also
+# invoked as a SUBPROCESS rather than sourced, for the reason resolve_model()
+# gives about seat-resolve.sh: nothing this injector does not own may leak into
+# its namespace and change an unpinned tick.
+MODEL_CANON_BIN=${PULSE_MODEL_CANON:-"$(cd "$(dirname -- "$0")" 2>/dev/null && pwd)/../lib/model-canon.sh"}
 # Bound for the model ledger, same shape + same argument as BOUNCE_MAX_LINES
 # below: keep the newest HALF via an atomic rename. What it discards is the
 # OLDEST rows, and the consumer is a JOIN against agentgateway's request_logs,
@@ -834,18 +869,52 @@ resolve_model() {
     fi
     MODEL_SOURCE=roster
   fi
+
+  # CANONICALISE (dotfiles-lstn). The roster's vocabulary is the ALIAS —
+  # `fable`/`opus`/`sonnet`/`haiku`, which is what validate-seats.py's
+  # KNOWN_MODELS gates and what the hall's court view shows — but an alias on a
+  # LAUNCH STRING silently drops the 1M context window: `claude --model fable`
+  # and `claude --model claude-fable-5` both run Fable 5 at 200,000 tokens, and
+  # only `claude-fable-5[1m]` gets 1,000,000 (measured; the table and its
+  # evidence live in agents/lib/model-canon.sh). Alias resolution is also
+  # PROVIDER-dependent — the client's catalog maps `opus` to a different model
+  # id per provider — so a full id is the only launch argument that means one
+  # thing everywhere. The roster keeps the short name; the boundary names the
+  # literal, so the long id lives in exactly one file.
+  #
+  # A missing table is a WARN and a passthrough, never a refusal: an injector
+  # that stops pinning because a sibling file moved would take the whole fleet
+  # off its pins at once, which is strictly worse than the 200k it would avoid.
+  MODEL_RAW="$MODEL"
+  if [ -f "$MODEL_CANON_BIN" ]; then
+    _mcanon=$(bash "$MODEL_CANON_BIN" canon "$MODEL")
+    if [ -n "$_mcanon" ] && [ "$_mcanon" != "$MODEL" ]; then
+      note "model: canonicalised '$MODEL' -> '$_mcanon' (alias/bare ids drop the extended context window)"
+      MODEL="$_mcanon"
+    fi
+  else
+    note "WARN: model canon table not found at $MODEL_CANON_BIN — pinning '$MODEL' verbatim, which for a bare alias is the 200k context window (dotfiles-lstn)"
+  fi
+
   # The pin is about to be TYPED INTO A SHELL as part of the launch string, so it
   # is validated as a token before it goes anywhere near send-keys. seats.yml is
   # gated by validate-seats.py at commit time, but this injector must not depend
   # on a data file's other gate for its own shell safety — a hand-edited roster
   # or a --model from a script is the same keystroke sequence either way.
-  case "$MODEL" in
+  #
+  # The ONE tag allowed through is a trailing `[1m]`, stripped before the
+  # bare-token test rather than folded into the character class — `[` and `]`
+  # inside a shell bracket expression is exactly the sort of quoting puzzle that
+  # produces a guard nobody can read and everybody trusts. So the accepted
+  # grammar is precisely `<bare-token>` or `<bare-token>[1m]`, and a pin like
+  # `sonnet$(touch /tmp/pwn)` is refused the same as before.
+  case "${MODEL%'[1m]'}" in
     *[!A-Za-z0-9._-]*|"")
-      note "WARN: refusing model pin '$MODEL' (source=$MODEL_SOURCE) — not a bare [A-Za-z0-9._-] token, and it would be typed into a shell. No pin applied."
+      note "WARN: refusing model pin '$MODEL' (source=$MODEL_SOURCE) — not a bare [A-Za-z0-9._-] token with an optional [1m] tag, and it would be typed into a shell. No pin applied."
       MODEL=""; MODEL_SOURCE=""; MODEL_SEAT=""
       return 0 ;;
   esac
-  note "model: pin '$MODEL' (source=$MODEL_SOURCE${MODEL_SEAT:+ seat=$MODEL_SEAT} window=$WINDOW)"
+  note "model: pin '$MODEL' (source=$MODEL_SOURCE${MODEL_SEAT:+ seat=$MODEL_SEAT}${MODEL_RAW:+ roster=$MODEL_RAW} window=$WINDOW)"
 }
 
 # _proc_model <pid> — the `--model <x>` / `--model=<x>` that process was STARTED
@@ -892,14 +961,26 @@ verify_model() {
     return 0
   fi
   MODEL_MISMATCH=1
+  # SAME MODEL, DIFFERENT WINDOW is a real and, at rollout, the COMMON case
+  # (dotfiles-lstn): every durable pane launched before canonicalisation carries
+  # a bare `--model sonnet` on its cmdline while the pin now asks for
+  # `claude-sonnet-5[1m]`. That IS a mismatch — 200k vs 1M — and it is
+  # deliberately not normalised away, because normalising it is exactly how the
+  # 200k form went unnoticed for hours on 2026-08-09. What it gets instead is a
+  # sentence that says which kind of mismatch it is, so an operator reading the
+  # log is not left thinking the pane is on the wrong TIER.
+  local _why=""
+  if [ -f "$MODEL_CANON_BIN" ] && [ "$(bash "$MODEL_CANON_BIN" canon "$seen")" = "$MODEL" ]; then
+    _why=" SAME MODEL, DIFFERENT CONTEXT WINDOW: '$seen' is the 200k form of the pin '$MODEL' (the [1m] tag is what selects the 1M window). That pane was launched before the canonical pin, or by hand; exiting its session lets the next tick relaunch it pinned."
+  fi
   if [ "${PULSE_MODEL_ON_MISMATCH:-warn}" = fail ]; then
-    echo "pulse-inject: MODEL MISMATCH ($ctx). Pane $PANE runs pid $pid on --model $seen, but the pin asked for --model $MODEL. PULSE_MODEL_ON_MISMATCH=fail, so nothing was typed. A warm launcher cannot change model mid-flight: exit that window's session and let the next tick launch it on the pinned model." >&2
+    echo "pulse-inject: MODEL MISMATCH ($ctx). Pane $PANE runs pid $pid on --model $seen, but the pin asked for --model $MODEL.$_why PULSE_MODEL_ON_MISMATCH=fail, so nothing was typed. A warm launcher cannot change model mid-flight: exit that window's session and let the next tick launch it on the pinned model." >&2
     note "FAIL: wrong model ($ctx): pane $PANE pid $pid runs '$seen', wanted '$MODEL' (PULSE_MODEL_ON_MISMATCH=fail)"
     record_model failed-wrong-model
     emit_result failed-wrong-model
     exit 77
   fi
-  echo "pulse-inject: MODEL MISMATCH ($ctx). Pane $PANE runs pid $pid on --model $seen, but the pin asked for --model $MODEL. Proceeding on the warm launcher (a running launcher cannot change model mid-flight); the mismatch is recorded in the model ledger and is visible as gen_ai_request_model in the gateway's request_logs. Exit that window's session to let the next tick launch it pinned." >&2
+  echo "pulse-inject: MODEL MISMATCH ($ctx). Pane $PANE runs pid $pid on --model $seen, but the pin asked for --model $MODEL.$_why Proceeding on the warm launcher (a running launcher cannot change model mid-flight); the mismatch is recorded in the model ledger and is visible as gen_ai_request_model in the gateway's request_logs. Exit that window's session to let the next tick launch it pinned." >&2
   note "WARN: wrong model ($ctx): pane $PANE pid $pid runs '$seen', wanted '$MODEL' — proceeding (recorded)"
   return 0
 }
@@ -1027,9 +1108,19 @@ is_claude_launcher() {
 #     comment) — tick-jailed.sh is proven to forward the flag, so it is
 #     admitted here; an unproven launcher would take `--model` as its own
 #     argument and the splice must not risk that blindly.
+#
+#     SINGLE-QUOTED, ALWAYS (dotfiles-lstn). The canonical id carries a `[1m]`
+#     tag and the launch string is TYPED INTO A SHELL — an unquoted
+#     `claude-fable-5[1m]` is a GLOB (a one-character class matching `1` or
+#     `m`), and this fleet's shell is zsh, where a glob that matches nothing is
+#     a hard error: the whole launch line dies with `no matches found` and the
+#     pane never starts a launcher at all. Quoting unconditionally rather than
+#     only-when-tagged keeps one code path; resolve_model() has already proven
+#     the pin is `<bare-token>` or `<bare-token>[1m]`, so it can contain no
+#     single quote and the quoting cannot be escaped out of.
 if [ -n "$MODEL" ]; then
   if is_claude_launcher "$LAUNCH_BASE"; then
-    LAUNCH="$LAUNCH --model $MODEL"
+    LAUNCH="$LAUNCH --model '$MODEL'"
     MODEL_ACTIVE=1
     note "model: launch string pinned -> $LAUNCH"
   else

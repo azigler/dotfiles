@@ -90,6 +90,19 @@ unit_allowlist: [pulse-retry, pulse-stall, pulse-escalate]
 # `linearb` pins `fable` for ALL seven of its schedules — "high impact work",
 # no sonnet-default carve-out.
 #
+# `model:` VALUES STAY ALIASES HERE, AND ARE CANONICALISED AT THE BOUNDARY
+# (dotfiles-lstn). The launched process must carry the FULL id with its context
+# tag — `claude --model 'claude-fable-5[1m]'` — because a bare alias silently
+# runs the same model at a 200,000-token window instead of 1,000,000. That
+# mapping lives in ONE file, agents/lib/model-canon.sh, and pulse-inject.sh
+# applies it as it splices the launch string; the roster keeps the short name.
+# Two reasons the canonical id does NOT belong in this file: validate-seats.py
+# gates `model:` against KNOWN_MODELS (the four aliases), and the hall's court
+# view renders this column at SIX cells (`W_MODEL=6` in agents/bin/hall), where
+# every canonical id truncates to the indistinguishable string `claude`. A
+# roster of 19-character ids would also be fourteen copies of a fact that moves
+# whenever Anthropic ships a model.
+#
 # `sigil:` must be Emoji_Presentation=Yes — the PROPERTY, enforced against
 # embedded Unicode data by validate-seats.py (dotfiles-gl6z). A text-default
 # glyph inside the emoji blocks (🗝 🛡 🕯 🕊 were all four) measures ONE cell
