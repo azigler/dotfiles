@@ -949,7 +949,12 @@ autonomously.
   over-anchoring defense is gone and so is the cost model.
 - ❌ **File-by-file corpus reads** — ~7× the cost of the loop it summarizes.
 - ❌ **`br list --json` on the whole backlog** — ~60k tokens of tie-backs that
-  manufacture over-anchoring.
+  manufacture over-anchoring. Prefer `br list --format toon` (or set
+  `BR_OUTPUT_FORMAT=toon` — it's a global env var, so it applies to every
+  `br` call in the session, not just this one) for a lower-token default;
+  `--fields id,title,priority,status` narrows the columns further but is
+  CSV-only — it is silently ignored under `--format toon` (verified: toon
+  still emits every field), so pair `--fields` with `--format csv` instead.
 - ❌ **Open synthesis instead of closed axis questions** — returns the same
   three attractors every week.
 - ❌ **A memo with no §2** — a chief who only proposes is not allocating.

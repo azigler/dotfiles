@@ -44,6 +44,8 @@ Env overrides (all exist so the suite can drive real code paths, not stubs):
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import os
 import re
@@ -181,44 +183,122 @@ def needs_from_state(state: dict) -> list[str]:
     return rows
 
 
+def _repo_has_beads(repo: Path) -> bool:
+    return (repo / ".beads" / "issues.jsonl").exists()
+
+
+def _repo_has_db(repo: Path) -> bool:
+    beads_dir = repo / ".beads"
+    return beads_dir.is_dir() and any(beads_dir.glob("*.db"))
+
+
+def br_list(
+    repo: Path, extra_args: list[str], timeout: float = 15.0
+) -> tuple[list[dict[str, str]], str]:
+    """Read via `br list`, never as a mutation (``dotfiles-6f8s``).
+
+    Two read modes, chosen per-repo, both proven zero-mutation by measurement
+    (mtimes of every ``.beads/*`` file unchanged across the call):
+
+    - Repo already has a `.beads/*.db`: DB-backed read with
+      ``--no-auto-import --no-auto-flush``. This is a REAL improvement over
+      hand-parsing the JSONL — it sees writes still unflushed to disk, which
+      the JSONL-only path below (and the old hand-parse) cannot.
+    - Repo has no `.beads/*.db` yet: ``--no-db`` (JSONL-only) instead. Bare
+      DB-mode `br list` on a JSONL-only repo was measured to CREATE
+      `beads.db` + `beads.db-wal` + `.br_recovery/` as a side effect — an
+      advisory read of ANOTHER repo's store must never do that, which is
+      exactly why the original code avoided `br` entirely. This path does
+      not see unflushed DB writes (there is no DB); that is an honest
+      tradeoff, not a silently-eaten one.
+
+    Either way this replaces hand-rolled `json.loads` line-parsing with `br`'s
+    own CSV writer + native `--status`/`--title-contains` filtering.
+    """
+    if not _repo_has_beads(repo):
+        return [], ""
+    mode_args = (
+        ["--no-auto-import", "--no-auto-flush"]
+        if _repo_has_db(repo)
+        else ["--no-db"]
+    )
+    cmd = [
+        "br",
+        "list",
+        "--format",
+        "csv",
+        "--no-color",
+        "--limit",
+        "0",
+        *mode_args,
+        *extra_args,
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(repo),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return [], type(exc).__name__
+    if proc.returncode != 0:
+        return [], clip(
+            (proc.stderr or "").strip() or f"rc={proc.returncode}", 50
+        )
+    try:
+        rows = list(csv.DictReader(io.StringIO(proc.stdout)))
+    except csv.Error as exc:
+        return [], f"unparseable csv: {type(exc).__name__}"
+    return rows, ""
+
+
 def needs_from_repos(
     repos: list[Path], now: datetime
 ) -> tuple[list[str], list[str]]:
-    """Fallback scan. Reads each repo's JSONL ledger directly — never `br`,
-    which imports/syncs and would make an advisory read a state mutation."""
+    """Fallback scan, via `br_list` (see its docstring for the mutation
+    guarantee). Reads each repo's open `human:` beads."""
     rows: list[tuple[int, float, str]] = []
     unreadable: list[str] = []
     for repo in repos:
-        ledger = repo / ".beads" / "issues.jsonl"
-        if not ledger.exists():
+        if not _repo_has_beads(repo):
             continue
-        try:
-            for line in ledger.read_text(encoding="utf-8").splitlines():
-                if not line.strip():
-                    continue
-                b = json.loads(line)
-                if b.get("status") != "open":
-                    continue
-                title = str(b.get("title", ""))
-                if not title.lower().startswith("human:"):
-                    continue
-                age = age_days(b.get("created_at"), now)
-                shown = (
-                    "<redacted — confidential repo>"
-                    if is_confidential(repo)
-                    else title
+        recs, err = br_list(
+            repo,
+            [
+                "--status",
+                "open",
+                "--title-contains",
+                "human:",
+                "--fields",
+                "id,title,priority,created_at",
+            ],
+        )
+        if err:
+            unreadable.append(f"{repo.name} ({err})")
+            continue
+        for b in recs:
+            title = str(b.get("title", ""))
+            if not title.lower().startswith("human:"):
+                continue
+            age = age_days(b.get("created_at"), now)
+            shown = (
+                "<redacted — confidential repo>"
+                if is_confidential(repo)
+                else title
+            )
+            shown = re.sub(r"^human:\s*", "", shown)
+            priority = b.get("priority", "9") or "9"
+            rows.append(
+                (
+                    int(priority),
+                    -age,
+                    f"P{priority} {b.get('id', '?')} · "
+                    f"{age:.0f}d · {clip(shown, 84)}",
                 )
-                shown = re.sub(r"^human:\s*", "", shown)
-                rows.append(
-                    (
-                        int(b.get("priority", 9)),
-                        -age,
-                        f"P{b.get('priority', '?')} {b.get('id', '?')} · "
-                        f"{age:.0f}d · {clip(shown, 84)}",
-                    )
-                )
-        except (OSError, ValueError) as exc:
-            unreadable.append(f"{repo.name} ({type(exc).__name__})")
+            )
     rows.sort()
     return [r[2] for r in rows], unreadable
 
@@ -287,22 +367,19 @@ def git_since(repo: Path, since_iso: str) -> tuple[int, list[str], str]:
 
 
 def closed_since(repo: Path, cutoff: datetime) -> tuple[int, str]:
-    ledger = repo / ".beads" / "issues.jsonl"
-    if not ledger.exists():
+    """Via `br_list` (see its docstring for the mutation guarantee)."""
+    if not _repo_has_beads(repo):
         return 0, ""
+    recs, err = br_list(
+        repo, ["--status", "closed", "--fields", "id,closed_at,updated_at"]
+    )
+    if err:
+        return 0, err
     n = 0
-    try:
-        for line in ledger.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            b = json.loads(line)
-            if b.get("status") != "closed":
-                continue
-            d = parse_ts(b.get("closed_at") or b.get("updated_at"))
-            if d and d >= cutoff:
-                n += 1
-    except (OSError, ValueError) as exc:
-        return 0, type(exc).__name__
+    for b in recs:
+        d = parse_ts(b.get("closed_at") or b.get("updated_at"))
+        if d and d >= cutoff:
+            n += 1
     return n, ""
 
 
