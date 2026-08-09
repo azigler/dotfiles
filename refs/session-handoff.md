@@ -1,52 +1,67 @@
-# Session handoff — 2026-08-09, session 538b7ef4 (dotfiles, Master of Works) — CUTOVER LANDED, MAIDEN MARSHAL NEXT
-
-> MOLT anchor (mode molt, --in-flight no — monitors stopped, zero worktrees).
-> The fresh context resumes under Zig's standing grant `dotfiles-sbv2`:
-> unsupervised maiden marshal → full harnessd drain → arm the clockwork.
-> Zig is AWAY; do NOT ping him except the sbv2 escalation paths.
+# Session handoff — 2026-08-09 482030c4 (marshal night)
 
 ## State at offboard
-- Branch: main, clean, pushed (local == ls-remote). demesne synced + gate IDENTICAL + pushed.
-- Open beads: `br ready` owns that fact. Zero in-flight subagents, zero worktrees, monitors stopped.
-- The estate runs POST-FLIP: ~/.claude + ~/.claude-work resolve via ~/.agents -> ~/demesne.
+- Current branch: main
+- Last commit: d4abf85 :card_file_box: offboard amend: k6wq closed with evidence post-offboard
+- Open beads: run `br ready` (never a copied list)
+- In-flight subagents: none — wave-1 builder completed, landed, worktree reaped
+- Dirty files: this handoff note only (committed by offboard)
+- Markers: `.offboard-pending` cleared
 
-## What happened this session (the short version of a long day)
-- **ri8b CLOSED**: br 0.2.22 + bv 0.19.0, all 55 stores schema 17, 4 rebuilt from JSONL, 46 repos reserialized+pushed. bv gating ban recorded in /beads+TOOLKIT.
-- **p89v CLOSED (SHIP)**: model-degradation guard live fleet-wide (PostToolUse). Scrutiny FIX-FIRST caught the subagent-transcript runtime shape; fixed, 24/24 + 9/9 mutants. Split: sfpd (live /model restore seam — STILL THE OPEN UNKNOWN), 7pbn, eih0, fgb6.
-- **THE CUTOVER (ezeu chain) LANDED AND CLOSED**: 860z + n3b6 + 6ttp + kvrl + n77t + 5tn3 + zwvu all closed with evidence. Verified twice by fresh contexts (peer PASS 4/4 + the dream tick's own boot).
-- **Maiden FLEET dream CLEAN 3/3** (ledger row `(fleet)` n_slugs=12 denied=30; gateway claude-fable-5 on all 44 requests, zig-computer:dream/personal; zero linearb/cfp; FIRST LAUREL placed: dive/explore-sirc/e99b9db).
-- **xh18 CLOSED**: pico on Tahoe 26.6.1 (25G76), full post-checklist green with evidence. Gateway outage 12:36–15:08Z during the restart (KeepAlive exit-0 + Tahoe pended-spawn) — hardening seat recovered com.zig.*; I caught+fixed the class-miss (homebrew postgres 5432). infra.md carries the patch posture + Tahoe warning.
-- Zig's 5 departure directives all durable: harnessd-wfyx (rename PWA "Demesne"), harnessd-dyro (notification audit), harnessd-edu4 (bell+history), harnessd-snjb (deep links) — all fleet-marked for the marshal; dotfiles-ifk4 (taps study — verification pass 1 done, boundary CONFIRMED OAuth-only, scaling rec written, attribution spot-check half done: personal tap verified via dream traffic; work-tap side pending).
-- Comms reframe recorded: 7fik (BBS/newsgroups not IRC), d54d (full /comms skill scope).
+## What happened this session (bullets)
+- Ran `/marshal night` 2026-08-09. Plan verdict `planned:10` — all picks harnessd,
+  lane `serial:harnessd`. Budget DEGRADED at the 150k floor (`weekly-cap-unset`).
+- Wave 1 **landed and closed**: `harnessd-9fks` (red `make test` on harnessd main,
+  three TestLiveManifest drift assertions — the drain campaign's wave-0.2
+  precondition). Sonnet builder, commit `78de585` (test-only), per-assertion
+  justification: manifest right / tests stale in all three. Mechanical verify ok,
+  `make test` + `go test ./...` green on harnessd main, `/scrutinize` by a
+  different agent (opus, read-only) → ACCEPT. Beads sync pushed as harnessd
+  `cc67534`. Duplicates nzz7/n6jj/s6sz/v99l were already closed by the other
+  harnessd writer.
+- Scrutiny advisory (non-blocking) recorded as a comment on closed `harnessd-9fks`:
+  the null-pin vacuity guard is now dormant; a synthetic table-driven case would
+  restore continuous coverage. Left for the harnessd orchestrator — marshal files
+  no new work.
+- **Night ended after wave 1: budget-exhausted** (builder ~87k + opus scrutiny
+  consumed the 150k floor). Waves 2–10 remain marked and queued; next in wave
+  order is `harnessd-wfyx`. Zero failures, streak 0. Ledger rows: night-start,
+  merged, night-end.
+- Another harnessd writer was active mid-night (merged its own worktree branch
+  `1c0b4d0`, closed the duplicate beads). No conflict — our commit was already an
+  ancestor; verified with the mechanical verify step.
 
 ## Friction
-- Peer molt refused twice silently; my wait had no timeout → 2h freeze overrun, dream tick frozen out (recovered via Persistent=true). Lesson: never wait on a peer without a Monitor/deadline. → one-off (mechanism half is the peer's molt-refusal visibility, hardening lane aware)
-- claude-settings-guard.path (PATH unit) actively reverted the flip — freeze derives from timers only. → filed `dotfiles-ypbc` covers the derivation gap class (grep also broken post-kvrl: 32→4 matches)
-- rgyy jail wedge fired live at the retarget. → closed `explore-jail-symlink-wedge-rgyy` (fixed, guard in suite)
-- seat-molt suite red from pane-id luck (R14 cross-server leak). → closed `dotfiles-nuvf` (fixed + deterministic 23e guard)
-- session-start perf case flaked at 250ms under load, blocked demesne commits twice. → filed `dotfiles-esz8`
-- br 0.2.22 migration attestation failed on 4 stores (2 pre-existing corruption). → recorded in ri8b close; recovery recipe = init scratch + import + transplant
+- `marshal-drain.sh record` has no `--budget` flag (usage error, exit 64); budget
+  had to ride in `--reason`. If a structured budget field is wanted on ledger rows,
+  that's a marshal-drain.sh change → one-off (first occurrence; re-file if it
+  recurs next night)
+- `br comment` is not a subcommand — it's `br comments add <id> "…"` → one-off
+- Shell cwd resets to /home/ubuntu/dotfiles after every Bash call in this harness,
+  so the merge-sequence "standalone cd" step can't persist; used `git -C` /
+  per-call `cd &&` throughout → one-off (environment behavior, worked around)
 
-## Decisions made this session
-- `dotfiles-sbv2` — Zig's execution grant: unsupervised maiden marshal, full harnessd drain incl. new beads, then arm; no ping before clear-all. (THE authority for what's next.)
-- `dotfiles-40ej` — gateway-outage hardening charter (hardening seat's, in-window; its lane).
-- Inline choice, recorded here: executed the cutover chain inline rather than via worktree subagents — live-system mutations (symlinks/systemd/$HOME) that worktrees can't isolate, under an active freeze, single-writer safety. Reviewer-visible in the bead closes.
+## Decisions made this session (autonomous decide-and-proceed calls)
+- none this session (0 harvested, 37 scanned, cutoff = session start). The two
+  judgement calls — running the degraded night at the floor, and ending after
+  wave 1 on budget exhaustion — are recorded in the marshal ledger rows
+  (night-start / night-end reasons), the marshal's own durable record.
 
-## Proposed practices — where each one landed
-- bv file-flags gating ban → written into /beads SKILL.md + TOOLKIT (ri8b).
-- Tahoe pended-spawn "verify agents after any pico restart" → written into agents/infra.md pico section.
-- Peer-wait-needs-deadline → not promoted as prose; the hardening seat's recovery charters (40ej) own the mechanism class. If it recurs: file it.
+## Proposed practices — where each one landed (Step 2.6)
+- none this session
 
-## What's next (the sbv2 sequence, in order)
-1. **MAIDEN MARSHAL** (manual, unsupervised per sbv2): `~/.agents/agents/scheduler/pulse-inject.sh --loop pulse-marshal --dir ~/dotfiles --session zig-computer --window marshal --fresh --cmd "/marshal night"`. Scope: EVERYTHING in harnessd — the marked chain (17 fleet-labeled + serial waves) AND new beads arising mid-run (wfyx/dyro/edu4/snjb are in the pool) — until harnessd as discussed is ready for Zig's return. Watch it: merges under the guarded sequence, ledger explainable. Budget reads pico requests.db (healthy again).
-2. **ARM THE CLOCKWORK** after the manual run succeeds: install/enable pulse-marshal.timer (01:07 PT) from templates/ + whatever 69qr names as moving-forward state.
-3. **zga2 (P0) + vtx4 + k579 one motion, then pvlp + 1vpm** — the depublish tail of ezeu (now unblocked; 860z closed).
-4. ifk4 remainder: work-tap attribution spot-check (one linearb-tap request traced in requests.db), then close with the scaling rec for Zig.
-5. Housekeeping when idle: ypbc (freeze grep), esz8 (perf case), sfpd (the /model restore seam — LOAD-BEARING for p89v's rung 1).
+## What's next
+- Next funded marshal night resumes the queue at `harnessd-wfyx` (wave 2 of the
+  same plan shape); re-run `plan` fresh — never reuse tonight's pick list.
+- The weekly cap is unset in `marshal.conf`, forcing every night to the 150k
+  floor. Zig's knob, changes by his ruling only — surfaced for the seneschal
+  brief's DRAIN section, not a question.
+- harnessd orchestrator: scrutiny advisory comment on `harnessd-9fks` (dormant
+  null-pin guard, synthetic-case follow-up) awaits its call.
 
 ## Warnings / watch-outs
-- **Hardening seat is ACTIVE** in its own lane (gateway monitor, API-error recovery, classifier fix — 40ej). It coordinates before touching this lane. Don't duplicate its work.
-- **dream lint (dotfiles-iyhh)**: the fleet-shape ledger row (`slug:"(fleet)"`, n_slugs, denied) may not be in pulse-ledger-lint's schema yet — if a lint gate rejects it, that's iyhh, not corruption.
-- **Tahoe pended-spawn**: any pico restart needs manual agent verification until the hardening fix lands (infra.md has the details).
-- The seneschal brief (13:44Z) + digest re-fired post-outage by the hardening seat — already handled, don't re-fire.
-- peer session (window dotfiles-2) holds normal duty; marshal launch + arming are EXPLICITLY this seat's (division confirmed twice).
+- harnessd has an active second writer (session merging `worktree-agent-a84ca9e7…`).
+  Two-writers discipline applies to any harnessd work: merge never rebase, never
+  stash, precise staging.
+- Budget derivation stays `degraded` until the weekly cap is set — every night
+  runs at the floor and will likely afford ~1 bead + scrutiny.
