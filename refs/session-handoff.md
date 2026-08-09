@@ -1,81 +1,43 @@
-# Session handoff — 2026-08-09 70b833af (marshal night, kjjf campaign run 2)
+# Session handoff — 2026-08-09 a491e4bf (verify lane → normal duty, window dotfiles-2)
 
 ## State at offboard
-- Current branch: main
-- Last commit: ea0659a (pre-offboard; this commit adds the note + beads sync)
-- Open beads: run `br ready` (never a copied list)
-- In-flight subagents: none — wave-1 builder + scrutineer completed, both harnessd
-  and dotfiles worktrees reaped, other agents' trees verified intact
-- Dirty files: `.beads/issues.jsonl` (committed with this offboard)
-- Markers: `.offboard-pending` cleared
+- Current branch: main, clean; last commit pushed and ls-remote-verified (24516d1 lineage; peers commit constantly — fetch+merge to absorb)
+- In-flight subagents: none (all four returned, merged, worktrees reaped)
+- Other repos touched: harnessd (main 67e5110, pushed), demesne (dc9375b lineage, pushed)
+- Markers: `.offboard-pending` cleared; `.claude/last-offboard-session` = a491e4bf…
 
-## What happened this session (bullets)
-- Ran `/marshal night` as **campaign run 2** under decision `dotfiles-kjjf`
-  (serial supervised floor runs). Plan verdict `planned:12`, all `serial:harnessd`,
-  budget DEGRADED at the 150k floor (`weekly-cap-unset`).
-- Wave 1 `harnessd-b1v6` (analytics group dimension + spend[] on the bus):
-  sonnet builder in a recovered cross-repo worktree, commit `81fcde1`, 153.6k
-  tokens — **the floor was exhausted by the builder alone**; the landing was
-  completed anyway per the never-abandon rule.
-- Guarded merge `c9dd12f..0a322e0` on harnessd main: mechanical verify ok,
-  `make test` + `go test ./...` green ON MAIN, pushed. Scrutiny by a different
-  agent (opus, 109.9k) → **FIX-FIRST**: impl live-verified/race-clean/scope-clean,
-  but lman DELTA-4 envelope divergence, unowned schema_version 1→2 bump, and
-  `make audit` red. Merge STAYS landed; bead stays **OPEN** with full findings
-  as a comment on `harnessd-b1v6`. Beads sync pushed (`d78e1b2`, `25a022b`).
-- **Parked `b1v6` early** under the repeat-failure protocol: AC4 (`make audit`
-  green) is provably unclosable by any builder — 2 PRE-EXISTING unregistered_loop
-  findings (pulse-marshal/pulse-seneschal not in refs/harness-manifest.json) plus
-  deploy_drift that needs `make deploy` (a live-service call the marshal did not
-  take unilaterally). Filed `harnessd-fst4` (P1 `human:` adjudication, unmarked so
-  the drain skips it) and made it BLOCK `b1v6`, so run 3 drains wave 2 instead of
-  burning ~150k to rediscover a guaranteed second failure.
-- Night ended **budget-exhausted**: 263.5k narrated in the night-end reason
-  (fz2t's tally bug still open, so the reason line carries the numbers).
-  Streak 1; no kjjf stop condition fired (FIX-FIRST ≠ REJECT).
-- Push notification attempted per escalation protocol → "not sent, terminal
-  active"; the fst4 bead + ledger are the durable escalation.
+## What happened this session
+- **860z post-flip verify: 4/4 PASS**, reported to the Works session; it closed 860z. Filed `dotfiles-iqro` (seat-resolve half-loaded-lib guard; proven PRE-existing via old-vs-new-path discriminating check — shell snapshot drops underscore helpers, `command -v` guard then skips re-sourcing).
+- **ypbc fixed and closed**: demesne-freeze derives both unit forms (escaped dot), set restored 2→32, mutant-killed guards; carried LIVE via demesne-sync (gate IDENTICAL). Filed `dotfiles-k0tc` (sync-era gaps: root-file drift + --delete eats gitignored live-state; second instance recorded when claude/systemd/README's private copy was sync-deleted — rule: depublishing from INSIDE the synced set requires move-in-demesne FIRST).
+- **zga2 + vtx4 closed** (Zig-ratified plan on the bead): 39 files depublished, 3 shell configs on bare MagicDNS names, sd-up restored (mac.setup.sh:340 installs it; its .ts.net was a placeholder), THE DEMESNE MAP live at `~/.agents/infra.md` (demesne ROOT — sync-safe), zig-zone DNS drift zero in both repos. Criterion grep = exactly the 12 k579-deferred files; grep-returns-nothing closes at k579.
+- **harnessd marshal-prep complete** (Zig's directive): all 106 drainable-type beads assessed. Wave 1 = 11 campaign-verdict marks + 4 dupe closes; wave 2 = Fable assessor extended campaign-2026-08 over 79 beads (all verdicts on beads), 31 more marks, 6 same-file lanes wired as deps, yfg+shzl closed (shzl's systemic ACs refiled → `dotfiles-v052` scrub-secrets multi-source denylist, `dotfiles-iu2h` environ-read guard).
+- **qmrp D1–D7 ran with Zig** (verdicts VERBATIM in harnessd-uzff notes): D1 demote ✓, **D2 KEEP Intake** (override: heavy tabs stay, panels consolidate), D3 delete-the-lie ✓ (ifs7 marked), D4 zen-pond all 12 closed, D5 renderers all 3 closed, **D6 freeze REJECTED** (override: fully fund — campaign epic `harnessd-eyu2`, matrix `dtub`, substrate decision `1ps2`), D7 close 2 keep v8o.15 ✓. Funding: soak under kjjf; computed budget is the Works session's job (Zig, relayed).
+- **Matrix tranche 1 done**: 18 rows (4 BROKEN/6 DEGRADED), fixtures + TestMatrixProbe merged (harnessd a9c64fb, suites green). Zig's named bug has a deterministic trigger → `harnessd-b76g` (P1, fleet, after 9gvd). MultiSelect keystrokes fully measured (Space/Enter/digit all TOGGLE; Tab→review; Enter submits there) — relayed to run #3's live 9gvd builder via Works session. Also filed: `8lwe` (smoke-live 7 gaps, fleet), `4kqq` (clip-drop, gated on 1ps2), `gdy4` (JSON-latency hazard study: tool_use record absent ≥75s while widget shown, 2/13, intermittent).
+- b1v6 FIX-FIRST finding (3) adjudicated for run #3's re-pick: AC4 scoped to own drift; unregistered_loop owned by edwu/90vm.
 
 ## Friction
-- `br comment` is not a subcommand (`br comments add <id> -m`) — hit AGAIN this
-  run after the maiden night hit it; recurrence → filed `dotfiles-6cj4` (labeled
-  `friction`)
-- Bead-create gate rejected the first `fst4` draft (missing `## Acceptance
-  Criteria`) — gate working as designed → one-off
-- `TMUX_PANE` env leak (`%3`) made `tmux display-message` misreport my window as
-  `dotfiles` when I'm actually window 5 `marshal`; disambiguated via
-  `capture-pane` self-recognition. Known, documented at seat-molt.sh:430 → one-off
-- Chained `br create && br dep add` — the create's hook block killed both;
-  re-ran standalone per the known rule → one-off (self-inflicted)
+- pre-bead-close hook resolves the bead store from session cwd (~/dotfiles), blocking harnessd closes; its own `cd <path> && br close` follow-regex doesn't match a `(cd …)` subshell → use the bare `cd path && br close` form → one-off (documented behavior, bd-8euh regex; not worth a bead)
+- zsh: `set -- $pair` doesn't word-split; `echo ===` triggers zsh =-expansion → one-off
+- `br comment` vs `br comments add -m` syntax; `-d` leading-dash trap → one-off (hook messages self-explain)
+- /offboard newest-mtime session-id heuristic remains wrong in this multi-session project → bd dotfiles-ixyi (already filed by prior lane; this offboard derived the id from the session-specific scratchpad UUID and VERIFIED by content grep — qmrp-hits=10)
 
-## Decisions made this session (autonomous decide-and-proceed calls)
-- `dotfiles-kjjf` — drain continuation via serial supervised floor runs
-  (prior seat's, harvested in-window; governs this run)
-- The early-park of `b1v6` (repeat-failure protocol applied after ONE failure, on
-  evidence a second attempt cannot close) — recorded in `harnessd-fst4`'s Context
-  and the ledger's failed/night-end rows rather than a duplicate decision bead;
-  fst4 IS the escalation record.
+## Decisions made this session
+- Recorded on beads rather than as -t decision beads: sd-up restore-and-reword (zga2 close reason), mrjo NEEDS-GROOMING→proof-campaign re-scope (comment on mrjo), m3e5 marked without 0gch dep while 0gch is unmarked (comment on m3e5), b1v6 finding-3 adjudication (comment on b1v6).
+- Harvested from the shared store, NOT this lane's: `dotfiles-kjjf` (drain continuation), `dotfiles-40ej` (gateway-outage hardening) — both the Works session's, listed for completeness.
 
-## Proposed practices — where each one landed (Step 2.6)
-- none this session (the br-comments syntax fix → `dotfiles-6cj4`)
+## Proposed practices — where each one landed
+- "depublish from inside the synced set ⇒ move-in-demesne first" → recorded on `dotfiles-k0tc` (second-instance note + AC)
+- "groom-first-mark-last / claim-check per mutation" → already the Works session's mid-run rules; verdicts + lanes live on the harnessd beads themselves
+- none homeless in this note
 
 ## What's next
-- **Run 3 is scheduled**: transient systemd one-shot fires pulse-inject
-  `--fresh --cmd "/marshal night"` into `zig-computer:marshal` a few minutes
-  after this session goes idle. It must re-run `plan` fresh; with `b1v6` blocked
-  by `fst4`, wave 2 (`harnessd-9gvd`, chats multi-select bug) becomes top pick.
-- Campaign boundary per kjjf: no run launches after 08:00 UTC 2026-08-10; the
-  armed pulse-marshal.timer (08:07 UTC) is the steady state after that.
-- Needs adjudication (seneschal DRAIN section): `harnessd-fst4` — AC4 waiver
-  vs blanket audit-green, manifest registration of the two pulse loops, and
-  whether a marshal night may run `make deploy`.
+1. **Run #3+ ledger rows** — the Works session relays; b76g/8lwe join run #4's pool; qvvf/fpmn stay fenced until matrix reconciliation.
+2. **Matrix tranche 2** (notification/ping interleaving, markdown/table prompts) + the eyu2 reconciliation of ~14 old parser beads — dispatch when 9gvd + b76g land.
+3. **1ps2 substrate walk with Zig** once gdy4's latency study runs (needs N≥30 sampling).
+4. Grooming leftovers, verdict comments say exactly what: 0keb (reconcile vs closed zl9c), lry.5 (write body), l3wx (split pico half), 4icj (spec session).
+5. **Needs Zig**: 8fca phone pass (11 device-tailed beads), 4c7b viewport check, iiqb.1 ratify-and-close (releases Silicon Keep chain).
 
 ## Warnings / watch-outs
-- harnessd still has a second active writer (live worktree
-  `/tmp/harnessd-agent-a008d55152e344050` at `c9dd12f` — NOT ours, left intact).
-  Two-writers discipline on all harnessd work.
-- harnessd main's `make audit` is RED (deploy_drift + 2 unregistered loops) until
-  fst4 is adjudicated — a run-3 builder on harnessd must not treat that as its
-  own regression, and close gates citing "audit green" will fail.
-- Budget derivation stays `degraded` until the weekly cap is set; every run
-  affords ~1 bead + scrutiny. Zig's knob (`marshal.conf`), his ruling only.
+- The marshal drains nightly (timer armed 01:07 PT) + supervised runs anytime — harnessd/.beads and harnessd main have a standing second writer; claim-check before ANY marked-bead mutation.
+- Handoff notes are moving to the demesne per Zig (ie5a) — this may be the last offboard writing refs/session-handoff.md in this repo.
+- dotfiles worktrees agent-a0a2aff8… and agent-a7526839… belong to the MARSHAL (locked) — never reap them from this lane.
