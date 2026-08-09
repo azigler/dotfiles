@@ -287,6 +287,31 @@ mapped_suites_for() { # <staged path> -> newline-separated suite paths
     # it. (molt-thresholds.sh itself reaches its suite through the convention.)
     agents/hooks/stop-context-guard.sh|agents/scheduler/marshal-drain.sh)
       printf '%s\n' agents/lib/test-molt-thresholds.sh ;;
+    # THE TAP-FAILOVER CHAIN (dotfiles-kecb) spans three dirs and one file that
+    # is not under agents/ at all, and the property that matters — a launch
+    # bills the account its headers claim — is only observable END TO END.
+    #
+    # taps.conf is DATA in the same sense as marshal.conf and escalate.conf,
+    # and it is read on the LAUNCH PATH of every claude on the box: the pool
+    # membership, the preference order, the per-seat home-tap overrides and the
+    # ceiling all live in it, so a hand-edit here can move Zig's billing with
+    # no code change at all.
+    #
+    # zsh/.zshenv is the far end of the same chain and matches NO convention
+    # arm below (it is not under agents/), so before this entry the
+    # inherited-header strip — the only thing standing between an `env … claude`
+    # bypass and silent cross-billing — was gated on nothing. Its suite EXECUTES
+    # the committed block (this repo's rule 2), so an edit that breaks it is a
+    # red case rather than a discovery months later.
+    agents/scheduler/taps.conf)
+      printf '%s\n' agents/lib/test-tap-headroom.sh \
+        agents/lib/test-claude-identity-wrapper.sh ;;
+    zsh/.zshenv)
+      printf '%s\n' agents/lib/test-claude-identity-wrapper.sh ;;
+    agents/lib/tap-headroom.sh|agents/lib/test-tap-headroom.sh)
+      printf '%s\n' agents/lib/test-claude-identity-wrapper.sh ;;
+    agents/lib/claude-identity-wrapper.sh)
+      printf '%s\n' agents/lib/test-tap-headroom.sh ;;
   esac
 }
 
@@ -755,6 +780,41 @@ if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(pulse-escalate\.sh|esc
     bash "$ROOT/agents/scheduler/mutate-pulse-escalate.sh" || FAILED=1
   else
     echo "pre-commit: FAIL — agents/scheduler/mutate-pulse-escalate.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
+# --- the TAP-FAILOVER chain -> prove ITS guards still bite -----------------
+# Same argument as every block below, on a chain whose decision is WHICH
+# ANTHROPIC ACCOUNT A LAUNCH BILLS TO (dotfiles-kecb). Every way it can be
+# wrong is silent AND the request still succeeds, which is worse than a
+# failure: a rollover that moves the headers but not the config dir announces
+# a tap it is not running on; a rollover with the attribution pair dropped is
+# byte-identical downstream to a launch that always lived on that pool; the
+# per-seat home-tap override ignored puts LinearB's overflow on Zig's personal
+# subscription; the model-scoped Fable allotment ignored stalls a tick while
+# the unified windows report headroom; a rollover made on an unreadable pool
+# moves billing on a network blip; and the inherited-header strip removed
+# brings back the measured 19:23Z cross-billing. Nothing turns red for any of
+# them. Measured on this box:
+#
+#     test-tap-headroom.sh (60 cases, real captured usage fixtures)     7s
+#     test-claude-identity-wrapper.sh (bash + zsh matrix)              20s
+#     mutate-tap-failover.sh (12 mutants + 2 baselines)               ~4 min
+#
+# ~4 min is why this fires on six files rather than on every lib edit. The test
+# files are triggers on purpose: T20 is the SOLE detector for the config dir
+# moving with the headers, T22c/G14b the sole detectors for the seat override
+# not simply always winning, T23b/G12c the sole controls that keep the fable
+# arm from firing on every launch, and T26 the only thing that ever executes
+# the committed zsh/.zshenv strip — so deleting one case loses the bite while
+# both suites stay green.
+if printf '%s\n' "$STAGED" | grep -qE '^(agents/lib/(tap-headroom\.sh|claude-identity-wrapper\.sh|test-tap-headroom\.sh|test-claude-identity-wrapper\.sh|mutate-tap-failover\.sh)|agents/scheduler/taps\.conf|zsh/\.zshenv)$'; then
+  echo "pre-commit: staged changes touch the tap-failover chain -> running mutation harness (~4 min)"
+  if [ -f "$ROOT/agents/lib/mutate-tap-failover.sh" ]; then
+    bash "$ROOT/agents/lib/mutate-tap-failover.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/lib/mutate-tap-failover.sh is missing" >&2
     FAILED=1
   fi
 fi

@@ -50,9 +50,35 @@
 # (`~/.claude-<tap>`), and test-claude-identity-wrapper.sh T19 asserts this
 # derivation still agrees with every `taps:` row in agents/seats.yml.
 #
+# ---------------------------------------------------------------------------
+# EPOCH 3 (dotfiles-kecb, 2026-08-09) — the TAP NAMES changed, nothing else did
+# ---------------------------------------------------------------------------
+# Zig's naming ruling, ~19:1xZ: `personal` -> `primary`, `work` -> `linearb`,
+# and a NEW second Max 20x account `secondary` (~/.claude-secondary,
+# zig@zigler.ai, first attributed request 19:22:04Z). `tick` is unchanged and
+# still resolves to primary — it is a jailed GRANT of primary's account, not a
+# tap. Header names, the newline separator and the `?` NOT-DERIVED convention
+# are all untouched; only the VALUES of `group` moved.
+#
+# CLASSIFY BY VALUE, NEVER BY DATE. The cutover is rolling — a durable pane
+# emits epoch-2 values until its days-old shell is replaced — so BOTH epochs
+# are live in the table at once and both stay queryable:
+#     primary   <- group IN ('primary','personal')
+#     linearb   <- group IN ('linearb','work')
+#     secondary <- group  = 'secondary'
+# That mapping is DATA, in agents/scheduler/taps.conf's `pool.<p>.groups`, so
+# the queries and the failover machinery read one copy of it. Full scheme and
+# the query recipes: refs/probes/gateway-attribution-epoch3.md.
+#
+# agents/seats.yml still carries the EPOCH-2 tap names in `taps:` and in every
+# seat's `tap:`, and several consumers read those strings (marshal.conf's tap
+# filter, pulse-inject's seat pinning). The roster rename is deliberately a
+# SEPARATE, sequenced change — this file is the emitter and moves first.
+#
 # NEVER REWRITE HISTORY. Epoch 1 rows (group=<host>, user=<session>:<window>,
 # including the `work:*` split of dotfiles-fo5l) stay exactly as logged. Queries
-# union the epochs by date boundary; see refs/probes/gateway-attribution-epoch2.md.
+# union the epochs by VALUE; see refs/probes/gateway-attribution-epoch2.md and
+# refs/probes/gateway-attribution-epoch3.md.
 #
 # SUBSCRIPTION-SAFE (the load-bearing invariant): this sets ONLY a custom request
 # header (ANTHROPIC_CUSTOM_HEADERS), NEVER a gateway credential. Per Claude Code's
@@ -166,16 +192,19 @@ _ciw_sanitize() { printf '%s' "$1" | tr -s '[:space:]' '-' | tr -cd '[:alnum:]._
 # from, from CLAUDE_CONFIG_DIR in THIS process's environment. Purely
 # syntactic, by the roster's convention:
 #
-#   <unset>            -> personal   (the vendor default config dir is ~/.claude)
-#   …/.claude          -> personal
-#   …/.claude-work     -> work
-#   …/.claude-tick     -> personal   PROFILE, not a tap (dotfiles-iez1): the
+#   <unset>            -> primary    (the vendor default config dir is ~/.claude)
+#   …/.claude          -> primary    (epoch 2 called this `personal`)
+#   …/.claude-work     -> linearb    (epoch 2 called this `work`; the DIRECTORY
+#                                    name is unchanged, only the tap name moved,
+#                                    so this is the one arm that cannot be
+#                                    derived by stripping the prefix)
+#   …/.claude-tick     -> primary    PROFILE, not a tap (dotfiles-iez1): the
 #                                    isolated tick-jailed.sh sandbox config
 #                                    dir carries an IDENTICAL account
 #                                    fingerprint to ~/.claude (same Max
-#                                    subscription) — billing is `personal`,
+#                                    subscription) — billing is `primary`,
 #                                    the jail is metadata, never a group value
-#   …/.claude-<name>   -> <name>
+#   …/.claude-<name>   -> <name>     (so ~/.claude-secondary -> secondary)
 #   …/<anything else>  -> ?<anything else>   NOT a conforming tap dir; visible
 #   (nothing left)     -> ""                 degenerate; caller sends no header
 #
@@ -186,13 +215,14 @@ _ciw_sanitize() { printf '%s' "$1" | tr -s '[:space:]' '-' | tr -cd '[:alnum:]._
 _ciw_tap() {
   local d b
   d="${CLAUDE_CONFIG_DIR:-}"
-  [ -n "$d" ] || { printf 'personal'; return 0; }
+  [ -n "$d" ] || { printf 'primary'; return 0; }
   while [ "${d%/}" != "$d" ]; do d="${d%/}"; done   # strip trailing slashes
   b="${d##*/}"                                      # basename
   b="${b#.}"                                        # one leading dot
   case "$b" in
-    claude)      printf 'personal' ;;
-    claude-tick) printf 'personal' ;;  # jail PROFILE of personal, not a tap
+    claude)      printf 'primary' ;;
+    claude-tick) printf 'primary' ;;  # jail PROFILE of primary, not a tap
+    claude-work) printf 'linearb' ;;  # epoch-3 rename; the dir name did not move
     claude-*)    _ciw_sanitize "${b#claude-}" ;;
     *)           b=$(_ciw_sanitize "$b"); [ -z "$b" ] || printf '?%s' "$b" ;;
   esac
@@ -250,8 +280,129 @@ _ciw_add() {
   if [ -n "$1" ]; then printf '%s\n%s: %s' "$1" "$2" "$3"; else printf '%s: %s' "$2" "$3"; fi
 }
 
+# --- the TAP-FAILOVER consult (dotfiles-kecb, rbci's ruled spec) -------------
+#
+# CEILING ONLY. Nothing below spreads load, warms a reserve or balances
+# anything: the home pool is used unless it is MEASURABLY at its ceiling, and
+# then the first candidate behind it with measured headroom is. Every other
+# outcome — unmeasurable, slow, no conf, no library — is HOME. An unmeasured
+# pool is never evidence for moving Zig's billing.
+#
+# A ROLLOVER IS PER LAUNCH, NEVER A REBIND (OQ-3). Nothing here is written back
+# to a roster or a pane; the next launch re-derives its home tap from its own
+# CLAUDE_CONFIG_DIR and tries it first again.
+#
+# AND IT IS LOUD, ALWAYS. Zero silent cross-billing is the point of the whole
+# tap system, so a rollover leaves three marks and each is independently
+# sufficient to find it: the ACTUAL tap in `X-Tap` (never the home one), an
+# explicit `X-Home-Tap` + `X-Tap-Rollover: 1` pair beside it, a JSONL ledger row
+# carrying home_tap != used_tap, and one sentence on stderr for whoever is
+# watching the pane.
+
+# _ciw_fable_launch "$@" — does this launch name a Fable-family model? The
+# model-scoped weekly allotment is a SEPARATE ceiling from the unified windows
+# (Zig at 82% of it while the unified weekly read 76% — measured 2026-08-09),
+# so a fable launch must consult a dimension an opus launch does not.
+# `--model x`, `--model=x` and $ANTHROPIC_MODEL are all real pin sites in this
+# fleet (pulse-inject writes the first).
+_ciw_fable_launch() {
+  local a want next=0
+  want=$(_ciw_conf fable_models); want="${want:-fable}"
+  for a in "$@"; do
+    if [ "$next" -eq 1 ]; then next=0; case "$a" in *"$want"*) return 0 ;; esac; continue; fi
+    case "$a" in
+      --model) next=1 ;;
+      --model=*) case "${a#--model=}" in *"$want"*) return 0 ;; esac ;;
+    esac
+  done
+  case "${ANTHROPIC_MODEL:-}" in *"$want"*) return 0 ;; esac
+  return 1
+}
+
+# _ciw_conf <key> — one value from taps.conf WITHOUT sourcing the headroom
+# library into this shell. Cheap (one awk), and returns "" when the conf is
+# absent, which is what makes every consumer below degrade to "no failover".
+_ciw_conf() {
+  local root conf
+  conf="${TAP_HEADROOM_CONF:-}"
+  if [ -z "$conf" ]; then
+    root=$(agents_root) || return 1
+    conf="$root/scheduler/taps.conf"
+  fi
+  [ -f "$conf" ] || return 1
+  awk -v want="$1" '
+    /^[[:space:]]*#/ { next }
+    { i=index($0,"="); if (i<2) next
+      k=substr($0,1,i-1); v=substr($0,i+1)
+      if (k !~ /^[a-z][a-z0-9_.-]*$/) next
+      if (v !~ /^[A-Za-z0-9_,.\/~:-]+$/) next
+      if (k==want) { print v; found=1; exit } }
+    END { if (!found) exit 1 }
+  ' "$conf"
+}
+
+# _ciw_pick <home-tap> <seat> <fable:0|1> — prints `<pool> <config-dir>` and
+# returns 10 when this launch must ROLL OVER, 0 otherwise (with no output).
+#
+# Sourced in a SUBSHELL, exactly like _ciw_seat: tap-headroom.sh defines a
+# dozen functions and this wrapper runs in a tmux pane whose shell lives for
+# days. Bounded by `timeout` where it exists, and by curl's --max-time /
+# ssh's ConnectTimeout in any case — a slow network must not be able to hang
+# every `claude` on the box, and a consult that cannot finish means HOME.
+_ciw_pick() {
+  local root lib home_tap=$1 seat=$2 fable=$3 out rc pool cfg
+  [ "${CIW_TAP_FAILOVER:-on}" = "off" ] && return 0
+  root=$(agents_root) || return 0
+  lib="$root/lib/tap-headroom.sh"
+  [ -f "$lib" ] || return 0
+  # THE CONSULT SCRIPT, as one string, run through bash. `timeout` is applied by
+  # naming it as the COMMAND in its own branch rather than by interpolating a
+  # `$tmo` prefix variable: an unquoted "$tmo" splits into words under bash and
+  # does NOT under zsh (zsh performs no field splitting on parameter
+  # expansions), so the prefix idiom becomes the single command
+  # `timeout 12` — "command not found", every launch, on exactly half the
+  # fleet's shells. Caught by T20 on the first run of this suite.
+  _CIW_CONSULT='
+      . "$1" || exit 0
+      home=$(th_pool_of_tap "$2") || exit 0
+      if [ "$4" = "1" ]; then f=--fable; else f=; fi
+      p=$(th_pick_pool "$home" "$3" "$f"); rc=$?
+      [ "$rc" -eq 10 ] || exit 0
+      printf "%s %s\n" "$p" "$(th_pool_config_dir "$p")"
+      exit 10
+    '
+  if command -v timeout >/dev/null 2>&1; then
+    out=$(timeout "${CIW_TAP_CONSULT_TIMEOUT:-12}" bash -c "$_CIW_CONSULT" _ "$lib" "$home_tap" "$seat" "$fable")
+  else
+    out=$(bash -c "$_CIW_CONSULT" _ "$lib" "$home_tap" "$seat" "$fable")
+  fi
+  rc=$?
+  unset _CIW_CONSULT
+  [ "$rc" -eq 10 ] || return 0
+  pool=${out%% *}; cfg=${out#* }
+  [ -n "$pool" ] && [ -n "$cfg" ] && [ -d "$cfg" ] || return 0
+  printf '%s %s' "$pool" "$cfg"
+  return 10
+}
+
+# _ciw_ledger <home-tap> <used-tap> <pool> <address> — the durable mark. One
+# JSON object per rollover; the `home_tap != used_tap` pair is the whole point,
+# so both are always written even though one is derivable from the other.
+# A ledger that cannot be written is NOISE ON STDERR, never a silent skip.
+_ciw_ledger() {
+  local f d
+  f="${CIW_ROLLOVER_LEDGER:-$HOME/.local/share/fleet-health/tap-rollover.jsonl}"
+  d=$(dirname "$f")
+  mkdir -p "$d" || { echo "claude-identity-wrapper: cannot create $d — the rollover ledger row for $1 -> $2 is NOT recorded." >&2; return 1; }
+  printf '{"ts":"%s","event":"tap_rollover","home_tap":"%s","used_tap":"%s","pool":"%s","seat_address":"%s"}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$3" "$4" >> "$f" \
+    || { echo "claude-identity-wrapper: cannot append to $f — the rollover ledger row for $1 -> $2 is NOT recorded." >&2; return 1; }
+  return 0
+}
+
 claude() {
   local _hdrs="" _addr="" _tap="" _seat="" _win _base="${ANTHROPIC_BASE_URL:-}" _hostenv _host _mhost
+  local _home_tap="" _pool="" _cfg="" _pick="" _fable=0
   # THE HOST — resolved FIRST and UNCONDITIONALLY (dotfiles-v93v).
   # Two reasons it lives up here rather than inside the routing branch below:
   #   1. `_host` used to be computed only inside `if [ -z "$_base" ]`, so it was
@@ -300,6 +451,27 @@ claude() {
       _addr="${_mhost}:?"
     fi
   fi
+  # THE FAILOVER CONSULT — after the seat is known (the per-seat home-tap
+  # override is keyed on it) and before a single header is built, because a
+  # rollover CHANGES the tap this launch bills to and `X-Tap` must carry the
+  # tap that actually ran. `_home_tap` keeps what it would have been.
+  _home_tap="$_tap"
+  if _ciw_fable_launch "$@"; then _fable=1; fi
+  if _pick=$(_ciw_pick "$_tap" "$_seat" "$_fable"); then
+    : # rc 0 — home pool, the overwhelming case. Nothing to say and nothing to do.
+  else
+    _pool=${_pick%% *}; _cfg=${_pick#* }
+    # RE-DERIVE the tap from the config dir we are about to launch with, rather
+    # than trusting the pool name to equal it: the tap is derived from what
+    # actually runs. Inside $( ) so the assignment cannot survive the subshell —
+    # a leaked CLAUDE_CONFIG_DIR would silently re-tap every later claude in this
+    # days-old pane (the lb-claude lesson, zsh 5.9).
+    _tap=$(CLAUDE_CONFIG_DIR="$_cfg" _ciw_tap)
+    # LOUD, on all three surfaces. Nothing here is conditional on a verbosity
+    # knob: zero silent cross-billing is the reason the tap system exists.
+    echo "claude-identity-wrapper: TAP ROLLOVER — home tap '$_home_tap' is at its ceiling; this launch runs on '$_tap' (pool $_pool, $_cfg). Billing moves with it. Recorded in ${CIW_ROLLOVER_LEDGER:-$HOME/.local/share/fleet-health/tap-rollover.jsonl}." >&2
+    _ciw_ledger "$_home_tap" "$_tap" "$_pool" "${_addr:-?}"
+  fi
   # Join the headers. ANTHROPIC_CUSTOM_HEADERS carries MULTIPLE headers as
   # `Name: Value` separated by NEWLINES (first-party env-vars docs) — never commas
   # or semicolons. `_ciw_add`'s printf builds it rather than $'\n' so the idiom is
@@ -315,6 +487,16 @@ claude() {
   [ -z "$_tap" ]  || _hdrs=$(_ciw_add "$_hdrs" X-Machine-Origin "$_tap")
   [ -z "$_addr" ] || _hdrs=$(_ciw_add "$_hdrs" X-Seat-Address "$_addr")
   [ -z "$_tap" ]  || _hdrs=$(_ciw_add "$_hdrs" X-Tap "$_tap")
+  # THE ROLLOVER PAIR. `X-Tap` alone is already honest — it carries the tap that
+  # ran, not the one that was meant to — but honest is not the same as VISIBLE:
+  # a rolled-over row is byte-identical to a launch whose home tap was that pool
+  # all along, so nothing downstream could ever count rollovers or notice one
+  # becoming permanent. These two say it explicitly, and they are emitted ONLY
+  # on a rollover, so their mere presence is the query.
+  if [ -n "$_pool" ]; then
+    _hdrs=$(_ciw_add "$_hdrs" X-Home-Tap "$_home_tap")
+    _hdrs=$(_ciw_add "$_hdrs" X-Tap-Rollover "1")
+  fi
   # Build the per-invocation env prefix. Written as explicit cases rather than an
   # array: this file is sourced by BOTH bash and zsh, and empty-array expansion is
   # exactly the kind of thing that differs between them.
@@ -333,12 +515,41 @@ claude() {
   #   exactly as `command claude` cannot.
   # Reached only via CC_NO_GATEWAY today (nothing else empties an inherited value),
   # but written as the state it actually is rather than as a second hatch check.
-  if [ -z "$_base" ] && [ -n "${ANTHROPIC_BASE_URL+x}" ]; then
+  #
+  # CASES 3s/4s/4us — THE SAME ARGUMENT, FOR ANTHROPIC_CUSTOM_HEADERS
+  # (dotfiles-kecb). The header variable is inherited exactly the way the base
+  # URL is, and worse: `claude` EXPORTS it to its own children, so every Bash
+  # tool call inside a session starts life carrying its parent's `X-Tap`.
+  # Measured 2026-08-09 19:23Z — a probe launched from inside a session BILLED
+  # to `secondary` while the ambient header still claimed `personal`. Where this
+  # wrapper runs it now recomputes, and where it declines to send a header at
+  # all it REMOVES the ambient one instead of letting it pass through: a request
+  # with no header is logged `unknown` and is visibly unattributed, which is a
+  # far better outcome than one that is confidently attributed to the wrong
+  # account. (The remaining path — `env … claude`, which invokes the BINARY and
+  # never reaches this function — is closed one tier down, in zsh/.zshenv.)
+  if [ -n "$_cfg" ]; then
+    # ROLLOVER LAUNCHES. The config dir MUST be in the launched environment or
+    # nothing has actually moved: the headers would announce a tap this process
+    # is not running on, which is the one failure this whole mechanism exists to
+    # prevent. A rollover always has headers (it always has a tap), so there are
+    # three cases here rather than five.
+    if [ -z "$_base" ] && [ -n "${ANTHROPIC_BASE_URL+x}" ]; then
+      ANTHROPIC_CUSTOM_HEADERS="$_hdrs" CLAUDE_CONFIG_DIR="$_cfg" \
+        env -u ANTHROPIC_BASE_URL claude --dangerously-skip-permissions "$@"
+    elif [ -n "$_base" ]; then
+      ANTHROPIC_CUSTOM_HEADERS="$_hdrs" CLAUDE_CONFIG_DIR="$_cfg" ANTHROPIC_BASE_URL="$_base" \
+        command claude --dangerously-skip-permissions "$@"
+    else
+      ANTHROPIC_CUSTOM_HEADERS="$_hdrs" CLAUDE_CONFIG_DIR="$_cfg" \
+        command claude --dangerously-skip-permissions "$@"
+    fi
+  elif [ -z "$_base" ] && [ -n "${ANTHROPIC_BASE_URL+x}" ]; then
     if [ -n "$_hdrs" ]; then
       ANTHROPIC_CUSTOM_HEADERS="$_hdrs" \
         env -u ANTHROPIC_BASE_URL claude --dangerously-skip-permissions "$@"
     else
-      env -u ANTHROPIC_BASE_URL claude --dangerously-skip-permissions "$@"
+      env -u ANTHROPIC_BASE_URL -u ANTHROPIC_CUSTOM_HEADERS claude --dangerously-skip-permissions "$@"
     fi
   elif [ -n "$_hdrs" ] && [ -n "$_base" ]; then
     ANTHROPIC_CUSTOM_HEADERS="$_hdrs" ANTHROPIC_BASE_URL="$_base" \
@@ -346,8 +557,8 @@ claude() {
   elif [ -n "$_hdrs" ]; then
     ANTHROPIC_CUSTOM_HEADERS="$_hdrs" command claude --dangerously-skip-permissions "$@"
   elif [ -n "$_base" ]; then
-    ANTHROPIC_BASE_URL="$_base" command claude --dangerously-skip-permissions "$@"
+    ANTHROPIC_BASE_URL="$_base" env -u ANTHROPIC_CUSTOM_HEADERS claude --dangerously-skip-permissions "$@"
   else
-    command claude --dangerously-skip-permissions "$@"
+    env -u ANTHROPIC_CUSTOM_HEADERS claude --dangerously-skip-permissions "$@"
   fi
 }
