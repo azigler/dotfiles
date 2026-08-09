@@ -79,16 +79,46 @@ the `--description` field is sloppy — split them properly:
 | `--description` / `--body` | The "what + why" (context + task framing) | At create + as scope evolves |
 | `--design` | Design notes — interfaces, data structures, algorithm sketches | When design decisions are made |
 | `--acceptance-criteria` / `--acceptance` | Concrete pass/fail bullets the next agent verifies. **Caveat**: `br lint` reads the `--description` body ONLY (verified br 0.2.16), so this field does NOT clear a `Missing: ## Acceptance Criteria` warning or the `br close` gate — put the literal `## Acceptance Criteria` heading in the description too. | At create OR after `/check` |
-| `--notes` | Append-only-by-convention working log — investigation notes, links, partial findings. **Caveat**: `br update --notes <text>` is REPLACE-only (verified br 0.2.5 → 0.2.15, behavior unchanged) — to "append" you must read the existing notes first and re-submit the full body. See `/check` SKILL Step 3 for the read-then-rewrite pattern (bead bd-otl8); `test/test-notes-replace-behavior.sh` guards this claim against `br`-version drift. | Any time during work |
+| `--notes` | **Curated summary only** — not a running log. A short, hand-composed digest (readiness summary, supersession pointer, handoff signature) written once or a few times per bead, not appended to on every event. **Caveat**: `br update --notes <text>` is REPLACE-only (verified br 0.2.5 → 0.2.15, behavior unchanged) — the rare cases where a curated summary must be extended still require reading the existing notes first and re-submitting the full body (see the read-then-rewrite pattern below); `test/test-notes-replace-behavior.sh` guards this claim against `br`-version drift. | Occasionally, as a curated digest |
 | `--external-ref` | Link to Asana / Linear / Jira / Slack thread | When relevant |
 | `--parent` | Parent bead ID (for epic-style parent/child) | At create or via update |
 | `--deps` | Dependencies (`blocks:bd-X,relates-to:bd-Y`) | At create OR via `br dep add` |
 
 **Why this matters**: a bead with everything stuffed into `--description`
 is a wall of text. A bead with `--description` (context), `--design`
-(how), `--acceptance-criteria` (done means), `--notes` (live log) is a
-**handoff packet** the next agent reads cold and immediately knows what
-to do.
+(how), `--acceptance-criteria` (done means), `--notes` (curated summary)
+is a **handoff packet** the next agent reads cold and immediately knows
+what to do.
+
+### Running/investigation logs go to `br comments add`, not `--notes`
+
+`--notes` used to be documented as an "append-only-by-convention working
+log," but it isn't append-only at all — `br update --notes` is
+REPLACE-only, so every "append" is really read-existing +
+concatenate-in-memory + re-submit-the-whole-body. That read-then-rewrite
+dance is the exact shape of a defect: on 2026-07-26, a `br show <id>
+--json` read that silently returned a LIST instead of an object
+collapsed to an empty string inside the `$(...)` feeding the next
+`br update --notes`, and the update still ran — clobbering a
+4,722-character description (recovered from git history; see the
+immutability section below for the mechanics).
+
+`br comments add <id> "..."` is the primitive that was available the
+whole time for this job: genuinely append-only, author-tagged, and
+exported to JSONL, so it survives `br sync` the same way notes do —
+without ever requiring a read-before-write. **Use it for every
+running/investigation log entry**: per-item decisions during a
+`/check` walk, findings logged mid-task, a `/scrutinize` verdict, a
+`/handoff` signature. Reserve `--notes` for a **curated summary**
+written once (or updated rarely, via the read-then-rewrite pattern
+when it must change) — an Implementation Readiness summary, a
+supersession pointer, a final digest meant to be read at a glance
+without scrolling a comment thread.
+
+```bash
+br comments add <id> "OQ-03 DECIDED: single-writer per session (see rationale in thread)"
+br comments list <id>                # read the running log back
+```
 
 ## Priority levels
 
@@ -242,10 +272,12 @@ A skill in the orchestration pipeline is either a **stage** or a
 - A **gate** is a pass/fail checkpoint between stages. It produces a
   *verdict on existing work*, not a new artifact — so it gets **no
   bead and no type**. It records its result on the bead it gates.
-  `/scrutinize` records its verdict on the `impl` bead's `--notes`,
-  and the `impl` bead does not close until the verdict is SHIP. The
-  `/impl` Step 5 quality gate and `/handoff` are gates too — neither
-  has a bead.
+  `/scrutinize` records its verdict as a `br comments add` entry on
+  the `impl` bead (a gate can run more than once — FIX-FIRST, a fix
+  wave, re-scrutinize — so the verdict trail is a running log, not a
+  single curated write), and the `impl` bead does not close until the
+  latest verdict is SHIP. The `/impl` Step 5 quality gate and
+  `/handoff` are gates too — neither has a bead.
 
 The test is the action: a stage hands the next agent something to
 build ON (→ bead); a gate tells the orchestrator whether to let the
@@ -397,7 +429,8 @@ Pre-handoff checklist:
 - [ ] `--description` answers WHY this work exists
 - [ ] `--acceptance-criteria` lists concrete pass/fail bullets
 - [ ] `--design` notes any decisions / interfaces / sketches
-- [ ] `--notes` includes any partial findings the next agent needs
+- [ ] Partial findings the next agent needs are on `br comments add` (the
+      running log); `--notes` carries only a curated summary, if any
 - [ ] Dependencies declared via `--deps` or `br dep add`
 - [ ] Linked external issues set via `--external-ref`
 
@@ -423,7 +456,8 @@ Pass `<id>` to the subagent prompt with: *"Your bead is `<id>`. Include
 
 ### Subagent during work
 - Reads the bead via `br show <id>`
-- Logs investigation in `--notes` if useful: `br update <id> --notes "..."`
+- Logs investigation as it happens via `br comments add <id> "..."` (the
+  running log — append-only, no read-before-write needed)
 - Does NOT call `br close` or `br update --status` — orchestrator owns that
 - References `Bead: <id>` in every commit trailer
 
