@@ -104,8 +104,9 @@ Beads with no activity for 2+ weeks. Decide per bead:
     trigger event, don't force a defer either way — leave it commented
     and note in the triage summary that the trigger has no bead to hang
     the edge on.
-- **Won't happen** → `br close <id>` with a `--notes` reason
-  ("won't fix: superseded by bd-YYYY")
+- **Won't happen** → `br close <id> -r "<reason>"` (e.g.
+  `br close <id> -r "won't fix: superseded by bd-YYYY"`) — the flag is
+  `-r`/`--reason`, not `--notes` (verified via `br help close`, br 0.2.16)
 
 ### `br epic status`
 

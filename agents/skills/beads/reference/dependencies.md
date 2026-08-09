@@ -18,26 +18,53 @@ before another can start or merge. Examples:
 
 ## Add / remove deps
 
+The real signature is **2 positional args + a `-t/--type` flag**, not
+3 positional args — `br dep add <ISSUE> <DEPENDS_ON>` reads "ISSUE
+depends on DEPENDS_ON"; `-t` defaults to `blocks` if omitted (verified
+br 0.2.16 — `br dep add A blocks B` errors `unexpected argument 'B'
+found`; the type is NOT a bare third positional):
+
 ```bash
 # Atomic: declare dep at create
 br create -p 2 "impl: auth tokens" --deps "blocks:bd-tests-auth,relates-to:bd-spec-auth"
 
-# Add later
-br dep add <bead-id> blocks <other-bead-id>
-br dep add <bead-id> relates-to <other-bead-id>
+# Add later — ISSUE, DEPENDS_ON, then -t <type>
+br dep add <bead-id> <other-bead-id> -t blocks
+br dep add <bead-id> <other-bead-id> -t relates-to
 
 # Remove
 br dep rm <bead-id> <other-bead-id>
 ```
 
-Available dep types (commonly used):
+Full dep types (the real `DependencyType` enum, per br 0.2.16's own
+validation error — the doc previously listed `blocked-by` and `parent`,
+neither of which exists):
 
-| Type | Meaning |
-|---|---|
-| `blocks` | This bead BLOCKS the other (other can't proceed until this closes) |
-| `blocked-by` | This bead is BLOCKED BY the other (inverse of `blocks`) |
-| `relates-to` | Loose relationship — soft signal, no enforcement |
-| `parent` | Parent-child epic relationship (use `--parent` flag instead, but the dep type backs it) |
+| Type | Meaning | Cycle-checked? |
+|---|---|---|
+| `blocks` | This bead BLOCKS the other (other can't proceed until this closes) | yes |
+| `parent-child` | Epic/child containment — stored as **child → parent**, but the cycle detector treats it with **reversed** direction (parent → child) when checking against `blocks`/`conditional-blocks`/`waits-for` edges on the same pair (verified: adding `blocks child→parent` on top of an existing `parent-child` edge for that same child/parent is rejected as a cycle, even though both literal edges point the same way in the DB) | yes |
+| `conditional-blocks` | Soft/conditional blocking | yes |
+| `waits-for` | This bead waits for the other before proceeding | yes |
+| `related` | Loose relationship — soft signal, no enforcement | no |
+| `relates-to` | Loose relationship — soft signal, no enforcement | no |
+| `discovered-from` | This bead was discovered while working the other | no |
+| `replies-to` | Threaded reply relationship | no |
+| `duplicates` | This bead duplicates the other | no |
+| `supersedes` | This bead supersedes the other | no |
+| `caused-by` | This bead was caused by the other | no |
+
+Only the first four (`blocks`, `parent-child`, `conditional-blocks`,
+`waits-for`) participate in `br dep cycles` / add-time cycle rejection;
+the rest never trigger a cycle error no matter how they're wired (verified:
+adding `relates-to` in both directions between the same two beads succeeds
+with no cycle error, while the equivalent `blocks` round-trip is rejected
+at add-time with `Cycle detected in dependencies`).
+
+There is no `blocked-by` type — write the dependency from the blocked
+bead's side instead: `br dep add <blocked-id> <blocker-id> -t blocks`.
+There is no bare `parent` type either — use `--parent <epic-id>` at
+create time, which is backed by a `parent-child` dep under the hood.
 
 ## Inspect deps
 
@@ -64,8 +91,8 @@ br blocked
 ## Dependency graph for the whole repo
 
 ```bash
-br graph                # full text-art dep graph
-br graph --json         # for tooling
+br graph --all           # full text-art dep graph (ISSUE or --all is required)
+br graph --all --json    # for tooling
 ```
 
 Useful when planning a complex epic: see how a proposed split decomposes
@@ -81,7 +108,7 @@ BEFORE impl beads dispatch. Encode this:
 ```bash
 TEST_ID=$(br q "tests: spec-auth")
 IMPL_ID=$(br q "impl: auth")
-br dep add "$IMPL_ID" blocked-by "$TEST_ID"
+br dep add "$IMPL_ID" "$TEST_ID" -t blocks
 ```
 
 Now `br ready` won't surface IMPL_ID until TEST_ID is closed.
@@ -91,7 +118,7 @@ Now `br ready` won't surface IMPL_ID until TEST_ID is closed.
 ```bash
 FIX_ID=$(br create -p 1 "fix: accounts — ack message format" --silent)
 EVAL_ID=$(br create -p 2 "eval: guard ack message regression" --silent)
-br dep add "$EVAL_ID" blocked-by "$FIX_ID"
+br dep add "$EVAL_ID" "$FIX_ID" -t blocks
 ```
 
 Eval bead surfaces in `br ready` only after fix lands.
@@ -101,13 +128,13 @@ Eval bead surfaces in `br ready` only after fix lands.
 ```bash
 SPEC_ID=$(br q "spec: auth subsystem")
 CHECK_ID=$(br create -p 1 "check: auth open questions" --parent "$SPEC_ID" --silent)
-br dep add "$CHECK_ID" blocked-by "$SPEC_ID"
+br dep add "$CHECK_ID" "$SPEC_ID" -t blocks
 
 # After check completes:
 TEST_ID=$(br create -p 2 "tests: auth" --parent "$SPEC_ID" --silent)
 IMPL_ID=$(br create -p 2 "impl: auth" --parent "$SPEC_ID" --silent)
-br dep add "$TEST_ID" blocked-by "$CHECK_ID"
-br dep add "$IMPL_ID" blocked-by "$TEST_ID"
+br dep add "$TEST_ID" "$CHECK_ID" -t blocks
+br dep add "$IMPL_ID" "$TEST_ID" -t blocks
 ```
 
 The graph captures the wave-ordering rule the SKILLs talk about —

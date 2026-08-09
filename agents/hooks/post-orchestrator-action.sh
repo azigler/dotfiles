@@ -42,13 +42,24 @@ if [ "$READY_COUNT" -gt 30 ]; then
   echo "Hint: 'br ready' has $READY_COUNT items — consider running /triage to clean up stale / orphaned beads." >&2
 fi
 
-# Concrete next-pick nudge via bv (graph-aware). Skip if bv isn't installed
-# or no beads here. Stays at "hint" volume — single line to stderr.
-if command -v bv &>/dev/null && [ -d ".beads" ]; then
-  NEXT=$(bv --robot-next 2>/dev/null | jq -r 'select(.id) | "Next pick: \(.id) — \(.title)  (claim: \(.claim_command))"' 2>/dev/null)
-  if [ -n "$NEXT" ]; then
+# Concrete next-pick nudge: adopt `br close --suggest-next` at the call
+# site instead of a separate `bv --robot-next` shell-out (dotfiles-n10e).
+# `--suggest-next` only returns data for the CLOSE invocation it's passed
+# to (`br help close`: "After closing, return newly unblocked issues
+# (single ID only)") — a PostToolUse hook runs AFTER that command already
+# finished, so it cannot retroactively fetch the answer; it can only nudge
+# the orchestrator to pass the flag on the *next* close and read the
+# answer straight off that command's own stdout. Only applies to the
+# `br close` trigger (a worktree merge never ran `br close`, so there is
+# nothing to suggest passing the flag to). Gated on `br blocked` actually
+# having entries — same "only speak if there's something to say" behavior
+# the old bv shell-out had (it stayed silent when bv had no suggestion);
+# without this gate the hint would fire on EVERY close, which is noise.
+if echo "$SKEL" | grep -qE '(^|[;&|[:space:]])br[[:space:]]+close([[:space:]]|$)' \
+   && ! echo "$SKEL" | grep -q -- '--suggest-next'; then
+  if br blocked 2>/dev/null | grep -qE '^\['; then
     echo "" >&2
-    echo "$NEXT" >&2
+    echo "Hint: pass --suggest-next to 'br close' to see newly-unblocked issues in its own output (e.g. 'br close <id> --suggest-next') — replaces the old bv --robot-next lookup." >&2
   fi
 fi
 

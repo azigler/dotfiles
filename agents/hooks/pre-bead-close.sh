@@ -241,6 +241,21 @@ for ID in $BEAD_IDS; do
     OUTPUT=$(br lint "$ID" 2>&1)
     LINT_RC=$?
     if [ $LINT_RC -ne 0 ] && [ -n "$OUTPUT" ]; then
+    if echo "$OUTPUT" | grep -qiE '^Error: Issue not found'; then
+      # `br lint <ID>` on a nonexistent ID exits non-zero with "Issue not
+      # found", NOT a template-lint verdict — these are two different
+      # failure classes (a typo'd/stale ID vs. a real missing-section
+      # warning) and the old message below said "incomplete template
+      # sections" for BOTH, which sends the agent hunting for a missing
+      # ## Acceptance Criteria heading on a bead that doesn't exist.
+      echo "Blocked: bead $ID not found — 'br lint' cannot check it." >&2
+      echo "$OUTPUT" >&2
+      echo "" >&2
+      echo "This is NOT a template-incomplete warning — the ID itself is wrong" >&2
+      echo "(typo, stale reference, or the bead was never created). Run" >&2
+      echo "'br list' or 'br show $ID' to confirm the correct ID before retrying." >&2
+      FAILED=1
+    else
     echo "Blocked: bead $ID has incomplete template sections." >&2
     echo "$OUTPUT" >&2
     echo "" >&2
@@ -257,6 +272,7 @@ for ID in $BEAD_IDS; do
     echo "" >&2
     echo "See /beads SKILL ('Mandatory: every bead has a description')." >&2
     FAILED=1
+    fi
     fi
   fi
 

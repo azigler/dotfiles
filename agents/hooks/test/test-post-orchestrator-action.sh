@@ -34,14 +34,10 @@ WORKDIR=$(mktemp -d)
 mkdir -p "$WORKDIR/.beads"
 trap 'rm -rf "$STUB" "$WORKDIR"' EXIT
 
-# `bv` stub: silent no-op, so the bv next-pick block can't add noise.
-cat > "$STUB/bv" <<'STUB'
-#!/bin/bash
-exit 1
-STUB
-chmod +x "$STUB/bv"
-
-# `br` stub: `br ready` emits $BR_READY_LINES bead-shaped lines (default 0).
+# `br` stub: `br ready` emits $BR_READY_LINES bead-shaped lines (default 0);
+# `br blocked` emits a `[...]`-prefixed entry iff $BR_BLOCKED_LINES > 0
+# (dotfiles-n10e: the --suggest-next swap gates its hint on `br blocked`
+# actually having entries, mirroring the old bv-had-a-suggestion gate).
 cat > "$STUB/br" <<'STUB'
 #!/bin/bash
 if [ "${1:-}" = "ready" ]; then
@@ -51,6 +47,15 @@ if [ "${1:-}" = "ready" ]; then
     echo "○ stub-$i [● P2] [task] - stub bead $i"
     i=$((i + 1))
   done
+elif [ "${1:-}" = "blocked" ]; then
+  n=${BR_BLOCKED_LINES:-0}
+  if [ "$n" -gt 0 ]; then
+    echo "🚫 Blocked issues ($n):"
+    echo ""
+    echo "[● P2] stub-blocked: task: stub"
+  else
+    echo "✨ No blocked issues"
+  fi
 fi
 exit 0
 STUB
@@ -133,6 +138,56 @@ case "$ERR" in
   *) ok ;;
 esac
 if [ "$RC" -eq 0 ]; then ok; else bad "broken br: exit 0 (got $RC)"; fi
+
+# --- 9-11. dotfiles-n10e: `--suggest-next` swap replacing the bv shell-out -
+# Restore the working stub (test 8 left the broken one in place).
+cat > "$STUB/br" <<'STUB'
+#!/bin/bash
+if [ "${1:-}" = "ready" ]; then
+  n=${BR_READY_LINES:-0}
+  i=0
+  while [ "$i" -lt "$n" ]; do
+    echo "○ stub-$i [● P2] [task] - stub bead $i"
+    i=$((i + 1))
+  done
+elif [ "${1:-}" = "blocked" ]; then
+  n=${BR_BLOCKED_LINES:-0}
+  if [ "$n" -gt 0 ]; then
+    echo "🚫 Blocked issues ($n):"
+    echo ""
+    echo "[● P2] stub-blocked: task: stub"
+  else
+    echo "✨ No blocked issues"
+  fi
+fi
+exit 0
+STUB
+chmod +x "$STUB/br"
+
+# 9: blocked beads exist, close omitted --suggest-next -> hint fires
+R=$(BR_BLOCKED_LINES=1 run "$(payload 'br close bd-123')")
+ERR=${R#*$'\t'}
+case "$ERR" in
+  *"pass --suggest-next"*) ok ;;
+  *) bad "blocked beads + no --suggest-next: hint fires (got: $ERR)" ;;
+esac
+
+# 10: no blocked beads -> no hint even without --suggest-next (mirrors the
+# old bv-had-nothing-to-suggest silence; avoids nagging on every close)
+R=$(BR_BLOCKED_LINES=0 run "$(payload 'br close bd-123')")
+ERR=${R#*$'\t'}
+case "$ERR" in
+  *"pass --suggest-next"*) bad "no blocked beads: hint stays silent (got: $ERR)" ;;
+  *) ok ;;
+esac
+
+# 11: close ALREADY passes --suggest-next -> no hint, even with blocked beads
+R=$(BR_BLOCKED_LINES=1 run "$(payload 'br close bd-123 --suggest-next')")
+ERR=${R#*$'\t'}
+case "$ERR" in
+  *"pass --suggest-next"*) bad "close already uses --suggest-next: no repeat hint (got: $ERR)" ;;
+  *) ok ;;
+esac
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

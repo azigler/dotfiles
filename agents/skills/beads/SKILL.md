@@ -58,6 +58,23 @@ this skill documents.
 - Never batch multiple bead closures into one commit
 - Pre-commit hook warns if the `Bead:` trailer is missing
 
+**Multi-ID `br` calls are a different axis from "one bead = one commit" —
+the two are compatible, not contradictory.** `br close` (and several other
+subcommands) accept multiple IDs in one invocation — `br close bd-1 bd-2
+bd-3` (verified: `br help close` shows `[IDS]... Issue IDs to close`) — and
+that is fine to use when it's genuinely one atomic transaction (e.g.
+closing a batch of duplicates found by the same `/triage` sweep). "One bead
+= one commit" above is a **git-commit-boundary rule**: don't let one commit
+carry the close of beads whose work is otherwise unrelated, because the
+commit message and the `Bead:` trailer can only tell one coherent story.
+It says nothing about how many IDs one `br` invocation may name. So a
+single `br close bd-1 bd-2 bd-3` followed by ONE commit whose message and
+`Bead:` trailers cover all three (because they really are one unit of
+work — e.g. a `/triage` cleanup batch) is the compatible case; using a
+multi-ID close to bundle unrelated beads into a commit that then reads as
+if it did one thing is the anti-pattern the commit rule is actually
+guarding against.
+
 **A hook block kills the WHOLE Bash call — never chain bead mutations.**
 A PreToolUse rejection (`pre-bead-create.sh`, `pre-bead-close.sh`, …)
 aborts the entire Bash invocation, not just the flagged command — so
