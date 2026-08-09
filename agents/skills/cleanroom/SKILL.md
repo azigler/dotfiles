@@ -242,6 +242,11 @@ worked input→output examples. Never writes implementation code.
 raw dumps. Reads **only the spec** and the oracle's verdicts. Writes the
 implementation.
 
+Because the implementer sees only the spec — walled, no repo secrets — the split
+maps onto a **heterogeneous fleet**: it can run on a different vendor than the
+observer *precisely because* the spec is its only input, which makes it the
+natural first job for a codex tap (`dotfiles-d3ky`; not wired yet).
+
 Ryan Allen's gist is the working reference: read `lib/` → write tests;
 read *only the tests* → write the implementation.
 
@@ -288,6 +293,22 @@ branch conditions against the spec's stated facts. Unjustified correctness
 is the signal. **Note this catches prior-knowledge contamination too**, which
 matters when reimplementing anything well-documented — the model may simply
 know the answer, and you will score a pass you did not earn.
+
+Make it a command, not an intention — extract the impl's literals and branch
+predicates, then assert the spec accounts for each:
+
+```bash
+# literals + branch predicates the impl's correctness hinges on
+{ grep -rhoE '0x[0-9a-fA-F]+|[0-9]{2,}|"[^"]{2,}"' src/
+  grep -rhoE 'if [^{]+|case [^ :]+' src/ ; } | sort -u > impl.facts
+# each fact the spec never states is a leak candidate
+while IFS= read -r fact; do
+  grep -qraF -- "$fact" specs/ || echo "UNJUSTIFIED: $fact"
+done < impl.facts
+```
+
+Every `UNJUSTIFIED:` line is right without the spec justifying it: either the
+spec is missing a fact, or the boundary leaked. Triage each — no third option.
 
 ### On the legal framing
 
@@ -360,11 +381,19 @@ Adaptations that are not optional in this house:
 - **Search before implementing.** False-negative search causing the agent to
   rebuild what already exists is named by practitioners as "the Achilles'
   heel of Ralph."
+- **Molt at task boundaries; do not ride to the ceiling.** A loop that
+  accumulates context should cycle at each work-item boundary
+  (`agents/scheduler/seat-molt.sh`) rather than drift to the 75% context guard.
+  The filesystem + git + `specs/` ARE the memory layer here, so a molt between
+  tasks loses nothing and resets cost (`dotfiles-it06`).
 
 In this harness, prefer the orchestrator + worktree-subagent pattern over a
 raw bash loop for anything that writes code — hooks, lint, bead tracking and
-commit conventions all come along. Use the bash form when you specifically
-want context reset as the mechanism.
+commit conventions all come along, and it is **tap-attributed**. The `claude -p`
+loop shown above is not: headless `-p` draws from the *separate* monthly Agent
+SDK credit pool and runs unattributed — off-book spend the tap model cannot see
+(`agents/scheduler/pulse-inject.sh` header). Reach for the bash form only when
+context reset is specifically the mechanism you want.
 
 ---
 
