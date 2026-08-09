@@ -41,7 +41,7 @@
 #
 #   seat=<canonical name>      match=exact|alias   matched_name=<what matched>
 #   session=<tmux session>     window=<tmux window>   socket=<tmux socket path>
-#   model= effort= home= history= office= sigil=
+#   model= effort= home= history= office= sigil= tap=
 #   (--seat only) aliases=, bindings=<n>, binding_<i>_{unit,tap,session,window},
 #                 live=yes|no, live_<i>_{socket,session,window}
 #
@@ -113,9 +113,19 @@ _seat_validator() {
 }
 
 # _seat_dump -> the roster flattened to TSV records, on stdout:
-#   seat  <name> <model> <effort> <home> <history> <office> <sigil> <charter-line>
+#   seat  <name> <model> <effort> <home> <history> <office> <sigil> <charter-line> <tap>
 #   alias <alias> <seat>
 #   sched <seat> <unit> <tap> <session> <window>
+#   tap   <name> <type> <config_dir>
+#
+# The seat's own `tap` is APPENDED as field 10 rather than inserted, so every
+# existing consumer's field numbers (home=$5, office=$7, sigil=$8) stay put — a
+# reader that does not want it simply never asks. A consumer that reads the row
+# with `read a b c …` MUST name a tenth variable, or the ninth swallows both.
+#
+# The `tap` records are the TAP TABLE (name -> type + config_dir). They exist
+# because a launcher needs the seat's CONFIG DIR, not just its tap's name, and
+# the alternative was a second reader of seats.yml.
 # Non-zero (silent) when the roster or the parser is unavailable — callers
 # decide whether that is fatal (seat_resolve refuses) or a degrade
 # (handoff-path.sh keeps its pre-seat behavior).
@@ -146,12 +156,17 @@ def s(v):
 
 
 out = []
+for tap_name, tap in (doc.get("taps") or {}).items():
+    tap = tap or {}
+    out.append("\t".join(["tap", s(tap_name), s(tap.get("type")),
+                          s(tap.get("config_dir"))]))
 for name, seat in (doc.get("seats") or {}).items():
     seat = seat or {}
     out.append("\t".join(["seat", s(name), s(seat.get("model")),
                           s(seat.get("effort")), s(seat.get("home")),
                           s(seat.get("history")), s(seat.get("office")),
-                          s(seat.get("sigil")), s(seat.get("charter-line"))]))
+                          s(seat.get("sigil")), s(seat.get("charter-line")),
+                          s(seat.get("tap"))]))
     for alias in seat.get("aliases") or []:
         out.append("\t".join(["alias", s(alias), s(name)]))
     for sched in seat.get("schedules") or []:
@@ -200,9 +215,14 @@ _seat_names_of() {
 # _seat_emit_row <seat-tsv-row> — the roster fields every caller gets.
 _seat_emit_row() {
   printf '%s' "$1" | awk -F'\t' '{
-    printf "model=%s\neffort=%s\nhome=%s\nhistory=%s\noffice=%s\nsigil=%s\n",
-      $3, $4, $5, $6, $7, $8
+    printf "model=%s\neffort=%s\nhome=%s\nhistory=%s\noffice=%s\nsigil=%s\ntap=%s\n",
+      $3, $4, $5, $6, $7, $8, $10
   }'
+}
+
+# _seat_tap_config_dir <tap name> <dump> -> that tap's config_dir, or empty.
+_seat_tap_config_dir() {
+  printf '%s\n' "$2" | awk -F'\t' -v t="$1" '$1=="tap" && $2==t {print $4; exit}'
 }
 
 # --- live tmux enumeration --------------------------------------------------

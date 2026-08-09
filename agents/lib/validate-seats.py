@@ -21,9 +21,12 @@ Checks enforced (each has a dedicated fixture in test-validate-seats.sh):
         listed alias (dotfiles-bi2i) — an unlisted window has no
         resolvable seat and R5 would refuse it
   TAP  every tap declares a `type`, and it is one of the known types
+  SEATTAP every seat declares a `tap`, and it names a declared tap
   MODEL every seat's `model` is one of the pinned aliases
-  SIGIL every seat's `sigil` is emoji-presentation: reject U+2000-U+2BFF
-        outside a small allowlist, reject the learned denylist, reject VS16
+  SIGIL every seat's `sigil` is EMOJI-PRESENTATION BY PROPERTY
+        (Emoji_Presentation=Yes, embedded data below), and additionally
+        outside U+2000-U+2BFF bar a small allowlist, off the learned
+        denylist, and free of VS16
   RETIRED an optional top-level `retired:` mapping holds seats that have ended
         (Art. IV: job seats retire, history preserved). Same name grammar; a
         retired name may not collide with a live seat name or any alias.
@@ -248,17 +251,162 @@ SEAT_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{1,31}$")
 KNOWN_TAP_TYPES = {"claude", "codex"}
 KNOWN_MODELS = {"fable", "opus", "sonnet", "haiku"}
 
-# Sigil rule (AGENTS.md user section / dotfiles-lbxa AC):
-# reject classic-symbol codepoints U+2000-U+2BFF (Zig's terminal hands these
-# to a nerdfont, not the emoji font) except a small proven-safe allowlist;
-# reject the learned denylist; reject VS16 (never rely on it to force emoji
-# presentation).
+# ==========================================================================
+# THE GLYPH RULE (dotfiles-gl6z). THE PROPERTY IS THE RULE.
+# ==========================================================================
+# Zig, 2026-08-09, live on the hall court: "some emojis have an extra space,
+# the table is stilted." Four ratified sigils — U+1F5DD, U+1F6E1, U+1F56F,
+# U+1F54A — sit inside the emoji BLOCKS but carry Emoji_Presentation=No: they
+# are TEXT-default. A terminal measures them one cell wide while a renderer
+# that assumes "emoji => 2 cells" pads two, and every row carrying one shifts.
+# That same property was behind every nerdfont-fallback correction to date —
+# the U+2000-U+2BFF block ban was an APPROXIMATION of it, nearly right and
+# therefore silently wrong here.
+#
+# So the rule is the PROPERTY now, checked against data:
+#
+#   Emoji_Presentation=Yes, from Unicode Emoji 15.0 emoji-data.txt
+#   (https://www.unicode.org/Public/emoji/15.0/emoji-data.txt). Extracted
+#   2026-08-09 on zig-computer from perl's bundled UCD (Unicode 15.0.0) with
+#     perl -MUnicode::UCD=prop_invlist -e '@l=prop_invlist("Emoji_Presentation"); ...'
+#   and re-derivable that way. Refresh it when Unicode adds emoji.
+#
+# WHY THE **Yes** LIST AND NOT THE No LIST. A No-list has to be paired with
+# "…and everything else in these blocks is Yes", so an unassigned codepoint, a
+# private-use nerdfont glyph, or a block Unicode adds later all default to
+# ACCEPTED — the rule fails OPEN on exactly the inputs nobody thought about.
+# The Yes list fails closed: unknown => rejected, and the cost of a new emoji
+# is a data refresh, which is a commit, not an outage.
+#
+# The block ban and the denylist below STAY. They are strictly narrower than
+# the property and answer a different question — U+26A1 is
+# Emoji_Presentation=Yes and STILL renders as a thin nerdfont glyph in Zig's
+# terminal. Property first, then Zig's font.
+# fmt: off  — kept as a dense table on purpose: this is DATA transcribed from
+# emoji-data.txt, and one range per line makes an 81-line wall that nobody
+# diffs. Formatter off so a refresh stays a readable diff.
+EMOJI_PRESENTATION_RANGES = (
+    (0x231A, 0x231B),
+    (0x23E9, 0x23EC),
+    (0x23F0, 0x23F0),
+    (0x23F3, 0x23F3),
+    (0x25FD, 0x25FE),
+    (0x2614, 0x2615),
+    (0x2648, 0x2653),
+    (0x267F, 0x267F),
+    (0x2693, 0x2693),
+    (0x26A1, 0x26A1),
+    (0x26AA, 0x26AB),
+    (0x26BD, 0x26BE),
+    (0x26C4, 0x26C5),
+    (0x26CE, 0x26CE),
+    (0x26D4, 0x26D4),
+    (0x26EA, 0x26EA),
+    (0x26F2, 0x26F3),
+    (0x26F5, 0x26F5),
+    (0x26FA, 0x26FA),
+    (0x26FD, 0x26FD),
+    (0x2705, 0x2705),
+    (0x270A, 0x270B),
+    (0x2728, 0x2728),
+    (0x274C, 0x274C),
+    (0x274E, 0x274E),
+    (0x2753, 0x2755),
+    (0x2757, 0x2757),
+    (0x2795, 0x2797),
+    (0x27B0, 0x27B0),
+    (0x27BF, 0x27BF),
+    (0x2B1B, 0x2B1C),
+    (0x2B50, 0x2B50),
+    (0x2B55, 0x2B55),
+    (0x1F004, 0x1F004),
+    (0x1F0CF, 0x1F0CF),
+    (0x1F18E, 0x1F18E),
+    (0x1F191, 0x1F19A),
+    (0x1F1E6, 0x1F1FF),
+    (0x1F201, 0x1F201),
+    (0x1F21A, 0x1F21A),
+    (0x1F22F, 0x1F22F),
+    (0x1F232, 0x1F236),
+    (0x1F238, 0x1F23A),
+    (0x1F250, 0x1F251),
+    (0x1F300, 0x1F320),
+    (0x1F32D, 0x1F335),
+    (0x1F337, 0x1F37C),
+    (0x1F37E, 0x1F393),
+    (0x1F3A0, 0x1F3CA),
+    (0x1F3CF, 0x1F3D3),
+    (0x1F3E0, 0x1F3F0),
+    (0x1F3F4, 0x1F3F4),
+    (0x1F3F8, 0x1F43E),
+    (0x1F440, 0x1F440),
+    (0x1F442, 0x1F4FC),
+    (0x1F4FF, 0x1F53D),
+    (0x1F54B, 0x1F54E),
+    (0x1F550, 0x1F567),
+    (0x1F57A, 0x1F57A),
+    (0x1F595, 0x1F596),
+    (0x1F5A4, 0x1F5A4),
+    (0x1F5FB, 0x1F64F),
+    (0x1F680, 0x1F6C5),
+    (0x1F6CC, 0x1F6CC),
+    (0x1F6D0, 0x1F6D2),
+    (0x1F6D5, 0x1F6D7),
+    (0x1F6DC, 0x1F6DF),
+    (0x1F6EB, 0x1F6EC),
+    (0x1F6F4, 0x1F6FC),
+    (0x1F7E0, 0x1F7EB),
+    (0x1F7F0, 0x1F7F0),
+    (0x1F90C, 0x1F93A),
+    (0x1F93C, 0x1F945),
+    (0x1F947, 0x1F9FF),
+    (0x1FA70, 0x1FA7C),
+    (0x1FA80, 0x1FA88),
+    (0x1FA90, 0x1FABD),
+    (0x1FABF, 0x1FAC5),
+    (0x1FACE, 0x1FADB),
+    (0x1FAE0, 0x1FAE8),
+    (0x1FAF0, 0x1FAF8),
+)
+# fmt: on
+
+# Retained from dotfiles-lbxa: Zig's client font hands classic-symbol
+# codepoints to a nerdfont rather than the emoji font, so U+2000-U+2BFF is
+# refused outside a small proven-safe allowlist — every member of which is
+# ALSO Emoji_Presentation=Yes, so the two rules never disagree on it.
 SIGIL_RANGE_ALLOWLIST = {0x2705, 0x2753, 0x2754, 0x274C, 0x2B50}
 SIGIL_DENYLIST = {0x1F3A4}  # microphone — falls back to a nerdfont glyph
 VS16 = 0xFE0F
 
 
+def is_emoji_presentation(cp: int) -> bool:
+    """True iff the codepoint is Emoji_Presentation=Yes (renders 2 cells)."""
+    lo, hi = 0, len(EMOJI_PRESENTATION_RANGES) - 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        start, end = EMOJI_PRESENTATION_RANGES[mid]
+        if cp < start:
+            hi = mid - 1
+        elif cp > end:
+            lo = mid + 1
+        else:
+            return True
+    return False
+
+
+def display_width(text: str) -> int:
+    """Terminal cells `text` occupies: 2 per Emoji_Presentation=Yes char, else 1.
+
+    Deliberately narrow: it is the width model the hall's column math uses,
+    and the hall emits ASCII plus U+00B7 plus glyphs by construction (its own
+    header forbids anything else). It does NOT model CJK, combining marks or
+    ZWJ sequences — a roster field holding one of those is a roster question.
+    """
+    return sum(2 if is_emoji_presentation(ord(c)) else 1 for c in text)
+
+
 def sigil_violation(sigil: str) -> str | None:
+    """The SIGIL rule: every char must be a real emoji-presentation glyph."""
     if not sigil:
         return "empty sigil"
     for ch in sigil:
@@ -271,6 +419,12 @@ def sigil_violation(sigil: str) -> str | None:
             return (
                 f"U+{cp:04X} is in U+2000-U+2BFF (classic-symbol range; falls back to a "
                 f"nerdfont glyph on Zig's terminal) and not in the allowlist, sigil={sigil!r}"
+            )
+        if not is_emoji_presentation(cp):
+            return (
+                f"U+{cp:04X} is Emoji_Presentation=No (TEXT-default): the terminal renders it "
+                f"1 cell wide while the court pads 2, so every row carrying it is stilted "
+                f"(dotfiles-gl6z), sigil={sigil!r}"
             )
     return None
 
@@ -370,6 +524,22 @@ def history_violations(doc: dict, directory: Path) -> list:
     return errors
 
 
+def glyph_violation(ch: str) -> str | None:
+    """The same rule applied to ONE character of RENDERED OUTPUT.
+
+    The hall's court view is ASCII + U+00B7 + glyphs. Anything below U+2000 is
+    plain text and passes; at or above it the character is claiming to be a
+    glyph and must satisfy the whole sigil rule. This is what a renderer's
+    output gets scanned with — `sigil_violation` is for a ROSTER FIELD, where
+    even ASCII is wrong.
+    """
+    if not ch:
+        return None
+    if ord(ch) < 0x2000 and ord(ch) != VS16:
+        return None
+    return sigil_violation(ch)
+
+
 def validate(doc: dict) -> list:
     errors = []
 
@@ -433,6 +603,25 @@ def validate(doc: dict) -> list:
                 )
             else:
                 alias_owner.setdefault(alias, seat_name)
+
+    # --- SEATTAP: every seat declares the tap it draws from ------------------
+    # Zig's ruling, 2026-08-09, off the live court: personal IS the default, and
+    # the roster STATES its defaults rather than leaving the reader — or the
+    # hall's tap column — to render `-`. `-` in that column now means only one
+    # thing, an UNREGISTERED window, where the emptiness is the honest answer.
+    for seat_name, seat in seats.items():
+        seat = seat or {}
+        tap = seat.get("tap")
+        if tap is None:
+            errors.append(
+                f"SEATTAP: seat '{seat_name}' declares no 'tap' — every seat "
+                f"draws from one; say which (personal is the default, but say it)"
+            )
+        elif tap not in taps:
+            errors.append(
+                f"SEATTAP: seat '{seat_name}' names tap {tap!r}, which is not "
+                f"declared under `taps:`; known: {sorted(taps)}"
+            )
 
     # --- MODEL: pinned set ---------------------------------------------------
     for seat_name, seat in seats.items():

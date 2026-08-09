@@ -277,8 +277,8 @@ while IFS= read -r f; do
     # A mutation harness IS a gate; it has no test-<n>.sh of its own and never
     # will. Same arm as agents/scheduler/mutate-*.sh above, same reason: without
     # it the convention asks for a suite that cannot exist and the UNCOVERED
-    # banner cries wolf on every edit to the harness. Handled by name in the
-    # laurels block at the bottom.
+    # banner cries wolf on every edit. Must precede the general agents/lib arm.
+    # Handled by name in the laurels and glyph-property blocks below.
     agents/lib/mutate-*.sh)           ;;
     agents/lib/*.sh)                  add_suite "agents/lib/test-$base.sh" ;;
     agents/lib/*.py)                  add_suite "agents/lib/test-$base.sh" ;;
@@ -589,6 +589,34 @@ if printf '%s\n' "$STAGED" | grep -qE '^agents/hooks/(pre-worktree-remove-guard\
     bash "$ROOT/agents/hooks/test/mutate-worktree-remove-guard.sh" || FAILED=1
   else
     echo "pre-commit: FAIL — agents/hooks/test/mutate-worktree-remove-guard.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
+# --- the GLYPH PROPERTY rule -> prove IT still bites -----------------------
+# Seventh instance of the same argument, on the rule that was ALREADY wrong
+# once (dotfiles-gl6z): the validator checked the emoji RANGE while four
+# ratified sigils were Emoji_Presentation=No, so it printed OK over a court
+# view Zig could see was stilted. That is the shape — a green suite over a
+# rule that does not hold. Every way it can rot again is equally quiet: the
+# property check disarmed, the embedded data made fail-open (the No-list
+# design the module comment argues against), a range dropped in a refresh — and
+# now the SEAT-TAP rule made "lenient" by defaulting the value it exists to
+# demand. Measured on this box:
+#
+#     test-validate-seats.sh (40 cases)                 1s
+#     mutate-validate-seats.sh (4 mutants + baseline)   8s
+#
+# Cheap enough to fire on all four files; the test file and the roster are
+# triggers on purpose — SIGIL-EPRES-GOOD/REAL-ROSTER are the SOLE detectors
+# for the DATA being load-bearing, and SEATTAP-MISSING for presence being
+# required, so deleting one case loses the bite while the suite stays green.
+if printf '%s\n' "$STAGED" | grep -qE '^agents/(lib/(validate-seats\.py|test-validate-seats\.sh|mutate-validate-seats\.sh)|seats\.yml)$'; then
+  echo "pre-commit: staged changes touch the roster-truth rules -> running mutation harness (~8s)"
+  if [ -f "$ROOT/agents/lib/mutate-validate-seats.sh" ]; then
+    bash "$ROOT/agents/lib/mutate-validate-seats.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/lib/mutate-validate-seats.sh is missing" >&2
     FAILED=1
   fi
 fi

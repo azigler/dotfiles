@@ -1,5 +1,5 @@
 ---
-seat: digest
+seat: digestd
 office: The Herald
 appointed: 2026-08-08
 generator: agents/lib/seat-history.sh

@@ -22,9 +22,16 @@
 #   hall                the COURT VIEW (also `hall court`)
 #   hall <seat|alias>   VISIT: switch to the seat's window, or MATERIALIZE it
 #                       correctly (roster session, roster home as cwd, canonical
-#                       name) and then switch.  v0 does NOT launch claude — an
-#                       empty shell in the right place is the correct v0 answer;
-#                       launching is the injector's job (and Zig's).
+#                       name), LAUNCH it through pulse-inject.sh with /onboard,
+#                       and then switch.  A window that already exists is
+#                       switched to and NOTHING else — a warm seat is never
+#                       re-onboarded.  (v0 launched nothing: "an empty shell in
+#                       the right place is the correct v0 answer".  Zig
+#                       overruled that from the first live visit —
+#                       dotfiles-dsbl.  The hall still never types; the INJECTOR
+#                       types, into a window it launched.)
+#   hall --no-launch <seat>
+#                       materialize/switch only.  Same as HALL_NO_LAUNCH=1.
 #   hall home           the front desk: an alias for `hall seneschal`
 #                       (ratified 2026-08-09 — attach lands at the desk).
 #   hall --help
@@ -47,11 +54,18 @@
 #   (dotfiles-2v8h — a bare tmux command killed the live server once already).
 # * THE HALL NAVIGATES, IT NEVER TYPES.  There is no send-keys in this file and
 #   there must never be one; test-hall.sh asserts that mechanically.
-# * EVERY GLYPH IN THE OUTPUT passes validate-seats.py's sigil rule
-#   (U+1F300+, or the small proven-exception allowlist; no U+2000-U+2BFF, no
-#   VS16).  That means NO em dash, NO box drawing, NO arrows anywhere in the
-#   rendering — `·` (U+00B7) and ASCII only.  test-hall.sh runs the court
-#   view's real output through validate-seats.py's own checker.
+# * EVERY GLYPH IN THE OUTPUT passes validate-seats.py's glyph rule —
+#   Emoji_Presentation=Yes (the PROPERTY, dotfiles-gl6z), no U+2000-U+2BFF
+#   outside the small proven allowlist, no denylisted glyph, no VS16.  That
+#   means NO em dash, NO box drawing, NO arrows anywhere in the rendering —
+#   `·` (U+00B7) and ASCII only.  test-hall.sh runs the court view's real
+#   output through validate-seats.py's own checker.
+# * THE COLUMN MATH ASSUMES EVERY GLYPH IS 2 CELLS, and hall_glyph_audit
+#   ASSERTS it rather than hoping.  A text-presentation glyph (🗝 U+1F5DD and
+#   friends: emoji-range, Emoji_Presentation=No) measures ONE cell, so its row
+#   loses a column and the table stilts — which is exactly what Zig saw on
+#   2026-08-09.  The audit names the offending seat on STDERR and the court
+#   still renders: a cockpit that refuses to draw is worse than a crooked one.
 #
 # Environment seams (all optional; they exist for the attach hook and tests,
 # which must never touch the live tmux server):
@@ -80,7 +94,7 @@ fi
 . "$LIB/seat-resolve.sh"
 
 # --- the glyph set ---------------------------------------------------------
-# Emoji-presentation codepoints only (AGENTS.md glyph rule).  📬 is PINNED by
+# Emoji_Presentation=Yes codepoints only (AGENTS.md glyph rule).  📬 is PINNED by
 # Zig, 2026-08-09: the unread-mail glyph is 📬 (U+1F4EC) and NEVER U+2709 ✉,
 # which is in the banned U+2000-U+2BFF block.  It appears in the legend only —
 # v0 has no mail state to report, and inventing one would be worse than a
@@ -166,6 +180,95 @@ hall_trunc() {
   if [ "${#s}" -gt "$n" ]; then printf '%s.' "${s:0:$((n - 1))}"; else printf '%s' "$s"; fi
 }
 
+# hall_plain <string> -> the same string with the typographic characters roster
+# PROSE uses folded to something the court may print.  The rendering rule here
+# is ASCII + `·` only (see the discipline block), and `charter-line:` is free
+# text an author naturally writes with an em dash — every one of the roster's 18
+# charter lines has one today.  The em dash becomes the hall's own separator;
+# curly quotes become straight.
+#
+# It is applied to the CHARTER COLUMN ONLY, and that column is deliberately
+# LAST on the line: a residual multibyte character would make printf's byte
+# padding one cell short, and at the end of a row that costs nothing. If prose
+# ever arrives with a character not folded here, test-hall.sh's glyph scan over
+# the REAL roster is what says so.
+hall_plain() {
+  local s=$1
+  s=${s//—/·}; s=${s//–/·}
+  s=${s//’/\'}; s=${s//‘/\'}
+  s=${s//“/\"}; s=${s//”/\"}
+  printf '%s' "$s"
+}
+
+# hall_dashes <n> -> n ASCII hyphens (the rule under the header).
+hall_dashes() {
+  local n=$1 s=''
+  while [ "${#s}" -lt "$n" ]; do s="$s----------"; done
+  printf '%s' "${s:0:$n}"
+}
+
+# ---------------------------------------------------------------------------
+# RESPONSIVE WIDTH (dotfiles-hnhl)
+# ---------------------------------------------------------------------------
+# Zig, 2026-08-09: on his PHONE tmux said "height too large" and showed NOTHING
+# (the popup was hardcoded 84x32, bigger than the client — fixed in tmux.conf,
+# which now sizes in PERCENT); on the desktop the court felt "a little
+# squished". So the court reads the width it was actually given and renders one
+# of three layouts.  The breakpoints are Zig's, by looking:
+#
+#   compact  < 60   sigil · name · status.  A phone.  Nothing else fits, and a
+#                   wrapped row is worse than a missing column.
+#   medium   60-99  the v0 court: office, status, last, model, tap (~66 cells).
+#   wide     >=100  the room: a wider name and office, a full-width tap, and
+#                   the seat's CHARTER LINE filling whatever is left.
+#
+# COLUMNS is the seam (tests set it; bash does not export it), then the real
+# terminal via `tput cols`, then 80 — which is what a pipe or a cron gets, and
+# is why the suite's default-width cases still see the medium layout.
+hall_cols() {
+  local c="${COLUMNS:-}"
+  if [ -z "$c" ] && command -v tput >/dev/null 2>&1; then
+    c=$(tput cols 2>/dev/null)   # allow-suppress: query; no tty is not an error
+  fi
+  case "$c" in ''|*[!0-9]*) c=80 ;; esac
+  [ "$c" -lt 24 ] && c=24
+  printf '%s' "$c"
+}
+
+# hall_layout <cols> — sets HALL_MODE and the column widths for this render.
+# Every width is a byte count of an ASCII column, so printf's %-*s padding and
+# the terminal's cells are the same number (the sigil is the only glyph on the
+# line, and hall_glyph_audit asserts it is 2 cells).
+hall_layout() {
+  local cols=$1 fixed
+  if [ "$cols" -lt 60 ]; then
+    HALL_MODE=compact
+    # sigil(2) + 2 + name + 1 + st(2), and one cell of slack so a terminal that
+    # wraps at exactly $cols never wraps a row.
+    W_NAME=$(( cols - 8 )); W_OFFICE=0; W_MODEL=0; W_TAP=0; W_CHARTER=0
+    [ "$W_NAME" -gt 14 ] && W_NAME=14
+    [ "$W_NAME" -lt 8 ] && W_NAME=8
+  elif [ "$cols" -lt 100 ]; then
+    HALL_MODE=medium
+    W_NAME=11; W_MODEL=6; W_TAP=8; W_CHARTER=0
+    # The OFFICE column absorbs the slack: at 60 it is 19 ("The Master of
+    # Works" exactly), at 80 it is capped at 26 so the table does not sprawl
+    # ahead of the wide layout, which is where the extra room earns its keep.
+    fixed=$(( 2 + 2 + W_NAME + 1 + 1 + 2 + 1 + 4 + 1 + W_MODEL + 1 + W_TAP ))
+    W_OFFICE=$(( cols - fixed - 1 ))
+    [ "$W_OFFICE" -gt 26 ] && W_OFFICE=26
+    [ "$W_OFFICE" -lt 14 ] && W_OFFICE=14
+  else
+    HALL_MODE=wide
+    W_NAME=14; W_OFFICE=30; W_MODEL=6; W_TAP=10
+    # everything left after: sigil(2) + 2 + name + 1 + office + 1 + st(2) + 1 +
+    # last(4) + 1 + model + 1 + tap + 1 — minus one cell of slack, so a row is
+    # never exactly the terminal's width (where a wrap is one stray byte away).
+    W_CHARTER=$(( cols - (2 + 2 + W_NAME + 1 + W_OFFICE + 1 + 2 + 1 + 4 + 1 + W_MODEL + 1 + W_TAP + 1) - 1 ))
+    [ "$W_CHARTER" -lt 12 ] && W_CHARTER=12
+  fi
+}
+
 # hall_expand_home <roster home> -> absolute path (`~` and `~/x` only; the
 # roster never uses `~user`).
 hall_expand_home() {
@@ -185,6 +288,14 @@ hall_taps_of() {
 
 # hall_tap_cell <seat> <dump> -> the TAP COLUMN's contents.
 #
+# THE SEAT'S OWN `tap:` (Zig, 2026-08-09, off this very column): it used to be
+# DERIVED from the seat's schedules, so the seven schedule-less seats rendered
+# `-` — and `-` read as "no tap" when the truth was "personal, like everything
+# else".  The roster now states it, the validator requires it, and this cell
+# just reports it.  A `-` here now means one thing only: an UNREGISTERED
+# window, where emptiness is the honest answer.  The schedule-derived value
+# survives as the FALLBACK for a roster older than the rule.
+#
 # ⚠️ THE V1 SEAM (sb6s "Tap failover", explicitly NOT v0).  When taps gain an
 # ordered failover list and a headroom check, the SERVING tap can differ from
 # the PREFERRED one, and this cell is where that shows up — as `work>tick`,
@@ -194,9 +305,66 @@ hall_taps_of() {
 # only tap it can honestly know.
 hall_tap_cell() {
   local t
-  t=$(hall_taps_of "$1" "$2")
+  t=$(printf '%s\n' "$2" | awk -F'\t' -v s="$1" '$1=="seat" && $2==s {print $10; exit}')
+  [ -n "$t" ] || t=$(hall_taps_of "$1" "$2")
   [ -n "$t" ] || t='-'
   printf '%s' "$t"
+}
+
+# hall_glyph_audit <dump> — THE COLUMN MATH, ASSERTED (dotfiles-gl6z).
+#
+# Every glyph column in the court is padded as 2 cells.  That is only true for
+# Emoji_Presentation=Yes codepoints; a text-default glyph from inside the emoji
+# blocks measures ONE, and its whole row shifts left by a column.  Rather than
+# re-encode the Unicode property here, this asks the ONE place that owns it —
+# validate-seats.py, the same module seat-resolve.sh already reuses for the
+# roster parse.  One python3 call per court render, over the hall's own status
+# glyphs plus every roster sigil.
+#
+# It writes to STDERR and never blocks: a stilted court is a roster bug to be
+# named, not a reason for the cockpit to refuse to draw.  Silent when clean.
+hall_glyph_audit() {
+  local validator name sigil
+  # ONCE per process. The interactive court repaints every couple of seconds
+  # (dotfiles-hnhl), and a warning that repeats every two seconds is a warning
+  # nobody reads — the roster cannot change mid-watch anyway.
+  [ "${_HALL_AUDITED:-0}" = 1 ] && return 0
+  _HALL_AUDITED=1
+  validator=$(_seat_validator) || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+  # argv, not stdin: `python3 - <<'PY'` already spends stdin on the script
+  # itself, so piping the roster in would silently hand python an empty pipe.
+  local args=(
+    "legend:$G_WORKING" "legend:$G_NEEDS" "legend:$G_IDLE" "legend:$G_COMPACT"
+    "legend:$G_ASLEEP" "legend:$G_UNREG" "legend:$G_MAIL"
+  )
+  while IFS=$'\t' read -r name sigil; do
+    [ -n "${name:-}" ] && [ -n "${sigil:-}" ] && args+=("$name:$sigil")
+  done <<<"$(printf '%s\n' "$1" | awk -F'\t' '$1=="seat"{print $2 "\t" $8}')"
+  python3 - "$validator" "${args[@]}" <<'PY' >&2
+import importlib.util
+import sys
+
+spec = importlib.util.spec_from_file_location("_hall_vs", sys.argv[1])
+vs = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(vs)
+
+pairs = [tuple(a.split(":", 1)) for a in sys.argv[2:] if ":" in a]
+
+bad = []
+for owner, glyph in pairs:
+    reason = vs.sigil_violation(glyph)
+    width = vs.display_width(glyph)
+    if reason or width != 2:
+        bad.append(f"    {owner}: {glyph!r} width={width} — {reason or 'not 2 cells wide'}")
+
+if bad:
+    print(f"hall: GLYPH RULE — {len(bad)} glyph(s) in this court are not 2 cells "
+          f"wide, so their rows are stilted (dotfiles-gl6z):")
+    print("\n".join(bad))
+    print("    Fix the roster (agents/seats.yml) — validate-seats.py rejects these.")
+PY
+  return 0
 }
 
 # hall_seat_of_window <bare window> <dump> -> canonical seat, or non-zero.
@@ -252,17 +420,52 @@ court() {
     fi
   fi
 
-  printf 'THE HALL %s %s %s here: %s %s tap: %s\n' \
-    "$SEP" "$role" "$SEP" "$cur_seat" "$SEP" "$cur_tap"
+  local cols
+  cols=$(hall_cols)
+  hall_layout "$cols"
+
   # 4 leading spaces, not 3: the sigil column is one emoji (2 cells) plus 2
   # spaces. Every column below is byte-padded ASCII, so the header, the rule
   # and every row land on the same boundaries.
-  printf '    %-11s %-24s %-2s %-4s %-6s %s\n' seat office st last model tap
-  printf '    %s\n' '----------- ------------------------ -- ---- ------ ---'
+  case "$HALL_MODE" in
+    compact)
+      # A phone. The host and the tap do not survive the cut: on a 40-cell
+      # screen the question is "who is awake", and one wrapped row destroys
+      # more than a missing column does.
+      printf 'THE HALL %s here: %s\n' "$SEP" "$(hall_trunc "$cur_seat" 14)"
+      printf '    %-*s %-2s\n' "$W_NAME" seat st
+      printf '    %s %s\n' "$(hall_dashes "$W_NAME")" '--'
+      ;;
+    medium)
+      # The HOST, not the full estate role: "the KEEP (zig-computer)" costs 12
+      # cells this line does not have at 60, and the room to say it properly is
+      # exactly what the wide layout has.
+      printf 'THE HALL %s %s %s here: %s %s tap: %s\n' \
+        "$SEP" "$host" "$SEP" "$(hall_trunc "$cur_seat" 16)" "$SEP" "$cur_tap"
+      printf '    %-*s %-*s %-2s %-4s %-*s %s\n' \
+        "$W_NAME" seat "$W_OFFICE" office st last "$W_MODEL" model tap
+      printf '    %s %s %s %s %s %s\n' \
+        "$(hall_dashes "$W_NAME")" "$(hall_dashes "$W_OFFICE")" '--' '----' \
+        "$(hall_dashes "$W_MODEL")" "$(hall_dashes 3)"
+      ;;
+    *)
+      printf 'THE HALL %s %s %s here: %s %s tap: %s\n' \
+        "$SEP" "$role" "$SEP" "$cur_seat" "$SEP" "$cur_tap"
+      printf '    %-*s %-*s %-2s %-4s %-*s %-*s %s\n' \
+        "$W_NAME" seat "$W_OFFICE" office st last "$W_MODEL" model \
+        "$W_TAP" tap charter
+      printf '    %s %s %s %s %s %s %s\n' \
+        "$(hall_dashes "$W_NAME")" "$(hall_dashes "$W_OFFICE")" '--' '----' \
+        "$(hall_dashes "$W_MODEL")" "$(hall_dashes "$W_TAP")" \
+        "$(hall_dashes "$W_CHARTER")"
+      ;;
+  esac
 
   local seated=0 asleep=0
-  local name model home history office sigil
-  while IFS=$'\t' read -r _tag name model _effort home history office sigil _charter; do
+  # TEN fields, not nine: the seat's own `tap` is field 10 (seat-resolve.sh's
+  # dump contract). Name it, or `charter` swallows both.
+  local name model home history office sigil charter tap
+  while IFS=$'\t' read -r _tag name model _effort home history office sigil charter tap; do
     [ -n "${name:-}" ] || continue
     seated=$((seated + 1))
     local aliases hit glyph act row
@@ -279,10 +482,26 @@ court() {
     else
       glyph="$G_ASLEEP"; act='-'; asleep=$((asleep + 1))
     fi
-    printf '%s  %-11s %-24s %s %-4s %-6s %s\n' \
-      "$sigil" "$(hall_trunc "$name" 11)" "$(hall_trunc "$office" 24)" \
-      "$glyph" "$act" "$(hall_trunc "${model:--}" 6)" \
-      "$(hall_trunc "$(hall_tap_cell "$name" "$dump")" 8)"
+    case "$HALL_MODE" in
+      compact)
+        printf '%s  %-*s %s\n' "$sigil" "$W_NAME" "$(hall_trunc "$name" "$W_NAME")" "$glyph"
+        ;;
+      medium)
+        printf '%s  %-*s %-*s %s %-4s %-*s %s\n' \
+          "$sigil" "$W_NAME" "$(hall_trunc "$name" "$W_NAME")" \
+          "$W_OFFICE" "$(hall_trunc "$office" "$W_OFFICE")" \
+          "$glyph" "$act" "$W_MODEL" "$(hall_trunc "${model:--}" "$W_MODEL")" \
+          "$(hall_trunc "$(hall_tap_cell "$name" "$dump")" "$W_TAP")"
+        ;;
+      *)
+        printf '%s  %-*s %-*s %s %-4s %-*s %-*s %s\n' \
+          "$sigil" "$W_NAME" "$(hall_trunc "$name" "$W_NAME")" \
+          "$W_OFFICE" "$(hall_trunc "$office" "$W_OFFICE")" \
+          "$glyph" "$act" "$W_MODEL" "$(hall_trunc "${model:--}" "$W_MODEL")" \
+          "$W_TAP" "$(hall_trunc "$(hall_tap_cell "$name" "$dump")" "$W_TAP")" \
+          "$(hall_trunc "$(hall_plain "$charter")" "$W_CHARTER")"
+        ;;
+    esac
   done <<<"$(printf '%s\n' "$dump" | awk -F'\t' '$1=="seat"')"
 
   # 🚧 — live windows that match NO seat and no alias.  Never adopted silently
@@ -293,21 +512,58 @@ court() {
     [ -n "${bare:-}" ] || continue
     hall_seat_of_window "$bare" "$dump" >/dev/null && continue
     unreg=$((unreg + 1))
-    printf '%s  %-11s %-24s %s %-4s %-6s %s\n' \
-      "$G_UNREG" "$(hall_trunc "$bare" 11)" \
-      "$(hall_trunc "no seat in $sess" 24)" \
-      "$G_UNREG" "$(hall_rel "$act")" '-' '-'
+    case "$HALL_MODE" in
+      compact)
+        printf '%s  %-*s %s\n' "$G_UNREG" "$W_NAME" "$(hall_trunc "$bare" "$W_NAME")" "$G_UNREG"
+        ;;
+      medium)
+        printf '%s  %-*s %-*s %s %-4s %-*s %s\n' \
+          "$G_UNREG" "$W_NAME" "$(hall_trunc "$bare" "$W_NAME")" \
+          "$W_OFFICE" "$(hall_trunc "no seat in $sess" "$W_OFFICE")" \
+          "$G_UNREG" "$(hall_rel "$act")" "$W_MODEL" '-' '-'
+        ;;
+      *)
+        printf '%s  %-*s %-*s %s %-4s %-*s %-*s %s\n' \
+          "$G_UNREG" "$W_NAME" "$(hall_trunc "$bare" "$W_NAME")" \
+          "$W_OFFICE" "$(hall_trunc "no seat in $sess" "$W_OFFICE")" \
+          "$G_UNREG" "$(hall_rel "$act")" "$W_MODEL" '-' "$W_TAP" '-' \
+          "$(hall_trunc "not in the roster $SEP the hall never adopts silently" "$W_CHARTER")"
+        ;;
+    esac
   done <<<"$live"
 
-  printf '\n%s working %s %s needs Zig %s %s idle %s %s compacting\n' \
-    "$G_WORKING" "$SEP" "$G_NEEDS" "$SEP" "$G_IDLE" "$SEP" "$G_COMPACT"
-  printf '%s no window %s %s unregistered %s %s unread mail (v1)\n' \
-    "$G_ASLEEP" "$SEP" "$G_UNREG" "$SEP" "$G_MAIL"
-  printf '%s seats %s %s asleep %s %s unregistered %s hall <seat> to visit\n' \
-    "$seated" "$SEP" "$asleep" "$SEP" "$unreg" "$SEP"
+  # THE LEGEND, and THE FOOTER THAT TEACHES THE PROMPT (dotfiles-hnhl).
+  # "hall <seat> to visit" read as an instruction to type those exact words —
+  # Zig typed a bare seat name instead, which was the better instinct and is
+  # now what the prompt accepts (both forms do). So the footer says what to
+  # TYPE, not what to run.
+  if [ "$HALL_MODE" = compact ]; then
+    printf '\n%s working %s %s needs Zig %s %s idle\n' \
+      "$G_WORKING" "$SEP" "$G_NEEDS" "$SEP" "$G_IDLE"
+    printf '%s no window %s %s unregistered\n' "$G_ASLEEP" "$SEP" "$G_UNREG"
+    printf '%s seats %s %s asleep %s %s unreg\n' \
+      "$seated" "$SEP" "$asleep" "$SEP" "$unreg"
+    printf 'type a seat name %s Enter closes\n' "$SEP"
+  else
+    printf '\n%s working %s %s needs Zig %s %s idle %s %s compacting\n' \
+      "$G_WORKING" "$SEP" "$G_NEEDS" "$SEP" "$G_IDLE" "$SEP" "$G_COMPACT"
+    printf '%s no window %s %s unregistered %s %s unread mail (v1)\n' \
+      "$G_ASLEEP" "$SEP" "$G_UNREG" "$SEP" "$G_MAIL"
+    printf '%s seats %s %s asleep %s %s unregistered\n' \
+      "$seated" "$SEP" "$asleep" "$SEP" "$unreg"
+    if [ "$HALL_MODE" = wide ]; then
+      printf 'type a seat name (or %s) %s home is the front desk %s Enter or Esc closes\n' \
+        "'hall <seat>'" "$SEP" "$SEP"
+    else
+      printf 'type a seat name (or %s) %s Enter or Esc closes\n' "'hall <seat>'" "$SEP"
+    fi
+  fi
   if [ -z "$sock" ]; then
     printf 'no tmux server in view: roster only. The court still renders.\n'
   fi
+
+  # LAST, and on stderr: the column math the table above was drawn with.
+  hall_glyph_audit "$dump"
 }
 
 # ---------------------------------------------------------------------------
@@ -367,6 +623,86 @@ hall_find_window() {
       done
 }
 
+# ---------------------------------------------------------------------------
+# LAUNCH (dotfiles-dsbl) — materialize, THEN hand the window to the injector
+# ---------------------------------------------------------------------------
+# Zig, after the first live visit: "it opened the hevyd window but didn't start
+# the claude session. i feel like it should start the session and onboard too."
+# That overrides v0's no-launch decision (sb6s), and the way it lands matters:
+#
+# THE HALL STILL NEVER TYPES. It shells out to agents/scheduler/pulse-inject.sh
+# — the fleet's one injection primitive — and the INJECTOR types, into a window
+# it launched. test-hall.sh's no-send-keys assertion is unchanged and still
+# passes, because it is still true.
+#
+# Reusing the injector rather than growing a second launcher buys, for free:
+# the tap export plus /proc verification (never silently on the wrong seat),
+# the d0bk roster model pin, the readiness gate and bounce discipline, and the
+# ledger. Everything that has already been argued and tested once.
+#
+# ONLY ON MATERIALIZATION. A warm window is switched to and nothing else: a
+# seat that is already running is NOT re-onboarded, because /onboard into a
+# live session is a context reset nobody asked for.
+#
+# DETACHED, because the injector waits for the composer to report input-ready
+# (up to 90s) and a popup that hangs that long is a broken popup. The verdict
+# line goes to $HALL_LAUNCH_LOG, which is where to look when a launch does not
+# land.
+#
+# THE SOCKET travels in $TMUX. pulse-inject.sh has no -S flag (it is a caller
+# here, not a thing to edit), and tmux reads the socket path from $TMUX when no
+# -S is given — measured. So the launch is bound to the same server the hall is
+# acting on, rather than to whatever the ambient default server happens to be.
+#
+# Seams: HALL_NO_LAUNCH=1 / --no-launch (materialize only), HALL_INJECT (the
+# injector path), HALL_LAUNCH (forwarded as the injector's own --launch, which
+# is how the suite runs an inert launcher), HALL_LAUNCH_LOG.
+hall_launch() {
+  local seat=$1 home=$2 sess=$3 dump=$4
+  local inject log tap cfg default_cfg args
+
+  [ "${HALL_NO_LAUNCH:-0}" = 1 ] && {
+    printf 'hall: --no-launch: %s materialized, nothing started.\n' "$seat" >&2
+    return 0
+  }
+
+  inject=${HALL_INJECT:-"$HERE/../scheduler/pulse-inject.sh"}
+  [ -f "$inject" ] || {
+    printf 'hall: cannot find pulse-inject.sh at %s — %s materialized but NOT launched.\n' \
+      "$inject" "$seat" >&2
+    return 1
+  }
+  log=${HALL_LAUNCH_LOG:-/tmp/hall-launch.log}
+
+  args=(--dir "$home" --session "$sess" --window "$seat" --cmd '/onboard'
+        --loop "hall-visit-$seat")
+
+  # THE TAP, and why a personal seat gets NO --config-dir. The flag's job is to
+  # move a launch OFF the default seat; asserting the default one only adds
+  # failure modes (a missing credential file becomes exit 78, and a warm pane
+  # on no explicit seat becomes failed-wrong-seat) in exchange for nothing.
+  # So: pass it when the seat's tap points somewhere else, never otherwise.
+  tap=$(printf '%s\n' "$dump" | awk -F'\t' -v s="$seat" '$1=="seat" && $2==s {print $10; exit}')
+  if [ -n "$tap" ]; then
+    cfg=$(hall_expand_home "$(_seat_tap_config_dir "$tap" "$dump")")
+    default_cfg=$(hall_expand_home "${CLAUDE_CONFIG_DIR:-~/.claude}")
+    if [ -n "$cfg" ] && [ "$cfg" != "$default_cfg" ]; then
+      args+=(--config-dir "$cfg")
+    fi
+  fi
+  [ -n "${HALL_LAUNCH:-}" ] && args+=(--launch "$HALL_LAUNCH")
+
+  {
+    printf '=== %s hall visit: seat=%s session=%s window=%s tap=%s\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$seat" "$sess" "$seat" "${tap:--}"
+  } >> "$log"
+  # nohup + & : the hall returns to the popup immediately; the injector lives
+  # on past it. Its stdout carries the PULSE_INJECT_RESULT verdict line.
+  nohup env TMUX="$5,0,0" bash "$inject" "${args[@]}" >> "$log" 2>&1 &
+  printf 'hall: launching %s (%s) — verdict in %s\n' "$seat" "${tap:-personal}" "$log" >&2
+  return 0
+}
+
 visit() {
   local want=$1 dump hit match seat row sock sess home office sigil win_id created=0
   dump=$(_seat_dump) || die 3 "roster could not be read (see the parse error above)."
@@ -408,10 +744,11 @@ visit() {
     win_id=$(tmux_e "$sock" new-window -d -P -F '#{window_id}' -t "=$sess" -n "$seat" -c "$home") \
       || die 1 "could not create the window for seat '$seat' in session '$sess'"
     created=1
-    # v0 deliberately launches NOTHING here.  An empty shell at the seat's home
-    # is the correct materialization; starting claude is the injector's job
-    # (pulse-inject.sh) or Zig's, and doing it from a popup would spend a tap
-    # nobody asked to spend.
+    # …and now it is launched, through the injector (dotfiles-dsbl). v0 stopped
+    # here on purpose — "an empty shell in the right place is the correct v0
+    # answer" — and Zig overruled that from the first live visit: a seat you
+    # visit should be a seat that is awake.
+    hall_launch "$seat" "$home" "$sess" "$dump" "$sock" || true
   fi
 
   tmux_e "$sock" select-window -t "$win_id" >/dev/null 2>&1 || true
@@ -435,10 +772,19 @@ hall — the court view of the estate (v0, bead dotfiles-sb6s)
   hall                 the COURT VIEW: every seat, its office, status, last
                        activity, model and tap, plus any UNREGISTERED window
   hall <seat|alias>    visit a seat: switch to its window, or materialize it
-                       (roster session, roster home, canonical name)
+                       (roster session, roster home, canonical name) and LAUNCH
+                       it — claude + /onboard, through pulse-inject.sh. A window
+                       that already exists is switched to and left alone.
+  hall --no-launch <s> materialize/switch only (also: HALL_NO_LAUNCH=1)
   hall home            the front desk (alias for: hall seneschal)
-  hall --interactive   court + a seat> prompt (the popup mode: name visits, Enter closes)
+  hall --interactive   court + a seat> prompt (the popup mode). The prompt takes
+                       a bare seat name, 'hall <seat>', 'home' or 'hall home' —
+                       all the same thing. Enter or Esc closes.
   hall --help          this
+
+The court is RESPONSIVE: it reads its own width (COLUMNS, else tput cols, else
+80) and renders compact below 60 columns (a phone: sigil, name, status), the
+full table to 99, and at 100+ adds each seat's charter line.
 
 The roster (agents/seats.yml) is truth; windows are cache. v0 reads the roster
 and the live tmux server only — no harnessd, so the cockpit outlives the
@@ -446,20 +792,112 @@ daemon. Mail, brief, marshal queue, adopt/retire and tap failover are v1.
 EOF
 }
 
+# hall_prompt_seat <typed line> -> the seat to visit, on stdout.
+#
+# EVERY FORM ZIG MIGHT TYPE MEANS THE SAME THING (dotfiles-hnhl). The old
+# footer said "hall <seat> to visit", which reads as an instruction to type
+# those exact words; Zig typed a bare seat name instead. Both were right, so
+# both work, plus `home` and `hall home`. Surrounding whitespace is eaten
+# because a phone keyboard adds a trailing space after a word.
+#
+# It NEVER invents a seat: anything that is not one of these shapes comes back
+# unchanged and goes to visit(), which is the one place allowed to refuse.
+hall_prompt_seat() {
+  local s=$1
+  s=${s#"${s%%[![:space:]]*}"}          # ltrim
+  s=${s%"${s##*[![:space:]]}"}          # rtrim
+  case "$s" in
+    hall\ *) s=${s#hall }; s=${s#"${s%%[![:space:]]*}"} ;;
+  esac
+  case "$s" in home) s=seneschal ;; esac
+  printf '%s' "$s"
+}
+
 # The popup mode (Zig, 2026-08-09 — he typed a seat name into the court
 # expecting a visit; that instinct is the UX): render the court, then hold a
-# `seat>` prompt. A seat name (or alias, or `home`) visits it — switch-client
-# works from inside a display-popup because popups inherit the server's $TMUX
-# (the sessionizer pattern). Empty Enter, EOF, or an unknown name after the
-# retry just closes. Lives HERE and not in tmux.conf because tmux expands $vars
-# in double-quoted config strings at source time.
+# `seat>` prompt. A seat name (or alias, or `home`, or the `hall <seat>` form)
+# visits it — switch-client works from inside a display-popup because popups
+# inherit the server's $TMUX (the sessionizer pattern). Empty Enter, a single
+# ESC, EOF, or an unknown name after the retry just closes. Lives HERE and not
+# in tmux.conf because tmux expands $vars in double-quoted config strings at
+# source time.
+#
+# THE ESC KEY (Zig, live): a popup you cannot dismiss with the key everyone
+# reaches for is a trap. So the FIRST keystroke is read raw (-rsn1): ESC closes,
+# Enter closes, anything else is echoed back and becomes the first character of
+# the line. The tiny `read -t` drain after an ESC swallows the rest of an escape
+# SEQUENCE — an arrow key is ESC [ A, and without the drain its `[A` would land
+# in the next prompt as a typo.
+#
+# `read -rsn1` needs a tty. With stdin on a pipe or a here-string (tests, `echo
+# x | hall --interactive`) bash still returns the first byte, so the same path
+# works; only the terminal echo is missing, which is why we echo it ourselves.
+#
+# ---------------------------------------------------------------------------
+# IT REFRESHES WHILE IT IS OPEN (Zig, 2026-08-09: "immensely better for
+# watching").  The prompt loop is a WATCH loop: the keystroke read carries a
+# timeout, and a timeout repaints.  The two sources are the two cheap ones the
+# court already reads — the roster and `list-windows` — so a tick costs a
+# fraction of a second, and 🧠 -> ✅ -> 🔔 becomes something you can watch
+# happen.
+#
+# NO FLICKER: the frame is built OFF-SCREEN into a string, then written in ONE
+# printf, positioned with ANSI home.  Each line clears to end-of-line and the
+# frame ends with clear-to-end-of-screen, so a court that SHRINKS (a window
+# closed, an unregistered row gone) does not leave the old rows behind.  A
+# clear-then-draw would flicker; this cannot, because the terminal never sees a
+# blank state.
+#
+# REFRESH SUSPENDS THE MOMENT TYPING STARTS, and the mechanism is the one that
+# was already here: only the FIRST keystroke read has a timeout, the rest of
+# the line is read blocking.  Zig's note offered two options — reprint the
+# typed prefix after each frame, or suspend on the first character — and this
+# is the second, because the first has a race it cannot win (a repaint between
+# the keystroke and the reprint eats the character) and because a court that
+# freezes while you are naming a seat is the correct behaviour anyway: you are
+# no longer watching, you are steering.
+#
+# HALL_REFRESH_SECS tunes it; 0 or empty disables the refresh entirely and the
+# loop goes back to a plain blocking read.
+hall_paint() {
+  local frame=$1 out line
+  out=$'\033[H'
+  while IFS= read -r line; do out+="$line"$'\033[K\n'; done <<<"$frame"
+  out+=$'\033[J'
+  printf '%s' "$out"
+}
+
 interactive() {
-  court
+  local _c _rest _seat _rc _refresh
+  _refresh=${HALL_REFRESH_SECS-2}
+  case "$_refresh" in ''|0|*[!0-9.]*) _refresh='' ;; esac
+  hall_paint "$(court)"
   while :; do
     printf 'seat> '
-    IFS= read -r _seat || return 0
+    if [ -n "$_refresh" ]; then
+      IFS= read -rsn1 -t "$_refresh" _c; _rc=$?
+      # bash: >128 is the TIMEOUT, 1 is EOF. Only the timeout repaints; EOF
+      # still closes, or a `printf x | hall --interactive` would spin forever.
+      if [ "$_rc" -gt 128 ]; then
+        printf '\r'
+        hall_paint "$(court)"
+        continue
+      fi
+      [ "$_rc" -eq 0 ] || { printf '\n'; return 0; }
+    else
+      IFS= read -rsn1 _c || { printf '\n'; return 0; }
+    fi
+    case "$_c" in
+      $'\e')
+        while IFS= read -rsn1 -t 0.01 _; do :; done
+        printf '\n'; return 0 ;;
+      ''|$'\n'|$'\r')
+        printf '\n'; return 0 ;;
+    esac
+    printf '%s' "$_c"
+    IFS= read -r _rest || _rest=""
+    _seat=$(hall_prompt_seat "$_c$_rest")
     [ -z "$_seat" ] && return 0
-    case "$_seat" in home) _seat=seneschal ;; esac
     # Subshell: visit exit-2s (die) on an unknown seat, which would close the
     # popup mid-typo — the subshell absorbs the exit so the prompt survives.
     if (visit "$_seat"); then return 0; fi
@@ -468,6 +906,12 @@ interactive() {
 }
 
 main() {
+  # --no-launch is a MODIFIER, not a verb: it may precede any of them, and it
+  # is the same switch as HALL_NO_LAUNCH=1 (the env form is what the attach
+  # hook uses, since a tmux hook line cannot pass flags through as readably).
+  if [ "${1:-}" = --no-launch ]; then
+    HALL_NO_LAUNCH=1; export HALL_NO_LAUNCH; shift
+  fi
   case "${1:-}" in
     ''|court)        court ;;
     -h|--help|help)  usage ;;

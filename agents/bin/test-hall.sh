@@ -85,7 +85,8 @@ trap cleanup EXIT
 # with a session-qualified binding (alpha), a schedule-less seat whose home is
 # `~` so home-expansion is actually exercised (beta), and a work-tap seat
 # (gamma) so the tap column has something to differ on.
-mkdir -p "$BASE/deskhome" "$BASE/alphahome" "$BASE/gammahome"
+mkdir -p "$BASE/deskhome" "$BASE/alphahome" "$BASE/gammahome" "$BASE/claude-work" \
+         "$BASE/deltahome" "$BASE/epsilonhome" "$BASE/zetahome"
 ROSTER="$BASE/seats.yml"
 cat > "$ROSTER" <<'EOF'
 schema: 1
@@ -98,16 +99,17 @@ taps:
     failover: [work]
   work:
     type: claude
-    config_dir: ~/.claude-work
+    config_dir: __BASE__/claude-work
     failover: []
 seats:
   seneschal:
     charter-line: "fixture front desk"
     office: "The Seneschal"
-    sigil: "🗝"
+    sigil: "🔑"
     home: __BASE__/deskhome
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/seneschal.history.md
     schedules: []
@@ -118,6 +120,7 @@ seats:
     home: __BASE__/alphahome
     model: fable
     effort: high
+    tap: personal
     aliases: [alpha-old]
     history: refs/seats/alpha.history.md
     schedules:
@@ -132,6 +135,7 @@ seats:
     home: ~/
     model: sonnet
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/beta.history.md
     schedules: []
@@ -142,6 +146,7 @@ seats:
     home: __BASE__/gammahome
     model: opus
     effort: high
+    tap: work
     aliases: []
     history: refs/seats/gamma.history.md
     schedules:
@@ -149,6 +154,56 @@ seats:
         tap: work
         window: gamma
         session: sess-a
+  # The LAUNCH seats (dotfiles-dsbl). Their own session (sess-b) keeps their
+  # windows out of every court/visit case above, and each has a binding so the
+  # target session is the ROSTER's answer rather than "whichever session the
+  # socket named first" — three fixtures materializing into an ambiguous
+  # session is a flaky suite waiting to happen.
+  delta:
+    charter-line: "fixture launch seat, work tap"
+    office: "The Delta"
+    sigil: "🧱"
+    home: __BASE__/deltahome
+    model: sonnet
+    effort: high
+    tap: work
+    aliases: []
+    history: refs/seats/delta.history.md
+    schedules:
+      - unit: pulse-delta
+        tap: work
+        window: delta
+        session: sess-b
+  epsilon:
+    charter-line: "fixture launch seat, personal tap"
+    office: "The Epsilon"
+    sigil: "🪙"
+    home: __BASE__/epsilonhome
+    model: sonnet
+    effort: high
+    tap: personal
+    aliases: []
+    history: refs/seats/epsilon.history.md
+    schedules:
+      - unit: pulse-epsilon
+        tap: personal
+        window: epsilon
+        session: sess-b
+  zeta:
+    charter-line: "fixture launch seat, never launched"
+    office: "The Zeta"
+    sigil: "🔧"
+    home: __BASE__/zetahome
+    model: sonnet
+    effort: high
+    tap: personal
+    aliases: []
+    history: refs/seats/zeta.history.md
+    schedules:
+      - unit: pulse-zeta
+        tap: personal
+        window: zeta
+        session: sess-b
 EOF
 sed -i "s|__BASE__|$BASE|g" "$ROSTER"
 
@@ -162,9 +217,16 @@ else bad "fixture roster must pass validate-seats.py ($(cat "$ERR"))"; fi
 
 # hall <args…> — the script under test, pinned to the fixture roster and the
 # fixture socket, with every seam this suite does not mean to use scrubbed.
+#
+# ⚠️ HALL_NO_LAUNCH=1 IS THE DEFAULT HERE, and it is a safety rail: since
+# dotfiles-dsbl a visit LAUNCHES the seat through pulse-inject.sh, and the
+# default launcher is `claude`. A suite that materializes five fixture windows
+# would otherwise start five real Claude sessions and spend a tap per run. The
+# LAUNCH section below opts in explicitly, with an inert launcher.
 hall() {
   env -u TMUX -u TMUX_TMPDIR -u HALL_SESSION -u HALL_ONLY_IF_ABSENT \
-      SEATS_YML="$ROSTER" HALL_TMUX_SOCKET="$SOCK" bash "$HALL" "$@"
+      SEATS_YML="$ROSTER" HALL_TMUX_SOCKET="$SOCK" HALL_NO_LAUNCH=1 \
+      bash "$HALL" "$@"
 }
 wins() { tm "$SOCK" list-windows -a -F '#{session_name}	#{window_name}	#{window_id}'; }
 win_count() { wins | grep -c . ; }
@@ -195,7 +257,15 @@ done
 has "court renders the office" "The Seneschal" "$COURT"
 has "court renders the model"  "sonnet"        "$COURT"
 has "court renders the tap"    "work"          "$COURT"
-has "court counts the seats"   "4 seats"       "$COURT"
+# THE TAP COLUMN NEVER SAYS `-` FOR A SEAT (Zig, 2026-08-09): beta and the
+# seneschal have no schedule at all and still draw from `personal`, because the
+# roster now states it. `-` in that column is reserved for an UNREGISTERED
+# window, where emptiness is the honest answer.
+TAPCOL=$(printf '%s\n' "$COURT" | grep -E '^.  (beta|seneschal) ' | sed 's/.*  //')
+has  "TAPCOL a schedule-less seat still shows its tap" "personal" \
+     "$(printf '%s\n' "$COURT" | grep ' beta ')"
+hasnt "TAPCOL a schedule-less seat never shows a dash" " -$" "$TAPCOL"
+has "court counts the seats"   "7 seats"       "$COURT"
 
 # Status glyphs come from the LIVE window name, and 💤 from its absence.
 ALPHA_ROW=$(printf '%s\n' "$COURT" | grep ' alpha ')
@@ -216,11 +286,14 @@ hasnt "the banned envelope U+2709"    "✉"  "$COURT"
 
 # --- THE GLYPH RULE, against the REAL output -------------------------------
 # Same mechanical check the roster's sigils get: every codepoint in the court
-# view goes through validate-seats.py's sigil_violation(). It also asserts the
-# output really does contain emoji, so an all-ASCII regression cannot pass by
-# having nothing to reject.
+# view goes through validate-seats.py's glyph_violation() — the rendered-output
+# form of the property rule (dotfiles-gl6z), which passes ASCII and · and
+# refuses anything that is CLAIMING to be a glyph and isn't 2 cells wide. It
+# also asserts the output really does contain emoji, so an all-ASCII regression
+# cannot pass by having nothing to reject.
 printf '%s' "$COURT" > "$OUTF"
-GLYPHCHECK=$(python3 - "$VALIDATOR" "$OUTF" <<'PY'
+glyph_check() {
+  python3 - "$VALIDATOR" "$1" <<'PY'
 import importlib.util, pathlib, sys
 spec = importlib.util.spec_from_file_location("_vs", sys.argv[1])
 vs = importlib.util.module_from_spec(spec)
@@ -228,7 +301,7 @@ spec.loader.exec_module(vs)
 text = pathlib.Path(sys.argv[2]).read_text()
 bad = []
 for ch in text:
-    r = vs.sigil_violation(ch)
+    r = vs.glyph_violation(ch)
     if r:
         bad.append(f"U+{ord(ch):04X}: {r}")
 emoji = {ch for ch in text if ord(ch) >= 0x1F300}
@@ -239,24 +312,157 @@ elif len(emoji) < 4:
 else:
     print(f"CLEAN {len(emoji)} distinct emoji")
 PY
-)
+}
+GLYPHCHECK=$(glyph_check "$OUTF")
 case "$GLYPHCHECK" in
   CLEAN*) ok ;;
-  *)      bad "every glyph in the court view must pass validate-seats.py's sigil rule ($GLYPHCHECK)" ;;
+  *)      bad "GLYPHRULE every glyph in the court view must pass validate-seats.py's glyph rule ($GLYPHCHECK)" ;;
+esac
+
+# --- ALIGNMENT: the sigil column is exactly 2 cells, on every row ------------
+# align_report <file> -> one line per table row whose leading glyph is not 2
+# cells wide, using validate-seats.py's display_width (the property, not
+# `ord(c) >= 0x1F300`, which is what said 🗝 was 2 cells while the terminal drew
+# 1). A table row is `<glyph><space><space><text>`; the legend lines use ONE
+# space and are not rows.
+align_report() {
+  python3 - "$VALIDATOR" "$1" <<'PY'
+import importlib.util, pathlib, re, sys
+spec = importlib.util.spec_from_file_location("_vs", sys.argv[1])
+vs = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(vs)
+rows = 0
+for line in pathlib.Path(sys.argv[2]).read_text().splitlines():
+    m = re.match(r"^(\S)  (\S)", line)
+    if not m:
+        continue
+    rows += 1
+    w = vs.display_width(m.group(1))
+    if w != 2:
+        print(f"STILTED U+{ord(m.group(1)):04X} width={w}: {line[:40]}")
+if rows == 0:
+    print("NO-ROWS the court rendered no table rows at all")
+PY
+}
+ALIGN=$(align_report "$OUTF")
+if [ -z "$ALIGN" ]; then ok; else bad "ALIGNMENT every court row must start with a 2-cell glyph ($ALIGN)"; fi
+
+# The header's own text column must start where the rows' does: 4 cells in
+# (one 2-cell glyph plus two spaces). Byte offset == cell offset here because
+# the header line is pure ASCII.
+HDR=$(printf '%s\n' "$COURT" | grep -n 'seat *office' | head -1 | cut -d: -f2-)
+case "$HDR" in
+  '    seat'*) ok ;;
+  *) bad "ALIGNHDR the header's seat column must start at cell 4, got: [$HDR]" ;;
 esac
 
 # --- width stability (this renders inside a display-popup) -------------------
-WIDE=$(python3 - "$OUTF" <<'PY'
-import pathlib, sys
-worst = 0
-for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
-    # emoji-presentation codepoints occupy two terminal cells
-    w = sum(2 if ord(c) >= 0x1F300 else 1 for c in line)
-    worst = max(worst, w)
-print(worst)
+widest() {
+  python3 - "$VALIDATOR" "$1" <<'PY'
+import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location("_vs", sys.argv[1])
+vs = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(vs)
+print(max((vs.display_width(line) for line in
+           pathlib.Path(sys.argv[2]).read_text().splitlines()), default=0))
 PY
-)
-if [ "$WIDE" -le 78 ]; then ok; else bad "court view must stay <=78 cells wide for the popup (widest: $WIDE)"; fi
+}
+WIDE=$(widest "$OUTF")
+if [ "$WIDE" -le 78 ]; then ok; else bad "WIDTH court view must stay <=78 cells wide for the popup (widest: $WIDE)"; fi
+
+# --- THE PLANTED TEXT-PRESENTATION GLYPH (dotfiles-gl6z) --------------------
+# The defect itself, reproduced: a roster carrying 🗝 U+1F5DD — emoji-RANGE,
+# Emoji_Presentation=No. This fixture is DELIBERATELY invalid (validate-seats.py
+# rejects it, which case 0 above asserts for the good roster), because the
+# question here is what the RENDERER does when a roster gets past the gate.
+# Two things must happen, and the first is the one that matters: the alignment
+# check must go RED. A detector that cannot fail is not a detector.
+PLANTED="$BASE/seats-planted.yml"
+sed 's/sigil: "🔑"/sigil: "🗝"/' "$ROSTER" > "$PLANTED"
+if python3 "$VALIDATOR" "$PLANTED" >/dev/null 2>&1; then
+  bad "PLANTEDGATE the planted roster must FAIL validate-seats.py (it is the defect)"
+else ok; fi
+PCOURT=$(env -u TMUX -u TMUX_TMPDIR -u HALL_SESSION -u HALL_ONLY_IF_ABSENT \
+           SEATS_YML="$PLANTED" HALL_TMUX_SOCKET="$SOCK" bash "$HALL" 2>"$ERR")
+printf '%s' "$PCOURT" > "$BASE/planted.out"
+PALIGN=$(align_report "$BASE/planted.out")
+case "$PALIGN" in
+  *STILTED*1F5DD*) ok ;;
+  *) bad "PLANTEDALIGN a text-presentation sigil must make the alignment check RED, got: [$PALIGN]" ;;
+esac
+# …and the hall says so itself, on stderr, naming the seat — the court still
+# renders (a cockpit that refuses to draw is worse than a crooked one).
+has "PLANTEDAUDIT hall names the glyph rule"  "GLYPH RULE" "$(cat "$ERR")"
+has "PLANTEDAUDIT hall names the seat"        "seneschal"  "$(cat "$ERR")"
+has "PLANTEDAUDIT the court still rendered"   "THE HALL"   "$PCOURT"
+# The good roster's audit is SILENT: a warning that always fires is noise.
+hasnt "PLANTEDQUIET a clean roster gets no glyph warning" "GLYPH RULE" "$(env -u TMUX -u TMUX_TMPDIR \
+        SEATS_YML="$ROSTER" HALL_TMUX_SOCKET="$SOCK" bash "$HALL" 2>&1 >/dev/null)"
+
+# ===========================================================================
+# RESPONSIVE WIDTH (dotfiles-hnhl) — three breakpoints, one seam
+# ===========================================================================
+# Zig's phone showed NOTHING (tmux: "height too large") and his desktop felt
+# squished. COLUMNS is the seam the popup's real `tput cols` stands in for.
+# EVERY breakpoint has to keep the properties the default width has: the glyph
+# rule, the alignment, and now a budget — no line wider than the terminal it
+# was rendered for, because a wrapped row is exactly the stilt again.
+render_at() { # render_at <cols> [roster] -> writes $BASE/w<cols>.out, echoes it
+  local c=$1 roster=${2:-$ROSTER}
+  COLUMNS=$c env -u TMUX -u TMUX_TMPDIR -u HALL_SESSION -u HALL_ONLY_IF_ABSENT \
+    SEATS_YML="$roster" HALL_TMUX_SOCKET="$SOCK" bash "$HALL" 2>/dev/null \
+    | tee "$BASE/w$c.out"
+}
+for C in 40 80 120; do
+  OUT=$(render_at "$C")
+  G=$(glyph_check "$BASE/w$C.out")
+  case "$G" in CLEAN*) ok ;; *) bad "BP$C glyph rule at $C cols ($G)" ;; esac
+  A=$(align_report "$BASE/w$C.out")
+  if [ -z "$A" ]; then ok; else bad "BP$C alignment at $C cols ($A)"; fi
+  W=$(widest "$BASE/w$C.out")
+  if [ "$W" -le "$C" ]; then ok; else bad "BP$C at $C cols the court is $W wide — it will WRAP"; fi
+  has "BP$C every seat still renders at $C cols" "gamma" "$OUT"
+done
+
+# COMPACT (a phone): sigil, name, status — and deliberately NOT the office or
+# the tap. Asserting what is ABSENT is the half that catches a "responsive"
+# layout that just renders the wide table into a narrow terminal.
+COMPACT=$(cat "$BASE/w40.out")
+has   "BPCOMPACT keeps the name"     "seneschal"     "$COMPACT"
+has   "BPCOMPACT keeps the status"   "💤"            "$COMPACT"
+hasnt "BPCOMPACT drops the office"   "The Seneschal" "$COMPACT"
+hasnt "BPCOMPACT drops the tap"      "personal"      "$COMPACT"
+has   "BPCOMPACT teaches the prompt" "type a seat name" "$COMPACT"
+
+# MEDIUM (the default desktop popup): the v0 court, host and tap included.
+MEDIUM=$(cat "$BASE/w80.out")
+has "BPMEDIUM has the office" "The Seneschal"  "$MEDIUM"
+has "BPMEDIUM has the host"   "$(hostname -s)" "$MEDIUM"
+has "BPMEDIUM has the tap"    "work"           "$MEDIUM"
+
+# WIDE: the room is used — the charter line appears, and the estate role is
+# spelled out rather than abbreviated to the bare host.
+WIDEOUT=$(cat "$BASE/w120.out")
+has "BPWIDE adds the charter column" "charter"            "$WIDEOUT"
+has "BPWIDE prints a charter line"   "fixture seat alpha" "$WIDEOUT"
+has "BPWIDE keeps every medium column" "model"            "$WIDEOUT"
+# The wide layout is wider than the medium one — otherwise "responsive" is a
+# word for three names for the same table.
+if [ "$(widest "$BASE/w120.out")" -gt "$(widest "$BASE/w80.out")" ]; then ok
+else bad "BPWIDE the wide court must actually use the room it is given"; fi
+
+# THE REAL ROSTER, at every breakpoint. The fixture cannot see this: charter
+# lines are free PROSE, every one of the 18 real ones is written with an em
+# dash (U+2014, in the banned block), and the wide layout is the first thing
+# that ever printed them. hall_plain folds them; this is what says so.
+REAL_ROSTER="$ROOT/agents/seats.yml"
+for C in 40 80 120; do
+  render_at "$C" "$REAL_ROSTER" >/dev/null
+  G=$(glyph_check "$BASE/w$C.out")
+  case "$G" in CLEAN*) ok ;; *) bad "BPREAL$C the REAL roster at $C cols breaks the glyph rule ($G)" ;; esac
+  W=$(widest "$BASE/w$C.out")
+  if [ "$W" -le "$C" ]; then ok; else bad "BPREAL$C the REAL roster at $C cols is $W wide — it will WRAP"; fi
+done
 
 # ===========================================================================
 # VISIT — existing window
@@ -293,8 +499,9 @@ eq "materialize selects the new window" "beta" "$(cur_win_name sess-a)"
 # home: ~ in the roster -> the window's cwd is $HOME, expanded.
 eq "materialize expands ~ in the roster home" "$HOME" \
    "$(tm "$SOCK" display-message -p -t "$BETA_ID" '#{pane_current_path}')"
-# v0 launches NOTHING: an empty shell at the right address is the whole job.
-hasnt "v0 does not launch claude" "claude" "$(tm "$SOCK" display-message -p -t "$BETA_ID" '#{pane_current_command}')"
+# --no-launch (the helper's default here) materializes and starts NOTHING: an
+# empty shell at the right address. The launching path is the LAUNCH section.
+hasnt "no-launch starts nothing" "claude" "$(tm "$SOCK" display-message -p -t "$BETA_ID" '#{pane_current_command}')"
 
 # Materialization happens at the ROSTER's address, never in the caller's
 # session: `other` is the newest (so the most likely "current") session, and
@@ -331,6 +538,202 @@ OUT=$(env -u TMUX -u TMUX_TMPDIR SEATS_YML="$ROSTER" HALL_TMUX_SOCKET="$SOCK" \
 eq  "only-if-absent rc"              0        "$RC"
 eq  "only-if-absent does not switch" "beta"   "$(cur_win_name sess-a)"
 has "only-if-absent says why"        "leaving it alone" "$(cat "$ERR")"
+
+# ===========================================================================
+# LAUNCH (dotfiles-dsbl) — a visit starts the seat, through the INJECTOR
+# ===========================================================================
+# Zig, after the first live visit: "it opened the hevyd window but didn't start
+# the claude session." So a materializing visit now shells out to the real
+# agents/scheduler/pulse-inject.sh, which types `/onboard` into a window it
+# launched — the hall itself still never send-keys, and the STRUCTURE section
+# below still proves it.
+#
+# The injector is driven through ITS OWN seams, not a stand-in: `--launch cat`
+# (an inert launcher, exactly as test-pulse-inject.sh does it) via HALL_LAUNCH,
+# and PULSE_READY_MARKER='' to disable the composer readiness gate that `cat`
+# could never satisfy. The EVIDENCE is the pane itself — what the injector
+# typed into it — plus its verdict line, not the hall's own report of what it
+# meant to do.
+LAUNCHLOG="$BASE/launch.log"
+hall_launching() { # same hall, but with the launch path ARMED
+  env -u TMUX -u TMUX_TMPDIR -u HALL_SESSION -u HALL_ONLY_IF_ABSENT \
+      -u CLAUDE_CONFIG_DIR \
+      SEATS_YML="$ROSTER" HALL_TMUX_SOCKET="$SOCK" \
+      HALL_INJECT="$ROOT/agents/scheduler/pulse-inject.sh" \
+      HALL_LAUNCH=cat HALL_LAUNCH_LOG="$LAUNCHLOG" \
+      PULSE_READY_MARKER='' PULSE_CONFIG_CRED_FILE='' \
+      bash "$HALL" "$@"
+}
+wait_for_launch() { # wait_for_launch <n verdicts expected> -> 0 if seen
+  local want=$1 i
+  for i in $(seq 1 60); do
+    [ "$(grep -c 'PULSE_INJECT_RESULT=' "$LAUNCHLOG" 2>/dev/null)" -ge "$want" ] && return 0
+    sleep 0.5
+  done
+  return 1
+}
+pane_text() { tm "$SOCK" capture-pane -p -t "$1" 2>/dev/null; }
+
+# --- ABSENT window -> materialize AND launch --------------------------------
+# `delta` is a work-tap seat with no window anywhere yet.
+tm "$SOCK" new-session -d -s sess-b -c "$BASE" 2>"$ERR"
+OUT=$(hall_launching delta 2>"$ERR"); RC=$?
+eq  "LAUNCH rc"                0              "$RC"
+has "LAUNCH materialized"      "materialized" "$OUT"
+has "LAUNCH says it launched"  "launching"    "$(cat "$ERR")"
+if wait_for_launch 1; then ok; else bad "LAUNCHVERDICT the injector never reported a verdict ($(cat "$LAUNCHLOG"))"; fi
+has "LAUNCHVERDICT the injector injected" "PULSE_INJECT_RESULT=injected" "$(cat "$LAUNCHLOG")"
+DELTA_ID=$(wins | awk -F'\t' '$2=="delta"{print $3}')
+if [ -n "$DELTA_ID" ]; then ok; else bad "LAUNCHWIN the seat's window must exist"; fi
+eq  "LAUNCH ran the launcher"  "cat" "$(tm "$SOCK" display-message -p -t "$DELTA_ID" '#{pane_current_command}')"
+has "LAUNCH typed /onboard"    "/onboard" "$(pane_text "$DELTA_ID")"
+# TAP CORRECTNESS: delta's tap is `work`, whose config_dir is NOT the default
+# seat, so the injector exports it into the pane before launching.
+has "LAUNCHTAP work seat gets the config dir" "export CLAUDE_CONFIG_DIR=" "$(pane_text "$DELTA_ID")"
+has "LAUNCHTAP and it is the WORK one"        "claude-work"               "$(pane_text "$DELTA_ID")"
+
+# --- a PERSONAL seat gets NO --config-dir ----------------------------------
+# The flag's job is to move a launch OFF the default seat. Asserting the
+# default one only buys failure modes (exit 78 on a missing credential file,
+# failed-wrong-seat on a warm pane), so the hall does not pass it.
+OUT=$(hall_launching epsilon 2>"$ERR"); RC=$?
+eq "LAUNCHPERSONAL rc" 0 "$RC"
+if wait_for_launch 2; then ok; else bad "LAUNCHPERSONAL no verdict ($(cat "$LAUNCHLOG"))"; fi
+EPS_ID=$(wins | awk -F'\t' '$2=="epsilon"{print $3}')
+has   "LAUNCHPERSONAL typed /onboard"     "/onboard"                  "$(pane_text "$EPS_ID")"
+hasnt "LAUNCHPERSONAL exports no seat"    "export CLAUDE_CONFIG_DIR=" "$(pane_text "$EPS_ID")"
+
+# --- an EXISTING window is switched to and NOTHING else --------------------
+# A warm seat is not re-onboarded: /onboard into a live session is a context
+# reset nobody asked for. Two verdicts have been logged so far; a third would
+# mean this visit launched.
+BEFORE_V=$(grep -c 'PULSE_INJECT_RESULT=' "$LAUNCHLOG")
+BEFORE_TEXT=$(pane_text "$DELTA_ID")
+OUT=$(hall_launching delta 2>"$ERR"); RC=$?
+sleep 2
+eq    "LAUNCHWARM rc"                 0              "$RC"
+hasnt "LAUNCHWARM did not materialize" "materialized" "$OUT"
+hasnt "LAUNCHWARM did not say launching" "launching"  "$(cat "$ERR")"
+eq    "LAUNCHWARM no new injector run" "$BEFORE_V"    "$(grep -c 'PULSE_INJECT_RESULT=' "$LAUNCHLOG")"
+eq    "LAUNCHWARM the pane is untouched" "$BEFORE_TEXT" "$(pane_text "$DELTA_ID")"
+
+# --- --no-launch: the escape hatch, and the attach hook's choice ------------
+BEFORE_V=$(grep -c 'PULSE_INJECT_RESULT=' "$LAUNCHLOG")
+OUT=$(hall_launching --no-launch zeta 2>"$ERR"); RC=$?
+eq  "NOLAUNCH rc"              0              "$RC"
+has "NOLAUNCH materialized"    "materialized" "$OUT"
+has "NOLAUNCH says why"        "nothing started" "$(cat "$ERR")"
+sleep 1
+eq  "NOLAUNCH ran no injector" "$BEFORE_V" "$(grep -c 'PULSE_INJECT_RESULT=' "$LAUNCHLOG")"
+ZETA_ID=$(wins | awk -F'\t' '$2=="zeta"{print $3}')
+hasnt "NOLAUNCH the pane is a bare shell" "cat" \
+      "$(tm "$SOCK" display-message -p -t "$ZETA_ID" '#{pane_current_command}')"
+
+# The tmux.conf attach hook must USE that escape hatch: it fires on a machine
+# event (boot, a resurrect restore), and starting a Claude session — spending a
+# tap — off a machine event rather than a human's request is what the hall's
+# charter avoids. This is the DECISION, asserted rather than commented.
+has "NOLAUNCHHOOK the attach hook passes HALL_NO_LAUNCH" "HALL_NO_LAUNCH=1" \
+    "$(awk '/# HALL-BLOCK-BEGIN/{f=1; next} /# HALL-BLOCK-END/{f=0} f' "$ROOT/tmux/tmux.conf" | grep session-created)"
+
+# ===========================================================================
+# THE PROMPT (dotfiles-hnhl) — every form Zig might type means the same thing
+# ===========================================================================
+# The footer used to say "hall <seat> to visit", which reads as an instruction
+# to type those exact words; Zig typed a bare seat name. Both are right, so
+# both work — plus `home` and `hall home`. Driven end to end through
+# --interactive with the line on stdin, because the parse and the visit are one
+# behaviour, not two.
+# HALL_SESSION is pinned for the same reason the `hall home` case above pins
+# it: the seneschal has no roster binding, so without it the target session is
+# whatever the socket happens to answer with, and the fixture has three.
+prompt_with() { # prompt_with <stdin bytes> -> RC set, stdout returned
+  printf '%s' "$1" | env -u TMUX -u TMUX_TMPDIR -u HALL_ONLY_IF_ABSENT \
+    SEATS_YML="$ROSTER" HALL_TMUX_SOCKET="$SOCK" HALL_SESSION=sess-a \
+    bash "$HALL" --interactive 2>"$ERR"
+}
+for FORM in 'alpha' 'hall alpha' '  alpha  '; do
+  tm "$SOCK" select-window -t "$BETA_ID" 2>"$ERR"
+  OUT=$(prompt_with "$FORM
+"); RC=$?
+  eq "PROMPT [$FORM] rc"    0         "$RC"
+  eq "PROMPT [$FORM] visits" "🧠 alpha" "$(cur_win_name sess-a)"
+done
+for FORM in 'home' 'hall home'; do
+  tm "$SOCK" select-window -t "$BETA_ID" 2>"$ERR"
+  OUT=$(prompt_with "$FORM
+"); RC=$?
+  eq "PROMPTHOME [$FORM] rc"     0           "$RC"
+  eq "PROMPTHOME [$FORM] visits" "seneschal" "$(cur_win_name sess-a)"
+done
+
+# A bare Enter closes, and an unknown name retries rather than closing on the
+# typo — the two behaviours the raw-keystroke read must not have broken.
+tm "$SOCK" select-window -t "$BETA_ID" 2>"$ERR"
+OUT=$(prompt_with "
+"); RC=$?
+eq "PROMPTENTER rc"          0      "$RC"
+eq "PROMPTENTER stays put"   "beta" "$(cur_win_name sess-a)"
+
+# ESC closes on ONE keypress (Zig, live: a popup you cannot dismiss with the
+# key everyone reaches for is a trap). The escape SEQUENCE of an arrow key
+# (ESC [ A) must close too rather than leaving `[A` in the next prompt.
+for KEYS in $'\e' $'\e[A'; do
+  tm "$SOCK" select-window -t "$BETA_ID" 2>"$ERR"
+  OUT=$(prompt_with "$KEYS"); RC=$?
+  eq "PROMPTESC rc"        0      "$RC"
+  eq "PROMPTESC stays put" "beta" "$(cur_win_name sess-a)"
+  hasnt "PROMPTESC visits nothing" "materialized" "$OUT"
+done
+
+# --- LIVE REFRESH (dotfiles-hnhl, Zig: "immensely better for watching") -----
+# The prompt loop is a watch loop: a keystroke that does not arrive within
+# HALL_REFRESH_SECS repaints the court. Driven for real — a window appears on
+# the fixture server WHILE the popup is open, and the frames must show it.
+# The writer holds the FIFO open for the whole run (a `printf > fifo` at the
+# end would block hall's own open until then, and the first frame would never
+# paint).
+FIFO="$BASE/watchfifo"; mkfifo "$FIFO"
+(
+  exec 3>"$FIFO"
+  sleep 2
+  tm "$SOCK" new-window -d -t "=sess-a" -n watchme -c "$BASE" 2>/dev/null
+  sleep 3
+  printf '\033' >&3
+  exec 3>&-
+) &
+WATCH=$(env -u TMUX -u TMUX_TMPDIR -u HALL_ONLY_IF_ABSENT \
+          SEATS_YML="$ROSTER" HALL_TMUX_SOCKET="$SOCK" HALL_SESSION=sess-a \
+          HALL_NO_LAUNCH=1 COLUMNS=80 HALL_REFRESH_SECS=1 \
+          bash "$HALL" --interactive < "$FIFO" 2>/dev/null); RC=$?
+wait
+eq "REFRESH rc" 0 "$RC"
+# Strip the ANSI positioning so the frames can be read as text.
+WCLEAN=$(printf '%s' "$WATCH" | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | tr -d '\r')
+FRAMES=$(printf '%s\n' "$WCLEAN" | grep -c 'THE HALL')
+if [ "$FRAMES" -ge 3 ]; then ok
+else bad "REFRESHFRAMES the court must repaint while open (frames: $FRAMES)"; fi
+FIRSTFRAME=$(printf '%s\n' "$WCLEAN" | awk '/THE HALL/{n++} n==1')
+LASTFRAME=$(printf '%s\n' "$WCLEAN" | awk 'BEGIN{RS="THE HALL"} END{print}')
+hasnt "REFRESHLIVE the first frame predates the window" "watchme" "$FIRSTFRAME"
+has   "REFRESHLIVE a later frame shows it"              "watchme" "$LASTFRAME"
+# FRAME STABILITY: every repaint is a whole court at the same width, with the
+# same column boundaries — a partial or shifted frame is what a naive
+# clear-and-redraw produces under a state change.
+printf '%s' "$WCLEAN" > "$BASE/watch.out"
+WA=$(align_report "$BASE/watch.out")
+if [ -z "$WA" ]; then ok; else bad "REFRESHALIGN repainted frames must stay aligned ($WA)"; fi
+WW=$(widest "$BASE/watch.out")
+if [ "$WW" -le 80 ]; then ok; else bad "REFRESHWIDTH a repaint must respect the width ($WW)"; fi
+# The glyph audit is ONCE per process, not once per frame: a warning that
+# repeats every second is a warning nobody reads.
+WERR=$(env -u TMUX -u TMUX_TMPDIR SEATS_YML="$PLANTED" HALL_TMUX_SOCKET="$SOCK" \
+         HALL_SESSION=sess-a HALL_NO_LAUNCH=1 COLUMNS=80 HALL_REFRESH_SECS=1 \
+         bash "$HALL" --interactive 2>&1 >/dev/null <<< "$(printf '\033')")
+eq "REFRESHAUDIT the glyph warning fires once" 1 "$(printf '%s\n' "$WERR" | grep -c 'GLYPH RULE')"
+# `watchme` is deliberately LEFT on the fixture server: no case after this one
+# counts windows, and a kill-window here would be the one destructive verb in a
+# suite whose whole hygiene rule is that it has none.
 
 # ===========================================================================
 # REFUSALS
@@ -389,6 +792,29 @@ else bad "the committed HALL block must parse ($(cat "$ERR"))"; fi
 BINDING=$(tm "$SOCK2" list-keys -T prefix | grep -E "^bind-key( -r)? +-T prefix +W ")
 has "prefix W opens the hall in a popup" "display-popup" "$BINDING"
 hasnt "prefix W no longer holds a plugin bind" "resize-pane" "$BINDING"
+
+# --- POPUP SIZING: percentages, never cells (dotfiles-hnhl) -----------------
+# On Zig's PHONE, `-w 84 -h 32` made tmux answer "height too large" and draw
+# NOTHING. An absolute size is a promise about a client you have not met; a
+# percentage is computed against the client that is actually opening the popup,
+# so NO client size can produce that error. Both halves are asserted: the
+# percentages are there, AND no bare cell count survives anywhere in the
+# binding.
+# tmux re-prints the binding with the size ARGUMENTS QUOTED (`-h "85%"`), so
+# match against what the SERVER says, not against the source line.
+if printf '%s\n' "$BINDING" | grep -qE ' -w "?[0-9]+%'; then ok
+else bad "POPUPW the popup width must be a PERCENTAGE (got: $BINDING)"; fi
+if printf '%s\n' "$BINDING" | grep -qE ' -h "?[0-9]+%'; then ok
+else bad "POPUPH the popup height must be a PERCENTAGE (got: $BINDING)"; fi
+if printf '%s\n' "$BINDING" | grep -qE ' -[wh] "?[0-9]+"? '; then
+  bad "POPUPABS an absolute cell size survives in the binding: $BINDING"
+else ok; fi
+# …and the percentages must actually leave room: 100% or more is a popup with
+# no border and, at -h, the same overflow by another name.
+PCTS=$(printf '%s\n' "$BINDING" | grep -oE ' -[wh] "?[0-9]+%' | grep -oE '[0-9]+')
+PCTBAD=""
+for p in $PCTS; do [ "$p" -ge 100 ] || [ "$p" -lt 50 ] && PCTBAD="$PCTBAD $p"; done
+if [ -z "$PCTBAD" ]; then ok; else bad "POPUPPCT popup percentage(s) out of the 50-99 range:$PCTBAD"; fi
 HBIND=$(tm "$SOCK2" list-keys -T prefix | grep -E "^bind-key( -r)? +-T prefix +H ")
 has "prefix H keeps pain-control's resize (nothing displaced)" "resize-pane" "$HBIND"
 

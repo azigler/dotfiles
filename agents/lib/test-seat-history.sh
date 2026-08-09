@@ -66,6 +66,7 @@ seats:
     charter-line: "fixture seat alpha"
     office: "The Alpha"
     sigil: "📜"
+    tap: personal
     home: ~/alpha-nonexistent
     model: fable
     effort: high
@@ -76,6 +77,7 @@ seats:
     charter-line: "fixture seat beta"
     office: "The Beta"
     sigil: "🧭"
+    tap: personal
     home: ~/beta-nonexistent
     model: sonnet
     effort: high
@@ -86,6 +88,7 @@ seats:
     charter-line: "fixture seat gamma"
     office: "The Gamma"
     sigil: "🪙"
+    tap: personal
     home: ~/gamma-nonexistent
     model: sonnet
     effort: high
@@ -96,6 +99,7 @@ seats:
     charter-line: "fixture seat delta"
     office: "The Delta"
     sigil: "🧱"
+    tap: personal
     home: ~/delta-nonexistent
     model: sonnet
     effort: high
@@ -105,7 +109,8 @@ seats:
   keeper:
     charter-line: "fixture seat holding the excluded office"
     office: "The Remembrancer"
-    sigil: "🕯"
+    sigil: "🏮"
+    tap: personal
     home: ~/keeper-nonexistent
     model: fable
     effort: high

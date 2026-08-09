@@ -66,6 +66,18 @@ taps:
 # `linearb` pins `fable` for ALL seven of its schedules — "high impact work",
 # no sonnet-default carve-out.
 #
+# `sigil:` must be Emoji_Presentation=Yes — the PROPERTY, enforced against
+# embedded Unicode data by validate-seats.py (dotfiles-gl6z). A text-default
+# glyph inside the emoji blocks (🗝 🛡 🕯 🕊 were all four) measures ONE cell
+# and stilts its row in the hall's court view. Do not pick a sigil by eye.
+#
+# `tap:` is REQUIRED on every seat (Zig, 2026-08-09): the tap this seat draws
+# from when something launches it — its schedules' tap where it has schedules,
+# and `personal` where it has none, because personal IS the default and the
+# roster STATES its defaults rather than leaving a reader (or a court view) to
+# render `-`. A schedule's own `tap:` still governs that schedule; this is the
+# seat's, and it is what the hall shows and what a launch exports.
+#
 # `home:` is the default cwd — seats ROAM, home is not a jail. `history:` is
 # append-only, machine-level under refs/seats/ (OQ1 resolution on uikg,
 # 2026-08-08), distinct from the per-window handoff note that gets
@@ -81,16 +93,28 @@ seats:
   seneschal:
     charter-line: "ingress/brief — answers 'what needs Zig, everywhere'; no dispatch authority"
     office: "The Seneschal"
-    sigil: "🗝"
+    # 🗝 U+1F5DD -> 🔑 U+1F511 (dotfiles-gl6z): the old key is
+    # Emoji_Presentation=No, so the front desk's row rendered one cell short.
+    # Same object, same office; this one is a real emoji glyph.
+    sigil: "🔑"
     home: ~/dotfiles
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/seneschal.history.md
-    # v0 design (dotfiles-front-desk-faty) is a daily pulse-seneschal timer,
-    # not yet shipped — no unit exists in `systemctl --user list-unit-files`
-    # as of 2026-08-09. Reserved seat, interactive/no-schedule until then.
-    schedules: []
+    # SHIPPED (dotfiles-son4, 2026-08-09): pulse-seneschal.timer is installed
+    # and ENABLED — `systemctl --user list-timers pulse-seneschal*` shows a next
+    # fire. The row claimed "no unit exists" for as long as the unit did exist,
+    # which is the roster lying about the one fact it is the source of truth
+    # for. Fields transcribed from the unit's own ExecStart (--dir %h/dotfiles
+    # --session zig-computer --window seneschal --fresh --cmd "/seneschal
+    # brief"); no --config-dir there, so the tap is the default personal one.
+    schedules:
+      - unit: pulse-seneschal
+        tap: personal
+        window: seneschal
+        session: zig-computer
 
   marshal:
     charter-line: "fleet dispatch authority — the worker-facing half of Yegge's Wheelhouse"
@@ -99,6 +123,7 @@ seats:
     home: ~/dotfiles
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/marshal.history.md
     # Design-only until the fleet-drain spec (dotfiles-69qr) is checked
@@ -114,6 +139,7 @@ seats:
     home: ~/dotfiles
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/dotfiles.history.md
     # Interactive window (zig-computer:dotfiles), no pulse timer.
@@ -122,14 +148,23 @@ seats:
   harnessd:
     charter-line: "watchtower — harness observability daemon, PWA + action API"
     office: "The Warden"
-    sigil: "🛡"
+    # 🛡 U+1F6E1 -> 🔭 U+1F52D (dotfiles-gl6z). The shield is
+    # Emoji_Presentation=No and every EPres=Yes shield-like glyph is either a
+    # person (💂) or an alarm (🚨). The charter-line is "watchtower — harness
+    # OBSERVABILITY daemon", so the instrument beats the armour: 🔭 is the
+    # watchtower's own tool, an object like every other sigil in this roster
+    # (💂 was the runner-up and is the fallback if Zig wants a guard, not a
+    # glass).
+    sigil: "🔭"
     home: ~/harnessd
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/harnessd.history.md
-    # A live systemd daemon (harnessd.service), not a pulse-tick loop — no
-    # tap/window binding to record here.
+    # A live systemd daemon (harnessd.service), not a pulse-tick loop — so no
+    # SCHEDULE binding to record. The seat's own `tap:` above still applies:
+    # it is what a hall visit launches this seat on.
     schedules: []
 
   # --- Inquiry: research + allocation --------------------------------------
@@ -141,6 +176,7 @@ seats:
     home: ~/explore
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/desk.history.md
     schedules:
@@ -156,6 +192,7 @@ seats:
     home: ~/explore
     model: opus
     effort: high
+    tap: tick
     aliases: []
     history: refs/seats/dive.history.md
     schedules:
@@ -171,10 +208,15 @@ seats:
   dream:
     charter-line: "consolidation — every session's sessions become ITS history"
     office: "The Remembrancer"
-    sigil: "🕯"
+    # 🕯 U+1F56F -> 🔮 U+1F52E (dotfiles-gl6z). The candle is
+    # Emoji_Presentation=No. 🔮 keeps the seat's night-work reading (the
+    # Remembrancer consolidates while the estate sleeps) and 💤 was
+    # unavailable — it is the court's own "no window" status glyph.
+    sigil: "🔮"
     home: ~/explore
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/dream.history.md
     schedules:
@@ -185,15 +227,24 @@ seats:
 
   # --- Herald / mechanical charters -----------------------------------------
 
-  digest:
+  # RENAMED digest -> digestd (Zig, 2026-08-09): every daemon seat carries the
+  # marker its repo does — hevyd, picod, autonoveld, harnessd — and this one's
+  # home has always been ~/digestd. The old name is an ALIAS, not history: the
+  # live `digest` tmux window and the pulse-digest unit's `--window digest`
+  # both still resolve through it, which is exactly what the aliases mechanism
+  # is for (it is what makes a rename survivable — bd-msi5, the di-> pulse
+  # failure). The window and the unit are NOT renamed tonight: seat first, the
+  # cache follows later through the hall.
+  digestd:
     charter-line: "daily news — the morning digest crawl"
     office: "The Herald"
     sigil: "📯"
     home: ~/digestd
     model: sonnet
     effort: high
-    aliases: []
-    history: refs/seats/digest.history.md
+    tap: tick
+    aliases: [digest]
+    history: refs/seats/digestd.history.md
     schedules:
       - unit: pulse-digest
         tap: tick
@@ -203,10 +254,14 @@ seats:
   aaif:
     charter-line: "ambassador — aaif's outward-facing radar loop"
     office: "The Envoy"
-    sigil: "🕊"
+    # 🕊 U+1F54A -> 🪶 U+1FAB6 (dotfiles-gl6z). The dove is
+    # Emoji_Presentation=No; the feather is the same bird's, and an envoy's
+    # quill besides.
+    sigil: "🪶"
     home: ~/aaif
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/aaif.history.md
     schedules:
@@ -222,6 +277,7 @@ seats:
     home: ~/andrewzigler3
     model: sonnet
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/az3.history.md
     schedules:
@@ -237,6 +293,7 @@ seats:
     home: ~/hevyd
     model: sonnet
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/hevyd.history.md
     schedules:
@@ -252,6 +309,7 @@ seats:
     home: ~/picod
     model: sonnet
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/picod.history.md
     schedules:
@@ -269,6 +327,7 @@ seats:
     home: ~/investd
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/investd.history.md
     schedules:
@@ -288,6 +347,7 @@ seats:
     home: ~/autonoveld
     model: opus
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/autonoveld.history.md
     schedules:
@@ -319,6 +379,7 @@ seats:
     home: ~/romd
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/romd.history.md
     # Interactive window (zig-computer:romd), no pulse timer.
@@ -335,6 +396,7 @@ seats:
     # work" — no sonnet-default carve-out for this seat.
     model: fable
     effort: high
+    tap: work
     # ONE seat merges every prior per-day/per-report window; none of them was
     # literally renamed to "linearb", so each is an alias, not history.
     aliases:
@@ -386,6 +448,7 @@ seats:
     home: ~/coding-jams
     model: sonnet
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/tinker.history.md
     # Ad-hoc, hand-opened windows; no durable timer yet.
@@ -398,6 +461,7 @@ seats:
     home: ~/cfp
     model: fable
     effort: high
+    tap: personal
     aliases: []
     history: refs/seats/orator.history.md
     # Ad-hoc, hand-opened windows; no durable timer yet.
