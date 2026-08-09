@@ -1,42 +1,63 @@
-# Session handoff — 2026-08-09 3f4b19b0 (the terminology/design lane)
+# Session handoff — 2026-08-09 538b7ef4 (MID-CUTOVER — fresh session: run the verify, nothing else)
+
+## ⚠️ FIRST ACTION for the onboarding session — post-flip verification
+
+You are the fresh context deliberately cycled to verify the demesne cutover
+(860z flip, executed by the Master of Works session). Do NOT start normal
+work. The freeze on systemd timers and bead-store MUTATIONS is still on
+until you report PASS (reads are fine). Run these five checks and report
+PASS/FAIL **per item** to the Works session — find it via ListAgents
+(shown last as `dotfiles-85 [cde6f9]`, tmux window "dotfiles-2",
+socket uds:/run/user/1000/cc-socks/3301441.sock) and SendMessage:
+
+- (a) Session start: did the session-start header render (seat/office
+  line proves hooks fire)? You witnessed this at your own start.
+- (b) Statusline renders (check your own pane / statusline output).
+- (c) `ls -la ~/.claude` — all six links (CLAUDE.md, agents, hooks,
+  skills, settings.json, statusline.sh) resolve into the demesne tier
+  (→ ~/.agents → ~/demesne). Same six for `ls -la ~/.claude-work`.
+- (d) `br list` works from ~/dotfiles (read-only is enough).
+- (e) `echo $CLAUDE_EFFORT` — expected `high` (or empty = default high),
+  i.e. unchanged.
+
+On PASS the Works session unfreezes, /clears the remaining windows, and
+starts the soak; afterward this lane resumes normal duty under the sbv2
+grant (maiden marshal launch is the Works session's step — coordinate
+before touching it). On any FAIL: report it exactly; the Works session
+stops and restores the freeze snapshot.
 
 ## State at offboard
-- Current branch: main, clean, pushed (dotfiles; harnessd @ the build-out commit; explore + andrewzigler3 pushed)
-- Open beads: see `br ready` (⚠️ br FROZEN mid-upgrade 0.2.16→0.2.22 by the Master of Works session as this note is written — reads work with a sync warning, hold mutations until its "migration done")
-- In-flight subagents: none (all merged + worktrees cleaned)
-- Dirty files: none in this lane's repos
-- Markers: `.offboard-pending` cleared by this offboard
+- Current branch: main, clean; last commit 65df27b (pre-flip tier commits are the peer's)
+- In-flight subagents: none. Dirty files: none (this note is the only change).
+- Markers: `.offboard-pending` cleared by this offboard.
 
-## What happened this session (a big one — four arcs)
-1. **The demesne lexicon ratified + landed** — demesne=estate, keep/works/roads (zig-zone = the tailnet's NAME, tailfb4637 its DNS), hosts never hold seats. Decision `dotfiles-demesne-lexicon-gadu`; map-retitle rides zga2; charter task under ixap; delivered to the founding session.
-2. **The harnessd seat campaign, three-author reconciliation** — plan of record `harnessd-seat-campaign-mo5l`, contract `harnessd-lman` (ratified+closed by founding lane), opus scrutiny FIX-FIRST folded (14 findings), Fleet markers applied via the dh89 grammar. Cleanroom skill audited + hardened en route (f11y/7qif closed, rule-2 verified).
-3. **The tick-jail latch bug FIXED end-to-end** (`explore-tick-jail-latch-u08c` closed): PID-namespace broke pane resolve + lexicon/transcripts jail-private + a dangling node bind killing every launch. Fix = data-only jail grants + lexicon-relay.sh outside (tmux socket deliberately NOT bound in — jail-escape). Live-verified; suites 33/33 + 58/58; follow-ups harnessd-bwrap-live-false-y2j1 + explore-jail-symlink-wedge-rgyy.
-4. **The PWA redesign, 4 interactive rounds with Zig** — clay REJECTED; old zig-voice mood-board DELETED at his order (az3 is the style source now); **Silicon Keep** ratified (az3 painted-liminal + silicon-dreams irid + hacker-core + keep/court); **Frog Sentinel icon CONFIRMED** ("its perfect" — master at harnessd dashboard/brand/sentinel-master.jpg); home order ratified (attention → proclamation → digest → watch report; NO meters — "not for decoration, its for reducing cognitive burden"); mockup artifact 699b9b30 + committed to harnessd refs/. Spec `iiqb.1` AUTHORED; build chain fleet-marked: iiqb.6 foundation → iiqb.7/8/9 serial migrations (+ iiqb.2/3/4, x09g, x8za, 4hca, az3's bd-build-report-sidecar-qebh). Beads-tab rebuild bug measured (5.3s cold vs 1.6ms warm) → x09g; agw TTD measured → x8za.
-
-## Post-offboard addendum (same session, 08:27Z)
-- **seat-molt pane-targeting bug FIXED** (`dotfiles-molt-pane-zero-pcp8`, closed): Zig's molt never fired — `--self` child rebuilt its target as `<window_id>.0` and this session sat in a split's second pane. R14: invoker pane rides to the child; window identity re-derived from the pane; suite 48→53, mutation harness green, live-verified (log shows `pane=%344 window dotfiles-2`). First molt attempt after fix refused on offboard staleness (the rail working); this refresh clears it.
-- The Works session holds the cutover freeze until this window cycles; it folded the ~/.claude-work symlink retarget (its ifk4 finding) into the flip — no action this side.
+## What happened this session
+- Coordination only: onboarded fresh, announced the window cycle to the
+  Works session (lifting its cutover freeze condition), negotiated and
+  held the quiet-lane hold during its flip sequence, received FLIP DONE,
+  offboarded for the verify molt. No code, no bead mutations, no commits
+  besides this note.
 
 ## Friction
-- Two-writers, twice in anger: my staged zig-voice deletions were swept into the founding lane's commit mid-operation, and the dotfiles jsonl was committed under me between status and add. Recoverable both times, but the "staged-by-A, committed-by-B" class recurred within one session → filed `dotfiles-staged-sweep-nqtw` (post-migration, same session — the all-clear arrived before the molt fired; next-session item 1 is DONE, and the fleet-mark invariant was verified by the Works session: all named beads present).
-- Peer's duplicate-architect dispatch wrote ~/harnessd concurrently with my mandate — resolved by reconciliation; the peer filed the dispatch-ledger guard on their side. → theirs
-- zsh 1-indexed arrays silently mangled my randomize axis lookup (empty ${A[0]}) → one-off (my error, caught same call)
+- nothing notable
 
 ## Decisions made this session
-- `dotfiles-demesne-lexicon-gadu` — the demesne lexicon (Zig-ratified, recorded as decision)
-- Autonomous decide-and-proceeds recorded in-place rather than as decision beads: lman-over-wfzx contract consolidation (in both beads' close/comments), markers-not-retitles for needs-human exclusion (mo5l scrutiny comment), 7qi7 filed in dotfiles as gateway-ops home (bead Context). `dotfiles-j132` (dream confidentiality) is another lane's, listed for window completeness.
+- `dotfiles-sbv2` — Zig's 2026-08-09 execution grant (the Works session's
+  bead, filed in the overlapping window; listed for completeness — not
+  this lane's decision)
 
-## Proposed practices — where each landed
-- "Cognitive burden, not decoration" + all design principles → harnessd-pwa-v2-iiqb comments + authored into iiqb.1 (spec)
-- The az3-style-source switch → written into dotfiles zig-voice reference/README.md (committed)
-- none homeless
+## Proposed practices — where each one landed
+- none this session
 
 ## What's next
-1. After br "migration done": file the two-writers friction bead (above); verify fleet-marked count survived the schema hop (expected: 12 seat-campaign + iiqb.2/3/4/6/7/8/9 + x09g/x8za/4hca/zlnh/y2j1 + az3 qebh).
-2. The marshal's maiden night drains the marked chains; 43bp goes ready once iiqb.1's /check note + b1v6/g7qd land.
-3. Zig's pending: D1–D7 walkthrough (qmrp), use-the-mockup feedback round (folds into iiqb.1 amendments), per-view paintings decision (iiqb.1 OQ3, cost-aware).
+1. The ⚠️ verify block above — that is the whole job.
+2. After PASS + unfreeze: normal orchestrator duty resumes; sbv2 sequence
+   continues on the Works session's side (maiden marshal, timer arming).
 
 ## Warnings / watch-outs
-- br is mid-migration at offboard; any mutation before the all-clear will refuse — that is the freeze working, not a breakage.
-- The Silicon Keep mockup lives at harnessd refs/silicon-keep-home-mockup.html AND artifact 699b9b30 — same-path republish from THIS conversation keeps the URL; other sessions must pass url.
-- CDN review lane holds only the final sentinel (1ee081e0) — earlier candidates swept; sweep this one too once iiqb.4 ships the real set.
+- The Works session's own offboard will overwrite this note after the
+  clear-all step — expected, both land in git history.
+- Two war stories from the flip (peer-reported): claude-settings-guard.path
+  (a PATH unit, invisible to timer-derived freeze) was reverting the flip
+  within 2s — retargeted in explore 2eb1d7b; the rgyy jail symlink wedge
+  fired live — fixed host-side, jail suite 33/33.
