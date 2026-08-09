@@ -18,6 +18,10 @@ Documentation=file:///home/ubuntu/dotfiles/agents/scheduler/api-stall-recover.sh
 # its 15-minute cooldown, and the outage gets LONGER because of the guard.
 OnCalendar=*-*-* *:1/2:11
 RandomizedDelaySec=0
+# AccuracySec pins the fire to the scheduled second — systemd's default is a
+# one-minute coalescing smear, which is RandomizedDelaySec by another name and
+# breaks the restore-then-recover offset the same way (see gateway-health.timer).
+AccuracySec=1s
 
 # NOT Persistent. A catch-up buys nothing on a 2-minute cadence, and after a
 # suspend or a long boot it would fire into a tmux server whose panes have not

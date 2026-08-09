@@ -23,6 +23,12 @@ Documentation=file:///home/ubuntu/dotfiles/agents/scheduler/gateway-health.sh
 # straight into a dead gateway.
 OnCalendar=*-*-* *:0/2:11
 RandomizedDelaySec=0
+# AccuracySec pins the fire to the scheduled second. Without it systemd's
+# DEFAULT is one full minute of coalescing smear — measured live on install
+# day (fires at +1s, +2s, +19s) — which at the edge lets this fire land ON
+# api-stall-recover's minute, collapsing the very ordering the comment above
+# forbids re-timing away.
+AccuracySec=1s
 
 # NOT Persistent. On a 2-minute cadence a catch-up buys nothing — the next tick
 # is at most 120 seconds out — and after a suspend or a long boot it would fire
