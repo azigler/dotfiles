@@ -191,6 +191,46 @@ without grepping titles: `br list --label friction`. Don't invent a
 `friction` type for this; the bead's type is still whatever kind of
 work it is — the label is the cross-cutting marker.
 
+## Markers — `fleet:`, `fleet-model:`, `outward:` (fleet/outward eligibility)
+
+69qr (the fleet drain spec) and htqt (the outward gate spec) both name
+markers on beads — `fleet: yes`, `fleet-model: opus`, `outward: yes` — that
+control machine behavior: whether the overnight drain may claim a bead at
+all, which model it dispatches on, and whether the outward gate must be
+consulted. These are **not** the same mechanism as a label. br 0.2.16 has no
+key/value metadata verb (`--agent-context` is a different subsystem's
+governing-instructions JSON, not a general marker store; `br label` is real
+but flat/valueless — right shape for `friction`, wrong shape for a marker
+that needs a VALUE). So a marker is a plain-text line inside the bead's
+`--description`, one marker per line, **strict grammar**:
+
+```
+<Key>: <token>
+```
+
+`<Key>` matched case-insensitively but the colon must follow it IMMEDIATELY
+(`Fleet:` never matches a `Fleet-Model:` line; `Fleetish:` never matches
+`Fleet:`). `<token>` is `[A-Za-z0-9_-]+` — no spaces. Boolean markers
+(`fleet`, `outward`) are true iff the token is EXACTLY `yes`
+(case-insensitive) — `fleet: yesterday` is a well-formed line with a real
+value, it is just not a *true* one. Full grammar + implementation:
+[`agents/lib/bead-markers.sh`](../../lib/bead-markers.sh) (`marker_get`,
+`marker_set`, `marker_is_fleet` — the ONE shared implementation the drain and
+the outward guard both import; do not hand-roll a second grep for this).
+
+**Who may set each marker** (the contract; the library only implements the
+grammar, it does not enforce authorship):
+
+| Marker | Set by | Removed by |
+|---|---|---|
+| `fleet: yes` | the orchestrator, Zig, or dream's approval pipeline (69qr R9) — never the marshal itself, never inferred from readiness | whoever set it, or the orchestrator |
+| `fleet-model: opus` | same as `fleet:`, set at marking time (69qr R2 — "the marker decides, not the marshal at 3am") | same as `fleet:` |
+| `outward: yes` | **any** agent, on any bead whose work reaches outside the estate (htqt R1) | **no one**, without a `-t decision` bead recording why the outward classification no longer applies |
+
+Bead types dh89 (this marker plumbing) and its consumers (the drain,
+the outward guard) are tracked separately — this section documents the
+convention only; do not read it as "these are wired up yet."
+
 ## Stages vs. gates — not all pipeline work gets a bead
 
 A skill in the orchestration pipeline is either a **stage** or a
