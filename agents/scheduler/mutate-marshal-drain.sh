@@ -237,7 +237,7 @@ check "M4 freeze-ignored (the drain dispatches into a cutover)" \
 fresh_copy
 mutate "$CHK" '  BUDGET_TOKENS=$floor' '  BUDGET_TOKENS=999999999'
 check "M5 degraded-budget-is-huge (unmeasurable becomes unlimited)" \
-      "T15.1 T15b.1" "T15.2 T3.5"
+      "T15.1 T15b.1 T3e.2" "T15.2 T3.5"
 
 # M6 — THE TAP FILTER LOOSENS. Drop the epoch-1 `work:` exclusion and the
 # WORK tap's spend is counted as Zig's personal spend. Both halves of the
@@ -249,6 +249,21 @@ fresh_copy
 mutate "$CHK" "NOT LIKE 'work:%'" "NOT LIKE 'zzz-no-such-tap:%'"
 check "M6 tap-filter-loosened (the work tap's spend becomes Zig's)" \
       "T3.1 T3.3 T3.4 T3.5" "T15.1 T1.1"
+
+# M7 — THE TICK FOLD IS DROPPED (dotfiles-iez1). `tick` is a jail PROFILE of
+# `personal`, not a tap — ~/.claude and ~/.claude-tick carry the identical
+# account fingerprint. Reverting the personal predicate's `IN ('personal','tick')`
+# back to `= 'personal'` alone silently UNDERCOUNTS personal's weekly window
+# exactly when budget-truth matters: the dive/digest jail's spend vanishes from
+# both the window total and the daytime reserve, and every number still looks
+# plausible. T3.1's OWN db has no `tick` rows, so it and M6's cases must keep
+# passing untouched — only T3e (the isolated tick-fixture db) can see this one.
+fresh_copy
+mutate "$CHK" \
+  "IN ('personal','tick') OR (COALESCE(agentgateway_group,'') NOT IN ('personal','work','tick') AND COALESCE(agentgateway_user,'') NOT LIKE 'work:%'))\"" \
+  "= 'personal' OR (COALESCE(agentgateway_group,'') NOT IN ('personal','work','tick') AND COALESCE(agentgateway_user,'') NOT LIKE 'work:%'))\""
+check "M7 tick-fold-dropped (tick jail spend vanishes from personal's budget)" \
+      "T3e.1" "T3.1 T3.3 T3.4 T3.5 T3e.2 T15.1 T1.1"
 
 echo
 if [ "$HARNESS_ERR" -ne 0 ]; then

@@ -162,12 +162,19 @@ unalias claude 2>/dev/null || true
 # and drops '?' too, which is what makes '?' usable as the NOT-DERIVED marker).
 _ciw_sanitize() { printf '%s' "$1" | tr -s '[:space:]' '-' | tr -cd '[:alnum:]._-'; }
 
-# _ciw_tap — the TAP this launch will actually draw from, from CLAUDE_CONFIG_DIR
-# in THIS process's environment. Purely syntactic, by the roster's convention:
+# _ciw_tap — the TAP (billing/quota source) this launch will actually draw
+# from, from CLAUDE_CONFIG_DIR in THIS process's environment. Purely
+# syntactic, by the roster's convention:
 #
 #   <unset>            -> personal   (the vendor default config dir is ~/.claude)
 #   …/.claude          -> personal
 #   …/.claude-work     -> work
+#   …/.claude-tick     -> personal   PROFILE, not a tap (dotfiles-iez1): the
+#                                    isolated tick-jailed.sh sandbox config
+#                                    dir carries an IDENTICAL account
+#                                    fingerprint to ~/.claude (same Max
+#                                    subscription) — billing is `personal`,
+#                                    the jail is metadata, never a group value
 #   …/.claude-<name>   -> <name>
 #   …/<anything else>  -> ?<anything else>   NOT a conforming tap dir; visible
 #   (nothing left)     -> ""                 degenerate; caller sends no header
@@ -175,7 +182,7 @@ _ciw_sanitize() { printf '%s' "$1" | tr -s '[:space:]' '-' | tr -cd '[:alnum:]._
 # No roster read, no python3, no YAML on the launch path: a claude launch must not
 # depend on the roster being parseable, and the roster must not be able to CLAIM a
 # tap this process is not actually running on. The convention is asserted against
-# agents/seats.yml at TEST time (T19) instead — derive, then assert.
+# agents/seats.yml's `taps:` at TEST time (T19) instead — derive, then assert.
 _ciw_tap() {
   local d b
   d="${CLAUDE_CONFIG_DIR:-}"
@@ -184,9 +191,10 @@ _ciw_tap() {
   b="${d##*/}"                                      # basename
   b="${b#.}"                                        # one leading dot
   case "$b" in
-    claude)   printf 'personal' ;;
-    claude-*) _ciw_sanitize "${b#claude-}" ;;
-    *)        b=$(_ciw_sanitize "$b"); [ -z "$b" ] || printf '?%s' "$b" ;;
+    claude)      printf 'personal' ;;
+    claude-tick) printf 'personal' ;;  # jail PROFILE of personal, not a tap
+    claude-*)    _ciw_sanitize "${b#claude-}" ;;
+    *)           b=$(_ciw_sanitize "$b"); [ -z "$b" ] || printf '?%s' "$b" ;;
   esac
   return 0
 }

@@ -311,6 +311,22 @@ check "M8 seattap-consistency-disarmed" \
   "SEATTAP-CONSISTENCY" \
   "SIGIL-EPRES-GOOD REAL-ROSTER"
 
+# M9 -- PROFILE's seat-side reference check disarmed (dotfiles-iez1): a seat's
+# `profile:` no longer has to name a declared `profiles:` entry, so a typo'd
+# or removed profile silently stops being metadata and starts being nothing —
+# `validate-seats: OK` prints while the roster claims a jail variant that does
+# not exist. Same disarm shape as M6/M7/M8 (`and False`). The profile's OWN
+# `tap:` reference check (PROFILE-TAP-UNKNOWN) is a SEPARATE `if`/`elif` in a
+# different loop and is untouched by this mutant, so that case must keep
+# passing -- that asymmetry is the signature.
+fresh_copy
+mutate "$SCRIPT_NAME" \
+  '        if seat_profile is not None and seat_profile not in profiles:' \
+  '        if seat_profile is not None and seat_profile not in profiles and False:'
+check "M9 profile-seat-reference-disarmed" \
+  "PROFILE-SEAT-UNKNOWN" \
+  "PROFILE-TAP-UNKNOWN SIGIL-EPRES-GOOD REAL-ROSTER"
+
 echo
 if [ "$HARNESS_ERR" -ne 0 ]; then
   echo "=== RESULT: HARNESS ERROR -- at least one mutation never applied. ========"

@@ -187,22 +187,28 @@ json_escape() { python3 -c 'import json,sys; sys.stdout.write(json.dumps(sys.std
 #      emits epoch-1 values for days. So rows are classified BY VALUE, never
 #      by date: `group IN ('personal','work','tick')` is an exact epoch-2
 #      test, and epoch-1 rows fall back to the user-column split.
+#   3. `tick` is a jail PROFILE of `personal`, not a tap of its own
+#      (dotfiles-iez1, refs/probes/gateway-attribution-epoch2.md): the isolated
+#      ~/.claude-tick config dir tick-jailed.sh runs dive/digest's bwrap
+#      sandbox in carries an IDENTICAL account fingerprint to ~/.claude (same
+#      Max subscription), so `group='tick'` rows are `personal` spend and are
+#      folded there — QUERY-TIME only, the rows themselves stay logged exactly
+#      as they were. `group IN ('personal','work','tick')` still names the
+#      full epoch-2 value set for the fallback exclusion below; only the
+#      per-tap counting changed. `tap: tick` in a schedule's config is no
+#      longer a real tap either — see the `*) return 1` fallthrough.
 
 tap_predicate() { # tap_predicate <tap> -> SQL boolean, or return 1
   local tap=$1
   case "$tap" in
     personal)
-      # epoch 2: group is the tap. epoch 1: group is a hostname, so anything
-      # outside the tap namespace that is not the work split is personal.
-      printf '%s' "(COALESCE(agentgateway_group,'') = 'personal' OR (COALESCE(agentgateway_group,'') NOT IN ('personal','work','tick') AND COALESCE(agentgateway_user,'') NOT LIKE 'work:%'))"
+      # epoch 2: group is the tap, and 'tick' folds into 'personal' (see note
+      # 3 above). epoch 1: group is a hostname, so anything outside the tap
+      # namespace that is not the work split is personal.
+      printf '%s' "(COALESCE(agentgateway_group,'') IN ('personal','tick') OR (COALESCE(agentgateway_group,'') NOT IN ('personal','work','tick') AND COALESCE(agentgateway_user,'') NOT LIKE 'work:%'))"
       ;;
     work)
       printf '%s' "(COALESCE(agentgateway_group,'') = 'work' OR (COALESCE(agentgateway_group,'') NOT IN ('personal','work','tick') AND COALESCE(agentgateway_user,'') LIKE 'work:%'))"
-      ;;
-    tick)
-      # epoch 1 carried NO signal that could distinguish the tick jail, so this
-      # one is epoch-2-only and says so rather than guessing.
-      printf '%s' "(COALESCE(agentgateway_group,'') = 'tick')"
       ;;
     *) return 1 ;;
   esac

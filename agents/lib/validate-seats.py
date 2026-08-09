@@ -28,6 +28,12 @@ Checks enforced (each has a dedicated fixture in test-validate-seats.sh):
         mid-loop is a silent-quality event, not a convenience"). Unenforced
         before this bead: only tap-type presence was checked, not the rule
         d3ky actually specified.
+  PROFILE (dotfiles-iez1) a `profiles:` entry is a jail/config-dir VARIANT
+        of a real tap, not a tap of its own (e.g. `tick`: the same account
+        as `personal`, run inside tick-jailed.sh's bwrap sandbox). Every
+        profile's `tap:` must name a declared tap; every seat's optional
+        `profile:` must name a declared profile. A seat's BILLING is always
+        its `tap:` — `profile:` never substitutes for it.
   SEATTAP every seat declares a `tap`, and it names a declared tap
   SEATTAP-CONSISTENCY (dotfiles-e8l0) a seat's own `tap:` and every one of
         its schedules' `tap:` must agree — a seat drawing from `personal`
@@ -728,6 +734,35 @@ def validate(doc: dict) -> list:
                     f"charter work is tuned per vendor, a silent vendor "
                     f"swap mid-loop is a silent-quality event"
                 )
+
+    # --- PROFILE (dotfiles-iez1): 'tick' is a jail profile, not a tap --------
+    # A profile is an optional per-seat config-dir VARIANT of a real, declared
+    # tap — it never carries its own billing. Two directions to check, mirror
+    # of FAILOVER's own-tap-reference rule: every profile's `tap:` must name a
+    # declared tap, and every seat's optional `profile:` must name a declared
+    # profile. A seat's BILLING stays its `tap:` alone; `profile:` is metadata.
+    profiles = doc.get("profiles") or {}
+    for profile_name, profile in profiles.items():
+        profile = profile or {}
+        ptap = profile.get("tap")
+        if ptap is None:
+            errors.append(
+                f"PROFILE: profile '{profile_name}' is missing required 'tap'"
+            )
+        elif ptap not in taps:
+            errors.append(
+                f"PROFILE: profile '{profile_name}' names tap {ptap!r}, which "
+                f"is not declared under `taps:`; known: {sorted(taps)}"
+            )
+
+    for seat_name, seat in seats.items():
+        seat = seat or {}
+        seat_profile = seat.get("profile")
+        if seat_profile is not None and seat_profile not in profiles:
+            errors.append(
+                f"PROFILE: seat '{seat_name}' declares profile {seat_profile!r}, "
+                f"which is not declared under `profiles:`; known: {sorted(profiles)}"
+            )
 
     seat_names = list(seats.keys())
     seat_name_set = set(seat_names)

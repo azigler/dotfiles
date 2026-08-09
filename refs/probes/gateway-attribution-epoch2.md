@@ -92,6 +92,41 @@ names, let the shells cycle, drop the legacy pair. Nothing reads the canonical
 pair today; they cost ~60 bytes per request and buy a migration that is otherwise
 impossible to sequence.
 
+## `tick` is a jail PROFILE of `personal`, not a tap (dotfiles-iez1)
+
+**Landed 2026-08-09**, same day as the epoch itself. Verified empirically:
+`~/.claude` and `~/.claude-tick`'s `.credentials.json` carry an IDENTICAL
+account fingerprint (the same Max subscription) — only `~/.claude-work` is a
+genuinely different account. `~/.claude-tick` is tick-jailed.sh's (explore-24fn)
+isolated config-dir for the bwrap sandbox `dive`/`digest` run their pulse in;
+it was never a second billing source, so `agents/seats.yml`'s `taps:` block
+no longer carries a `tick` row — it moved to a `profiles:` row whose own
+`tap:` is `personal`, and `_ciw_tap()` (`agents/lib/claude-identity-wrapper.sh`)
+now derives `~/.claude-tick` → `personal` directly, same as it always derived
+`~/.claude` → `personal`.
+
+**This is a QUERY-TIME mapping, applied going forward. History is NEVER
+rewritten** — same discipline as the epoch-1/epoch-2 seam above. Every row
+already logged with `agentgateway_group='tick'` stays exactly as logged; a
+query that wants billing-true totals folds it into `personal` at read time:
+
+```sql
+-- billing-true weekly spend for the personal tap, across BOTH the pre-iez1
+-- 'tick' group value and every 'personal' row, old or new
+SELECT sum(total_tokens) FROM request_logs
+WHERE agentgateway_group IN ('personal', 'tick')
+  AND datetime(started_at) >= datetime('now', '-7 days');
+```
+
+The value-shape epoch query above (`agentgateway_group IN ('personal','work','tick')`
+=> epoch2) is UNCHANGED by this — `'tick'` is still a value epoch-2 rows can
+carry, forever, for every row logged before this date; it just no longer means
+a distinct tap when you group by it for billing. `agents/scheduler/marshal-drain.sh`'s
+`tap_predicate()` implements exactly this fold (`group IN ('personal','tick')`
+for the `personal` tap; `tap: tick` in a schedule's own config now degrades
+honestly with `reason=unknown-tap:tick`, since `tick` is no longer a
+config-accepted tap value either).
+
 ## The epoch seam — and why the boundary is NOT a date
 
 **History is never rewritten.** Epoch-1 rows stay exactly as logged.

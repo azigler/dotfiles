@@ -8,6 +8,13 @@
   "hosts": [
     "zig-computer"
   ],
+  "profiles": {
+    "tick": {
+      "config_dir": "~/.claude-tick",
+      "jail": "bwrap",
+      "tap": "personal"
+    }
+  },
   "schema": 1,
   "seats": {
     "aaif": {
@@ -120,16 +127,17 @@
       "home": "~/digestd",
       "model": "sonnet",
       "office": "The Herald",
+      "profile": "tick",
       "schedules": [
         {
           "session": "zig-computer",
-          "tap": "tick",
+          "tap": "personal",
           "unit": "pulse-digest",
           "window": "digest"
         }
       ],
       "sigil": "📯",
-      "tap": "tick"
+      "tap": "personal"
     },
     "dive": {
       "aliases": [],
@@ -139,16 +147,17 @@
       "home": "~/explore",
       "model": "opus",
       "office": "The Ranger",
+      "profile": "tick",
       "schedules": [
         {
           "session": "zig-computer",
-          "tap": "tick",
+          "tap": "personal",
           "unit": "pulse-dive",
           "window": "dive"
         }
       ],
       "sigil": "🧭",
-      "tap": "tick"
+      "tap": "personal"
     },
     "dotfiles": {
       "aliases": [],
@@ -400,13 +409,6 @@
       "config_dir": "~/.claude",
       "failover": [
         "work"
-      ],
-      "type": "claude"
-    },
-    "tick": {
-      "config_dir": "~/.claude-tick",
-      "failover": [
-        "personal"
       ],
       "type": "claude"
     },

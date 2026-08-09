@@ -37,10 +37,7 @@ charter: null
 # over to work when personal is exhausted/unavailable, but work-tap seats do
 # NOT fail over to personal — a schedule bound to `work` (LinearB's day-of-week
 # + reporting rows) is Zig's job, and silently spending the wrong account's
-# quota on someone else's work is worse than the row stalling. `tick` mirrors
-# tick-jailed.sh's own AUTO-DETECT-WITH-SAFE-FALLBACK (explore-24fn): if the
-# isolated ~/.claude-tick credential is missing, the jail already falls back to
-# the shared/personal config, so the same order is recorded here.
+# quota on someone else's work is worse than the row stalling.
 # ---------------------------------------------------------------------------
 taps:
   personal:
@@ -51,10 +48,25 @@ taps:
     type: claude
     config_dir: ~/.claude-work
     failover: [] # NEVER falls over to personal — see note above
+
+# ---------------------------------------------------------------------------
+# PROFILES (dotfiles-iez1) — a jail/config-dir VARIANT of a real tap, not a
+# billing source of its own. Verified empirically 2026-08-09: ~/.claude and
+# ~/.claude-tick carry IDENTICAL account fingerprints (same Max subscription;
+# only ~/.claude-work is a distinct account), so 'tick' was never a second tap
+# — it is the isolated bwrap sandbox tick-jailed.sh (explore-24fn) runs the
+# dive/digest pulse in, still spending the `personal` tap's quota. A seat's
+# BILLING is always its `tap:`; `profile:` only names which config-dir variant
+# a launch actually used. tick-jailed.sh's own AUTO-DETECT-WITH-SAFE-FALLBACK
+# already falls the isolated ~/.claude-tick credential back to the shared
+# ~/.claude one when missing — both ends of that fallback are the SAME tap, so
+# there is no failover list here the way `taps:` has one.
+# ---------------------------------------------------------------------------
+profiles:
   tick:
-    type: claude
     config_dir: ~/.claude-tick
-    failover: [personal] # matches tick-jailed.sh's own isolated->shared fallback
+    tap: personal
+    jail: bwrap
 
 # ---------------------------------------------------------------------------
 # UNIT ALLOWLIST (dotfiles-hfm5) — enabled pulse-* timers that are
@@ -225,14 +237,16 @@ seats:
     home: ~/explore
     model: opus
     effort: high
-    tap: tick
+    tap: personal
+    profile: tick
     aliases: []
     history: refs/seats/dive.history.md
     schedules:
       # tick-jailed.sh (explore-24fn): auto-detects the isolated ~/.claude-tick
-      # credential and runs the tick there.
+      # credential and runs the tick there — still the `personal` tap
+      # (dotfiles-iez1: 'tick' is a jail profile, not a billing source).
       - unit: pulse-dive
-        tap: tick
+        tap: personal
         window: dive
         session: zig-computer
 
@@ -275,12 +289,13 @@ seats:
     home: ~/digestd
     model: sonnet
     effort: high
-    tap: tick
+    tap: personal
+    profile: tick
     aliases: [digest]
     history: refs/seats/digestd.history.md
     schedules:
       - unit: pulse-digest
-        tap: tick
+        tap: personal
         window: digest
         session: zig-computer
 

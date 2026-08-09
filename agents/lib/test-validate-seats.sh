@@ -508,6 +508,89 @@ PY
 run "$F2"
 if [ "$RC" -eq 0 ]; then ok; else bad "SEATTAP-CONSISTENCY (fixed): must pass: $OUT"; fi
 
+# --- 24-26. PROFILE (dotfiles-iez1): 'tick' is a jail PROFILE of a real tap,
+# not a tap of its own -- ~/.claude-tick and ~/.claude carry the same account.
+
+# 24. a `profiles:` entry naming an undeclared tap must fail, tagged, and name
+# the offending tap.
+F="$BASE/profile-unknown-tap.yml"
+python3 - "$GOOD" "$F" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+text = open(src).read()
+marker = "seats:\n"
+insert = (
+    "profiles:\n"
+    "  tick:\n"
+    "    config_dir: ~/.claude-tick\n"
+    "    tap: nosuchtap\n"
+)
+idx = text.index(marker)
+text = text[:idx] + insert + text[idx:]
+open(dst, "w").write(text)
+PY
+run "$F"
+if [ "$RC" -ne 0 ]; then ok; else bad "PROFILE-TAP-UNKNOWN (unknown tap): must fail"; fi
+case "$OUT" in
+  *"PROFILE:"*"nosuchtap"*) ok ;;
+  *) bad "PROFILE-TAP-UNKNOWN (unknown tap): expected that tag naming nosuchtap, got: $OUT" ;;
+esac
+
+# 25. a seat declaring a `profile:` that is not declared under `profiles:`
+# (no `profiles:` block exists at all here) must fail, tagged, and name desk.
+F="$BASE/profile-seat-unknown.yml"
+python3 - "$GOOD" "$F" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+text = open(src).read()
+idx_desk = text.index("  desk:")
+idx_dream = text.index("  dream:")
+block = text[idx_desk:idx_dream]
+old = "    tap: personal\n    aliases:"  # the SEAT-level tap only, not the
+                                        # schedule's own (same value, deeper
+                                        # indent) -- anchored on what follows
+assert block.count(old) == 1, block.count(old)
+block = block.replace(old, "    tap: personal\n    profile: tick\n    aliases:")
+text = text[:idx_desk] + block + text[idx_dream:]
+open(dst, "w").write(text)
+PY
+run "$F"
+if [ "$RC" -ne 0 ]; then ok; else bad "PROFILE-SEAT-UNKNOWN (seat profile undeclared): must fail"; fi
+case "$OUT" in
+  *"PROFILE:"*"desk"*) ok ;;
+  *) bad "PROFILE-SEAT-UNKNOWN (seat profile undeclared): expected that tag naming desk, got: $OUT" ;;
+esac
+
+# 26. the valid case: a declared `profiles:` block (tick -> tap: personal)
+# plus a seat referencing it by name -- must pass, and the seat's BILLING tap
+# is unchanged (still `personal`, read via SEATTAP as always).
+F="$BASE/profile-good.yml"
+python3 - "$GOOD" "$F" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+text = open(src).read()
+marker = "seats:\n"
+insert = (
+    "profiles:\n"
+    "  tick:\n"
+    "    config_dir: ~/.claude-tick\n"
+    "    tap: personal\n"
+)
+idx = text.index(marker)
+text = text[:idx] + insert + text[idx:]
+idx_desk = text.index("  desk:")
+idx_dream = text.index("  dream:")
+block = text[idx_desk:idx_dream]
+old = "    tap: personal\n    aliases:"  # seat-level tap only, see case 25
+assert block.count(old) == 1, block.count(old)
+block = block.replace(old, "    tap: personal\n    profile: tick\n    aliases:")
+text = text[:idx_desk] + block + text[idx_dream:]
+open(dst, "w").write(text)
+PY
+run "$F"
+if [ "$RC" -eq 0 ]; then ok; else bad "PROFILE (valid profile reference): must pass: $OUT"; fi
+case "$OUT" in *"OK"*) ok ;; *) bad "PROFILE (valid): expected an OK line, got: $OUT" ;; esac
+
 # --- Summary ---
 TOTAL=$((PASS + FAIL))
 if [ "$FAIL" -eq 0 ]; then

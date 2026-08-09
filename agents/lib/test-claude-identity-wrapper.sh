@@ -467,6 +467,11 @@ fi
 # The unrecognised case gets a `?` for the same reason the address does: a dir
 # that does not follow the `~/.claude-<tap>` convention is not a known tap, and
 # silently naming it one would put fabricated rows in the billing rollup.
+# ~/.claude-tick is the one deliberate exception (dotfiles-iez1): it is a jail
+# PROFILE of `personal`, not a tap — ~/.claude and ~/.claude-tick carry the
+# IDENTICAL account fingerprint (same Max subscription), so the config-dir
+# convention's usual "strip claude-, that's the tap name" read would be
+# billing-false here specifically.
 tap_of() { printf '%s\n' "$1" | sed -n 's/^X-Tap: //p'; }
 
 run "$SH" MOCK_HOST=testbox                                  # CLAUDE_CONFIG_DIR unset
@@ -475,7 +480,7 @@ check 'T15a unset CLAUDE_CONFIG_DIR -> personal (the vendor default ~/.claude)' 
 assert_launch 'T15a'
 
 for _cd_case in "/home/x/.claude:personal" "/home/x/.claude-work:work" \
-                "/home/x/.claude-tick:tick" "~/.claude-work:work" \
+                "/home/x/.claude-tick:personal" "~/.claude-work:work" \
                 "/home/x/.claude-work/:work" "/home/x/nonsense:?nonsense"; do
   _cd=${_cd_case%:*}; _want=${_cd_case##*:}
   run "$SH" MOCK_HOST=testbox CLAUDE_CONFIG_DIR="$_cd"

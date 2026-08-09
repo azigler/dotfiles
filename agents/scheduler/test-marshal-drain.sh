@@ -272,6 +272,31 @@ assert_verdict "T15b.1 unset weekly cap degrades (never an invented cap)" "$OUT"
 eq "T15b.2 a degraded run still reports MEASURED spend" \
    "$(jq_py "$(plan_json "$OUT")" 'd["spent_this_window"]')" "1000000"
 
+# --- T3e (dotfiles-iez1): 'tick' is a jail PROFILE of `personal`, not a tap
+# of its own -- group='tick' rows count as personal spend, and a schedule's
+# own `tap: tick` is no longer a real tap value; it degrades honestly rather
+# than silently matching nothing. Isolated fixture db so this doesn't disturb
+# the shared $DB's row set every other BUDGET case above asserts against.
+DB2="$FIX/requests-tick.db"
+sqlite3 "$DB2" <<'SQL'
+CREATE TABLE request_logs (
+  id TEXT PRIMARY KEY, started_at TEXT NOT NULL, total_tokens INTEGER,
+  agentgateway_user TEXT, agentgateway_group TEXT);
+INSERT INTO request_logs VALUES
+ ('a','2026-08-06T18:00:00.000000+00:00',300000,'zig-computer:dotfiles','personal'),
+ ('t','2026-08-07T18:00:00.000000+00:00',500000,'zig-computer:dive','tick'),
+ ('d','2026-08-06T18:00:00.000000+00:00',5000000,'zig-computer:linearb','work');
+SQL
+
+OUT=$(MARSHAL_SQL_CMD="sqlite3 $DB2" run budget --weekly-cap 10000000)
+eq "T3e.1 group='tick' rows count toward the personal tap (dotfiles-iez1)" \
+   "$(jq_py "$(plan_json "$OUT")" 'd["spent_this_window"]')" "800000"
+
+mkconf "$FIX/conf-tick-tap" tap=tick
+OUT=$(MARSHAL_CONF="$FIX/conf-tick-tap" MARSHAL_SQL_CMD="sqlite3 $DB2" run budget --weekly-cap 10000000)
+assert_verdict "T3e.2 tap: tick in config degrades -- tick is a profile, not a tap" "$OUT" "MARSHAL_BUDGET=" \
+  '^MARSHAL_BUDGET=degraded fallback_tokens=150000 reason=unknown-tap:tick$'
+
 # --- T18 the config parser refuses anything that is not key=value ---------
 printf 'repos=x:%s\nevil=$(touch %s/pwned)\n' "$FIX/repos/harnessd" "$FIX" > "$FIX/conf-evil"
 OUT=$(MARSHAL_CONF="$FIX/conf-evil" run_err budget --weekly-cap 10)
