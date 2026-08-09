@@ -702,6 +702,47 @@ else
   bad "t5fj-unregistered-named: an unregistered loop is named as such and still re-fires (starts=$(started_count))"
 fi
 
+# Case 26 (t5fj adversarial review): THE ALREADY-RUNNING BRANCH IS TTL-BOUNDED.
+#   That branch is the only one in step 3d.5 that compares nothing against the
+#   bounce — it reads a delivery row plus a GLYPH, and a glyph can lie (a session
+#   that died mid-turn leaves 🧠 standing). Unbounded, one ancient row (the file
+#   retains ~1000, i.e. weeks) plus one stale 🧠 would keep a genuine bounce
+#   marked acted FOREVER, outliving even the injector's own 24h bound on the same
+#   claim. Fixture: the row names this session+window and the window IS 🧠 — only
+#   the row's AGE differs from case 21 — so this isolates the TTL alone.
+setup_case
+printf '{"ts":"2026-08-09T15:48:32Z","loop":"pulse-marshal","reason":"blocked_on_andrew"}\n' \
+  > "$HARNESS_STATE_DIR/pulse-bounces.jsonl"
+printf '{"ts":"2020-01-01T00:00:00Z","loop":"pulse-marshal","session":"zig-computer","window":"marshal","pane":"@7.0","fresh":1}\n' \
+  > "$HARNESS_STATE_DIR/pulse-injections.jsonl"
+printf '%s\n' "$FUTURE_US" > "$PRT_FAKE/nextfire/pulse-marshal.timer"
+printf 'ExecStart={ argv[]=x --session zig-computer --window marshal ; }\n' \
+  > "$PRT_FAKE/execstart/pulse-marshal.service"
+printf '🧠 marshal\n' > "$PRT_FAKE/windows/zig-computer"    # the lying glyph
+"$RETRY"
+if [ "$(started_count)" = "1" ]; then
+  ok
+else
+  bad "t5fj-running-ttl: a delivery row older than PULSE_SAME_LOOP_TTL cannot claim the live turn — a genuine bounce still re-fires (got $(started_count) starts)"
+fi
+# …and the TTL is the SHARED knob, not a second private one: widening
+# PULSE_SAME_LOOP_TTL past the row's age must bring the resolution back.
+setup_case
+printf '{"ts":"2026-08-09T15:48:32Z","loop":"pulse-marshal","reason":"blocked_on_andrew"}\n' \
+  > "$HARNESS_STATE_DIR/pulse-bounces.jsonl"
+printf '{"ts":"2020-01-01T00:00:00Z","loop":"pulse-marshal","session":"zig-computer","window":"marshal","pane":"@7.0","fresh":1}\n' \
+  > "$HARNESS_STATE_DIR/pulse-injections.jsonl"
+printf '%s\n' "$FUTURE_US" > "$PRT_FAKE/nextfire/pulse-marshal.timer"
+printf 'ExecStart={ argv[]=x --session zig-computer --window marshal ; }\n' \
+  > "$PRT_FAKE/execstart/pulse-marshal.service"
+printf '🧠 marshal\n' > "$PRT_FAKE/windows/zig-computer"
+PULSE_SAME_LOOP_TTL=99999999999 "$RETRY"
+if [ "$(started_count)" = "0" ] && grep -q 'within the 99999999999s TTL' "$HARNESS_STATE_DIR/pulse-retry.log"; then
+  ok
+else
+  bad "t5fj-running-ttl-knob: PULSE_SAME_LOOP_TTL is the knob this branch reads, and the resolved line states the row's age (starts=$(started_count))"
+fi
+
 # --- Summary ---
 TOTAL=$((PASS + FAIL))
 if [ "$FAIL" -eq 0 ]; then

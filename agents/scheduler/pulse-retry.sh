@@ -54,8 +54,13 @@
 #        NEWER than the bounce means somebody already delivered this tick — by
 #        hand, by an earlier retry, by the natural timer — so the bounce is spent.
 #        And a row naming THIS session+window while that window is mid-turn
-#        (🧠/🌀) means the tick is running RIGHT NOW: re-firing would queue behind
-#        it, which is the incident above.
+#        (🧠/🌀) AND YOUNGER THAN PULSE_SAME_LOOP_TTL means the tick is running
+#        RIGHT NOW: re-firing would queue behind it, which is the incident above.
+#        That third clause is not decoration — this is the ONE branch here that
+#        compares nothing against the bounce, so without a TTL a weeks-old row
+#        (the file retains ~1000) plus a lying 🧠 would keep a genuine bounce
+#        acted forever. The knob is pulse-inject.sh's, shared rather than
+#        duplicated: same proposition, one TTL.
 #   (ii) LEDGER — a completion row newer than the bounce. Where the loop is
 #        registered in the harnessd manifest (~/harnessd/refs/harness-manifest.json),
 #        that manifest already pins its ledger + ledger_row per loop; the lookup and
@@ -123,6 +128,9 @@
 #                         disables the watch; tests point it at a recorder stub).
 #   HARNESS_MANIFEST    — the harnessd loop manifest the staleness check resolves
 #                         ledgers through (same seam name pulse-ledger-watch.sh uses).
+#   PULSE_SAME_LOOP_TTL — seconds a delivery row may still be read as "that turn is
+#                         this loop's tick" (default 86400). SHARED with
+#                         pulse-inject.sh's guard — same claim, one knob.
 
 set -uo pipefail
 
@@ -139,6 +147,11 @@ INJECTIONS="$STATE_DIR/pulse-injections.jsonl"
 # pulse-ledger-watch.sh (which this script already invokes): ONE discovery
 # mechanism for "where does this loop record its completions".
 MANIFEST="${HARNESS_MANIFEST:-$HOME/harnessd/refs/harness-manifest.json}"
+# ONE knob, shared with pulse-inject.sh's same-loop guard, deliberately: both
+# scripts use it to bound the SAME claim — "the turn running in that pane is this
+# loop's tick" — and two independently-drifting TTLs for one proposition is the
+# two-copies defect. Default and name are pulse-inject.sh's; see step 3d.5.
+SAME_LOOP_TTL="${PULSE_SAME_LOOP_TTL:-86400}"
 
 TMUX_BIN=$(command -v tmux 2>/dev/null)
 [ -x "${TMUX_BIN:-}" ] || TMUX_BIN=/usr/bin/tmux
@@ -183,6 +196,26 @@ newest_injection() {
   # real error and belongs in the log rather than in /dev/null.
   [ -r "$INJECTIONS" ] || return 0
   grep -F "\"loop\":\"$1\"" "$INJECTIONS" 2>>"$LOG" | tail -n1
+}
+
+# injection_age <ts> — age in SECONDS of a delivery row's timestamp. Echoes 0 for
+# an absent or malformed stamp, which is the SAFE answer here: 0 keeps the row
+# inside the TTL, so an unreadable marker reads as "that turn may still be ours"
+# and the re-fire is skipped. A re-fire skipped in error costs one cycle (the
+# natural timer still fires); a re-fire made in error queues /clear into a live
+# run. Same asymmetry, and the same direction, as pulse-inject.sh's guard.
+#
+# The shape is checked BEFORE date(1) so an unusable stamp is a DECISION this
+# function makes rather than an error it swallows.
+injection_age() {
+  local _ts=$1 _epoch
+  case "$_ts" in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) : ;;
+    *) note "  delivery row ts '${_ts:-<none>}' is not YYYY-MM-DDTHH:MM:SSZ — treating it as age 0 (inside the TTL), because an unreadable marker must never read as 'nothing is running'"
+       printf '0'; return 0 ;;
+  esac
+  _epoch=$(date -u -d "$_ts" +%s)
+  printf '%s' "$(( $(date +%s) - _epoch ))"
 }
 
 # turn_in_flight <window-name> — does the lexicon say a turn is running there?
@@ -418,11 +451,25 @@ for loop in "${!LATEST_BOUNCE[@]}"; do
     isess=$(json_field "$inj_line" session)
     iwin=$(json_field "$inj_line" window)
     ikey=$(ts_key "$its"); bkey_s=$(ts_key "$bts")
+    iage=$(injection_age "$its")
     if [ "$found" = 1 ] && [ "$isess" = "$session" ] && [ "$iwin" = "$window" ] \
-       && turn_in_flight "$target_name"; then
+       && turn_in_flight "$target_name" && [ "$iage" -le "$SAME_LOOP_TTL" ]; then
       # The incident's own shape: a tick of THIS loop is running in the very pane
       # a re-fire would inject into. Re-firing queues /clear behind a live run.
-      resolved="tick already running: window '$target_name' ($session) is mid-turn and pulse-inject last delivered '$loop' to $isess:$iwin at $its"
+      #
+      # ⚠️ THE TTL IS LOAD-BEARING HERE AND NOWHERE ELSE IN THIS STEP. The other
+      # two signals compare a timestamp AGAINST THE BOUNCE, so they are
+      # self-bounding — a row older than the bounce simply does not resolve it.
+      # This branch compares against nothing: it reads a delivery row plus a
+      # GLYPH, and a glyph can lie (a session that died mid-turn leaves 🧠
+      # standing). Unbounded, one ancient row in a file that retains ~1000 of
+      # them plus one stale 🧠 would mark a genuine bounce acted FOREVER, and it
+      # would outlive even the injector's own 24h bound on the same claim. Same
+      # knob as pulse-inject.sh's guard by design (PULSE_SAME_LOOP_TTL): the two
+      # scripts are asserting the SAME proposition — "that turn is this loop's
+      # tick" — and two independently-drifting TTLs for one claim is the
+      # two-copies defect. (dotfiles-t5fj, adversarial review.)
+      resolved="tick already running: window '$target_name' ($session) is mid-turn and pulse-inject last delivered '$loop' to $isess:$iwin at $its (${iage}s ago, within the ${SAME_LOOP_TTL}s TTL)"
     elif [ "${ikey:-0}" -gt "${bkey_s:-0}" ]; then
       resolved="already delivered at $its (pulse-inject recorded a delivery of '$loop' NEWER than the bounce $bts)"
     fi

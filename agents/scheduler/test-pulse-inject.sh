@@ -1330,6 +1330,8 @@ if [ "$RUN_T5FJ" = 1 ]; then
 # window's lexicon glyph (🧠/🌀) and a delivery row for THIS loop naming THIS
 # session+window inside the TTL. Case T33a pins the write; T33b the refusal; and
 # T33c-T33i are the controls that stop the guard from becoming "never inject".
+# T33j/T33k pin the one residual that errs the WRONG way — a delivery row that
+# could not be written — as LOUD rather than silent.
 #
 # EVERY case here runs on a PRIVATE tmux server (-L) with an inert launcher
 # (`cat`), for the same reason cases 18-32 do.
@@ -1547,9 +1549,55 @@ else
   bad "T33h 🌀 (compacting) is a live turn too (got '$(printf '%s\n' "$T33G2_OUT" | tail -n1)')"
 fi
 
+# --- T33j / T33k: A FAILED DELIVERY WRITE IS LOUD, NOT SILENT ---------------
+# The residual the adversarial review named. This row is the ONLY evidence the
+# tick was delivered, so if the write fails the NEXT --fresh tick finds no row
+# and PROCEEDS — an unknown resolving to NOT-running, which is the one direction
+# the guard forbids, and it replays the original incident. It cannot be fixed
+# retroactively (a guard cannot refuse on evidence that was never written), so
+# the posture is: fail LOUD at delivery time, while it is still actionable.
+#
+# Unwritable state dir, driven the honest way: a 0500 parent, so mkdir -p of the
+# child genuinely fails with the kernel's own message.
+TTMUX rename-window -t "$T5PANE" "marshal"
+sleep 0.3
+ST33_RO=$(mktemp -d)
+chmod 500 "$ST33_RO"
+t5_fence "FENCE-T33J"
+T33J_OUT=$(PULSE_TMUX_BIN="$TPRIV_TMUX" HARNESS_STATE_DIR="$ST33_RO/nowhere" PULSE_FRESH_SETTLE=1 \
+  "$INJECT" --session "$T5SESS" --window marshal --dir "$DIR" --launch cat \
+  --loop pulse-marshal --cmd "t33j-should-appear" 2>"$DIR/t33j.stderr")
+sleep 1
+T33J_ERR=$(cat "$DIR/t33j.stderr")
+chmod 700 "$ST33_RO"
+# The tick itself is unaffected: it was delivered, so the verdict stays `injected`
+# and the command really landed. A recording failure must never be reported as a
+# delivery failure — that would trade one wrong answer for another.
+if [ "$(printf '%s\n' "$T33J_OUT" | tail -n1)" = "PULSE_INJECT_RESULT=injected" ] \
+   && t5_tail FENCE-T33J | grep -q 't33j-should-appear'; then
+  ok
+else
+  bad "T33j an unwritable state dir does not break the delivery: verdict stays injected and the cmd lands (got '$(printf '%s\n' "$T33J_OUT" | tail -n1)')"
+fi
+# …and the failure SURFACES, on both streams. Combined deliberately: silencing
+# either half is the defect, so either half going missing must redden this case.
+if printf '%s\n' "$T33J_OUT" | grep -q '^PULSE_INJECT_WARN=delivery-unrecorded$' \
+   && printf '%s\n' "$T33J_ERR" | grep -q 'delivery row could NOT be written'; then
+  ok
+else
+  bad "T33k a failed delivery-row write is LOUD — PULSE_INJECT_WARN=delivery-unrecorded on stdout AND a WARNING sentence on stderr (stdout-marker='$(printf '%s\n' "$T33J_OUT" | grep '^PULSE_INJECT_WARN=' || echo NONE)')"
+fi
+# …and the WARN never contaminates the verdict contract: still exactly ONE
+# PULSE_INJECT_RESULT line, and it is still the LAST one.
+if [ "$(printf '%s\n' "$T33J_OUT" | grep -c '^PULSE_INJECT_RESULT=')" -eq 1 ]; then
+  ok
+else
+  bad "T33k the WARN marker is a SEPARATE line — exactly one verdict line remains (got $(printf '%s\n' "$T33J_OUT" | grep -c '^PULSE_INJECT_RESULT='))"
+fi
+
 env -u TMUX -u TMUX_TMPDIR "$TMUX_BIN" -L "$TPRIV" kill-server 2>/dev/null
 rm -f "$TPRIV_SOCKDIR/$TPRIV"
-rm -rf "$ST33" "$ST33_NOLOOP" "$ST33_OLD" "$ST33_OTHER"
+rm -rf "$ST33" "$ST33_NOLOOP" "$ST33_OLD" "$ST33_OTHER" "$ST33_RO"
 
 fi   # ↑↑↑ end of case 33 (skipped by PULSE_TEST_ONLY=seat|model)
 

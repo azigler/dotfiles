@@ -233,6 +233,23 @@
 #                * No --loop ⇒ no row identity ⇒ the guard cannot run at all, and
 #                  says so in the log rather than pretending it checked.
 #                * An unparseable ts on the newest row is treated as RUNNING.
+#                * ⚠️ THE ONE RESIDUAL THAT ERRS THE WRONG WAY — a delivery row
+#                  that could NOT BE WRITTEN (unwritable state dir, full disk).
+#                  The next tick then finds no row, and "no row" means NOT
+#                  running: an unknown resolving against the rule above, which
+#                  replays the original incident. It cannot be fixed
+#                  retroactively — the fact was never recorded, and a guard
+#                  cannot refuse on evidence that does not exist — so the write
+#                  failure is made LOUD instead, at the moment it is still
+#                  actionable: a stderr sentence, a note() WARN, and
+#                  `PULSE_INJECT_WARN=delivery-unrecorded` on stdout beside the
+#                  verdict (see record_injection). What bounds the damage is NOT
+#                  the TTL (that only ever shortens how long a row is believed):
+#                  it is the window between the failed write and the next
+#                  successful delivery row for that loop, during which the
+#                  delivery signal is blind. The LEDGER signal (for a
+#                  manifest-registered loop) and pulse-retry's next_fire ceiling
+#                  are unaffected and still apply.
 #              Only --fresh is gated. A plain tick queueing behind a live turn is
 #              the composer working as designed and is left exactly as it was.
 #
@@ -315,6 +332,20 @@
 #   the argument guards write their prose to STDERR — neither is the verdict. A
 #   consumer must capture stdout (`OUT="$(pulse-inject.sh … )"`, or `2>&1` if it
 #   also wants the guard prose) and read the marker from it.
+#
+#   ONE NON-VERDICT MARKER SHARES THIS STREAM, and it is deliberately a different
+#   key so it can never be mistaken for an outcome (dotfiles-t5fj):
+#
+#     PULSE_INJECT_WARN=delivery-unrecorded   the tick WAS delivered, but its row in
+#                                             pulse-injections.jsonl could not be
+#                                             written, so the same-loop guard and
+#                                             pulse-retry's delivery signal are blind
+#                                             to this tick. Printed BEFORE the verdict;
+#                                             the verdict is still the last line.
+#
+#   A consumer that only greps `PULSE_INJECT_RESULT=` is unaffected by it, which
+#   is exactly why the warning is NOT appended to the verdict line: every reader
+#   of that line (this suite included) compares it for EQUALITY.
 #
 #   PARSING: match the literal `PULSE_INJECT_RESULT=<verdict>`; take the LAST such
 #   line if you see more than one (there is exactly one per run by construction).
@@ -544,16 +575,39 @@ record_bounce() {
 # them sits "this loop was typed into this pane at this time", which is exactly
 # what both the guard below and pulse-retry.sh's staleness check need.
 #
-# Loop-scoped (only with --loop) and best-effort, both for the same reasons
-# record_bounce is: a row that cannot be written must never cost the tick.
+# Loop-scoped (only with --loop). NON-FATAL, like record_bounce — the tick has
+# already been delivered by the time this runs, so failing the caller here would
+# turn a successful tick into a reported failure — but deliberately NOT SILENT.
+#
+# ⚠️ WHY A FAILED WRITE IS LOUD (dotfiles-t5fj, adversarial review). This row is
+# the ONLY evidence that this tick was delivered. If it is missing, the next
+# --fresh tick's guard reads "this injector has never recorded a delivery for
+# this loop" and PROCEEDS — an unknown resolving to NOT-running, which is the one
+# direction the guard's whole design forbids, and it replays the original
+# incident exactly. Nothing downstream can recover that: the fact was never
+# written. So the failure is reported three ways (stderr sentence, note(), and a
+# machine-readable PULSE_INJECT_WARN line) at the moment it is still actionable,
+# rather than surfacing later as a context wipe with no trail.
 record_injection() {
   [ -n "$LOOP" ] || return 0
   local _idir="${HARNESS_STATE_DIR:-$HOME/.local/state/harness}"   # override for tests
   local _ifile="$_idir/pulse-injections.jsonl"
-  { mkdir -p "$_idir" 2>/dev/null \
-    && printf '{"ts":"%s","loop":"%s","session":"%s","window":"%s","pane":"%s","fresh":%s}\n' \
-         "$(date -u +%FT%TZ)" "$LOOP" "$SESSION" "$WINDOW" "$PANE" "$FRESH" >> "$_ifile" 2>/dev/null ; } \
-    || note "injection-record failed for loop '$LOOP' (non-fatal)"
+  local _err
+  # stderr is CAPTURED, not discarded: the message names WHY the state dir is
+  # unusable, and that sentence is the whole value of making this loud.
+  if ! _err=$( { mkdir -p "$_idir" \
+      && printf '{"ts":"%s","loop":"%s","session":"%s","window":"%s","pane":"%s","fresh":%s}\n' \
+           "$(date -u +%FT%TZ)" "$LOOP" "$SESSION" "$WINDOW" "$PANE" "$FRESH" >> "$_ifile" ; } 2>&1 ); then
+    echo "pulse-inject: WARNING — the tick WAS delivered to $PANE, but its delivery row could NOT be written to $_ifile (${_err:-no message}). Until a later delivery for '$LOOP' lands, this injector's own --fresh same-loop guard and pulse-retry's delivery signal are BLIND to this tick: a re-fire could queue /clear behind it. Fix the state dir." >&2
+    note "WARN: delivery row NOT recorded for loop '$LOOP' (${_err:-no message}) — the same-loop guard and pulse-retry's delivery signal cannot see this tick"
+    # A DISTINCT prefix, never fused into the verdict line. The outcome contract
+    # is `PULSE_INJECT_RESULT=<verdict>` matched literally, and every consumer
+    # (including this suite) compares that line for EQUALITY — appending to it
+    # would break every parser to report a warning. A separate marker is
+    # additive: it cannot match the verdict regex, and the verdict stays last.
+    printf 'PULSE_INJECT_WARN=delivery-unrecorded\n'
+    return 0
+  fi
   local _lines
   _lines=$(wc -l < "$_ifile" 2>/dev/null || echo 0)
   if [ "${_lines:-0}" -gt "$INJECTION_MAX_LINES" ] 2>/dev/null; then
