@@ -102,3 +102,13 @@
   edwu/90vm land — adjudicated (fst4), not new drift.
 - Fable week: ~81% used at ~20:50Z. Rollover may fire for real this week — the first 429 is a
   watch item, not an alarm.
+
+## Addendum — marshal window (2d803f56, ~21:25Z): onboard-only context, molting again
+- Fresh post-molt marshal context onboarded, found no injected tick, did no drain work
+  (correct — the timer is the loop). Stop-guard fired >50% at idle → deliberate molt
+  (this amend + `seat-molt.sh --self --mode auto --in-flight no`).
+- Verified all 5 `worktree-agent-*` branches are merged into main; the 4 locked worktrees
+  belong to the consul + marshal lanes — left in place, reaping gates on completion confirmation.
+- Watched the two concurrent writers land rather than racing them: works' offboard note
+  (`6000dba`) and the taps ruling (`b7feef8`, `seat_home.marshal=secondary`) both committed
+  while this session offboarded. Next marshal night funds from the FRESH pool.
