@@ -28,10 +28,20 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 SCRIPT="$HERE/fleet-creds.sh"
 TMPDIR_T=$(mktemp -d "${TMPDIR:-/tmp}/fcsuite.XXXXXX")
 SOCK=fcsuite$$
-TM=(tmux -L "$SOCK")
+# Env hygiene (dotfiles-2v8h, the 2026-08-09 incident): -L already overrides an
+# inherited $TMUX, but every invocation below also strips TMUX/TMUX_TMPDIR so
+# nothing here can EVER be read as depending on ambient env for its socket.
+TM=(env -u TMUX -u TMUX_TMPDIR tmux -L "$SOCK")
+SOCKPATH="/tmp/tmux-$UID/$SOCK"
 PASS=0; FAIL=0
 
-cleanup() { "${TM[@]}" kill-server 2>/dev/null; rm -rf "$TMPDIR_T"; }
+# `kill-server` alone is NOT enough to keep /tmp/tmux-1000/ clean — measured
+# live (dotfiles-2v8h): a successful kill-server on this box regularly exits
+# WITHOUT unlinking its own socket special file, so the dead file lingers and
+# accumulates across runs. `rm -f` the socket path explicitly — a plain
+# unlink, never touches a live server on a DIFFERENT name, no-op if tmux
+# already cleaned up.
+cleanup() { "${TM[@]}" kill-server 2>/dev/null; rm -f "$SOCKPATH"; rm -rf "$TMPDIR_T"; }
 trap cleanup EXIT
 
 ok()   { PASS=$((PASS+1)); printf '  ok   %s\n' "$*"; }
