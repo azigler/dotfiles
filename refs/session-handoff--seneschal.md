@@ -34,7 +34,7 @@
 ## What's next
 1. Next tick: normal `/seneschal brief` (pulse-seneschal.timer 06:44 PT).
 2. Brief inputs to watch: `dotfiles-udhm` closing → next dream laurel arrives committed; `dotfiles-uttn` closing → laurel lines stop truncating mid-clause.
-3. Open fork unchanged: mail-on-active is a `dotfiles-7fik` R3 amendment (push vs delivery-at-wake) — route to 7fik's check walk, don't relitigate at this desk.
+3. The mail-on-active fork (7fik R3 amendment, push vs delivery-at-wake) now HAS an owner: `dotfiles-sf86` (P1, filed post-offboard at this desk's routing, 29802cf) — the fork is an explicit AC there. Zig's interactive blocked-on-Zig set for the next brief: `pm33` (69qr+htqt walks), `sf86` (7fik/POST walk), `qmrp` D1–D7, `iiqb.1` ratification — verify each is still open at brief time via `br show`, don't trust this list.
 
 ## Warnings / watch-outs
 - Do not overwrite plain `refs/session-handoff.md` from this window, ever — it is the dotfiles seat's.
