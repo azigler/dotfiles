@@ -276,7 +276,7 @@ fi
 # Apple MLX inference server, OpenAI-compatible API. Lives alongside Ollama
 # (port 8081 vs Ollama's 11434) for empirical A/B benchmarks on the
 # recommended coding models (Qwen3-Coder-30B, Devstral, GLM-4.5-Air) per the
-# local-coding-models exploration in ~/explore/. See mlx/README.md for the
+# local-coding-models exploration in ~/explore/. See ~/.agents/mlx/README.md for the
 # full operations + model-pull workflow.
 # Same custom-LaunchAgent pattern as Ollama/Phoenix — we own the bind + flags
 # so they survive across reinstalls. Idempotent re-runs reuse existing model
@@ -295,7 +295,7 @@ fi
 # Apple-Silicon SD inference, bound 0.0.0.0:7860 so tailnet AND home LAN devices
 # reach it. Public-internet exposure is deliberately OMITTED — A1111 has no real
 # auth; trust boundary is the network. Zig-computer's nginx does NOT proxy here.
-# See a1111/README.md for posture details + access URLs + model directory layout.
+# See ~/.agents/a1111/README.md for posture details + access URLs + model directory layout.
 #
 # Apple-Silicon-specific quirks baked into webui-user.sh:
 #  - Python 3.10 pinned (system 3.9 too old)

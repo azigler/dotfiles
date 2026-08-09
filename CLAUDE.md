@@ -30,7 +30,7 @@ Consequences that bite:
 | `agents/lib/` | shared shell libs the hooks source |
 | `agents/scheduler/` | `pulse-inject.sh`, unit templates, `pulse-ledger-lint.py` |
 | `agents/bin/` | standalone operator scripts — `hall` (THE HALL: the court view of the roster, `prefix H` in tmux), `claude-seat-link.sh` (wire a second Claude seat into the harness), `restart-loop-check.sh` |
-| `agents/infra.md` | machine + mesh baseline; **re-verify before depending on a fact** |
+| ~~`agents/infra.md`~~ | machine + mesh baseline — **no longer here.** It lives in the private demesne repo at `~/.agents/infra.md`; **re-verify before depending on a fact** |
 | `mac.setup.sh` / `ubuntu.setup.sh` | first-run machine provisioning |
 | `mac.upgrade.sh` / `ubuntu.upgrade.sh` / `pico.upgrade.sh` | per-machine binary upgrades — one per OS/role |
 | `sync.sh` / `download.sh` | symlink dotfiles into `$HOME` / vendor supporting resources |

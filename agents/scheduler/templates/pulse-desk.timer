@@ -13,7 +13,7 @@
 #      /var/lib|~/.local/share/systemd/timers/stamp-<unit>.timer, NOT the
 #      unit file's mtime — a new unit name has no stamp, which reads as an
 #      elapsed slot and fires immediately on enable.
-#      (agents/infra.md "Timer-rename gotcha")                          ✓
+#      (~/.agents/infra.md "Timer-rename gotcha")                        ✓
 #   4. units installed, daemon-reload, enable --now                     ✓
 #   5. ~/harnessd/refs/harness-manifest.json updated (timer+ledger_row) ✓
 #   6. systemd-analyze calendar verified                                ✓

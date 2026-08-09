@@ -244,7 +244,7 @@ check "M5 degraded-budget-is-huge (unmeasurable becomes unlimited)" \
 # budget move at once and neither is absent: the window looks more spent than
 # it is AND the daytime reserve looks bigger than it is. Every number stays
 # plausible; the classification is simply wrong, which is the whole reason
-# agents/infra.md says to classify rows by VALUE.
+# ~/.agents/infra.md says to classify rows by VALUE.
 fresh_copy
 mutate "$CHK" "NOT LIKE 'work:%'" "NOT LIKE 'zzz-no-such-tap:%'"
 check "M6 tap-filter-loosened (the work tap's spend becomes Zig's)" \

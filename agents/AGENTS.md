@@ -37,10 +37,10 @@ Run `/onboard`. It reads CLAUDE.md, MEMORY.md, the prior session's handoff note
 (`refs/session-handoff.md`), and the skills digest `~/.claude/skills/TOOLKIT.md` —
 in the main session, not via an Explore agent. At session end run `/offboard`.
 
-For infra / ports / deploy / networking work, also read `~/.agents/infra.md`
-(until the flip: `dotfiles/agents/infra.md`) — **the machine baseline**: every
-machine the harness runs on or reaches (zig-computer, pico, and the tailnet peers),
-with each one's role, IPs, ports, services, secrets-by-pointer and gotchas. The
+For infra / ports / deploy / networking work, also read `~/.agents/infra.md` —
+**the machine baseline**: every machine the harness runs on or reaches
+(zig-computer, pico, and the tailnet peers), with each one's role, IPs, ports,
+services, secrets-by-pointer and gotchas. The
 baseline is NOT the tailnet — it has held a plain-SSH, non-peer box before
 (`marketing-vps`, decommissioned 2026-08-07) and may again, so check
 `tailscale status` rather than assuming membership.

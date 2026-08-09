@@ -6,7 +6,7 @@
 # is clear on both sides. It sits BEFORE the 07:00 digest deliberately: the brief
 # answers "what needs you" and should be the first thing waiting, not the second.
 #
-# ⚠️ TIMER-RENAME / FIRST-ENABLE GOTCHA (agents/infra.md, and the comment history
+# ⚠️ TIMER-RENAME / FIRST-ENABLE GOTCHA (~/.agents/infra.md, and the comment history
 # in pulse-desk.timer). systemd's persistence state lives in
 # ~/.local/share/systemd/timers/stamp-<unit>.timer, NOT in the unit file. A unit
 # name that has never run has no stamp, which `Persistent=true` reads as a MISSED

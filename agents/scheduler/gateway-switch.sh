@@ -241,7 +241,7 @@ fi
 BASE=$(base_url_value) || BASE=""
 # The gateway route matches pathPrefix /claude and rewrites to /, so the probe
 # path must keep the prefix that is already in the base URL. 401 is HEALTH here:
-# a transparent passthrough with no key attached (agents/infra.md). Do not
+# a transparent passthrough with no key attached (~/.agents/infra.md). Do not
 # "fix" it to 200.
 PROBE_URL="${BASE%/}/v1/models"
 EXPECT_CODE=401

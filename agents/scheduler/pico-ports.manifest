@@ -16,7 +16,7 @@
 # :5900, kdc :88, multipassd :50051, and tailscaled's serve proxy. Every
 # `com.zig.*` service runs in the user domain, which is the set this watches.
 #
-# Derived from a live read, cross-checked against agents/infra.md's pico Ports
+# Derived from a live read, cross-checked against ~/.agents/infra.md's pico Ports
 # section. Where infra.md and the live read disagree the LIVE READ wins here and
 # the drift belongs in a bead.
 

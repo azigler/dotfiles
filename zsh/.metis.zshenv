@@ -29,4 +29,4 @@
 # shell-start-time export silently missed every durable tmux pane older than this
 # file and blinded pico's request log. CC_NO_GATEWAY is checked before that
 # re-derivation.) For a lasting bypass, comment out the export below.
-export ANTHROPIC_BASE_URL="http://100.72.47.4:17017/claude"
+export ANTHROPIC_BASE_URL="http://pico:17017/claude"
