@@ -76,12 +76,17 @@ fire_at() { # fire_at <pct> [env assignments...] -> prints the exit code
   printf '%s' "$?"
 }
 
-eq "MB4 one below the backstop is a no-op"  "$(fire_at $(( MOLT_BACKSTOP_PCT - 1 )) FOO=bar)" "0"
+# The BACKSTOP stays quiet one below its threshold. Since ygf8 the guard also
+# emits the 50% NUDGE (exit 2) anywhere in [pacing, backstop), so isolate the
+# backstop by pushing the nudge floor above the probe point — this asserts the
+# BACKSTOP is quiet, not that the whole guard is silent (that's the nudge's job,
+# tested in test-stop-context-guard.sh).
+eq "MB4 one below the backstop is a no-op (nudge isolated)"  "$(fire_at $(( MOLT_BACKSTOP_PCT - 1 )) FOO=bar CONTEXT_GUARD_NUDGE_PCT=$MOLT_BACKSTOP_PCT)" "0"
 eq "MB4 AT the backstop the guard fires"    "$(fire_at "$MOLT_BACKSTOP_PCT" FOO=bar)"         "2"
 # and at the PACING number it must stay quiet — the marshal molts there by
 # choice; if the backstop ever slid down to the pacing number, the two tiers
 # would have collapsed into one and this is where that shows up.
-eq "MB4 at the PACING threshold the backstop stays quiet" "$(fire_at "$MOLT_PACING_PCT" FOO=bar)" "0"
+eq "MB4 at the PACING threshold the backstop stays quiet" "$(fire_at "$MOLT_PACING_PCT" FOO=bar CONTEXT_GUARD_NUDGE_PCT=$MOLT_BACKSTOP_PCT)" "0"
 # the sourcing is LIVE, not decorative: moving the shared constant moves the
 # guard's behaviour.
 eq "MB4 overriding the shared backstop moves the guard's firing point" \

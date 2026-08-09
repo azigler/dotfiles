@@ -128,6 +128,16 @@ mapped_suites_for() { # <staged path> -> newline-separated suite paths
     # dotfiles-dijt shape, found again while landing dotfiles-it06.
     agents/hooks/pre-compact-observe.sh)
       printf '%s\n' agents/hooks/test/test-stop-context-guard.sh ;;
+    # pre-compact.sh is the OTHER PreCompact hook (dotfiles-ygf8): it clears
+    # stop-context-guard.sh's .fired/.nudged markers on every compaction — RE-ARM
+    # path (b), the belt for the guard's own re-arm. No test-pre-compact.sh
+    # exists or should: its one property worth testing (does it clear the right
+    # markers) is exercised alongside the guard it backs up, same shape as
+    # pre-compact-observe.sh above. Before this entry it fell through to the
+    # convention, asked for a test-pre-compact.sh that has never existed, and
+    # landed in the UNCOVERED banner instead of actually gating.
+    agents/hooks/pre-compact.sh)
+      printf '%s\n' agents/hooks/test/test-stop-context-guard.sh ;;
     agents/hooks/post-bash-beads-merge-check.sh)
       printf '%s\n' agents/hooks/test/test-beads-merge-check.sh ;;
     agents/hooks/pre-tool-use-require-isolation.sh)
@@ -523,19 +533,48 @@ fi
 # cycles; a skipped idle-wait types into a pane mid-turn. Nothing there turns a
 # timer red, so suite-green is not evidence. Measured on this box:
 #
-#     test-seat-molt.sh (41 assertions, real tmux fixtures)   43s
-#     mutate-seat-molt.sh (5 mutants + baseline)             ~4.5 min
+#     test-seat-molt.sh (48 assertions, real tmux fixtures)   ~55s
+#     mutate-seat-molt.sh (6 mutants + baseline)              ~5.5 min
 #
-# The convention arm above already runs the 43s suite for these files; this adds
-# ~3.7 min, to commits touching THREE files. The test file is a trigger on
-# purpose — case 13 is the SOLE detector for the freshness WINDOW (M5), so
-# deleting one case loses the bite while the suite stays green.
+# The convention arm above already runs the suite for these files; this adds
+# the remaining ~4.5 min, to commits touching THREE files. The test file is a
+# trigger on purpose — case 13 is the SOLE detector for the freshness WINDOW
+# (M5), and case 23b is the SOLE detector for --self actually reading the
+# turn-end signal instead of pane-text stability (M6, dotfiles-ygf8) — deleting
+# either case loses its bite while the suite stays green.
 if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(seat-molt\.sh|test-seat-molt\.sh|mutate-seat-molt\.sh)$'; then
-  echo "pre-commit: staged changes touch the MOLT's safety rails -> running mutation harness (~4.5 min)"
+  echo "pre-commit: staged changes touch the MOLT's safety rails -> running mutation harness (~5.5 min)"
   if [ -f "$ROOT/agents/scheduler/mutate-seat-molt.sh" ]; then
     bash "$ROOT/agents/scheduler/mutate-seat-molt.sh" || FAILED=1
   else
     echo "pre-commit: FAIL — agents/scheduler/mutate-seat-molt.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
+# --- the CONTEXT GUARD's re-arm + nudge logic -> prove THEY still bite -----
+# Same argument, on the OTHER half of the molt lifecycle (dotfiles-ygf8): the
+# 75% backstop's own fired-once marker. Without a re-arm it survives
+# compaction and the backstop dies after the first molt — permanently silent
+# from then on, no red timer, ever. Three ways that regresses invisibly: the
+# turn-end stamp stops being written (seat-molt's --self wait then hangs on a
+# stamp that never lands), the re-arm never clears the marker (the dead
+# backstop, exactly the bug this bead fixes), or the 50% nudge loses its rate
+# limit and starts firing on every single Stop. Measured on this box:
+#
+#     test-stop-context-guard.sh (42 assertions)                 ~2.5s
+#     mutate-stop-context-guard.sh (3 mutants + baseline)         ~9.3s
+#
+# The convention arm above already runs the suite for these files; this adds
+# the remaining ~7s. The test file is a trigger on purpose — the re-arm block
+# (case "the guard fires AGAIN after re-arm") is the SOLE detector for M2, so
+# deleting it loses the bite while the suite stays green.
+if printf '%s\n' "$STAGED" | grep -qE '^agents/hooks/(stop-context-guard\.sh|test/test-stop-context-guard\.sh|test/mutate-stop-context-guard\.sh)$'; then
+  echo "pre-commit: staged changes touch the context guard's re-arm/nudge logic -> running mutation harness (~10s)"
+  if [ -f "$ROOT/agents/hooks/test/mutate-stop-context-guard.sh" ]; then
+    bash "$ROOT/agents/hooks/test/mutate-stop-context-guard.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/hooks/test/mutate-stop-context-guard.sh is missing" >&2
     FAILED=1
   fi
 fi

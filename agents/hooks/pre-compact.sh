@@ -6,6 +6,26 @@
 # (~7.9k tokens) in ~/explore — 12x what session-start.sh injects. The emit
 # is now shared with session-start.sh via lib/context-emit.sh, so both go
 # through the same cap ($HARNESS_ONBOARD_BEAD_CAP, default 12).
+#
+# RE-ARM, path (b) (dotfiles-ygf8). stop-context-guard.sh's .fired marker is
+# permanent for a session_id unless something clears it, and compaction is
+# the single event most likely to leave it stuck: same session_id, fresh
+# context, backstop already dead. stop-context-guard.sh's OWN re-arm (any
+# Stop where pct drops below threshold-20) is the general case, but it
+# depends on the NEXT Stop actually finding a rendered pct file — and the
+# statusline may not have painted yet immediately post-compaction, in which
+# case that Stop exits at the "no pct file" check before ever reaching the
+# re-arm line. Clearing HERE, at the compaction boundary itself, has no such
+# dependency: it fires on every PreCompact, unconditionally, regardless of
+# what the statusline has or hasn't rendered yet. Both paths are load-bearing
+# for that reason — this is the belt, stop-context-guard.sh's is the general
+# mechanism. The nudge marker is cleared alongside it for the same reason:
+# a fresh context deserves a fresh nudge cooldown too.
+SESSION_ID=$(cat 2>/dev/null | jq -r '.session_id // empty' 2>/dev/null)
+if [ -n "$SESSION_ID" ]; then
+  _PC_STATE_DIR="${CONTEXT_GUARD_STATE_DIR:-/tmp/claude-context-pct}"
+  rm -f "$_PC_STATE_DIR/$SESSION_ID.fired" "$_PC_STATE_DIR/$SESSION_ID.nudged" 2>/dev/null
+fi
 
 CTX_LIB="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/context-emit.sh"
 if [ -r "$CTX_LIB" ]; then

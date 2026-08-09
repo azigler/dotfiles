@@ -68,6 +68,12 @@
 # RE-RESOLVES. If no socket can be resolved, this script refuses
 # (failed-no-socket) rather than falling through to an ambient-default call.
 #
+# --self ALSO stamps its own t0 in the foreground, for the same reason it
+# resolves the socket there: `date +%s` before the detach is a real read of
+# "when this invocation started", and the child (reparented, no ancestry to
+# lean on) never re-derives it — it is handed `--t0 <epoch>` explicitly and
+# treats it as authoritative. See rail 1 below (dotfiles-ygf8).
+#
 # R13 (seat address spec, dotfiles-seat-address-spec-uikg): session and window
 # are SEPARATE fields and an address is NEVER handed to `tmux -t`. tmux matches
 # targets by prefix/fnmatch, so `session:window` can silently bind the wrong
@@ -78,10 +84,20 @@
 # ---------------------------------------------------------------------------
 # SAFETY RAILS — every one of them refuses rather than degrades
 # ---------------------------------------------------------------------------
-#   1. IDLE-WAIT.  Never type into a pane mid-turn. Idle = the window carries no
-#      🧠/🌀 lexicon glyph AND the composer's input-ready marker is on screen,
-#      observed on MOLT_IDLE_STABLE consecutive polls. Timeout -> abort, type
-#      nothing.
+#   1. IDLE-WAIT.  Never type into a pane mid-turn.
+#        --target: idle = the window carries no 🧠/🌀 lexicon glyph AND the
+#        composer's input-ready marker is on screen, observed on
+#        MOLT_IDLE_STABLE consecutive polls. Timeout -> abort, type nothing.
+#        --self: pane-TEXT stability is the wrong signal here — a background
+#        builder's spinner/token-counter redraws every second, so a pane with
+#        real work in flight can STRUCTURALLY never read as stable, which is
+#        exactly the case that most needs molting (FINDING 3, live 2026-08-09:
+#        the first --self run sat blind until killed). --self instead waits
+#        for stop-context-guard.sh's turn-end stamp
+#        ($HARNESS_STATE_DIR/turn-end/<session_id>) to carry an mtime NEWER
+#        than this invocation's own t0 — a signal from OUTSIDE the pane, since
+#        that hook runs on every single Stop regardless of what the pane is
+#        rendering. Timeout -> abort, type nothing, same as --target.
 #   2. MODAL ABORT. A 🔔 window (or a dialog matched in the pane) is blocked on
 #      Andrew: send-keys there feeds the DIALOG, not the composer, and the
 #      trailing Enter answers his open question with the default
@@ -147,12 +163,8 @@
 #   MOLT_IDLE_TIMEOUT       300   --target idle-wait ceiling (seconds)
 #   MOLT_SELF_IDLE_TIMEOUT  900   --self child's ceiling (the invoker must end
 #                                 its turn; if it never does, log + exit, no
-#                                 injection)
-#   MOLT_SELF_GRACE         5     --self: seconds before an idle reading is even
-#                                 ELIGIBLE, so a window whose lexicon glyph is
-#                                 not being maintained cannot read as idle while
-#                                 the invoker is still mid-turn
-#   MOLT_IDLE_STABLE        2     consecutive idle polls required
+#                                 injection) — also the turn-end poll ceiling
+#   MOLT_IDLE_STABLE        2     consecutive idle polls required (--target only)
 #   MOLT_POLL               2     seconds between polls
 #   MOLT_READY_MARKER             ERE for the composer footer; empty DISABLES
 #   MOLT_MODAL_MARKER             ERE for an in-pane dialog; empty DISABLES.
@@ -219,6 +231,8 @@ opts:
   --session-id <id>   Claude session id the offboard marker must name
   --pct <n>           context percentage, recorded in the ledger row
   --wait-idle-first   internal: set on the detached --self child
+  --t0 <epoch>        internal: the --self invocation's own start time, so the
+                      detached child knows which turn-end stamp is fresh
 EOF
 }
 
@@ -233,6 +247,7 @@ SESSION_ID=""
 PCT=""
 SELF=0
 WAIT_IDLE_FIRST=0
+T0=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -247,6 +262,7 @@ while [ $# -gt 0 ]; do
     --session-id) [ $# -ge 2 ] || { usage; emit_result failed-usage; exit 64; }; SESSION_ID=$2; shift 2 ;;
     --pct)        [ $# -ge 2 ] || { usage; emit_result failed-usage; exit 64; }; PCT=$2; shift 2 ;;
     --wait-idle-first) WAIT_IDLE_FIRST=1; shift ;;
+    --t0)         [ $# -ge 2 ] || { usage; emit_result failed-usage; exit 64; }; T0=$2; shift 2 ;;
     -h|--help)    usage; emit_result failed-usage; exit 64 ;;
     *) echo "seat-molt: unknown arg $1" >&2; usage; emit_result failed-usage; exit 64 ;;
   esac
@@ -256,7 +272,6 @@ RATE_LIMIT_MIN="${MOLT_RATE_LIMIT_MIN:-30}"
 FRESH_SECS="${MOLT_OFFBOARD_FRESH_SECS:-1800}"
 IDLE_TIMEOUT="${MOLT_IDLE_TIMEOUT:-300}"
 SELF_IDLE_TIMEOUT="${MOLT_SELF_IDLE_TIMEOUT:-900}"
-SELF_GRACE="${MOLT_SELF_GRACE:-5}"
 IDLE_STABLE="${MOLT_IDLE_STABLE:-2}"
 POLL="${MOLT_POLL:-2}"
 CLEAR_SETTLE="${MOLT_CLEAR_SETTLE:-3}"
@@ -267,6 +282,10 @@ COMPACT_TIMEOUT="${MOLT_COMPACT_TIMEOUT:-900}"
 READY_MARKER=${MOLT_READY_MARKER-'shift\+tab to cycle|\? for shortcuts|for agents|bypass permissions|accept edits on|plan mode on'}
 MODAL_MARKER=${MOLT_MODAL_MARKER-'Do you want to |Would you like to proceed|Select an option'}
 LEDGER="${MOLT_LEDGER:-${HARNESS_STATE_DIR:-$HOME/.local/state/harness}/molt-ledger.jsonl}"
+# The turn-end signal --self reads instead of pane-text stability (dotfiles-ygf8).
+# Same HARNESS_STATE_DIR seam as the ledger above, deliberately: one env var
+# points a test's whole isolated state tree, ledger included.
+TURN_END_DIR="${HARNESS_STATE_DIR:-$HOME/.local/state/harness}/turn-end"
 
 TMUX_BIN=${MOLT_TMUX_BIN:-}
 if [ -z "$TMUX_BIN" ]; then
@@ -360,6 +379,12 @@ strip_lexicon() { printf '%s' "$1" | sed -E 's/^(🧠|✅|🔔|🌀|📬) ?//'; 
 
 # --- --self: resolve in the FOREGROUND, then hand off -----------------------
 if [ "$SELF" -eq 1 ]; then
+  # Stamped HERE, before anything else --self does, for the same reason the
+  # socket is resolved here: this is the one moment with a genuine "now" for
+  # THIS invocation. The detached child is reparented after setsid and must
+  # not re-derive it (dotfiles-ygf8).
+  SELF_T0=$(date +%s)
+
   if [ -z "$WINDOW" ]; then
     if command -v tmux_resolve_window >/dev/null 2>&1; then
       WINDOW=$(tmux_resolve_window) || WINDOW=""
@@ -388,7 +413,7 @@ if [ "$SELF" -eq 1 ]; then
     [ -f "$_pf" ] && PCT=$(tr -dc '0-9' < "$_pf")
   fi
 
-  CHILD=(--target "$SESSION" "$WINDOW" --mode "$MODE" --socket "$SOCKET" --wait-idle-first)
+  CHILD=(--target "$SESSION" "$WINDOW" --mode "$MODE" --socket "$SOCKET" --wait-idle-first --t0 "$SELF_T0")
   [ -n "$DIR" ]        && CHILD+=(--dir "$DIR")
   [ -n "$SESSION_ID" ] && CHILD+=(--session-id "$SESSION_ID")
   [ -n "$PCT" ]        && CHILD+=(--pct "$PCT")
@@ -501,18 +526,67 @@ wait_for_idle() {
   return 1
 }
 
+# wait_for_turn_end <timeout> <t0> <session_id>
+#   0 = a turn-end stamp NEWER than t0 exists, and the pane was not modal at
+#       that moment -- proceed to molt.
+#   1 = timed out (no fresh stamp, or the pane stayed modal the whole time).
+# --self's idle-wait (dotfiles-ygf8): stop-context-guard.sh touches
+# $TURN_END_DIR/<session_id> on EVERY Stop, unconditionally, so its mtime is a
+# signal from OUTSIDE the pane -- unlike pane-text stability it cannot be kept
+# artificially "unstable" by a background builder's own redraws. A modal at the
+# moment the stamp is found is still not eligible: the turn did not end for
+# MOLTING purposes, so we keep polling rather than proceeding (or aborting).
+wait_for_turn_end() {
+  local timeout=$1 t0=$2 sid=$3 stamp_file deadline mtime name text
+  stamp_file="$TURN_END_DIR/$sid"
+  deadline=$(( $(date +%s) + timeout ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    if [ -f "$stamp_file" ] \
+       && mtime=$(_p_mtime "$stamp_file" 2>/dev/null) \
+       && [ -n "$mtime" ] && [ "$mtime" -gt "$t0" ] 2>/dev/null; then
+      name=$(win_name); text=$(pane_text)
+      if is_modal "$name" "$text"; then
+        note "turn-end: fresh stamp for session=$sid but pane is modal -- still waiting"
+      else
+        return 0
+      fi
+    fi
+    sleep "$POLL"
+  done
+  return 1
+}
+
 # --- rail 1 + rail 2: idle-wait, with the modal abort inside the loop -------
-wait_for_idle "$IDLE_TIMEOUT" "$([ "$WAIT_IDLE_FIRST" -eq 1 ] && echo "$SELF_GRACE" || echo 0)"
-case $? in
-  2)
-    echo "seat-molt: pane $PANE is blocked on Andrew (🔔 / open dialog) — ABORTING, typed nothing. send-keys there would answer his open question with the default (pulse-inject.sh:692)." >&2
-    note "ABORTED: modal on session='$SESSION' window='$WINDOW'"
-    finish aborted-modal 3 ;;
-  1)
-    echo "seat-molt: pane $PANE never went idle within ${IDLE_TIMEOUT}s — ABORTING, typed nothing." >&2
-    note "ABORTED: idle-wait timed out after ${IDLE_TIMEOUT}s on session='$SESSION' window='$WINDOW'"
-    finish aborted-not-idle 3 ;;
-esac
+# --target waits on pane-text stability, as always -- there is no session_id
+# to stamp for an operator-driven target. --self waits on the turn-end signal
+# instead (see wait_for_turn_end above); it hard-requires SESSION_ID and T0 --
+# no silent fallback to pane-stability, which is the exact bug this replaces.
+if [ "$WAIT_IDLE_FIRST" -eq 1 ]; then
+  if [ -z "$SESSION_ID" ] || [ -z "$T0" ]; then
+    echo "seat-molt: --self's idle-wait needs both --session-id and --t0 (got session-id='$SESSION_ID' t0='$T0') to read the turn-end signal — ABORTING, typed nothing. This should never happen outside a hand-built --wait-idle-first invocation." >&2
+    note "ABORTED: --wait-idle-first without session-id/t0 (session-id='$SESSION_ID' t0='$T0')"
+    finish aborted-not-idle 3
+  fi
+  wait_for_turn_end "$IDLE_TIMEOUT" "$T0" "$SESSION_ID"
+  case $? in
+    1)
+      echo "seat-molt: pane $PANE never showed a turn-end stamp newer than $T0 within ${IDLE_TIMEOUT}s — ABORTING, typed nothing." >&2
+      note "ABORTED: turn-end wait timed out after ${IDLE_TIMEOUT}s on session='$SESSION' window='$WINDOW' (t0=$T0)"
+      finish aborted-not-idle 3 ;;
+  esac
+else
+  wait_for_idle "$IDLE_TIMEOUT" 0
+  case $? in
+    2)
+      echo "seat-molt: pane $PANE is blocked on Andrew (🔔 / open dialog) — ABORTING, typed nothing. send-keys there would answer his open question with the default (pulse-inject.sh:692)." >&2
+      note "ABORTED: modal on session='$SESSION' window='$WINDOW'"
+      finish aborted-modal 3 ;;
+    1)
+      echo "seat-molt: pane $PANE never went idle within ${IDLE_TIMEOUT}s — ABORTING, typed nothing." >&2
+      note "ABORTED: idle-wait timed out after ${IDLE_TIMEOUT}s on session='$SESSION' window='$WINDOW'"
+      finish aborted-not-idle 3 ;;
+  esac
+fi
 
 # Re-read immediately before the destructive keystroke. The wait returned on a
 # snapshot; a dialog can open in the seconds since.
