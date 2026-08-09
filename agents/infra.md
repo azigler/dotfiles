@@ -286,9 +286,10 @@ reload. Use the `/nginx` skill.
 Public (ufw-allowed): **22, 80, 443** only — INPUT policy is DROP and there is no
 ufw rule for any daemon port. 7575 is closed (reef retired).
 Tailnet-bound (`100.98.174.21`): 14174 + 14443 (harnessd), 8766, 19632, 46032.
-⚠️ hevyd currently listens on **`*:14877`** — a WILDCARD bind, so it is reachable
-tailnet-wide though not from the internet. Its own docs still say `127.0.0.1:14389`;
-both the port and the bind have drifted (`dotfiles-dpbn`). Fixed daemon ports belong in the **10000–32767 band** —
+hevyd listens on `127.0.0.1:14389` (the unit's bind, matching its docs). The
+`*:14877` wildcard bind recorded here until 2026-08-09 was NOT the real hevyd —
+it was a leaked scratchpad agent artifact from Jul 27, retired with verification
+(`hevyd-c9h`); recurrence check lives in hevyd's CLAUDE.md. Fixed daemon ports belong in the **10000–32767 band** —
 above the dev/service cluster (3000/5000/8000/8080/9000…), below the Linux
 ephemeral floor (32768; `/proc/sys/net/ipv4/ip_local_port_range`). They sit behind
 nginx, so the number is internal — pick high + uncommon so a daemon never collides
