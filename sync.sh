@@ -87,12 +87,24 @@ sync() {
             sync_source "$SCRIPT_DIR/cargo/config.toml" "$HOME/.cargo/config.toml"
             ;;
         "claude")
-            sync_source "$SCRIPT_DIR/claude/settings.json" "$HOME/.claude/settings.json"
-            sync_source "$SCRIPT_DIR/claude/agents" "$HOME/.claude/agents"
-            sync_source "$SCRIPT_DIR/agents/hooks" "$HOME/.claude/hooks"
-            sync_source "$SCRIPT_DIR/agents/skills" "$HOME/.claude/skills"
-            sync_source "$SCRIPT_DIR/agents/AGENTS.md" "$HOME/.claude/CLAUDE.md"
-            sync_source "$SCRIPT_DIR/claude/statusline.sh" "$HOME/.claude/statusline.sh"
+            # 860z E1 (2026-08-09): post-cutover the agent brain lives behind
+            # ~/.agents (-> ~/demesne). Source the six links from there when it
+            # holds real tier content (same content-marker test as
+            # agents/lib/agents-root.sh — bare existence of ~/.agents is NOT
+            # enough, it once held an unrelated aaif skill-lock); otherwise the
+            # pre-split in-repo paths. Without this, any ./sync.sh between the
+            # flip and this edit silently reverted the cutover.
+            if [ -e "$HOME/.agents/claude/settings.json" ] && [ -e "$HOME/.agents/agents/AGENTS.md" ]; then
+                _CLAUDE_BRAIN="$HOME/.agents"
+            else
+                _CLAUDE_BRAIN="$SCRIPT_DIR"
+            fi
+            sync_source "$_CLAUDE_BRAIN/claude/settings.json" "$HOME/.claude/settings.json"
+            sync_source "$_CLAUDE_BRAIN/claude/agents" "$HOME/.claude/agents"
+            sync_source "$_CLAUDE_BRAIN/agents/hooks" "$HOME/.claude/hooks"
+            sync_source "$_CLAUDE_BRAIN/agents/skills" "$HOME/.claude/skills"
+            sync_source "$_CLAUDE_BRAIN/agents/AGENTS.md" "$HOME/.claude/CLAUDE.md"
+            sync_source "$_CLAUDE_BRAIN/claude/statusline.sh" "$HOME/.claude/statusline.sh"
             ;;
         "codex")
             sync_source "$SCRIPT_DIR/codex/config.toml" "$HOME/.codex/config.toml"
