@@ -29,11 +29,18 @@ Checks enforced (each has a dedicated fixture in test-validate-seats.sh):
         before this bead: only tap-type presence was checked, not the rule
         d3ky actually specified.
   SEATTAP every seat declares a `tap`, and it names a declared tap
+  SEATTAP-CONSISTENCY (dotfiles-e8l0) a seat's own `tap:` and every one of
+        its schedules' `tap:` must agree — a seat drawing from `personal`
+        cannot have a schedule that bills `work` without the roster
+        contradicting itself about which vendor is actually loaded.
   MODEL every seat's `model` is one of the pinned aliases
   SIGIL every seat's `sigil` is EMOJI-PRESENTATION BY PROPERTY
         (Emoji_Presentation=Yes, embedded data below), and additionally
         outside U+2000-U+2BFF bar a small allowlist, off the learned
         denylist, and free of VS16
+  SIGIL-UNIQUE (dotfiles-e8l0) no two LIVE seats may share a sigil — the
+        court renders the sigil as the row's only glyph column, and two
+        seats sharing one makes that column stop disambiguating rows.
   RETIRED an optional top-level `retired:` mapping holds seats that have ended
         (Art. IV: job seats retire, history preserved). Same name grammar; a
         retired name may not collide with a live seat name or any alias.
@@ -758,6 +765,31 @@ def validate(doc: dict) -> list:
                 f"declared under `taps:`; known: {sorted(taps)}"
             )
 
+    # --- SEATTAP-CONSISTENCY (dotfiles-e8l0): seat tap <-> schedule tap ------
+    # A seat's own `tap:` is the seat's declared billing source; a schedule
+    # binding a DIFFERENT tap is the roster contradicting itself about which
+    # vendor a given run actually draws from — the exact drift this bead was
+    # filed against ("a seat could declare tap: personal while its schedules
+    # bind work").
+    for seat_name, seat in seats.items():
+        seat = seat or {}
+        seat_tap = seat.get("tap")
+        for sched in seat.get("schedules") or []:
+            sched = sched or {}
+            sched_tap = sched.get("tap")
+            unit = sched.get("unit", "<unnamed>")
+            if (
+                seat_tap is not None
+                and sched_tap is not None
+                and sched_tap != seat_tap
+            ):
+                errors.append(
+                    f"SEATTAP-CONSISTENCY: seat '{seat_name}' draws from tap "
+                    f"{seat_tap!r} but its schedule '{unit}' binds tap "
+                    f"{sched_tap!r} — a seat's schedules must draw from the "
+                    f"same tap as the seat itself"
+                )
+
     # --- MODEL: pinned set ---------------------------------------------------
     for seat_name, seat in seats.items():
         seat = seat or {}
@@ -776,6 +808,25 @@ def validate(doc: dict) -> list:
             errors.append(
                 f"SIGIL: seat '{seat_name}' sigil rejected — {reason}"
             )
+
+    # --- SIGIL-UNIQUE (dotfiles-e8l0): no two live seats share a sigil -------
+    # The court renders the sigil as the row's only glyph column; two seats
+    # sharing one collapses that column back to ambiguous, the exact gap the
+    # hall-wave builder reported.
+    sigil_owner: dict = {}
+    for seat_name, seat in seats.items():
+        seat = seat or {}
+        sigil = seat.get("sigil")
+        if not sigil:
+            continue
+        if sigil in sigil_owner and sigil_owner[sigil] != seat_name:
+            errors.append(
+                f"SIGIL-UNIQUE: sigil {sigil!r} is shared by both "
+                f"'{sigil_owner[sigil]}' and '{seat_name}' — the court's "
+                f"glyph column must disambiguate rows, not merge them"
+            )
+        else:
+            sigil_owner.setdefault(sigil, seat_name)
 
     # --- WINDOW: schedule window must resolve to a seat name or alias --------
     resolvable = seat_name_set | set(alias_owner.keys())

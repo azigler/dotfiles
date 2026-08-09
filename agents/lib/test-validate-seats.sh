@@ -206,10 +206,12 @@ done
 
 # --- 8c. SIGIL-EPRES-GOOD: the four REPLACEMENTS must pass ------------------
 # The other half of the same fact. A rule that rejects everything would satisfy
-# 8b; these four are the glyphs the roster now carries.
+# 8b; these four are the glyphs the roster now carries. dream's sigil is
+# retargeted to a neutral valid glyph first (dotfiles-e8l0's SIGIL-UNIQUE rule
+# would otherwise reject desk=🔮 as colliding with GOOD's own dream=🔮).
 for GLYPH in 🔑 🔭 🔮 🪶; do
   F="$BASE/sigil-epres-ok.yml"
-  sed "s/sigil: \"📜\"/sigil: \"$GLYPH\"/" "$GOOD" > "$F"
+  sed -e 's/sigil: "🔮"/sigil: "🎯"/' -e "s/sigil: \"📜\"/sigil: \"$GLYPH\"/" "$GOOD" > "$F"
   run "$F"
   if [ "$RC" -eq 0 ]; then ok; else bad "SIGIL-EPRES-GOOD $GLYPH must pass: $OUT"; fi
 done
@@ -376,6 +378,74 @@ F2="$BASE/failover-crosstype-fixed.yml"
 sed 's/type: codex/type: claude/' "$F" > "$F2"
 run "$F2"
 if [ "$RC" -eq 0 ]; then ok; else bad "FAILOVER (cross-type, fixed to same-type): must pass: $OUT"; fi
+
+# --- 20-21. SIGIL-UNIQUE (dotfiles-e8l0): no two live seats share a sigil --
+
+# 20. two seats sharing a sigil must fail, tagged.
+F="$BASE/sigil-unique.yml"
+sed 's/sigil: "🔮"/sigil: "📜"/' "$GOOD" > "$F"
+run "$F"
+if [ "$RC" -ne 0 ]; then ok; else bad "SIGIL-UNIQUE (shared glyph): must fail"; fi
+case "$OUT" in *"SIGIL-UNIQUE:"*) ok ;; *) bad "SIGIL-UNIQUE (shared glyph): expected that tag, got: $OUT" ;; esac
+
+# 21. the failing-then-passing pair -- SAME fixture, ONLY dream's sigil
+# changed to a DIFFERENT valid glyph instead of colliding with desk's -> must
+# pass. (dream's is the second "📜" occurrence in $F after case 20's sed.)
+F2="$BASE/sigil-unique-fixed.yml"
+python3 - "$F" "$F2" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+text = open(src).read()
+idx_dream = text.index("  dream:")
+before, after = text[:idx_dream], text[idx_dream:]
+old = 'sigil: "📜"'
+assert after.count(old) == 1, after.count(old)
+after = after.replace(old, 'sigil: "🪶"')
+open(dst, "w").write(before + after)
+PY
+run "$F2"
+if [ "$RC" -eq 0 ]; then ok; else bad "SIGIL-UNIQUE (fixed to distinct glyphs): must pass: $OUT"; fi
+
+# --- 22-23. SEATTAP-CONSISTENCY (dotfiles-e8l0): seat tap <-> schedule tap --
+
+# 22. desk's SCHEDULE tap set to `work` while desk's own (seat-level) tap
+# stays `personal` -- the roster contradicting itself about which vendor a
+# given run draws from -- must fail, tagged.
+F="$BASE/seattap-consistency.yml"
+python3 - "$GOOD" "$F" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+text = open(src).read()
+old = "        tap: personal\n        window: desk"
+new = "        tap: work\n        window: desk"
+assert text.count(old) == 1, text.count(old)
+open(dst, "w").write(text.replace(old, new))
+PY
+run "$F"
+if [ "$RC" -ne 0 ]; then ok; else bad "SEATTAP-CONSISTENCY (desk schedule vs seat tap): must fail"; fi
+case "$OUT" in
+  *"SEATTAP-CONSISTENCY:"*"desk"*) ok ;;
+  *) bad "SEATTAP-CONSISTENCY: expected that tag naming desk, got: $OUT" ;;
+esac
+
+# 23. the failing-then-passing pair -- SAME fixture, desk's SEAT-level tap
+# (only, not dream's) brought into agreement with its schedule -> must pass.
+F2="$BASE/seattap-consistency-fixed.yml"
+python3 - "$F" "$F2" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+text = open(src).read()
+idx_desk = text.index("  desk:")
+idx_dream = text.index("  dream:")
+block = text[idx_desk:idx_dream]
+old = "    tap: personal"
+assert block.count(old) == 1, block.count(old)
+block = block.replace(old, "    tap: work")
+text = text[:idx_desk] + block + text[idx_dream:]
+open(dst, "w").write(text)
+PY
+run "$F2"
+if [ "$RC" -eq 0 ]; then ok; else bad "SEATTAP-CONSISTENCY (fixed): must pass: $OUT"; fi
 
 # --- Summary ---
 TOTAL=$((PASS + FAIL))

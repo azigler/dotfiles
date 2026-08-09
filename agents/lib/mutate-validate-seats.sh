@@ -267,6 +267,37 @@ check "M6 failover-cross-type-disarmed" \
   "FAILOVER" \
   "REAL-ROSTER"
 
+# M7 -- SIGIL-UNIQUE's own-name exclusion widened into a full disarm
+# (dotfiles-e8l0). The guard is `sigil_owner[sigil] != seat_name` -- narrowing
+# it to `!= None` (i.e. "never equal, always flag or never flag") is the wrong
+# shape to catch directly, so instead this mutant disarms the check outright,
+# the same silent-rot mode as M1/M5/M6: the court's glyph column goes back to
+# ambiguous the moment two seats collide, and validate-seats keeps printing OK.
+fresh_copy
+mutate "$SCRIPT_NAME" \
+  '        if sigil in sigil_owner and sigil_owner[sigil] != seat_name:' \
+  '        if False and sigil in sigil_owner and sigil_owner[sigil] != seat_name:'
+check "M7 sigil-unique-disarmed" \
+  "SIGIL-UNIQUE" \
+  "SIGIL-EPRES-GOOD REAL-ROSTER"
+
+# M8 -- SEATTAP-CONSISTENCY disarmed outright (dotfiles-e8l0): a seat's own
+# tap and its schedules' taps can silently disagree again, the exact drift
+# this bead was filed against ("a seat could declare tap: personal while its
+# schedules bind work"). Same disarm shape as M6/M7 (`and False`) rather than
+# an inversion -- SEATTAP-CONSISTENCY's condition is true on the COMMON path
+# (every well-formed seat has sched_tap == seat_tap), so flipping it to
+# require EQUALITY instead breaks every fixture in the suite, not just this
+# rule's own case -- exactly the "red-somewhere, not red on the case it
+# names" trap rule 1 in this repo's CLAUDE.md warns about.
+fresh_copy
+mutate "$SCRIPT_NAME" \
+  '                and sched_tap != seat_tap' \
+  '                and sched_tap != seat_tap and False'
+check "M8 seattap-consistency-disarmed" \
+  "SEATTAP-CONSISTENCY" \
+  "SIGIL-EPRES-GOOD REAL-ROSTER"
+
 echo
 if [ "$HARNESS_ERR" -ne 0 ]; then
   echo "=== RESULT: HARNESS ERROR -- at least one mutation never applied. ========"
