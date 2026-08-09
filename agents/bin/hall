@@ -484,6 +484,13 @@ court() {
     fi
     case "$HALL_MODE" in
       compact)
+        # LIVE WINDOWS ONLY (Zig, 2026-08-09, from his phone: the list is "still
+        # too long"). A 💤 row is a seat with no window — nothing to watch, and
+        # on a phone every row costs a screenful. The seat is still REACHABLE:
+        # you type its name at the prompt and it wakes, which is what the footer
+        # says. The count line below keeps the asleep ones honest, and every
+        # wider layout still draws the whole roster.
+        [ "$glyph" = "$G_ASLEEP" ] && continue
         printf '%s  %-*s %s\n' "$sigil" "$W_NAME" "$(hall_trunc "$name" "$W_NAME")" "$glyph"
         ;;
       medium)
@@ -503,6 +510,23 @@ court() {
         ;;
     esac
   done <<<"$(printf '%s\n' "$dump" | awk -F'\t' '$1=="seat"')"
+
+  # …and when the filter above hid EVERYTHING, say so in one line rather than
+  # leaving a hole where the table was. A phone that shows only live windows and
+  # has none to show must still answer the question it was opened to answer.
+  if [ "$HALL_MODE" = compact ] && [ "$seated" -gt 0 ] && [ "$asleep" = "$seated" ]; then
+    local msg
+    msg="all $seated seats asleep $SEP type a name to wake one"
+    # ${#msg} is characters, and every character here is one cell (ASCII + ·).
+    if [ "${#msg}" -le "$cols" ]; then
+      printf '%s\n' "$msg"
+    else
+      # A narrow phone: two short lines, never one wrapped one — a wrapped line
+      # is the stilt this whole layout exists to avoid.
+      printf 'all %s seats asleep\n' "$seated"
+      printf 'type a name to wake one\n'
+    fi
+  fi
 
   # 🚧 — live windows that match NO seat and no alias.  Never adopted silently
   # (sb6s AC2): the hall reports them and stops.  Adoption is a v1 verb that
@@ -779,12 +803,18 @@ hall — the court view of the estate (v0, bead dotfiles-sb6s)
   hall home            the front desk (alias for: hall seneschal)
   hall --interactive   court + a seat> prompt (the popup mode). The prompt takes
                        a bare seat name, 'hall <seat>', 'home' or 'hall home' —
-                       all the same thing. Enter or Esc closes.
+                       all the same thing. Enter on an empty line closes, and so
+                       do Esc and Ctrl-C; backspace edits the whole line and an
+                       arrow key does nothing. The court repaints while it is
+                       open (HALL_REFRESH_SECS, 0 disables), and stops repainting
+                       while there is anything typed.
   hall --help          this
 
 The court is RESPONSIVE: it reads its own width (COLUMNS, else tput cols, else
 80) and renders compact below 60 columns (a phone: sigil, name, status), the
-full table to 99, and at 100+ adds each seat's charter line.
+full table to 99, and at 100+ adds each seat's charter line. COMPACT SHOWS LIVE
+SEATS ONLY — an asleep seat is one line of phone you cannot act on; type its
+name to wake it. Every wider layout draws the whole roster.
 
 The roster (agents/seats.yml) is truth; windows are cache. v0 reads the roster
 and the live tmux server only — no harnessd, so the cockpit outlives the
@@ -822,16 +852,45 @@ hall_prompt_seat() {
 # in tmux.conf because tmux expands $vars in double-quoted config strings at
 # source time.
 #
-# THE ESC KEY (Zig, live): a popup you cannot dismiss with the key everyone
-# reaches for is a trap. So the FIRST keystroke is read raw (-rsn1): ESC closes,
-# Enter closes, anything else is echoed back and becomes the first character of
-# the line. The tiny `read -t` drain after an ESC swallows the rest of an escape
-# SEQUENCE — an arrow key is ESC [ A, and without the drain its `[A` would land
-# in the next prompt as a typo.
+# ---------------------------------------------------------------------------
+# ONE RAW LOOP OWNS THE BUFFER (dotfiles-hnhl, Zig on his phone AND his desktop)
+# ---------------------------------------------------------------------------
+# The first cut read the line in TWO PHASES — one raw `read -rsn1` for the first
+# keystroke (so ESC could close), then a blocking `read -r` for the rest. That
+# split is the root cause of three separate bugs Zig hit live on 2026-08-09, and
+# no patch to either phase could have fixed them, because each is a consequence
+# of the line-editor owning only PART of the input:
 #
-# `read -rsn1` needs a tty. With stdin on a pipe or a here-string (tests, `echo
-# x | hall --interactive`) bash still returns the first byte, so the same path
-# works; only the terminal echo is missing, which is why we echo it ourselves.
+#   1. THE FIRST CHARACTER WAS UNDELETABLE. The line read's editor cannot erase a
+#      byte it never read, so backspace stopped at the raw-read char and the
+#      buffer could never return to empty — and an empty buffer is what Enter
+#      needs to close the popup.
+#   2. ESC MID-BUFFER TYPED INSTEAD OF CLOSING. Only the first keystroke was ever
+#      compared against ESC; after that the \e byte went into the line read as
+#      text. "The key everyone reaches for" worked exactly once per prompt.
+#   3. ANY ARROW KEY ON AN EMPTY BUFFER CLOSED THE POPUP. An arrow is ESC [ A —
+#      three bytes — and the bare \e matched the close case before the other two
+#      had arrived. Nudging the cursor dismissed the court.
+#
+# So the loop below reads EVERY keystroke raw and holds the buffer itself:
+#
+#   printable      append to the buffer, echo it
+#   backspace/DEL  erase one char and '\b \b' over it; AT EMPTY IT IS A NO-OP —
+#                  never a close, so backspace can always walk you back to the
+#                  empty buffer that Enter closes on (bug 1)
+#   Enter          empty buffer closes; otherwise SUBMIT (the visit is unchanged,
+#                  including the subshell that survives a typo)
+#   Esc            drained: MORE bytes means an escape SEQUENCE (arrow, Home, a
+#                  function key) which is swallowed WHOLE and ignored (bug 3);
+#                  NO bytes means the bare Esc key, which closes ALWAYS —
+#                  buffer or no buffer (bug 2)
+#   Ctrl-C         closes cleanly (the byte, and the signal via a trap)
+#
+# `read -rsn1` needs no tty. With stdin on a pipe or a here-string (tests, `echo
+# x | hall --interactive`) bash still returns one byte at a time, so the same
+# path works; only the terminal echo is missing, which is why we echo it
+# ourselves — and which is what makes every one of these behaviours testable
+# from a byte string on stdin.
 #
 # ---------------------------------------------------------------------------
 # IT REFRESHES WHILE IT IS OPEN (Zig, 2026-08-09: "immensely better for
@@ -848,14 +907,19 @@ hall_prompt_seat() {
 # clear-then-draw would flicker; this cannot, because the terminal never sees a
 # blank state.
 #
-# REFRESH SUSPENDS THE MOMENT TYPING STARTS, and the mechanism is the one that
-# was already here: only the FIRST keystroke read has a timeout, the rest of
-# the line is read blocking.  Zig's note offered two options — reprint the
-# typed prefix after each frame, or suspend on the first character — and this
-# is the second, because the first has a race it cannot win (a repaint between
-# the keystroke and the reprint eats the character) and because a court that
-# freezes while you are naming a seat is the correct behaviour anyway: you are
-# no longer watching, you are steering.
+# REFRESH SUSPENDS THE MOMENT TYPING STARTS and RESUMES WHEN THE BUFFER EMPTIES.
+# The mechanism used to be the two-phase read itself (only the first keystroke
+# had a timeout); with one loop it is stated instead of implied — the read
+# carries a timeout only while the buffer is EMPTY.  That is strictly better
+# than the old accident: backspacing away a half-typed name puts you back in
+# watch mode, where the old code left you blocked until Enter.  Zig's note
+# offered two options — reprint the typed prefix after each frame, or suspend on
+# the first character — and this is the second, because the first has a race it
+# cannot win (a repaint between the keystroke and the reprint eats the
+# character) and because a court that freezes while you are naming a seat is the
+# correct behaviour anyway: you are no longer watching, you are steering.  A
+# repaint still reprints the prompt AND the buffer, so the invariant holds even
+# if that policy is ever loosened.
 #
 # HALL_REFRESH_SECS tunes it; 0 or empty disables the refresh entirely and the
 # loop goes back to a plain blocking read.
@@ -867,20 +931,57 @@ hall_paint() {
   printf '%s' "$out"
 }
 
+# hall_esc_seq — an ESC byte has just been read.  Returns 0 when it OPENED AN
+# ESCAPE SEQUENCE (which this function has now swallowed entirely, so the caller
+# ignores the whole thing), 1 when it was the BARE Esc key.
+#
+# The distinction is timing and nothing else: a terminal sends the bytes of an
+# arrow key back to back, a human's Esc arrives alone.  So one short-timeout
+# read decides it, and when a sequence HAS started the rest is consumed by its
+# actual grammar — CSI/SS3 parameter bytes up to and INCLUDING the final byte —
+# rather than by draining "everything available", which would also swallow the
+# next real keystroke on a fast pipe.  That precision is what lets bug 3's
+# regression test (two arrows, then a name, then Enter) mean anything.
+#
+# HALL_ESC_DRAIN is the seam: raise it if a link is ever slow enough to split an
+# arrow key's three bytes across the window, which would read as a bare Esc.
+hall_esc_seq() {
+  local b
+  IFS= read -rsn1 -t "${HALL_ESC_DRAIN:-0.01}" b || return 1
+  case "$b" in
+    '['|'O')
+      while IFS= read -rsn1 -t "${HALL_ESC_DRAIN:-0.01}" b; do
+        case "$b" in
+          [0-9]|';'|'?'|'<'|'='|'>'|':') continue ;;   # parameter bytes
+          *) break ;;                                  # the final byte (or a stray)
+        esac
+      done ;;
+    # Anything else after ESC is an Alt-<key> or a stray byte: the ESC and that
+    # one byte are swallowed together, and nothing is typed.
+  esac
+  return 0
+}
+
 interactive() {
-  local _c _rest _seat _rc _refresh
+  local _c _buf='' _seat _rc _refresh
   _refresh=${HALL_REFRESH_SECS-2}
   case "$_refresh" in ''|0|*[!0-9.]*) _refresh='' ;; esac
+  # Ctrl-C closes cleanly rather than leaving the popup's shell to die mid-frame.
+  trap 'printf "\n"; exit 0' INT
   hall_paint "$(court)"
+  printf 'seat> '
   while :; do
-    printf 'seat> '
-    if [ -n "$_refresh" ]; then
+    # THE TIMEOUT IS THE WATCH LOOP, and it is armed only while the buffer is
+    # empty: a court that repaints under your fingers is a court you cannot type
+    # into.
+    if [ -n "$_refresh" ] && [ -z "$_buf" ]; then
       IFS= read -rsn1 -t "$_refresh" _c; _rc=$?
       # bash: >128 is the TIMEOUT, 1 is EOF. Only the timeout repaints; EOF
       # still closes, or a `printf x | hall --interactive` would spin forever.
       if [ "$_rc" -gt 128 ]; then
         printf '\r'
         hall_paint "$(court)"
+        printf 'seat> %s' "$_buf"
         continue
       fi
       [ "$_rc" -eq 0 ] || { printf '\n'; return 0; }
@@ -889,19 +990,40 @@ interactive() {
     fi
     case "$_c" in
       $'\e')
-        while IFS= read -rsn1 -t 0.01 _; do :; done
+        # A SEQUENCE is swallowed whole and ignored (bug 3); the BARE Esc key
+        # closes ALWAYS, with or without a buffer (bug 2).
+        hall_esc_seq && continue
         printf '\n'; return 0 ;;
       ''|$'\n'|$'\r')
+        # `read -n1` returns the EMPTY string for the newline delimiter, so ''
+        # IS Enter here — not "no key".
+        [ -n "$_buf" ] || { printf '\n'; return 0; }
+        printf '\n'
+        _seat=$(hall_prompt_seat "$_buf")
+        _buf=''
+        [ -n "$_seat" ] || return 0
+        # Subshell: visit exit-2s (die) on an unknown seat, which would close the
+        # popup mid-typo — the subshell absorbs the exit so the prompt survives.
+        if (visit "$_seat"); then return 0; fi
+        # visit already printed near-matches on stderr; prompt for another try
+        printf 'seat> ' ;;
+      $'\177'|$'\b')
+        # AT EMPTY IT IS A NO-OP — not a close, and never an erase into the
+        # prompt itself (bug 1).
+        [ -n "$_buf" ] || continue
+        _buf=${_buf%?}
+        printf '\b \b' ;;
+      $'\003')
         printf '\n'; return 0 ;;
+      [[:cntrl:]])
+        # Every other control byte is ignored rather than buffered: a raw \t or
+        # \f in the buffer is a seat name no roster can hold and a prompt line
+        # the terminal draws wrong.
+        : ;;
+      *)
+        _buf="$_buf$_c"
+        printf '%s' "$_c" ;;
     esac
-    printf '%s' "$_c"
-    IFS= read -r _rest || _rest=""
-    _seat=$(hall_prompt_seat "$_c$_rest")
-    [ -z "$_seat" ] && return 0
-    # Subshell: visit exit-2s (die) on an unknown seat, which would close the
-    # popup mid-typo — the subshell absorbs the exit so the prompt survives.
-    if (visit "$_seat"); then return 0; fi
-    # visit already printed near-matches on stderr; loop for another try
   done
 }
 

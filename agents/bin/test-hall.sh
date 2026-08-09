@@ -24,6 +24,13 @@
 #   visit        existing window (glyph-prefixed name still matches) -> select,
 #                no second window; absent -> materialize in the ROSTER's
 #                session with the roster's home as cwd and the canonical name
+#   breakpoints  compact/medium/wide render at 40/80/120 cols, fixture roster
+#                AND the real one; compact shows LIVE seats only and says so in
+#                one line when there are none (Zig's phone, dotfiles-hnhl)
+#   prompt       the raw input loop: every keystroke is read one byte at a time
+#                and the loop owns the buffer, so backspace reaches the FIRST
+#                character, a bare Esc closes with text in the buffer, and an
+#                arrow key is swallowed instead of closing the popup
 #   home         the front desk: `hall home` is `hall seneschal`
 #   refusals     unknown seat -> exit 2 with near matches
 #   structure    no send-keys, no kill-*: the hall navigates, it never types
@@ -421,18 +428,30 @@ for C in 40 80 120; do
   if [ -z "$A" ]; then ok; else bad "BP$C alignment at $C cols ($A)"; fi
   W=$(widest "$BASE/w$C.out")
   if [ "$W" -le "$C" ]; then ok; else bad "BP$C at $C cols the court is $W wide — it will WRAP"; fi
-  has "BP$C every seat still renders at $C cols" "gamma" "$OUT"
+  if [ "$C" -lt 60 ]; then
+    # COMPACT is LIVE WINDOWS ONLY since Zig's 2026-08-09 phone note, so the
+    # roster-completeness assertion belongs to the wider layouts. `alpha` is the
+    # seat with a window here; `gamma` has none, and asserting it at 40 cols
+    # would be asserting the phone dump this breakpoint exists to stop printing.
+    has "BP$C the live seat renders at $C cols" "alpha" "$OUT"
+  else
+    has "BP$C every seat still renders at $C cols" "gamma" "$OUT"
+  fi
 done
 
 # COMPACT (a phone): sigil, name, status — and deliberately NOT the office or
 # the tap. Asserting what is ABSENT is the half that catches a "responsive"
 # layout that just renders the wide table into a narrow terminal.
 COMPACT=$(cat "$BASE/w40.out")
-has   "BPCOMPACT keeps the name"     "seneschal"     "$COMPACT"
-has   "BPCOMPACT keeps the status"   "💤"            "$COMPACT"
-hasnt "BPCOMPACT drops the office"   "The Seneschal" "$COMPACT"
-hasnt "BPCOMPACT drops the tap"      "personal"      "$COMPACT"
-has   "BPCOMPACT teaches the prompt" "type a seat name" "$COMPACT"
+has   "BPCOMPACT keeps the live seat"   "alpha"         "$COMPACT"
+hasnt "BPCOMPACT drops an asleep seat"  "seneschal"     "$COMPACT"
+hasnt "BPCOMPACT drops the office"      "The Seneschal" "$COMPACT"
+hasnt "BPCOMPACT drops the tap"         "personal"      "$COMPACT"
+has   "BPCOMPACT teaches the prompt"    "type a seat name" "$COMPACT"
+# …and the wider layouts still draw the WHOLE roster — the asleep seats are
+# dropped by the phone breakpoint, not by the renderer.
+has "BPMEDIUM keeps the asleep seats"   "seneschal"     "$(cat "$BASE/w80.out")"
+has "BPWIDEROSTER keeps the asleep seats" "seneschal"   "$(cat "$BASE/w120.out")"
 
 # MEDIUM (the default desktop popup): the v0 court, host and tap included.
 MEDIUM=$(cat "$BASE/w80.out")
@@ -463,6 +482,73 @@ for C in 40 80 120; do
   W=$(widest "$BASE/w$C.out")
   if [ "$W" -le "$C" ]; then ok; else bad "BPREAL$C the REAL roster at $C cols is $W wide — it will WRAP"; fi
 done
+
+# ===========================================================================
+# COMPACT SHOWS LIVE WINDOWS ONLY (dotfiles-hnhl, Zig from his phone)
+# ===========================================================================
+# "the list of seats is still too long on my phone" — a 💤 row is a seat with
+# NO window: nothing to watch, and on a phone every row is a scroll. So below
+# the compact breakpoint the court renders the live seats and nothing else, and
+# the count line carries the rest.
+#
+# Its own SERVER, because the fixture is the whole point: exactly two seats with
+# windows, five without, and no unregistered window to blur the row count. A
+# session's first window is named for a seat here rather than left as a shell,
+# so `rows` means "seat rows" with nothing to subtract.
+SOCK3="$SOCKDIR/hall-compact"
+tm "$SOCK3" new-session -d -s sess-c -n seneschal -c "$BASE" 2>"$ERR"
+tm "$SOCK3" new-window  -d -t "=sess-c" -n "🧠 alpha" -c "$BASE" 2>"$ERR"
+# A table row is `<glyph><space><space><text>`; the legend, the count line and
+# the footer all fail that shape (they lead with a word, a digit, or one space).
+rows_of() { printf '%s\n' "$1" | grep -cE '^[^[:space:]]  [^[:space:]]'; }
+CLIVE=$(COLUMNS=40 env -u TMUX -u TMUX_TMPDIR -u HALL_SESSION -u HALL_ONLY_IF_ABSENT \
+          SEATS_YML="$ROSTER" HALL_TMUX_SOCKET="$SOCK3" bash "$HALL" 2>/dev/null)
+# The ROWS, not the whole frame: the header's `here:` cell also names a seat,
+# and asserting against the frame would let it stand in for a row that is gone.
+CROWS=$(printf '%s\n' "$CLIVE" | grep -E '^[^[:space:]]  [^[:space:]]')
+eq    "BPLIVE renders one row per LIVE seat and no more" 2 "$(rows_of "$CLIVE")"
+has   "BPLIVE keeps the live seat alpha"     "alpha"     "$CROWS"
+has   "BPLIVE keeps the live seat seneschal" "seneschal" "$CROWS"
+for s in beta gamma delta epsilon zeta; do
+  hasnt "BPLIVE drops the asleep seat $s" "$s" "$CROWS"
+done
+has   "BPLIVE still counts the asleep ones" "5 asleep"  "$CLIVE"
+hasnt "BPLIVE no row is asleep"             "💤"        "$CROWS"
+# The same server at a WIDER breakpoint still draws the whole roster: the drop
+# is the phone's, not the renderer's.
+CWIDE=$(COLUMNS=100 env -u TMUX -u TMUX_TMPDIR -u HALL_SESSION -u HALL_ONLY_IF_ABSENT \
+          SEATS_YML="$ROSTER" HALL_TMUX_SOCKET="$SOCK3" bash "$HALL" 2>/dev/null)
+eq "BPLIVEWIDE the wide court still draws every seat" 7 "$(rows_of "$CWIDE")"
+
+# ALL ASLEEP: the roster dump was the WORST case on a phone — 18 rows saying
+# nothing is running. One line says it instead. The fixture is a socket with no
+# server at all, which is the only way to get zero live windows (a live server
+# always has at least one, and it would render as an unregistered row).
+DEADSOCK="$BASE/no-such-tmux-socket"
+asleep_at() {
+  COLUMNS=$1 env -u TMUX -u TMUX_TMPDIR -u HALL_SESSION -u HALL_ONLY_IF_ABSENT \
+    SEATS_YML="$ROSTER" HALL_TMUX_SOCKET="$DEADSOCK" bash "$HALL" 2>/dev/null
+}
+CASLEEP=$(asleep_at 56)
+has  "BPASLEEP says it in one line" "all 7 seats asleep $(printf '\xc2\xb7') type a name to wake one" "$CASLEEP"
+eq   "BPASLEEP renders no rows at all" 0 "$(rows_of "$CASLEEP")"
+for s in alpha beta gamma; do
+  hasnt "BPASLEEP names no seat $s" " $s " "$CASLEEP"
+done
+# …and on a narrower phone it becomes two short lines rather than one wrapped
+# one — a wrap is the stilt the whole layout exists to avoid.
+CASLEEP40=$(asleep_at 40)
+printf '%s' "$CASLEEP40" > "$BASE/asleep40.out"
+has "BPASLEEP40 keeps the count line" "all 7 seats asleep"      "$CASLEEP40"
+has "BPASLEEP40 keeps the invitation" "type a name to wake one" "$CASLEEP40"
+W=$(widest "$BASE/asleep40.out")
+if [ "$W" -le 40 ]; then ok; else bad "BPASLEEP40 the all-asleep court is $W wide at 40 cols — it will WRAP"; fi
+G=$(glyph_check "$BASE/asleep40.out")
+case "$G" in CLEAN*) ok ;; *) bad "BPASLEEP40 glyph rule on the all-asleep court ($G)" ;; esac
+# The WIDE layout is untouched by any of this: no message, the full roster.
+CASLEEPWIDE=$(asleep_at 120)
+hasnt "BPASLEEPWIDE the wide court gets no message" "type a name to wake one" "$CASLEEPWIDE"
+eq    "BPASLEEPWIDE the wide court still draws every seat" 7 "$(rows_of "$CASLEEPWIDE")"
 
 # ===========================================================================
 # VISIT — existing window
@@ -676,8 +762,7 @@ eq "PROMPTENTER rc"          0      "$RC"
 eq "PROMPTENTER stays put"   "beta" "$(cur_win_name sess-a)"
 
 # ESC closes on ONE keypress (Zig, live: a popup you cannot dismiss with the
-# key everyone reaches for is a trap). The escape SEQUENCE of an arrow key
-# (ESC [ A) must close too rather than leaving `[A` in the next prompt.
+# key everyone reaches for is a trap).
 for KEYS in $'\e' $'\e[A'; do
   tm "$SOCK" select-window -t "$BETA_ID" 2>"$ERR"
   OUT=$(prompt_with "$KEYS"); RC=$?
@@ -685,6 +770,99 @@ for KEYS in $'\e' $'\e[A'; do
   eq "PROMPTESC stays put" "beta" "$(cur_win_name sess-a)"
   hasnt "PROMPTESC visits nothing" "materialized" "$OUT"
 done
+
+# ===========================================================================
+# THE RAW INPUT LOOP (dotfiles-hnhl) — three live bugs, one root cause
+# ===========================================================================
+# Zig, 2026-08-09, on his phone and his desktop. The prompt used to read the
+# FIRST keystroke raw and the REST through `read -r`, and all three of these are
+# that split, not three separate mistakes:
+#   1. backspace could never erase the first character, so the buffer could not
+#      return to the empty state Enter closes on;
+#   2. Esc typed instead of closing once anything was in the buffer;
+#   3. any arrow key on an empty buffer closed the popup (the bare \e matched
+#      before `[A` arrived).
+# `read -sn1` reads from a pipe, so every one of them is a byte string on stdin.
+
+# --- BUG 1: the first typed character is erasable --------------------------
+# The tell is NOT the exit code — the old code also exited 0 here, having
+# submitted the undeletable `a` and the two DEL bytes as a seat name. It is that
+# NOTHING WAS SUBMITTED: an empty buffer at Enter closes silently, so a `no seat`
+# refusal on stderr is proof the erase did not reach the first character.
+tm "$SOCK" select-window -t "$BETA_ID" 2>"$ERR"
+OUT=$(prompt_with $'a\177\177\n'); RC=$?
+eq    "PROMPTBKSP rc"                    0      "$RC"
+eq    "PROMPTBKSP stays put"             "beta" "$(cur_win_name sess-a)"
+hasnt "PROMPTBKSP submitted nothing"     "no seat" "$(cat "$ERR")"
+hasnt "PROMPTBKSP visited nothing"       "materialized" "$OUT"
+# Backspace at an EMPTY buffer is a no-op, never a close and never an erase into
+# the prompt itself: the DELs below are followed by a real name that must still
+# be read.
+tm "$SOCK" select-window -t "$BETA_ID" 2>"$ERR"
+OUT=$(prompt_with $'\177\177alpha\n'); RC=$?
+eq "PROMPTBKSPFLOOR rc"                0          "$RC"
+eq "PROMPTBKSPFLOOR the prompt survived an empty backspace" "🧠 alpha" "$(cur_win_name sess-a)"
+
+# --- BUG 3: an arrow key is not a close ------------------------------------
+# Two arrows, then Enter on the still-empty buffer. `[A` must not land in the
+# buffer either (the sequence is swallowed WHOLE), which a `no seat '[A[B'`
+# refusal would report.
+tm "$SOCK" select-window -t "$BETA_ID" 2>"$ERR"
+OUT=$(prompt_with $'\e[A\e[B\n'); RC=$?
+eq    "PROMPTARROW rc"                0      "$RC"
+eq    "PROMPTARROW stays put"         "beta" "$(cur_win_name sess-a)"
+hasnt "PROMPTARROW typed nothing"     "no seat" "$(cat "$ERR")"
+# …and the popup was still OPEN afterwards, which is the half an exit code
+# cannot show: the name typed AFTER the arrows must still visit.
+tm "$SOCK" select-window -t "$BETA_ID" 2>"$ERR"
+OUT=$(prompt_with $'\e[A\e[Balpha\n'); RC=$?
+eq "PROMPTARROWLIVE rc"                    0          "$RC"
+eq "PROMPTARROWLIVE the prompt survived the arrows" "🧠 alpha" "$(cur_win_name sess-a)"
+
+# --- BUG 2: the BARE Esc closes with text in the buffer --------------------
+# This one needs a PAUSE, and the pause is the mechanism under test: ESC + more
+# bytes is an escape sequence, ESC alone is the key. On a pipe every byte is
+# available at once, so `ab<ESC>` followed immediately by anything is
+# indistinguishable from Alt-<key> — a FIFO with a real gap is the only honest
+# fixture. The bytes after the gap are a working visit, so a prompt that ignored
+# or typed the Esc lands on alpha and this case says so.
+ESCOUT="$BASE/escmid.out"; : > "$ESCOUT"
+FIFO2="$BASE/escfifo"; mkfifo "$FIFO2"
+(
+  exec 3>"$FIFO2"
+  # WAIT FOR THE PROMPT rather than sleeping at it: hall renders the whole court
+  # (python3 glyph audit included) before its first read, so a fixed delay here
+  # is a race that shows up only on a loaded box — and it fails by making the
+  # gap below LOOK like an escape sequence, i.e. by silently testing the
+  # opposite behaviour.
+  for _ in $(seq 1 80); do
+    grep -q 'seat>' "$ESCOUT" && break
+    sleep 0.25
+  done
+  printf 'ab\033' >&3
+  sleep 2                        # THE GAP is the mechanism: ESC alone is a key.
+  printf '\177\177alpha\n' >&3
+  sleep 1
+  exec 3>&-
+) &
+tm "$SOCK" select-window -t "$BETA_ID" 2>"$ERR"
+env -u TMUX -u TMUX_TMPDIR -u HALL_ONLY_IF_ABSENT \
+    SEATS_YML="$ROSTER" HALL_TMUX_SOCKET="$SOCK" HALL_SESSION=sess-a \
+    HALL_NO_LAUNCH=1 HALL_REFRESH_SECS=0 \
+    bash "$HALL" --interactive < "$FIFO2" > "$ESCOUT" 2>"$ERR"; RC=$?
+wait
+OUT=$(cat "$ESCOUT")
+eq    "PROMPTESCMID rc"                        0      "$RC"
+eq    "PROMPTESCMID the bare Esc closed on a full buffer" "beta" "$(cur_win_name sess-a)"
+hasnt "PROMPTESCMID submitted nothing"         "no seat" "$(cat "$ERR")"
+hasnt "PROMPTESCMID visited nothing"           "materialized" "$OUT"
+
+# --- Ctrl-C closes cleanly -------------------------------------------------
+tm "$SOCK" select-window -t "$BETA_ID" 2>"$ERR"
+OUT=$(prompt_with $'ab\003'); RC=$?
+eq    "PROMPTCTRLC rc"            0      "$RC"
+eq    "PROMPTCTRLC stays put"     "beta" "$(cur_win_name sess-a)"
+hasnt "PROMPTCTRLC submitted nothing" "no seat" "$(cat "$ERR")"
 
 # --- LIVE REFRESH (dotfiles-hnhl, Zig: "immensely better for watching") -----
 # The prompt loop is a watch loop: a keystroke that does not arrive within
