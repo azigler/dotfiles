@@ -41,8 +41,8 @@
 # the wrong reason. Pointing both at the REAL agents/lib is what keeps the
 # mutants meaningful.
 #
-# Cost, measured on this box: ~25s per suite run, 5 runs (baseline + 4 mutants)
-# ≈ 2 min. tools/githooks/pre-commit fires it on three filenames only.
+# Cost, measured on this box: ~95s per suite run, 8 runs (baseline + 7 mutants)
+# ≈ 13 min. tools/githooks/pre-commit fires it on four filenames only.
 #
 # ⚠️ Safe to run beside other work: every tmux object it touches lives on a
 # private `-L pulsemodel-<pid>` server. It never touches the default server.
@@ -74,10 +74,22 @@ if [ ! -f "$SEATLIB" ]; then
 fi
 export PULSE_SEAT_RESOLVE="$SEATLIB"
 
+# The alias->canonical table, same argument (dotfiles-lstn): the injector under
+# test is a COPY in a scratch dir, so its own `dirname $0/../lib` resolution
+# would find no table and every pin would be spliced as the roster's bare alias
+# — the pre-fix behaviour, i.e. a baseline that is red for a reason that has
+# nothing to do with any mutant.
+CANONLIB="$SRC/../lib/model-canon.sh"
+if [ ! -f "$CANONLIB" ]; then
+  echo "HARNESS ERROR: model canon table not found at $CANONLIB" >&2
+  exit 2
+fi
+export PULSE_MODEL_CANON="$CANONLIB"
+
 # The model-only subset's exact case count. If you add or remove a model case,
 # update this number — that is the point: a drifting count must stop the harness
 # rather than quietly shrink what it proves.
-EXPECT_CASES=51
+EXPECT_CASES=58
 
 FAILED=0
 HARNESS_ERR=0
@@ -285,9 +297,9 @@ check "M3 pin-token-guard-removed (a roster value becomes keystrokes in a shell)
 fresh_copy
 mutate "$INJ" \
   'if is_claude_launcher "$LAUNCH_BASE"; then
-    LAUNCH="$LAUNCH --model $MODEL"' \
+    LAUNCH="$LAUNCH --model '"'"'$MODEL'"'"'"' \
   'if true; then
-    LAUNCH="$LAUNCH --model $MODEL"'
+    LAUNCH="$LAUNCH --model '"'"'$MODEL'"'"'"'
 check "M4 pin-applied-to-launchers-that-are-not-recognized (an unproven launcher breaks)" \
       "MD31b MD31c" \
       "MD23a MD23b MD23c MD23d MD24a MD24b MD24c MD25a MD25b MD26a MD27a MD27c MD27d MD28a MD29a MD29b MD30b MD30c MD32a MD32b MD32c MD32d"
@@ -308,6 +320,48 @@ mutate "$INJ" \
 check "M5 jail-launcher-dropped-from-allowlist (dive silently unpins again)" \
       "MD32b MD32d" \
       "MD23a MD23b MD23c MD23d MD24a MD24b MD24c MD25a MD25b MD26a MD27a MD27c MD27d MD28a MD29a MD29b MD30b MD30c MD31a MD31b MD31c MD31d MD31e MD31f MD32a MD32c"
+
+# M6 — CANONICALISATION SKIPPED (dotfiles-lstn). The roster's bare alias goes
+# onto the launch string exactly as before. Nothing errors: the tick runs, the
+# right MODEL FAMILY answers, the statusline says the same name — and every
+# pinned row silently runs at a 200,000-token context window instead of
+# 1,000,000, which is the compaction-thrash multiplier that cost a night of
+# work on 2026-08-09. The must-PASS set is the unpinned half plus the verdicts:
+# a mutant that reddens those broke the injector, not the canonicalisation.
+fresh_copy
+mutate "$INJ" \
+  'if [ -n "$_mcanon" ] && [ "$_mcanon" != "$MODEL" ]; then' \
+  'if false && [ "$_mcanon" != "$MODEL" ]; then'
+check "M6 alias-not-canonicalised (every pinned row silently runs at 200k)" \
+      "MD23b MD23d MD23e MD26a MD27c MD27d MD29b MD32b MD32d MD34b MD34c MD34d" \
+      "MD23a MD23c MD24a MD24b MD24c MD25a MD25b MD28a MD30b MD30c MD31a MD31b MD31c MD34a"
+
+# M7 — THE QUOTES DROPPED FROM THE SPLICE. The canonical id ends in `[1m]`,
+# which is a GLOB — a one-character class matching `1` or `m` — and the launch
+# string is typed into a shell. This fleet's shell is zsh, where a glob that
+# matches nothing is a hard error, so the unquoted form does not run `claude`
+# with a funny argument: the ENTIRE LAUNCH LINE dies with `no matches found`
+# and the pane holds no launcher at all. That is the failure this quoting
+# exists to prevent, and it is invisible to any test that only reads the
+# injector's own log lines.
+fresh_copy
+mutate "$INJ" \
+  'LAUNCH="$LAUNCH --model '"'"'$MODEL'"'"'"' \
+  'LAUNCH="$LAUNCH --model $MODEL"'
+#
+# Two entries in the must-PASS list are the discriminators, and both are facts
+# worth knowing rather than accidents:
+#   * MD34b — haiku's canonical carries NO tag, so it is the one pin the
+#     quoting cannot matter for. It passing is what proves this mutant is about
+#     the TAG and not about quoting in general.
+#   * MD23d / MD32d — the ledger rows keep passing, because the ledger records
+#     what was REQUESTED (its own header says so, deliberately: it exists to be
+#     joined against the gateway's gen_ai_request_model). So a launch line that
+#     died still ledgers a pin. That is by design, and it is also the reason the
+#     ARGV assertions — not the ledger — are what this mutant is measured on.
+check "M7 pin-spliced-unquoted (the [1m] tag globs and the launch line dies)" \
+      "MD23b MD26a MD32b MD34c" \
+      "MD23d MD24a MD24b MD24c MD25a MD25b MD31a MD31b MD31c MD32d MD34a MD34b"
 
 echo
 if [ "$HARNESS_ERR" -ne 0 ]; then

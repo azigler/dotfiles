@@ -33,6 +33,12 @@
 # throwaway tree; the suite resolves the hook by `dirname $0/..`, so the copy is
 # self-contained and agents/hooks/ is never edited. Safe to run concurrently with
 # the suite itself (all state lives under the suite's own mktemp -d).
+#
+# agents/lib/model-canon.sh is copied in TOO (dotfiles-lstn). The hook resolves
+# it relative to its own location, so without the copy the scratch hook would
+# silently fall back to naming EXPECTED verbatim — i.e. every canonicalisation
+# case would go red on the BASELINE, which reads as "the suite is broken" rather
+# than as the missing dependency it is. The copy is asserted, not assumed.
 
 # shellcheck disable=SC2016
 # ^ file-wide and deliberate: every mutation argument below is LITERAL SOURCE
@@ -59,9 +65,12 @@ FAILED=0
 HARNESS_ERR=0
 MUTANT_OK=0
 
-mkdir -p "$WORK/hooks/test" "$WORK/pristine"
+mkdir -p "$WORK/hooks/test" "$WORK/lib" "$WORK/pristine"
 [ -f "$HOOKS/$HOOK" ] || { echo "HARNESS ERROR: $HOOKS/$HOOK does not exist" >&2; exit 2; }
 cp -a "$HOOKS/$HOOK" "$WORK/pristine/$HOOK"
+CANONLIB="$(cd "$HOOKS/../lib" 2>/dev/null && pwd)/model-canon.sh"
+[ -f "$CANONLIB" ] || { echo "HARNESS ERROR: $CANONLIB does not exist — the hook's canonicalisation dependency" >&2; exit 2; }
+cp -a "$CANONLIB" "$WORK/lib/model-canon.sh"
 for f in "$SUITE" "$FIXTURE" "$FIXTURE2"; do
   [ -f "$SRC/$f" ] || { echo "HARNESS ERROR: $SRC/$f does not exist" >&2; exit 2; }
   cp -a "$SRC/$f" "$WORK/hooks/test/$f"
@@ -268,6 +277,52 @@ mutate '  elif .type == "system" and .subtype == "model_refusal_fallback"
        and (.isSidechain // false | not) then' \
        '  elif .type == "system" and .subtype == "model_refusal_fallback" then'
 check "M9 sidechain-refusal-row-poisons-the-expected-model" "C23" "C1 C2 C3"
+
+# M10 — [restore-instructs-alias]. THE ONE THAT WAS LIVE (dotfiles-lstn). The
+# restore rung goes back to naming EXPECTED verbatim, which in production is a
+# roster ALIAS. `/model` PERSISTS its argument into settings.json, so obeying
+# that instruction rewrites the machine default to the 200k form for every
+# session launched afterwards — the guard becomes the WRITER of the drift it
+# exists to catch, and every mechanical signal stays green (same model name,
+# same statusline, only the context window differs). C24 is its sole detector.
+# C25 must keep passing: an un-tabled model is instructed verbatim either way,
+# so a mutant that reddens it broke the passthrough rather than the canon.
+fresh_copy
+mutate "argument '\$CANON'" "argument '\$EXPECTED'"
+check "M10 restore-instructs-alias" "C24" "C1 C2 C21 C25"
+
+# M11 — the same write, one rung up. The molt rung types `/model` too, so a fix
+# applied only to the restore rung leaves the alias-write reachable on the
+# second knock — and the second knock is the one that ends in a fresh context,
+# i.e. the one whose model choice sticks. C26 is its sole detector; C7 (the molt
+# rung itself) must keep passing, or the mutant broke the ladder, not the id.
+fresh_copy
+mutate "/model '\$CANON' — that exact id" "/model '\$EXPECTED' — that exact id"
+check "M11 molt-rung-instructs-alias" "C26" "C1 C7 C10 C24"
+
+# M12 — THE SETTINGS-DRIFT ALARM REMOVED. Nothing else on this box watches the
+# key `/model` persists into: on 2026-08-09 live settings sat at "fable" for
+# hours while the statusline, the transcript and every timer stayed green. With
+# the alarm gone the guard still catches a session being knocked off its model
+# and still misses the machine defaulting the whole fleet to 200k. C27/C29 are
+# its detectors; C28 must keep passing (a removed alarm cannot cry wolf).
+fresh_copy
+mutate 'if [ "$SDRIFT" -eq 0 ] && [ "${MODEL_GUARD_USE_SETTINGS:-1}" != "0" ] \' \
+       'if [ "$SDRIFT" -eq 99 ] && [ "${MODEL_GUARD_USE_SETTINGS:-1}" != "0" ] \'
+check "M12 settings-drift-alarm-removed" "C27 C29" "C1 C2 C28"
+
+# M13 — the alarm's once-per-session memory dropped, so a standing drift
+# re-emits on EVERY tool round. This is the failure direction that gets a guard
+# switched off by the person it interrupts, and it is why the emission is keyed
+# on a state flag rather than the cooldown the ladder uses. C29 is its sole
+# detector — C27 (the first emission) is identical under this mutant, which is
+# what makes C29 non-redundant.
+fresh_copy
+mutate '    SDRIFT=2
+    write_state' \
+       '    SDRIFT=0
+    write_state'
+check "M13 settings-drift-alarm-nags-every-round" "C29" "C1 C27 C28"
 
 echo
 if [ "$HARNESS_ERR" -ne 0 ]; then

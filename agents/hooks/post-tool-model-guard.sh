@@ -59,6 +59,18 @@
 # time the cooldown lapses, the counter advances and the ladder escalates. That
 # verification is the whole design — see OPEN QUESTION at the bottom.
 #
+# ⚠️ AND THE INSTRUCTION NAMES THE CANONICAL LITERAL, NEVER AN ALIAS
+# (dotfiles-lstn). `/model` does not merely switch the live session — it
+# PERSISTS its argument into live settings.json. So an instruction carrying a
+# bare alias is a WRITE of the 200k form into the machine default, for every
+# session launched afterwards: `fable` and `claude-fable-5` both run Fable 5 at
+# 200,000 tokens, and only `claude-fable-5[1m]` gets the 1M window (probed,
+# agents/lib/model-canon.sh). EXPECTED legitimately arrives as an alias — the
+# roster's vocabulary is `fable`/`opus`/`sonnet`/`haiku` — so this guard was the
+# machine that turned one aliased seat into a fleet-wide 200k default on
+# 2026-08-09. Comparison still NORMALISES (norm() strips the tag, because the
+# wire never carries it); only the instruction is canonicalised.
+#
 # ── EXPECTED-MODEL PRECEDENCE (first hit wins) ──────────────────────────────
 #   1. $MODEL_GUARD_EXPECTED                     env; `off` disables the guard
 #   2. $STATE/model-guard/<session_id>.expected  per-seat override file; `off`
@@ -106,7 +118,28 @@
 #   {"ts","epoch","row","session","expected","served","tries","event","action"}
 # `row` is the non-null row name ("model-guard") this repo's ledger convention
 # requires — a null row name produced 23 bad rows across 3 projects once
-# (dotfiles-mlti). Events: detected | recovered | check-failed.
+# (dotfiles-mlti). Events: detected | recovered | check-failed | settings-drift.
+#
+# ── THE SETTINGS-DRIFT ALARM (dotfiles-lstn AC3) ────────────────────────────
+# A SECOND, independent check on a different fact. The ladder above watches what
+# is being SERVED right now; this one watches what the machine will LAUNCH next
+# — live settings.json's `model` key, the seam `/model` persists into. It fires
+# when that key is not the canonical id for its family (a bare alias, a bare
+# full id, or a `[1m]` tag on haiku, which is a 400 at the API). It is
+# deliberately NOT part of the restore/molt/escalate ladder: nothing is degraded
+# yet, no `tries` is spent, and the remedy is an edit to a file rather than a
+# /model. It emits ONCE PER SESSION (state key `sdrift`), not once per cooldown
+# — the drift is a standing condition, so a per-cooldown nag would be a nag
+# forever, and one loud line per fresh session is what actually gets it fixed.
+# The 2026-08-09 instance stood for hours with every mechanical signal green.
+#
+# Cost, stated because it is a real change: remembering a CLEAN check writes the
+# per-session state file for every session, not only for sessions that had a
+# mismatch — so $STATE/model-guard/ grows one ~60-byte file per session and
+# nothing reaps it. The alternative is a `jq` fork on every tool call of every
+# session forever, which is the worse trade by a wide margin. Per-session state
+# files were already the normal case (the refusal-fallback cache writes one
+# too); this raises the rate, not the class.
 #
 # Environment seams (tests use them; production uses the defaults):
 #   MODEL_GUARD_EXPECTED         force the expected id, or `off` to disable
@@ -116,7 +149,8 @@
 #   MODEL_GUARD_COOLDOWN_SECS    180   seconds before a persisting mismatch
 #                                      counts as a fresh failed try
 #   MODEL_GUARD_TAIL             500   transcript lines scanned per round
-#   MODEL_GUARD_USE_SETTINGS     1     0 = never fall back to settings.json
+#   MODEL_GUARD_USE_SETTINGS     1     0 = never fall back to settings.json,
+#                                      and never run the settings-drift check
 #   MODEL_GUARD_USE_PROC         1     0 = never read /proc for --model
 #
 # OPEN QUESTION (for the orchestrator, recorded on dotfiles-p89v): whether an
@@ -157,7 +191,7 @@ TAIL_LINES="${MODEL_GUARD_TAIL:-500}"
 NOW=$(date +%s)
 
 # --- state ------------------------------------------------------------------
-TRIES=0; PENDING=0; LAST_EMIT=0; LAST_CFAIL=0; DERIVED=""
+TRIES=0; PENDING=0; LAST_EMIT=0; LAST_CFAIL=0; DERIVED=""; SDRIFT=0
 if [ -f "$STATE_FILE" ]; then
   while IFS='=' read -r k v; do
     case "$k" in
@@ -166,6 +200,7 @@ if [ -f "$STATE_FILE" ]; then
       emit)    LAST_EMIT=$v ;;
       cfail)   LAST_CFAIL=$v ;;
       derived) DERIVED=$v ;;
+      sdrift)  SDRIFT=$v ;;
     esac
   done < "$STATE_FILE"
 fi
@@ -173,6 +208,10 @@ case "$TRIES"     in ''|*[!0-9]*) TRIES=0 ;; esac
 case "$PENDING"   in ''|*[!0-9]*) PENDING=0 ;; esac
 case "$LAST_EMIT" in ''|*[!0-9]*) LAST_EMIT=0 ;; esac
 case "$LAST_CFAIL" in ''|*[!0-9]*) LAST_CFAIL=0 ;; esac
+# sdrift: 0 = not yet checked, 1 = checked clean, 2 = drift already reported.
+# Three states, not two, so a CLEAN check is remembered too — otherwise the
+# settings read (and its jq fork) would repeat on every tool round forever.
+case "$SDRIFT"    in ''|*[!0-9]*) SDRIFT=0 ;; esac
 
 # Atomic: write a temp beside the target and rename. A truncate-write here is
 # observable — a reader can see a half-written file, and two writers can lose an
@@ -181,8 +220,8 @@ case "$LAST_CFAIL" in ''|*[!0-9]*) LAST_CFAIL=0 ;; esac
 write_state() {
   mkdir -p "$STATE_DIR" || return 0
   local tmp="$STATE_FILE.tmp.$$"
-  printf 'tries=%s\npending=%s\nemit=%s\ncfail=%s\nderived=%s\n' \
-    "$TRIES" "$PENDING" "$LAST_EMIT" "$LAST_CFAIL" "$DERIVED" > "$tmp" || { rm -f "$tmp"; return 0; }
+  printf 'tries=%s\npending=%s\nemit=%s\ncfail=%s\nderived=%s\nsdrift=%s\n' \
+    "$TRIES" "$PENDING" "$LAST_EMIT" "$LAST_CFAIL" "$DERIVED" "$SDRIFT" > "$tmp" || { rm -f "$tmp"; return 0; }
   mv -f "$tmp" "$STATE_FILE" || rm -f "$tmp"
   return 0
 }
@@ -217,6 +256,40 @@ check_failed() {
 # `claude-fable-5[1m]` and `claude-fable-5` are the same model; the settings key
 # carries the context tag and the wire does not.
 norm() { printf '%s' "$1" | sed -e 's/\[[^][]*\]$//' | tr '[:upper:]' '[:lower:]'; }
+
+# --- canonicalisation (dotfiles-lstn) ---------------------------------------
+# SOURCED, not forked: this hook already costs one process per tool call and the
+# lib is 30 lines of pure functions with no side effects. If it is missing the
+# guard degrades to naming EXPECTED verbatim — the pre-lstn behaviour — rather
+# than failing, because a hook that dies on a missing sibling breaks every
+# session on the machine (this repo's rule 1).
+MODEL_CANON_LIB="${MODEL_CANON_LIB:-$_MG_DIR/../lib/model-canon.sh}"
+if [ -r "$MODEL_CANON_LIB" ]; then
+  # shellcheck source=/dev/null
+  . "$MODEL_CANON_LIB"
+fi
+# canon <token> — the canonical id, or <token> unchanged when the table cannot
+# resolve it (an older pinned model) or the lib is absent.
+canon() {
+  if command -v model_canon >/dev/null 2>&1; then   # allow-suppress: existence probe
+    model_canon "$1" || true
+  else
+    printf '%s' "$1"
+  fi
+}
+
+# window_note <canonical> — the one sentence explaining WHY that exact literal.
+# Branching, not a constant, because the table is asymmetric on purpose:
+# fable/opus/sonnet gain `[1m]` (probed: bare = 200k, tagged = 1M) and haiku
+# must NOT (probed: the tagged form is an API 400). A message hardcoding "the
+# 1M one" would be a false statement on a haiku seat — and a guard caught
+# saying something false is a guard that gets ignored.
+window_note() {
+  case "$1" in
+    *'[1m]') printf "the bare alias and the bare full id are the 200,000-token window; '%s' is the 1,000,000-token one" "$1" ;;
+    *)       printf "'%s' is the canonical id for that family — it takes NO [1m] tag (that model has no 1M variant and the tagged form is rejected by the API)" "$1" ;;
+  esac
+}
 
 # same_model <expected> <served> — normalised equality, plus bare-alias matching
 # so a seat declared `opus` is satisfied by `claude-opus-5`.
@@ -261,6 +334,37 @@ TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 if [ -n "$TRANSCRIPT" ]; then
   _TB=$(basename "$TRANSCRIPT"); _TB=${_TB%.jsonl}
   [ "$_TB" = "$SESSION_ID" ] || exit 0
+fi
+
+# --- THE SETTINGS-DRIFT ALARM (dotfiles-lstn AC3) ---------------------------
+# Deliberately placed HERE: after the subagent bail (a subagent must not spam
+# the parent's channel) but BEFORE the transcript read, because this check does
+# not depend on the transcript at all — a session whose transcript is
+# unreadable still launches its successors from the same drifted settings key.
+# ONE emission per session; a clean check is remembered too, so the steady-state
+# cost after the first tool call is zero.
+SETTINGS_PATH="${MODEL_GUARD_SETTINGS:-$HOME/.claude/settings.json}"
+if [ "$SDRIFT" -eq 0 ] && [ "${MODEL_GUARD_USE_SETTINGS:-1}" != "0" ] \
+   && command -v model_canon_settings_drift >/dev/null 2>&1; then   # allow-suppress: existence probe
+  if _SD_WHY=$(model_canon_settings_drift "$SETTINGS_PATH"); then
+    SDRIFT=1
+    write_state
+  else
+    SDRIFT=2
+    write_state
+    _SD_MODEL=$(jq -r '.model // empty' "$SETTINGS_PATH" 2>/dev/null)
+    _SD_CANON=$(canon "$_SD_MODEL")
+    # The file to EDIT is the symlink's target, resolved — never a hardcoded
+    # repo path. `~/.claude/settings.json` has pointed at dotfiles/claude/ and
+    # at the private demesne checkout at different times on this very box, and
+    # a fix instruction naming the wrong file is a fix nobody can apply (this
+    # repo's rule 2: a documented example is executable).
+    _SD_REAL=$(readlink -f "$SETTINGS_PATH" 2>/dev/null) || _SD_REAL=""   # allow-suppress: pure path resolution
+    [ -n "$_SD_REAL" ] || _SD_REAL="$SETTINGS_PATH"
+    ledger_row "settings-drift" "canonicalise" "$_SD_CANON" "$_SD_MODEL"
+    echo "MODEL SETTINGS DRIFT — $SETTINGS_PATH says \"model\": \"$_SD_MODEL\"; $_SD_WHY. This is a LAUNCH-TIME key, so it does not affect the session you are in — it decides what EVERY session started from now on runs, and what it decides is the CONTEXT WINDOW: $(window_note "$_SD_CANON") (measured; see agents/lib/model-canon.sh). A 200k seat compacts repeatedly where a 1M seat never does, and nothing else in the pane will say so — the statusline names the same model either way. FIX IT: set that key to '$_SD_CANON' in $_SD_REAL (the file that path resolves to — edit the source, not the symlink), and check what wrote the alias — an in-session /model PERSISTS its argument into this file, so a single '/model fable' anywhere rewrites the machine default. Reported once per session." >&2
+    exit 2
+  fi
 fi
 
 [ -n "$TRANSCRIPT" ] && [ -r "$TRANSCRIPT" ] || check_failed "no-transcript"
@@ -323,9 +427,8 @@ elif [ -n "$DERIVED" ]; then
 elif [ "${MODEL_GUARD_USE_PROC:-1}" != "0" ] && EXPECTED=$(_ancestor_model); then
   EXPECTED_SRC="proc"
 elif [ "${MODEL_GUARD_USE_SETTINGS:-1}" != "0" ]; then
-  SETTINGS="${MODEL_GUARD_SETTINGS:-$HOME/.claude/settings.json}"
-  if [ -r "$SETTINGS" ]; then
-    EXPECTED=$(jq -r '.model // empty' "$SETTINGS" 2>/dev/null); EXPECTED_SRC="settings"
+  if [ -r "$SETTINGS_PATH" ]; then
+    EXPECTED=$(jq -r '.model // empty' "$SETTINGS_PATH" 2>/dev/null); EXPECTED_SRC="settings"
   fi
 fi
 
@@ -376,15 +479,23 @@ fi
 
 EVIDENCE="expected '$EXPECTED' (source: $EXPECTED_SRC), actually served '$SERVED'"
 
+# THE ARGUMENT THE AGENT WILL TYPE (dotfiles-lstn). EXPECTED is provenance and
+# stays raw in the evidence above; CANON is what goes after `/model`, because
+# that command PERSISTS its argument into live settings.json — an alias there
+# writes the 200k form into the machine default for every future session. When
+# the table does not govern EXPECTED (an older pinned model), canon() returns it
+# unchanged and this is a no-op.
+CANON=$(canon "$EXPECTED")
+
 case "$ACTION" in
   restore)
-    echo "MODEL DEGRADATION (try $TRIES) — $EVIDENCE. Anthropic's precaution fallback has switched this session off its declared model; nothing else in the pane will tell you. RESTORE IT NOW, before your next unit of work: switch the session back with the /model slash command, argument '$EXPECTED'. Editing settings.json will NOT help — that key is read at process start only, so it cannot move a live session. Do not run another '$EXPECTED'-level scenario on '$SERVED' in the meantime. This guard re-checks every tool round and will tell you if the restore did not take." >&2
+    echo "MODEL DEGRADATION (try $TRIES) — $EVIDENCE. Anthropic's precaution fallback has switched this session off its declared model; nothing else in the pane will tell you. RESTORE IT NOW, before your next unit of work: switch the session back with the /model slash command, argument '$CANON'. Type that id EXACTLY — /model persists what you give it into settings.json, so what you type here becomes the machine default for every session afterwards: $(window_note "$CANON"). Editing settings.json will NOT help — that key is read at process start only, so it cannot move a live session. Do not run another '$CANON'-level scenario on '$SERVED' in the meantime. This guard re-checks every tool round and will tell you if the restore did not take." >&2
     ;;
   molt)
-    echo "MODEL DEGRADATION (try $TRIES) — $EVIDENCE. The restore did not hold; this session has been knocked off its model again. MOLT IT WITH A MODEL CHANGE, now, in this order: (1) run /offboard — handoff note, commit, push; (2) switch the model back with /model '$EXPECTED'; (3) run: $MOLT --self --mode compact   — compact, NOT clear: it is the in-flight-safe mode and preserves background task handles. The fresh context must come up on '$EXPECTED'. Do not start new work on '$SERVED' first." >&2
+    echo "MODEL DEGRADATION (try $TRIES) — $EVIDENCE. The restore did not hold; this session has been knocked off its model again. MOLT IT WITH A MODEL CHANGE, now, in this order: (1) run /offboard — handoff note, commit, push; (2) switch the model back with /model '$CANON' — that exact id, not the bare alias, which would persist the 200k form into settings.json; (3) run: $MOLT --self --mode compact   — compact, NOT clear: it is the in-flight-safe mode and preserves background task handles. The fresh context must come up on '$CANON'. Do not start new work on '$SERVED' first." >&2
     ;;
   *)
-    echo "MODEL DEGRADATION (try $TRIES) — $EVIDENCE. STOP. Restore and molt have both failed; this session keeps being served '$SERVED'. Do NOT continue feeding '$EXPECTED'-level work to it silently. If a human is in the room: raise AskUserQuestion to Zig NOW — name the expected model, the served model, and that $TRIES attempts failed — and send a PushNotification alongside it, since a focused pane is not presence. If this is an autonomous tick with no human: file a P1 bead titled 'human: model degradation on session $SESSION_ID' describing the same, send the push, and END THE TICK. Take no further work on the wrong model either way." >&2
+    echo "MODEL DEGRADATION (try $TRIES) — $EVIDENCE. STOP. Restore and molt have both failed; this session keeps being served '$SERVED'. Do NOT continue feeding '$CANON'-level work to it silently. If a human is in the room: raise AskUserQuestion to Zig NOW — name the expected model ('$CANON'), the served model, and that $TRIES attempts failed — and send a PushNotification alongside it, since a focused pane is not presence. If this is an autonomous tick with no human: file a P1 bead titled 'human: model degradation on session $SESSION_ID' describing the same, send the push, and END THE TICK. Take no further work on the wrong model either way." >&2
     ;;
 esac
 

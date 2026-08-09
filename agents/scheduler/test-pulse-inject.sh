@@ -66,7 +66,7 @@ assert_verdict() {
 # would otherwise pay ~60s of unrelated cases each time:
 #
 #   seat   -> only the --config-dir cases (18-22)   caller: mutate-pulse-seat.sh
-#   model  -> only the --model cases (23-32)        caller: mutate-pulse-model.sh
+#   model  -> only the --model cases (23-32, 34)    caller: mutate-pulse-model.sh
 #   t5fj   -> only the same-loop-running cases (33) caller: mutate-t5fj-staleness.sh
 #
 # Each is a SUBSET, never a substitute — tools/githooks/pre-commit runs the FULL
@@ -907,6 +907,15 @@ SEATLIB="${PULSE_SEAT_RESOLVE:-$(cd "$(dirname "$INJECT")/../lib" 2>/dev/null &&
 if [ ! -f "$SEATLIB" ]; then
   bad "MD00 the seat resolver is reachable at $SEATLIB (every model case depends on it)"
 fi
+# Same shape for the alias->canonical table (dotfiles-lstn). Asserted rather
+# than assumed: if it is unreachable the injector WARNS and pins the roster
+# alias verbatim — which is the pre-fix behaviour, so every canonicalisation
+# case would go red for a reason that has nothing to do with the code under
+# test.
+MCANONLIB="${PULSE_MODEL_CANON:-$(cd "$(dirname "$INJECT")/../lib" 2>/dev/null && pwd)/model-canon.sh}"
+if [ ! -f "$MCANONLIB" ]; then
+  bad "MD00b the model canon table is reachable at $MCANONLIB (every canonical-pin case depends on it)"
+fi
 
 # A FIXTURE roster — never agents/seats.yml. Three seats: one pinned, one that
 # declares no model at all (the roster-drift case a valid roster cannot express,
@@ -957,6 +966,16 @@ seats:
     aliases: []
     history: refs/seats/jailseat.history.md
     schedules: []
+  haikuseat:
+    charter-line: "fixture seat on the one family with NO 1M variant (case 34)"
+    office: "The Haiku"
+    sigil: "🍃"
+    home: ~/
+    model: haiku
+    effort: high
+    aliases: []
+    history: refs/seats/haikuseat.history.md
+    schedules: []
 EOS
 
 # A roster whose pin is NOT a bare token. The pin is TYPED INTO A SHELL as part
@@ -965,8 +984,17 @@ EOS
 # only after the launcher exits, and the launcher holds the pane forever — so the
 # obvious payload would look harmless and the case would prove nothing. `$( )` is
 # expanded when the shell executes the line, i.e. immediately.
+#
+# IT OPENS WITH ITS OWN SINGLE QUOTE (dotfiles-lstn), and that detail is the
+# whole case. Since the canonical id carries a `[1m]` tag the pin is now spliced
+# SINGLE-QUOTED, which by itself defuses a plain `$( )` payload — so a fixture
+# without the quote would make MD31f pass with the token guard deleted, i.e. it
+# would stop proving anything about the guard. `sonnet'$(…)'` closes the
+# injector's quoting and reopens it, so the substitution runs unless the token
+# guard refuses the value. Guard and quoting are defence in depth, and this
+# fixture is aimed at the guard.
 MROSTER_BAD="$DIR/seats-model-bad.yml"
-sed 's|^    model: sonnet$|    model: "sonnet$(touch /tmp/pulse-model-pwn)"|' "$MROSTER" > "$MROSTER_BAD"
+sed "s|^    model: sonnet\$|    model: \"sonnet'\$(touch /tmp/pulse-model-pwn)'\"|" "$MROSTER" > "$MROSTER_BAD"
 
 # The launcher that RECORDS ITS OWN ARGV — the only thing that can answer "was
 # the pin actually applied to the process", as opposed to "did the flag parse".
@@ -1040,9 +1068,16 @@ model_pane() {   # <session> <window> -> pane id on the private server
 # against the private server, the fixture roster and the real resolver.
 inject_model() {
   local st=$1; shift
-  SEATS_YML="$MROSTER" PULSE_SEAT_RESOLVE="$SEATLIB" PULSE_TMUX_BIN="$MPRIV_TMUX" \
+  SEATS_YML="$MROSTER" PULSE_SEAT_RESOLVE="$SEATLIB" PULSE_MODEL_CANON="$MCANONLIB" \
+    PULSE_TMUX_BIN="$MPRIV_TMUX" \
     HARNESS_STATE_DIR="$st" PULSE_READY_MARKER='' "$INJECT" "$@"
 }
+# The canonical ids the fixture roster's aliases must become. Read from the
+# TABLE, never retyped: a hardcoded literal here would pass against a table that
+# had drifted, which is the one thing these cases exist to prevent.
+CANON_SONNET=$(bash "$MCANONLIB" canon sonnet)
+CANON_OPUS=$(bash "$MCANONLIB" canon opus)
+CANON_HAIKU=$(bash "$MCANONLIB" canon haiku)
 MLEDGER() { printf '%s' "$1/pulse-models.jsonl"; }
 
 # --- 23. THE PIN REACHES THE LAUNCHED PROCESS -------------------------------
@@ -1054,10 +1089,23 @@ ST23=$(mktemp -d)
 V_OUT=$(inject_model "$ST23" --session "$S23SESSION" --window pinnedseat --dir "$DIR" \
   --launch "$MCLAUDE $REC23" --launch-detect bash --cmd "model-tick-23" 2>/dev/null); V_RC=$?
 assert_verdict "MD23a" injected 0 "$V_RC" "$V_OUT"
-if grep -q -- '--model sonnet' "$REC23" 2>/dev/null; then
+
+# The roster says `sonnet`; the ARGV must say `claude-sonnet-5[1m]`
+# (dotfiles-lstn). Two failures are being caught by one grep: canonicalisation
+# (a bare alias is the 200k window) and QUOTING (the `[1m]` tag is a glob, and
+# this fleet's shell is zsh, where an unmatched glob kills the whole launch
+# line — unquoted, the pane holds no launcher at all and the argv file is never
+# even written).
+if grep -qF -- "--model $CANON_SONNET" "$REC23" 2>/dev/null; then
   ok
 else
-  bad "MD23b the LAUNCHED process was started with --model sonnet (argv: '$(cat "$REC23" 2>/dev/null)')"
+  bad "MD23b the LAUNCHED process was started with --model $CANON_SONNET, the canonical id (argv: '$(cat "$REC23" 2>/dev/null)')"
+fi
+# …and NOT with the roster's bare alias, which is the same model at 200k.
+if grep -qE -- '--model sonnet( |$)' "$REC23" 2>/dev/null; then
+  bad "MD23e the bare alias never reaches the launched process (argv: '$(cat "$REC23" 2>/dev/null)')"
+else
+  ok
 fi
 PANE23=$(model_pane "$S23SESSION" pinnedseat)
 sleep 1
@@ -1068,7 +1116,7 @@ else
 fi
 # …and the LEDGER row records what was requested, with its provenance, so the
 # gateway's gen_ai_request_model has something independent to be checked against.
-if grep -q '"model":"sonnet"' "$(MLEDGER "$ST23")" 2>/dev/null \
+if grep -qF "\"model\":\"$CANON_SONNET\"" "$(MLEDGER "$ST23")" 2>/dev/null \
    && grep -q '"source":"roster"' "$(MLEDGER "$ST23")" 2>/dev/null \
    && grep -q '"seat":"pinnedseat"' "$(MLEDGER "$ST23")" 2>/dev/null \
    && grep -q '"result":"injected"' "$(MLEDGER "$ST23")" 2>/dev/null; then
@@ -1121,7 +1169,7 @@ REC26="$DIR/rec26"
 ST26=$(mktemp -d)
 inject_model "$ST26" --session "$S26SESSION" --window pinnedseat-old --dir "$DIR" \
   --launch "$MCLAUDE $REC26" --launch-detect bash --cmd "alias-tick-26" >/dev/null 2>&1
-if grep -q -- '--model sonnet' "$REC26" 2>/dev/null; then
+if grep -qF -- "--model $CANON_SONNET" "$REC26" 2>/dev/null; then
   ok
 else
   bad "MD26a an ALIAS window inherits its canonical seat's pin (argv: '$(cat "$REC26" 2>/dev/null)')"
@@ -1146,15 +1194,18 @@ fi
 V_ERR=$(inject_model "$ST27" --session "$S23SESSION" --window pinnedseat --dir "$DIR" \
   --launch "$MCLAUDE $REC23" --launch-detect bash --model opus --cmd "warm-mismatch-27b" 2>&1 >/dev/null)
 if printf '%s\n' "$V_ERR" | grep -q 'MODEL MISMATCH' \
-   && printf '%s\n' "$V_ERR" | grep -q 'sonnet' \
-   && printf '%s\n' "$V_ERR" | grep -q 'opus'; then
+   && printf '%s\n' "$V_ERR" | grep -qF "$CANON_SONNET" \
+   && printf '%s\n' "$V_ERR" | grep -qF "$CANON_OPUS"; then
   ok
 else
   bad "MD27c the mismatch names the model that IS running and the one asked for (got: $V_ERR)"
 fi
+# An explicit --model FLAG is canonicalised too, not just a roster pin: the
+# operator typing `--model opus` means the tier, and the 200k form of it is
+# never what they meant.
 if grep -q '"mismatch":true' "$(MLEDGER "$ST27")" 2>/dev/null \
-   && grep -q '"observed_model":"sonnet"' "$(MLEDGER "$ST27")" 2>/dev/null \
-   && grep -q '"model":"opus"' "$(MLEDGER "$ST27")" 2>/dev/null \
+   && grep -qF "\"observed_model\":\"$CANON_SONNET\"" "$(MLEDGER "$ST27")" 2>/dev/null \
+   && grep -qF "\"model\":\"$CANON_OPUS\"" "$(MLEDGER "$ST27")" 2>/dev/null \
    && grep -q '"source":"flag"' "$(MLEDGER "$ST27")" 2>/dev/null; then
   ok
 else
@@ -1185,7 +1236,7 @@ V_OUT=$(inject_model "$ST29" --session "$S23SESSION" --window pinnedseat --dir "
   --launch "$MCLAUDE $REC23" --launch-detect bash --cmd "warm-right-model-29" 2>/dev/null); V_RC=$?
 assert_verdict "MD29a" injected 0 "$V_RC" "$V_OUT"
 if grep -q '"mismatch":false' "$(MLEDGER "$ST29")" 2>/dev/null \
-   && grep -q '"observed_model":"sonnet"' "$(MLEDGER "$ST29")" 2>/dev/null; then
+   && grep -qF "\"observed_model\":\"$CANON_SONNET\"" "$(MLEDGER "$ST29")" 2>/dev/null; then
   ok
 else
   bad "MD29b a matching warm pane records mismatch:false (got: $(cat "$(MLEDGER "$ST29")" 2>/dev/null))"
@@ -1283,10 +1334,10 @@ ST32=$(mktemp -d)
 V_OUT=$(inject_model "$ST32" --session "$S32SESSION" --window jailseat --dir "$DIR" \
   --launch "$MJAIL $REC32" --launch-detect bash --cmd "jail-tick-32" 2>/dev/null); V_RC=$?
 assert_verdict "MD32a" injected 0 "$V_RC" "$V_OUT"
-if grep -q -- '--model opus' "$REC32" 2>/dev/null; then
+if grep -qF -- "--model $CANON_OPUS" "$REC32" 2>/dev/null; then
   ok
 else
-  bad "MD32b the INNERMOST claude was started with --model opus, through the jail chain (argv: '$(cat "$REC32" 2>/dev/null)')"
+  bad "MD32b the INNERMOST claude was started with --model $CANON_OPUS, through the jail chain (argv: '$(cat "$REC32" 2>/dev/null)')"
 fi
 PANE32=$(model_pane "$S32SESSION" jailseat)
 sleep 1
@@ -1295,7 +1346,7 @@ if MTMUX capture-pane -p -t "$PANE32" 2>/dev/null | grep -q "jail-tick-32"; then
 else
   bad "MD32c the tick is still injected through the jail chain"
 fi
-if grep -q '"model":"opus"' "$(MLEDGER "$ST32")" 2>/dev/null \
+if grep -qF "\"model\":\"$CANON_OPUS\"" "$(MLEDGER "$ST32")" 2>/dev/null \
    && grep -q '"source":"roster"' "$(MLEDGER "$ST32")" 2>/dev/null \
    && grep -q '"seat":"jailseat"' "$(MLEDGER "$ST32")" 2>/dev/null \
    && grep -q '"mismatch":false' "$(MLEDGER "$ST32")" 2>/dev/null \
@@ -1305,11 +1356,69 @@ else
   bad "MD32d the ledger row records the jail-chain pin (model/source/seat/mismatch/result) (got: $(cat "$(MLEDGER "$ST32")" 2>/dev/null))"
 fi
 
+# --- 34. THE ALIAS IS CANONICALISED AT THE BOUNDARY, ASYMMETRICALLY ---------
+#     (dotfiles-lstn. Numbered 34 because the t5fj block below already owned
+#     33 when this landed; the model subset is cases 23-32 + 34.)
+#
+#     Case 23 proves the canonical id reaches the process. These two prove the
+#     two things a naive "always append [1m]" would get wrong:
+#
+#     a) HAIKU TAKES NO TAG. Probed 2026-08-09: `--model 'claude-haiku-4-5[1m]'`
+#        is an HTTP 400 ("the long context beta is not yet available for this
+#        subscription") — there is no 1M haiku, and the client's own accepted-
+#        alias list carries sonnet[1m]/opus[1m]/fable[1m] and no haiku[1m]. A
+#        symmetrical table would break every haiku row on the fleet at once,
+#        loudly but only at run time.
+#
+#     b) AN ALIAS-LAUNCHED WARM PANE IS A REAL MISMATCH, and the operator has to
+#        be told WHICH KIND. Every durable pane predating this change carries a
+#        bare `--model sonnet`; that is the same model at 200k against a pin
+#        asking for 1M. Normalising it away is precisely how the 200k form went
+#        unnoticed for hours, so it stays a mismatch — with a sentence naming
+#        the window, not the tier, so nobody chases a wrong-tier ghost.
+S34SESSION="model34-$$"
+REC34="$DIR/rec34"
+ST34=$(mktemp -d)
+V_OUT=$(inject_model "$ST34" --session "$S34SESSION" --window haikuseat --dir "$DIR" \
+  --launch "$MCLAUDE $REC34" --launch-detect bash --cmd "haiku-tick-34" 2>/dev/null); V_RC=$?
+assert_verdict "MD34a" injected 0 "$V_RC" "$V_OUT"
+if grep -qF -- "--model $CANON_HAIKU" "$REC34" 2>/dev/null \
+   && ! grep -qF -- '[1m]' "$REC34" 2>/dev/null; then
+  ok
+else
+  bad "MD34b the haiku pin is launched as '$CANON_HAIKU' with NO [1m] tag — the tagged form is an API 400 (argv: '$(cat "$REC34" 2>/dev/null)')"
+fi
+
+# The warm alias pane. Its launcher is started with a bare `--model sonnet` of
+# its own (ahead of anything the injector splices), so _proc_model reads the
+# alias — the exact shape of every pane launched before this change.
+S34BSESSION="model34b-$$"
+REC34B="$DIR/rec34b"
+ST34B=$(mktemp -d)
+inject_model "$ST34B" --session "$S34BSESSION" --window pinnedseat --dir "$DIR" \
+  --launch "$MCLAUDE $REC34B --model sonnet" --launch-detect bash --cmd "warm-alias-34c" >/dev/null 2>&1
+sleep 1
+V_ERR=$(inject_model "$ST34B" --session "$S34BSESSION" --window pinnedseat --dir "$DIR" \
+  --launch "$MCLAUDE $REC34B --model sonnet" --launch-detect bash --cmd "warm-alias-34d" 2>&1 >/dev/null)
+if printf '%s\n' "$V_ERR" | grep -q 'MODEL MISMATCH' \
+   && printf '%s\n' "$V_ERR" | grep -q 'SAME MODEL, DIFFERENT CONTEXT WINDOW' \
+   && printf '%s\n' "$V_ERR" | grep -qF "$CANON_SONNET"; then
+  ok
+else
+  bad "MD34c an alias-launched warm pane is a mismatch that NAMES the window, not the tier (got: $V_ERR)"
+fi
+if grep -q '"mismatch":true' "$(MLEDGER "$ST34B")" 2>/dev/null \
+   && grep -q '"observed_model":"sonnet"' "$(MLEDGER "$ST34B")" 2>/dev/null; then
+  ok
+else
+  bad "MD34d the alias-launched warm pane is RECORDED as a mismatch, observed_model=sonnet (got: $(cat "$(MLEDGER "$ST34B")" 2>/dev/null))"
+fi
+
 env -u TMUX -u TMUX_TMPDIR "$TMUX_BIN" -L "$MPRIV" kill-server 2>/dev/null
 rm -f "$MPRIV_SOCKDIR/$MPRIV"
-rm -rf "$ST23" "$ST24" "$ST25" "$ST26" "$ST27" "$ST28" "$ST29" "$ST30" "$ST31" "$ST31B" "$ST32"
+rm -rf "$ST23" "$ST24" "$ST25" "$ST26" "$ST27" "$ST28" "$ST29" "$ST30" "$ST31" "$ST31B" "$ST32" "$ST34" "$ST34B"
 
-fi   # ↑↑↑ end of cases 23-32 (skipped by PULSE_TEST_ONLY=seat)
+fi   # ↑↑↑ end of cases 23-32 + 34 (skipped by PULSE_TEST_ONLY=seat)
 
 if [ "$RUN_T5FJ" = 1 ]; then
 # ===========================================================================
