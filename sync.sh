@@ -4,6 +4,18 @@ SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || re
 BACKUP_DIR="$SCRIPT_DIR/.backup/$(date +%Y%m%d%H%M%S)"
 cd $SCRIPT_DIR
 
+# 860z/n3b6 (2026-08-09): the agent brain resolves through ~/.agents
+# (-> ~/demesne) when it holds real tier content (same content-marker test as
+# agents/lib/agents-root.sh — bare existence is NOT enough, ~/.agents once
+# held an unrelated aaif skill-lock); pre-split boxes fall back to the
+# in-repo paths. ALL agent-tier sync_source lines go through this, so a
+# ./sync.sh can never silently revert the cutover.
+if [ -e "$HOME/.agents/claude/settings.json" ] && [ -e "$HOME/.agents/agents/AGENTS.md" ]; then
+    AGENT_BRAIN="$HOME/.agents"
+else
+    AGENT_BRAIN="$SCRIPT_DIR"
+fi
+
 # Back up and remove a file or directory.
 #   $1: The file or directory to back up.
 back_up_and_remove() {
@@ -87,29 +99,17 @@ sync() {
             sync_source "$SCRIPT_DIR/cargo/config.toml" "$HOME/.cargo/config.toml"
             ;;
         "claude")
-            # 860z E1 (2026-08-09): post-cutover the agent brain lives behind
-            # ~/.agents (-> ~/demesne). Source the six links from there when it
-            # holds real tier content (same content-marker test as
-            # agents/lib/agents-root.sh — bare existence of ~/.agents is NOT
-            # enough, it once held an unrelated aaif skill-lock); otherwise the
-            # pre-split in-repo paths. Without this, any ./sync.sh between the
-            # flip and this edit silently reverted the cutover.
-            if [ -e "$HOME/.agents/claude/settings.json" ] && [ -e "$HOME/.agents/agents/AGENTS.md" ]; then
-                _CLAUDE_BRAIN="$HOME/.agents"
-            else
-                _CLAUDE_BRAIN="$SCRIPT_DIR"
-            fi
-            sync_source "$_CLAUDE_BRAIN/claude/settings.json" "$HOME/.claude/settings.json"
-            sync_source "$_CLAUDE_BRAIN/claude/agents" "$HOME/.claude/agents"
-            sync_source "$_CLAUDE_BRAIN/agents/hooks" "$HOME/.claude/hooks"
-            sync_source "$_CLAUDE_BRAIN/agents/skills" "$HOME/.claude/skills"
-            sync_source "$_CLAUDE_BRAIN/agents/AGENTS.md" "$HOME/.claude/CLAUDE.md"
-            sync_source "$_CLAUDE_BRAIN/claude/statusline.sh" "$HOME/.claude/statusline.sh"
+            sync_source "$AGENT_BRAIN/claude/settings.json" "$HOME/.claude/settings.json"
+            sync_source "$AGENT_BRAIN/claude/agents" "$HOME/.claude/agents"
+            sync_source "$AGENT_BRAIN/agents/hooks" "$HOME/.claude/hooks"
+            sync_source "$AGENT_BRAIN/agents/skills" "$HOME/.claude/skills"
+            sync_source "$AGENT_BRAIN/agents/AGENTS.md" "$HOME/.claude/CLAUDE.md"
+            sync_source "$AGENT_BRAIN/claude/statusline.sh" "$HOME/.claude/statusline.sh"
             ;;
         "codex")
             sync_source "$SCRIPT_DIR/codex/config.toml" "$HOME/.codex/config.toml"
-            sync_source "$SCRIPT_DIR/agents/skills" "$HOME/.codex/skills"
-            sync_source "$SCRIPT_DIR/agents/AGENTS.md" "$HOME/.codex/AGENTS.md"
+            sync_source "$AGENT_BRAIN/agents/skills" "$HOME/.codex/skills"
+            sync_source "$AGENT_BRAIN/agents/AGENTS.md" "$HOME/.codex/AGENTS.md"
             ;;
         "copilot")
             sync_source "$SCRIPT_DIR/copilot/config.json" "$HOME/.copilot/config.json"
@@ -123,8 +123,8 @@ sync() {
             fi
             sync_source "$SCRIPT_DIR/cursor/cli-config.json" "$HOME/.cursor/cli-config.json"
             sync_source "$SCRIPT_DIR/cursor/hooks.json" "$HOME/.cursor/hooks.json"
-            sync_source "$SCRIPT_DIR/agents/hooks" "$HOME/.cursor/hooks"
-            sync_source "$SCRIPT_DIR/agents/skills" "$HOME/.cursor/skills"
+            sync_source "$AGENT_BRAIN/agents/hooks" "$HOME/.cursor/hooks"
+            sync_source "$AGENT_BRAIN/agents/skills" "$HOME/.cursor/skills"
             ;;
         "direnv")
             sync_source "$SCRIPT_DIR/direnv" "$HOME/.config/direnv"
@@ -145,9 +145,9 @@ sync() {
             ;;
         "gemini")
             sync_source "$SCRIPT_DIR/gemini/settings.json" "$HOME/.gemini/settings.json"
-            sync_source "$SCRIPT_DIR/agents/hooks" "$HOME/.gemini/hooks"
-            sync_source "$SCRIPT_DIR/agents/skills" "$HOME/.gemini/skills"
-            sync_source "$SCRIPT_DIR/agents/AGENTS.md" "$HOME/.gemini/GEMINI.md"
+            sync_source "$AGENT_BRAIN/agents/hooks" "$HOME/.gemini/hooks"
+            sync_source "$AGENT_BRAIN/agents/skills" "$HOME/.gemini/skills"
+            sync_source "$AGENT_BRAIN/agents/AGENTS.md" "$HOME/.gemini/GEMINI.md"
             ;;
         "ghidra")
             # Ghidra's DEFAULT user script dir. -scriptPath resolves scripts by

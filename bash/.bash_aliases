@@ -126,11 +126,22 @@ trim()
 # --dangerously-skip-permissions, passes args through, fails open, SUBSCRIPTION-SAFE
 # (custom header only, never a gateway credential). Falls back to the plain alias if
 # the wrapper file is missing.
-if [ -f "$HOME/dotfiles/agents/lib/claude-identity-wrapper.sh" ]; then
-  . "$HOME/dotfiles/agents/lib/claude-identity-wrapper.sh"
+# 6ttp/n3b6 (2026-08-09): post-split the lib lives behind ~/.agents
+# (-> ~/demesne); the dotfiles path is the pre-split fallback. A missing lib
+# now WARNS instead of silently degrading — the silent fall-through cost
+# gateway attribution with no error (the t6to failure).
+_CIW=""
+for _ciw_c in "$HOME/.agents/agents/lib/claude-identity-wrapper.sh" \
+              "$HOME/dotfiles/agents/lib/claude-identity-wrapper.sh"; do
+  [ -f "$_ciw_c" ] && { _CIW="$_ciw_c"; break; }
+done
+if [ -n "$_CIW" ]; then
+  . "$_CIW"
 else
+  echo "⚠ claude-identity-wrapper.sh missing (checked ~/.agents and ~/dotfiles) — plain alias fallback; gateway attribution (X-Session-Identity) is OFF for this shell." >&2
   alias claude='claude --dangerously-skip-permissions'
 fi
+unset _CIW _ciw_c
 #alias copilot='bun run copilot'
 #alias codex='bun run codex'
 #alias gemini='bun run gemini'
