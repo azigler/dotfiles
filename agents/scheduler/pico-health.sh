@@ -67,6 +67,8 @@
 #   PICO_HEALTH_LEDGER     durable verdict ledger            (~/.local/share/fleet-health/pico.jsonl)
 #   PICO_SU_CACHE          softwareupdate cache              (beside the ledger)
 #   PICO_SU_MAX_AGE_H      how often to re-ask softwareupdate (20)
+#   PICO_EPHEMERAL_MIN     low end of the ephemeral range    (49152)
+#   PICO_EPHEMERAL_MAX     high end of the ephemeral range   (65535)
 
 set -uo pipefail
 export LC_ALL=C # `comm` requires its inputs sorted in the SAME collation it uses
@@ -83,6 +85,8 @@ PORTS_MANIFEST="${PICO_PORTS_MANIFEST:-$HERE/pico-ports.manifest}"
 LEDGER="${PICO_HEALTH_LEDGER:-$HOME/.local/share/fleet-health/pico.jsonl}"
 SU_CACHE="${PICO_SU_CACHE:-$(dirname "$LEDGER")/pico-softwareupdate.cache}"
 SU_MAX_AGE_H="${PICO_SU_MAX_AGE_H:-20}"
+EPH_MIN="${PICO_EPHEMERAL_MIN:-49152}"
+EPH_MAX="${PICO_EPHEMERAL_MAX:-65535}"
 
 VERDICT="unreachable" # fail-closed: nothing has been proven yet
 CHECKER_BROKEN=0
@@ -173,10 +177,24 @@ trap finish EXIT
 # --- is the softwareupdate probe due? --------------------------------------
 # `softwareupdate -l` costs ~7s and hits Apple's servers; at 48 runs a day that
 # is neither kind nor informative. Ask once per SU_MAX_AGE_H and cache.
+#
+# TIME IS NOT THE ONLY THING THAT INVALIDATES THIS CACHE, and assuming it was
+# cost six hours of a confident wrong answer (dotfiles-c9yi). pico upgraded to
+# macOS 26.6.1 (build 25G76) at 12:36Z on 2026-08-09; the cache had been written
+# at 03:43Z and, being only nine hours old, was still "fresh" — so every run
+# until 23:43Z reported the two OFFERS THAT UPGRADE HAD JUST CONSUMED
+# ("macOS Sonoma 14.8.9; macOS Tahoe 26.6.1") as still pending, contradicting a
+# live `softwareupdate -l` on the same box. A cached count is a fact about the
+# BUILD it was measured on, so the build is carried in the cache header and
+# passed to the probe: the remote re-asks immediately when it no longer matches,
+# in the same round trip, and the local backstop below voids a cache that
+# survived anyway.
 SU_DUE=1
+SU_CACHED_BUILD=""
 NOW_LOCAL=$(date +%s)
 if [ -f "$SU_CACHE" ]; then
   SU_CACHED_AT=$(sed -n 's/^# generated_at=//p' "$SU_CACHE" | head -1)
+  SU_CACHED_BUILD=$(sed -n 's/^# os_build=//p' "$SU_CACHE" | head -1)
   if [ -n "$SU_CACHED_AT" ] && [ "$(((NOW_LOCAL - SU_CACHED_AT) / 3600))" -lt "$SU_MAX_AGE_H" ]; then
     SU_DUE=0
   fi
@@ -189,9 +207,15 @@ fi
 # an lsof or curl complaint stays visible without polluting the parsed stdout.
 PROBE=$(
   "$SSH_BIN" -o BatchMode=yes -o ConnectTimeout="$CONNECT_TIMEOUT" "$HOST" \
-    "STATE_URL='$STATE_URL' SU_DUE=$SU_DUE bash -s" <<'REMOTE'
+    "STATE_URL='$STATE_URL' SU_DUE=$SU_DUE SU_CACHED_BUILD='$SU_CACHED_BUILD' bash -s" <<'REMOTE'
 set -u
 printf 'NOW=%s\n' "$(date +%s)"
+# The build the answers below are ABOUT. An OS upgrade voids a cached
+# softwareupdate count — same host, different facts — so a mismatch re-asks
+# right here rather than waiting out the cache's clock.
+OS_BUILD=$(sw_vers -buildVersion)
+printf 'OS_BUILD=%s\n' "$OS_BUILD"
+[ "$OS_BUILD" = "${SU_CACHED_BUILD:-}" ] || SU_DUE=1
 df -k / | awk 'NR==2 { gsub(/%/, "", $5); printf "DISK_PCT=%s\nDISK_FREE_KB=%s\n", $5, $4 }'
 # launchctl list: PID, Status, Label. Status is the LAST EXIT STATUS — the only
 # "did it work" signal launchd offers, and the column the two-month failure hid in.
@@ -225,6 +249,7 @@ DISK_FREE_KB=$(get DISK_FREE_KB)
 STATE_TS=$(get STATE_TS)
 SU_RAN=$(get SU_RAN)
 SU_RC=$(get SU_RC)
+OS_BUILD=$(get OS_BUILD)
 
 say "pico-health — ${HOST} @ $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
@@ -232,6 +257,13 @@ say "pico-health — ${HOST} @ $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 if [ -z "$NOW" ]; then
   broken "the probe returned no NOW= line — the remote payload did not run"
   exit 1
+fi
+# The build is what keys the softwareupdate cache to the OS it describes. Without
+# it that cache silently outlives the upgrade it was measured before, which is
+# the whole of dotfiles-c9yi — so a missing OS_BUILD is THIS CHECKER broken, not
+# a detail to shrug at: it means the guard against that is not running.
+if [ -z "$OS_BUILD" ]; then
+  broken "the probe returned no OS_BUILD= line — the softwareupdate cache cannot be keyed to the OS it describes"
 fi
 
 # --- 1. launchd: the two-month silence -------------------------------------
@@ -288,10 +320,25 @@ fi
 if [ "$SU_RAN" = "1" ] && [ "${SU_RC:-1}" = "0" ]; then
   mkdir -p "$(dirname "$SU_CACHE")" && {
     printf '# generated_at=%s\n' "$NOW_LOCAL"
+    printf '# os_build=%s\n' "$OS_BUILD"
     rows SU | awk -F'\t' '{ print $2 }'
   } >"$SU_CACHE.tmp" && mv "$SU_CACHE.tmp" "$SU_CACHE"
 elif [ "$SU_RAN" = "1" ]; then
   note "softwareupdate -l failed on ${HOST} (rc=${SU_RC:-?}) — keeping the cached count"
+fi
+# THE BACKSTOP. The probe re-asks on a build change by itself, so reaching here
+# with a mismatch means the cache outlived the OS it describes anyway (a probe
+# that could not run, a cache written by an older copy of this script). "Pending
+# on the build it was measured on" is not a fact about the build running now, so
+# the cache is DISCARDED rather than reported: unknown, loudly, for one cycle,
+# beats confidently wrong for twenty hours.
+SU_VOID=""
+if [ -f "$SU_CACHE" ] && [ -n "$OS_BUILD" ]; then
+  SU_CACHE_BUILD=$(sed -n 's/^# os_build=//p' "$SU_CACHE" | head -1)
+  if [ "$SU_CACHE_BUILD" != "$OS_BUILD" ]; then
+    SU_VOID="measured on OS build ${SU_CACHE_BUILD:-<unrecorded>}, ${HOST} now runs ${OS_BUILD}"
+    rm -f "$SU_CACHE"
+  fi
 fi
 if [ -f "$SU_CACHE" ]; then
   M_UPDATES=$(grep -cv '^#' "$SU_CACHE" | tr -d ' ')
@@ -301,6 +348,8 @@ if [ -f "$SU_CACHE" ]; then
   if [ "$M_UPDATES" -gt "$UPDATES_MAX" ]; then
     degrade "$(printf '%s recommended OS update(s) pending: %s' "$M_UPDATES" "$(grep -v '^#' "$SU_CACHE" | paste -sd';' -)")"
   fi
+elif [ -n "$SU_VOID" ]; then
+  degrade "softwareupdate cache discarded — ${SU_VOID}; ${HOST}'s patch level is unknown until the next run re-asks"
 else
   degrade "no softwareupdate result available — pico's patch level is unknown"
 fi
@@ -311,12 +360,48 @@ fi
 # without anyone remembering to look. Both directions are findings: an unexpected
 # listener is a surface on a firewall-less box, and a missing one is a service
 # that is down — including, deliberately, the morning after a reboot.
+#
+# DYNAMIC ENTRIES — `<addr>:dynamic <process>`. Some listeners have no port to
+# pin: `limactl usernet`, lima/colima's control channel, takes whatever ephemeral
+# loopback port the kernel hands it at each colima start — 60121 on 2026-08-08,
+# 49265 on 2026-08-09 — so a pinned line reports GONE *and* the new port reports
+# UNDOCUMENTED, two findings for one non-event, every time the VM restarts
+# (dotfiles-c9yi). Deleting the line would buy silence at the manifest's whole
+# purpose, so the manifest expresses the pattern instead: a dynamic entry matches
+# a listener on that address whose port is inside [EPH_MIN, EPH_MAX] AND whose
+# owning process is the named one. Both directions of the guard survive — a
+# DIFFERENT process on a loopback ephemeral port is still UNEXPECTED, and the
+# named process vanishing is still GONE.
 if [ ! -f "$PORTS_MANIFEST" ]; then
   broken "the expected-ports manifest ${PORTS_MANIFEST} does not exist"
   exit 1
 fi
-EXPECTED=$(sed 's/#.*//' "$PORTS_MANIFEST" | awk 'NF { print $1 }' | sort -u)
-ACTUAL=$(rows PORT | awk -F'\t' '{ print $2 }' | sort -u)
+MANIFEST_ROWS=$(sed 's/#.*//' "$PORTS_MANIFEST" | awk 'NF')
+EXPECTED=$(printf '%s\n' "$MANIFEST_ROWS" | awk '{ print $1 }' | sort -u)
+DYN_RULES=$(printf '%s\n' "$MANIFEST_ROWS" | awk -v OFS='\t' '$1 ~ /:dynamic$/ { a = $1; sub(/:dynamic$/, "", a); print a, $2 }')
+# Each observed listener is reduced to the token the manifest speaks: its literal
+# addr:port, or `<addr>:dynamic` when it satisfies a dynamic rule. The comparison
+# below is then the same set diff it always was.
+ACTUAL=$(rows PORT | awk -F'\t' -v emin="$EPH_MIN" -v emax="$EPH_MAX" '
+  NR == FNR {
+    if ($1 != "") { n++; raddr[n] = $1; rproc[n] = $2 }
+    next
+  }
+  {
+    addr = $2
+    proc = $3
+    port = addr
+    sub(/.*:/, "", port)
+    host = addr
+    sub(/:[^:]*$/, "", host)
+    for (i = 1; i <= n; i++)
+      if (host == raddr[i] && proc == rproc[i] && port + 0 >= emin && port + 0 <= emax) {
+        addr = raddr[i] ":dynamic"
+        break
+      }
+    print addr
+  }
+' <(printf '%s\n' "$DYN_RULES") - | sort -u)
 UNEXPECTED=$(comm -13 <(printf '%s\n' "$EXPECTED" | grep -v '^$') <(printf '%s\n' "$ACTUAL" | grep -v '^$'))
 MISSING=$(comm -23 <(printf '%s\n' "$EXPECTED" | grep -v '^$') <(printf '%s\n' "$ACTUAL" | grep -v '^$'))
 M_PORTS_UNEXPECTED=$(lines "$UNEXPECTED")

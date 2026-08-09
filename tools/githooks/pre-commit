@@ -201,6 +201,16 @@ mapped_suites_for() { # <staged path> -> newline-separated suite paths
       printf '%s\n' agents/scheduler/test-demesne-sync.sh ;;
     agents/lib/handoff-path.sh)
       printf '%s\n' agents/lib/test-seat-resolve.sh ;;
+    # model-canon.sh is four lines of DATA with two consumers in two different
+    # dirs (dotfiles-lstn): the model-degradation guard, whose /model
+    # instruction is a WRITE to live settings.json, and pulse-inject, which
+    # splices the id onto a launch string. Its own suite proves the table; only
+    # the consumers' suites prove the table reaches the process and the pane.
+    # Both failure directions are silent — a lost `[1m]` is a 200k window that
+    # nothing reports, a spurious one is a run-time 400 on a 3am tick.
+    agents/lib/model-canon.sh)
+      printf '%s\n' agents/hooks/test/test-post-tool-model-guard.sh \
+        agents/scheduler/test-pulse-inject.sh ;;
     # seat-resolve.sh has a THIRD consumer since dotfiles-sb6s: agents/bin/hall
     # reuses its roster dump and its lexicon-strip rather than growing a second
     # parser or a second glyph regex. So a change to either internal breaks the
@@ -545,14 +555,18 @@ fi
 # send-keys'd into a shell, so a non-token roster value is keystroke injection.
 # Measured on a 12-core box:
 #
-#     mutate-pulse-model.sh (4 mutants + baseline)       125s
+#     mutate-pulse-model.sh (7 mutants + baseline)       ~13 min
 #
-# It runs the suite with PULSE_TEST_ONLY=model (45 cases, ~25s a run) and
+# It runs the suite with PULSE_TEST_ONLY=model (58 cases, ~60s a run) and
 # asserts that exact count. The test file is a trigger on purpose: MD31b/MD31c
 # are the SOLE detectors for the pin staying scoped to a `claude` launcher, so
 # deleting one case loses the bite while the suite stays green.
-if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(pulse-inject\.sh|test-pulse-inject\.sh|mutate-pulse-model\.sh)$'; then
-  echo "pre-commit: staged changes touch the pulse-inject model-pin logic -> running mutation harness (~2 min)"
+#
+# agents/lib/model-canon.sh is a trigger too (dotfiles-lstn): it supplies the
+# id that gets spliced, so breaking the table unpins the whole fleet's context
+# window through this file without changing a byte of it.
+if printf '%s\n' "$STAGED" | grep -qE '^(agents/scheduler/(pulse-inject\.sh|test-pulse-inject\.sh|mutate-pulse-model\.sh)|agents/lib/model-canon\.sh)$'; then
+  echo "pre-commit: staged changes touch the pulse-inject model-pin logic -> running mutation harness (~13 min)"
   if [ -f "$ROOT/agents/scheduler/mutate-pulse-model.sh" ]; then
     bash "$ROOT/agents/scheduler/mutate-pulse-model.sh" || FAILED=1
   else
@@ -660,12 +674,34 @@ fi
 # test of a guess. The subagent fixture in particular encodes a RUNTIME FACT
 # (parent session_id + subagents/agent-*.jsonl + 100% isSidechain) that no
 # amount of reading the hook can re-derive.
-if printf '%s\n' "$STAGED" | grep -qE '^agents/hooks/(post-tool-model-guard\.sh|test/test-post-tool-model-guard\.sh|test/mutate-model-guard\.sh|test/model-guard-(transcript|subagent)\.fixture\.jsonl)$'; then
-  echo "pre-commit: staged changes touch the model-degradation guard -> running mutation harness (~20s)"
+if printf '%s\n' "$STAGED" | grep -qE '^(agents/hooks/(post-tool-model-guard\.sh|test/test-post-tool-model-guard\.sh|test/mutate-model-guard\.sh|test/model-guard-(transcript|subagent)\.fixture\.jsonl)|agents/lib/model-canon\.sh)$'; then
+  echo "pre-commit: staged changes touch the model-degradation guard -> running mutation harness (~25s)"
   if [ -f "$ROOT/agents/hooks/test/mutate-model-guard.sh" ]; then
     bash "$ROOT/agents/hooks/test/mutate-model-guard.sh" || FAILED=1
   else
     echo "pre-commit: FAIL — agents/hooks/test/mutate-model-guard.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
+# --- the MODEL-ALIAS TABLE -> prove IT still bites -------------------------
+# dotfiles-lstn. Four lines of data that decide the CONTEXT WINDOW of every
+# session the fleet launches, and both ways of being wrong are silent in
+# different ways: a row that loses its `[1m]` runs the right model at 200,000
+# tokens instead of 1,000,000 (nothing errors, the statusline is identical, and
+# the only symptom is compaction days later); a row that gains a `[1m]` it must
+# not have — haiku — is an HTTP 400 at run time, on a scheduled tick, at 3am.
+# The live instance cost a night: settings.json sat at the bare alias "fable"
+# for hours with every mechanical signal green.
+#
+#     test-model-canon.sh (16 cases, hermetic)   <1s
+#     mutate-model-canon.sh (5 mutants + baseline)  ~2s
+if printf '%s\n' "$STAGED" | grep -qE '^agents/lib/(model-canon\.sh|test-model-canon\.sh|mutate-model-canon\.sh)$'; then
+  echo "pre-commit: staged changes touch the model-alias table -> running mutation harness (~2s)"
+  if [ -f "$ROOT/agents/lib/mutate-model-canon.sh" ]; then
+    bash "$ROOT/agents/lib/mutate-model-canon.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/lib/mutate-model-canon.sh is missing" >&2
     FAILED=1
   fi
 fi

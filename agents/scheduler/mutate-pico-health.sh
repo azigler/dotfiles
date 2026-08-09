@@ -234,6 +234,39 @@ mutate "$CHK" \
   : # ledger_append'
 check "M5 verdict-not-durable (the ledger append silently dropped)" "14 15" "1"
 
+# M6 — A DYNAMIC ENTRY BECOMES A WILDCARD. The process name dropped from the
+# match, so `127.0.0.1:dynamic` stops meaning "limactl's ephemeral control port"
+# and starts meaning "anything at all on a loopback ephemeral port". That is the
+# manifest failing OPEN — the exact way the ephemeral-port fix (dotfiles-c9yi)
+# could have bought quiet at the cost of the guard. Case 24 must keep passing:
+# the range check is a different clause and M8 is its mutant.
+fresh_copy
+mutate "$CHK" \
+  'if (host == raddr[i] && proc == rproc[i] && port + 0 >= emin && port + 0 <= emax) {' \
+  'if (host == raddr[i] && port + 0 >= emin && port + 0 <= emax) {'
+check "M6 dynamic-entry-is-a-wildcard (any process launders itself)" "22" "1 21 23 24"
+
+# M7 — THE VOID CACHE IS REPORTED ANYWAY. The build comparison made vacuous, so
+# a softwareupdate count measured on the PREVIOUS macOS build is served as
+# current. This is dotfiles-c9yi verbatim: six hours of "macOS Sonoma 14.8.9;
+# macOS Tahoe 26.6.1 pending" against a live `softwareupdate -l` on the same box
+# that showed neither, because the upgrade that consumed them left the cache's
+# 20h clock untouched.
+fresh_copy
+mutate "$CHK" \
+  '  if [ "$SU_CACHE_BUILD" != "$OS_BUILD" ]; then' \
+  '  if [ 1 = 0 ]; then'
+check "M7 void-cache-reported (an OS upgrade leaves the cached count standing)" "25" "1 10 19 26"
+
+# M8 — THE EPHEMERAL RANGE OPENED TO EVERY PORT. A dynamic entry then whitelists
+# a SERVICE port by naming its process, which is a manifest line that documents
+# nothing. Case 22 must keep passing: the process clause still bites.
+fresh_copy
+mutate "$CHK" \
+  'port + 0 >= emin && port + 0 <= emax' \
+  'port + 0 >= 1 && port + 0 <= 65535'
+check "M8 ephemeral-range-opened (a dynamic entry whitelists a service port)" "24" "1 21 22 23"
+
 echo
 if [ "$HARNESS_ERR" -ne 0 ]; then
   echo "=== RESULT: HARNESS ERROR — at least one mutation never applied. ========="

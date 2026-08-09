@@ -16,6 +16,19 @@
 # :5900, kdc :88, multipassd :50051, and tailscaled's serve proxy. Every
 # `com.zig.*` service runs in the user domain, which is the set this watches.
 #
+# GRAMMAR. Two forms of line:
+#
+#   <addr>:<port>                 a pinned listener. Present or GONE, exactly.
+#   <addr>:dynamic  <process>     a listener whose PORT cannot be pinned. Matches
+#                                 an <addr> listener whose port is inside the
+#                                 ephemeral range (PICO_EPHEMERAL_MIN..MAX,
+#                                 49152-65535 by default) AND whose lsof COMMAND
+#                                 is <process>. Anything else on an ephemeral
+#                                 port is still UNDOCUMENTED, and the named
+#                                 process vanishing is still GONE — the second
+#                                 column is what keeps the guard sharp, so never
+#                                 write a dynamic entry without one.
+#
 # Derived from a live read, cross-checked against ~/.agents/infra.md's pico Ports
 # section. Where infra.md and the live read disagree the LIVE READ wins here and
 # the drift belongs in a bead.
@@ -55,7 +68,17 @@
 127.0.0.1:15021    # agentgateway (internal)
 [::1]:15020        # agentgateway (internal, v6)
 [::1]:15021        # agentgateway (internal, v6)
-127.0.0.1:60121    # limactl
+127.0.0.1:dynamic limactl
+#                  ^ `limactl usernet` — lima/colima's control channel for the
+#                    user-v2 network. The kernel hands it an ephemeral loopback
+#                    port at every colima start: 60121 on 2026-08-08, 49265 on
+#                    2026-08-09, and it was pinned as `127.0.0.1:60121` until
+#                    dotfiles-c9yi, where the restart in between produced BOTH an
+#                    "expected listener GONE" and an "undocumented listener"
+#                    finding for a VM that had simply been restarted. The port is
+#                    not knowable; the process on it is, and that is what is
+#                    asserted. (`*:53` above is the same binary's DNS listener —
+#                    that one is a fixed port and stays pinned.)
 
 # --- the romd / RomM stack (the audit's three undocumented listeners) ------
 # Two containers, two LaunchAgents, ~/romd-data, 4 ROMD_ROMM_* secrets in

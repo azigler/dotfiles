@@ -3,12 +3,11 @@
   "skillListingBudgetFraction": 0.03,
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5[1m]"
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5[1m]",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5[1m]"
   },
   "permissions": {
-    "allow": [
-      "Read(/home/ubuntu/.local/state/harness/conduit/**)"
-    ],
+    "allow": ["Read(/home/ubuntu/.local/state/harness/conduit/**)"],
     "defaultMode": "default"
   },
   "model": "claude-fable-5[1m]",

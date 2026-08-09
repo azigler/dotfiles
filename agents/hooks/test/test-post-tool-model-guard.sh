@@ -25,10 +25,10 @@
 # ending on claude-opus-4-8 MUST fire the guard, and the same file truncated to
 # its fable-only prefix MUST NOT.
 #
-# THE SECOND FIXTURE IS ALSO REAL BYTES (dotfiles-8x8l).
+# THE SECOND TRANSCRIPT FIXTURE IS ALSO REAL BYTES (dotfiles-8x8l).
 # model-guard-coldstart.fixture.jsonl is the transcript AS THE HOOK READ IT
 # during a real blind firing — session 7e29e574, 2026-08-09T21:37:47Z, whose
-# ledger row was the exact `check-failed / no-served-model` shape this bead was
+# ledger row was the exact `check-failed / no-served-model` shape that bead was
 # filed for. It was captured by snapshotting the live file every 50ms while a
 # fresh interactive session took its first tool round: at 21:37:45.772 the file
 # held these 12 lines and NOT ONE assistant row; at 21:37:47.203, 1.4s later and
@@ -36,8 +36,9 @@
 # Only free-text payloads (attachment / snapshot / message.content) were elided
 # and identifying keys dropped. Nothing was added — the ABSENCE of an assistant
 # row is the fixture's whole content, and hand-typing it would have been the
-# guess this suite exists to avoid. C24 is its regression guard; C25 shows the
-# re-read recovering the round instead of skipping it.
+# guess this suite exists to avoid. C30 is its regression guard; C31 shows the
+# re-read recovering the round instead of skipping it, and C32 holds the cost of
+# that re-read to once per cooldown.
 
 set -u
 
@@ -92,6 +93,16 @@ cat "$CLEAN" >> "$SIDEFB"
 SETTINGS="$T/settings.json"
 printf '%s\n' '{"model":"claude-fable-5[1m]"}' > "$SETTINGS"
 
+# The 2026-08-09 drift, byte for byte: live settings rewritten to the BARE
+# ALIAS by an in-session /model, which persists its argument into this file.
+# Same model, 200k window instead of 1M (dotfiles-lstn).
+SETTINGS_DRIFTED="$T/settings-drifted.json"
+printf '%s\n' '{"model":"fable"}' > "$SETTINGS_DRIFTED"
+# haiku's canonical carries NO [1m] — the tagged form is an API 400 — so this
+# file is CLEAN and a naive "does it end in [1m]" alarm would cry wolf on it.
+SETTINGS_HAIKU="$T/settings-haiku.json"
+printf '%s\n' '{"model":"claude-haiku-4-5"}' > "$SETTINGS_HAIKU"
+
 # --- runner -----------------------------------------------------------------
 # Every case gets its own state root. MODEL_GUARD_USE_PROC=0 by default because
 # this suite runs INSIDE a real claude process: without it the /proc ancestry
@@ -104,8 +115,8 @@ printf '%s\n' '{"model":"claude-fable-5[1m]"}' > "$SETTINGS"
 #
 # MODEL_GUARD_RETRIES=0 by default: the production default re-reads a blind
 # transcript (the cold-start race, dotfiles-8x8l), which would add real sleeps to
-# every deliberately-blind case here and prove nothing. C25 turns it back on and
-# is the case that actually exercises it.
+# every deliberately-blind case here and prove nothing. C31/C32 turn it back on
+# and are the cases that actually exercise it.
 STDERR=""; EXITC=0; STATE=""
 runh() {   # runh <transcript-source> <session> [extra env assignments...]
   local src=$1 sid=$2; shift 2
@@ -263,10 +274,10 @@ fi
 # file is a session that has written nothing, a garbage file is a parse that
 # died. dotfiles-8x8l: the generic `no-served-model` made six real ledger rows
 # unattributable, so the reason string is part of the contract now.
-runh "$GARBAGE" c12 MODEL_GUARD_EXPECTED=claude-fable-5
+runh "$GARBAGE" c12 MODEL_GUARD_EXPECTED='claude-fable-5[1m]'
 G1=$EXITC
 GLEDGER=$(ledger)
-runh "$EMPTY" c12b MODEL_GUARD_EXPECTED=claude-fable-5
+runh "$EMPTY" c12b MODEL_GUARD_EXPECTED='claude-fable-5[1m]'
 if [ "$G1" -eq 0 ] && [ "$EXITC" -eq 0 ] && [ -z "$STDERR" ] \
    && printf '%s' "$GLEDGER" | grep -q '"event":"check-failed"' \
    && printf '%s' "$GLEDGER" | grep -q '"action":"transcript-unparseable"' \
@@ -393,11 +404,117 @@ else
   bad "C23 a SIDECHAIN model_refusal_fallback row does not become the expected model" "exit=$EXITC out=$STDERR"
 fi
 
-# --- C24: THE COLD-START SHAPE, from the real blind firing ------------------
-# dotfiles-8x8l's regression guard. Against the pre-fix hook this case fails
-# twice over: the row read `"action":"no-served-model"` with `"expected":""`,
-# which is why six such rows in one day said nothing about what went wrong or
-# which seat it happened on. Three things are asserted, all of them contract:
+# ===========================================================================
+# C24-C29 — MODEL-ALIAS HYGIENE (dotfiles-lstn)
+# ===========================================================================
+# `/model` does not just switch the live session: it PERSISTS its argument into
+# settings.json. So an instruction that names an alias is a WRITE of the 200k
+# form into the machine default for every future session — which is how one
+# aliased seat became a fleet-wide 200k default on 2026-08-09. The comparison
+# must keep normalising (C15/C16 above); only the INSTRUCTION is canonicalised.
+
+# --- C24: the restore instruction names the CANONICAL literal ---------------
+# EXPECTED arrives as an alias in production (the roster's vocabulary is
+# fable/opus/sonnet/haiku) — this is the exact input that made the guard the
+# writer of the drift. FAILURE-BEFORE: the pre-fix hook printed "argument
+# 'fable'".
+runh "$FULL" c24 MODEL_GUARD_EXPECTED=fable
+if fires \
+   && printf '%s' "$STDERR" | grep -q "argument 'claude-fable-5\[1m\]'" \
+   && ! printf '%s' "$STDERR" | grep -q "argument 'fable'"; then
+  ok "C24 restore instructs /model with the CANONICAL id, never the bare alias"
+else
+  bad "C24 restore instructs /model with the CANONICAL id, never the bare alias" "exit=$EXITC out=$STDERR"
+fi
+
+# --- C25: a model the table does not govern is NOT rewritten ----------------
+# A seat deliberately parked on an older model must not be silently upgraded by
+# a hygiene helper. claude-opus-4-8 is not in the table; it passes through.
+runh "$CLEAN" c25 MODEL_GUARD_EXPECTED=claude-opus-4-8
+if fires \
+   && printf '%s' "$STDERR" | grep -q "argument 'claude-opus-4-8'" \
+   && ! printf '%s' "$STDERR" | grep -q 'claude-opus-5'; then
+  ok "C25 an un-tabled model (claude-opus-4-8) is instructed verbatim, never upgraded"
+else
+  bad "C25 an un-tabled model (claude-opus-4-8) is instructed verbatim, never upgraded" "exit=$EXITC out=$STDERR"
+fi
+
+# --- C26: the MOLT rung's /model argument is canonical too ------------------
+# The second rung types /model as well, so it is the same write and needs the
+# same literal. A fix applied to the restore rung alone leaves the loop open.
+runh "$FULL" c26 MODEL_GUARD_EXPECTED=fable
+runh "$FULL" c26 MODEL_GUARD_EXPECTED=fable
+if fires \
+   && printf '%s' "$STDERR" | grep -q 'seat-molt.sh' \
+   && printf '%s' "$STDERR" | grep -q "/model 'claude-fable-5\[1m\]'" \
+   && ! printf '%s' "$STDERR" | grep -q "/model 'fable'"; then
+  ok "C26 the molt rung's /model argument is the canonical id too"
+else
+  bad "C26 the molt rung's /model argument is the canonical id too" "exit=$EXITC out=$STDERR"
+fi
+
+# --- C27: THE SETTINGS-DRIFT ALARM fires on the live seam -------------------
+# The transcript is HEALTHY here on purpose: this alarm is about what the box
+# will LAUNCH next, not about what is being served now, and it stood silent for
+# hours on 2026-08-09 precisely because nothing watched that key.
+runh "$CLEAN" c27 MODEL_GUARD_USE_SETTINGS=1 MODEL_GUARD_SETTINGS="$SETTINGS_DRIFTED"
+if [ "$EXITC" -eq 2 ] \
+   && printf '%s' "$STDERR" | grep -q 'MODEL SETTINGS DRIFT' \
+   && printf '%s' "$STDERR" | grep -q 'claude-fable-5\[1m\]' \
+   && ledger | tail -n 1 | grep -q '"event":"settings-drift"' \
+   && ledger | tail -n 1 | grep -q '"served":"fable"' \
+   && ledger | tail -n 1 | grep -q '"row":"model-guard"'; then
+  ok "C27 settings drifted to the bare alias: alarms, names the canonical, ledgers it"
+else
+  bad "C27 settings drifted to the bare alias: alarms, names the canonical, ledgers it" \
+      "exit=$EXITC out=$STDERR row=$(ledger | tail -n 1)"
+fi
+
+# --- C28: …and does NOT cry wolf on a clean settings file -------------------
+# Two clean shapes, and the haiku one is the load-bearing half: its canonical
+# has NO [1m], so an alarm written as "does it end in [1m]" would fire on a
+# correct file and be turned off within the day.
+runh "$CLEAN" c28 MODEL_GUARD_USE_SETTINGS=1 MODEL_GUARD_SETTINGS="$SETTINGS"
+E28A=$EXITC; O28A=$STDERR
+runh "$CLEAN" c28b MODEL_GUARD_USE_SETTINGS=1 MODEL_GUARD_SETTINGS="$SETTINGS_HAIKU" \
+     MODEL_GUARD_EXPECTED=claude-fable-5
+if [ "$E28A" -eq 0 ] && [ -z "$O28A" ] && [ "$EXITC" -eq 0 ] && [ -z "$STDERR" ]; then
+  ok "C28 clean settings (canonical fable, tag-less haiku) raise no drift alarm"
+else
+  bad "C28 clean settings (canonical fable, tag-less haiku) raise no drift alarm" \
+      "fable=$E28A/'$O28A' haiku=$EXITC/'$STDERR'"
+fi
+
+# --- C29: the alarm is ONCE PER SESSION, not once per tool round ------------
+# The drift is a standing condition — a per-round (or even per-cooldown) alarm
+# would be a nag forever, and a nagging guard gets deleted.
+runh "$CLEAN" c29 MODEL_GUARD_USE_SETTINGS=1 MODEL_GUARD_SETTINGS="$SETTINGS_DRIFTED"
+E29A=$EXITC
+runh "$CLEAN" c29 MODEL_GUARD_USE_SETTINGS=1 MODEL_GUARD_SETTINGS="$SETTINGS_DRIFTED"
+if [ "$E29A" -eq 2 ] && [ "$EXITC" -eq 0 ] && [ -z "$STDERR" ] \
+   && [ "$(ledger | grep -c '"event":"settings-drift"')" -eq 1 ]; then
+  ok "C29 the settings-drift alarm emits once per session, then stays quiet"
+else
+  bad "C29 the settings-drift alarm emits once per session, then stays quiet" \
+      "first=$E29A second=$EXITC out=$STDERR rows=$(ledger | grep -c '"event":"settings-drift"')"
+fi
+
+# ===========================================================================
+# C30-C32 — THE COLD-START READ (dotfiles-8x8l)
+# ===========================================================================
+# The client writes a turn's assistant rows as ONE BATCH that can land AFTER the
+# hook has read the file, so the FIRST tool round of a session sees a transcript
+# with no assistant row in it. Six of seven ledger rows on 2026-08-09 were that
+# round, all recorded as an indistinguishable `check-failed / no-served-model`
+# with both model fields empty. Every seat below is declared with the CANONICAL
+# literal (dotfiles-lstn) — the bare alias and the bare full id are the
+# 200,000-token window, and a test expectation is an example too.
+
+# --- C30: THE COLD-START SHAPE, from the real blind firing ------------------
+# Against the pre-8x8l hook this case fails twice over: the row read
+# `"action":"no-served-model"` with `"expected":""`, which is why six such rows
+# in one day said nothing about what went wrong or which seat it happened on.
+# Three things are asserted, all of them contract:
 #   * it is a check-SKIPPED, not a check-failed — the session had not spoken yet
 #   * the action NAMES the shape (no-assistant-row-yet)
 #   * the row carries the seat's expected model even though it saw no served one
@@ -406,53 +523,53 @@ fi
 if [ "$(grep -c '"type":"assistant"' "$COLDSTART")" -eq 0 ] \
    && [ "$(grep -c . "$COLDSTART")" -gt 0 ] \
    && grep -q '"type":"user"' "$COLDSTART"; then
-  ok "C24a cold-start fixture is a real session preamble with zero assistant rows"
+  ok "C30a cold-start fixture is a real session preamble with zero assistant rows"
 else
-  bad "C24a cold-start fixture is a real session preamble with zero assistant rows" \
+  bad "C30a cold-start fixture is a real session preamble with zero assistant rows" \
       "the fixture was regenerated from something that is not a cold-start transcript"
 fi
 
-runh "$COLDSTART" c24 MODEL_GUARD_EXPECTED=claude-fable-5
+runh "$COLDSTART" c30 MODEL_GUARD_EXPECTED='claude-fable-5[1m]'
 ROW=$(ledger | tail -n 1)
 if [ "$EXITC" -eq 0 ] && [ -z "$STDERR" ] \
    && printf '%s' "$ROW" | grep -q '"event":"check-skipped"' \
    && printf '%s' "$ROW" | grep -q '"action":"no-assistant-row-yet"' \
-   && printf '%s' "$ROW" | grep -q '"expected":"claude-fable-5"' \
+   && printf '%s' "$ROW" | grep -q '"expected":"claude-fable-5\[1m\]"' \
    && printf '%s' "$ROW" | grep -q '"served":""'; then
-  ok "C24 cold start: check-skipped/no-assistant-row-yet, and the row names the seat"
+  ok "C30 cold start: check-skipped/no-assistant-row-yet, and the row names the seat"
 else
-  bad "C24 cold start: check-skipped/no-assistant-row-yet, and the row names the seat" "exit=$EXITC out=$STDERR row=$ROW"
+  bad "C30 cold start: check-skipped/no-assistant-row-yet, and the row names the seat" "exit=$EXITC out=$STDERR row=$ROW"
 fi
 
-# --- C25: the re-read RECOVERS the round it would have skipped --------------
+# --- C31: the re-read RECOVERS the round it would have skipped --------------
 # Same cold-start file, but the client's batched assistant rows land while the
 # hook is looking — which is what actually happens in a live session (measured:
 # the batch trailed the tool round by a few hundred ms). With the re-read the
 # guard makes a real verdict on the FIRST tool round instead of losing it; the
 # appended row is the real claude-opus-4-8 message from the other fixture, so a
 # pass here is a genuine detection, not just a non-empty read.
-STATE="$T/state-c25"
+STATE="$T/state-c31"
 mkdir -p "$T/tp"
-CTP="$T/tp/c25.jsonl"
+CTP="$T/tp/c31.jsonl"
 cp "$COLDSTART" "$CTP"
 ( sleep 0.4; tail -n 1 "$FIXTURE" >> "$CTP" ) &
 APPENDER=$!
 STDERR=$(env HARNESS_STATE_DIR="$STATE" MODEL_GUARD_USE_PROC=0 MODEL_GUARD_USE_SETTINGS=0 \
-             MODEL_GUARD_COOLDOWN_SECS=0 MODEL_GUARD_EXPECTED=claude-fable-5 \
+             MODEL_GUARD_COOLDOWN_SECS=0 MODEL_GUARD_EXPECTED='claude-fable-5[1m]' \
              MODEL_GUARD_RETRIES=12 MODEL_GUARD_RETRY_SLEEP=0.2 \
          "$HOOK" 2>&1 >/dev/null <<EOF
-{"session_id":"c25","transcript_path":"$CTP","cwd":"$T"}
+{"session_id":"c31","transcript_path":"$CTP","cwd":"$T"}
 EOF
 ); EXITC=$?
 wait "$APPENDER"
 if fires && printf '%s' "$STDERR" | grep -q 'claude-opus-4-8' \
    && ledger | tail -n 1 | grep -q '"event":"detected"'; then
-  ok "C25 re-read wins the cold-start race: a real verdict on the first tool round"
+  ok "C31 re-read wins the cold-start race: a real verdict on the first tool round"
 else
-  bad "C25 re-read wins the cold-start race: a real verdict on the first tool round" "exit=$EXITC out=$STDERR row=$(ledger | tail -n 1)"
+  bad "C31 re-read wins the cold-start race: a real verdict on the first tool round" "exit=$EXITC out=$STDERR row=$(ledger | tail -n 1)"
 fi
 
-# --- C26: the re-read ceiling is paid at most ONCE per cooldown per session --
+# --- C32: the re-read ceiling is paid at most ONCE per cooldown per session --
 # The header claims it; this is the case that makes the claim testable. A
 # persistently blind shape (empty transcript) with the production retry budget
 # must cost ~1s on the first call inside a cooldown window and ~nothing on the
@@ -474,12 +591,12 @@ EOF
   t1=$(date +%s%N)
   printf '%d' $(( (t1 - t0) / 1000000 ))
 }
-D1=$(mg_timed c26 claude-fable-5); D2=$(mg_timed c26 claude-fable-5)
-O1=$(mg_timed c26off off);         O2=$(mg_timed c26off off)
+D1=$(mg_timed c32 'claude-fable-5[1m]'); D2=$(mg_timed c32 'claude-fable-5[1m]')
+O1=$(mg_timed c32off off);               O2=$(mg_timed c32off off)
 if [ "$D1" -ge 800 ] && [ "$D2" -lt 700 ] && [ "$O1" -ge 800 ] && [ "$O2" -lt 700 ]; then
-  ok "C26 re-read budget is cooldown-gated: paid once, not on every tool call"
+  ok "C32 re-read budget is cooldown-gated: paid once, not on every tool call"
 else
-  bad "C26 re-read budget is cooldown-gated: paid once, not on every tool call" \
+  bad "C32 re-read budget is cooldown-gated: paid once, not on every tool call" \
       "declared: ${D1}ms then ${D2}ms (want >=800 then <700); off-seat: ${O1}ms then ${O2}ms"
 fi
 
