@@ -33,7 +33,8 @@
 
 ## What's next
 1. Next tick: normal `/seneschal brief` (pulse-seneschal.timer 06:44 PT).
-2. Brief inputs to watch: `dotfiles-udhm` closing → next dream laurel arrives committed; `dotfiles-uttn` closing → laurel lines stop truncating mid-clause.
+2. Brief inputs to watch: `dotfiles-udhm` closing → next dream laurel arrives committed; `dotfiles-uttn` closing → laurel lines stop truncating mid-clause; `dotfiles-qtug` (P2) → the digest-degradation measurement (Zig asked; verdict should cite spans); drain run #2 ended with `b1v6` merged-but-open on scrutiny FIX-FIRST (findings on the bead, audit adjudication among them) and run #3 was live as of ~16:00Z — morning brief should report both runs' outcomes from the drain ledger.
+2b. `dotfiles-ie5a` now carries Zig's demesne-handoff directive as a SUPERSEDING comment (826c053): notes move to demesne-side refs/handoffs/<project>--<window>.md; title still says "flip the opt-in" but the comment governs. Once it lands, THIS file's location changes — onboard via handoff-path.sh as always.
 3. The mail-on-active fork (7fik R3 amendment, push vs delivery-at-wake) now HAS an owner: `dotfiles-sf86` (P1, filed post-offboard at this desk's routing, 29802cf) — the fork is an explicit AC there. Zig's interactive blocked-on-Zig set for the next brief: `pm33` (69qr+htqt walks), `sf86` (7fik/POST walk), `qmrp` D1–D7, `iiqb.1` ratification — verify each is still open at brief time via `br show`, don't trust this list.
 
 ## Warnings / watch-outs
