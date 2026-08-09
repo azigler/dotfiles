@@ -12,6 +12,15 @@ if ! sudo grep -q "$USER ALL=(ALL) NOPASSWD:ALL" /etc/sudoers; then
     echo " 🤝 PASSWORDLESS SUDO GRANTED"
 fi
 
+# --- journald retention cap (dotfiles-9h8n) ---
+# Idempotent, re-run on every provision/upgrade so config drift self-heals.
+# See agents/scheduler/99-zig-caps.journald.conf for why these values.
+sudo mkdir -p /etc/systemd/journald.conf.d
+sudo install -m 644 -o root -g root \
+    /home/ubuntu/dotfiles/agents/scheduler/99-zig-caps.journald.conf \
+    /etc/systemd/journald.conf.d/99-zig-caps.conf
+sudo systemctl restart systemd-journald
+
 if [ "$(hostname -s)" != "zig-computer" ]; then
     sudo hostnamectl set-hostname zig-computer
 
