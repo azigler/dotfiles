@@ -39,7 +39,7 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 **Job:** Task tracking with `br` (beads-rust) — typed beads, full lifecycle, one bead = one commit.
 **Fire when:** Constant reference throughout any project; lifecycle mandatory for spec/test/impl pipelines.
 **Prereqs/side-effects:** `br` binary + `.beads/`; commits carry `Bead: <id>` trailer; JSONL flushed via `br sync --flush-only`.
-**Anti-pattern:** Subagent mutating bead state (orchestrator-only); `br update --notes` in a loop — notes are REPLACE-only, read-then-rewrite; chaining bead mutations behind another command (`br update X && br close Y`) — a PreToolUse block kills the whole compound, run each as a standalone call.
+**Anti-pattern:** Subagent mutating bead state (orchestrator-only); `br update --notes` in a loop — notes are REPLACE-only, read-then-rewrite; chaining bead mutations behind another command (`br update X && br close Y`) — a PreToolUse block kills the whole compound, run each as a standalone call; gating an edit on `bv --robot-file-hotspots`/`--robot-impact`/`--robot-file-beads` — commit-SHA join means open unstarted beads are invisible, so "safe to proceed" is a false all-clear (BANNED for gating, dotfiles-ri8b).
 
 ### /cdn
 **Job:** Upload a local file to Cloudflare R2 → stable PUBLIC url (`cdn.zig.computer`). Full lifecycle: `up`/`get`/`ls`/`rm`/`purge`. Content-addressed keys => idempotent, immutable urls. Hosts published/AAIF/blog images (Zig won't put images in his site folder) + kills the scp->view review loop.

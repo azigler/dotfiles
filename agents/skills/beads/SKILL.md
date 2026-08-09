@@ -663,6 +663,17 @@ recs + quick wins + blockers + health), `--robot-plan` (multi-agent
 dispatch order), `--robot-insights` (cycles, structural blockers). Use
 `br ready` for "show me everything"; `bv` for "tell me what to do."
 
+**BANNED as a pre-edit gate: `--robot-file-hotspots`, `--robot-impact`,
+`--robot-file-beads`** (dotfiles-ri8b, 2026-08-09). Upstream #184 (the three
+surfaces contradicting each other on one path) is fixed as of v0.19.0 —
+re-verified empirically: all three now agree on a shared `data_hash`. The ban
+stays anyway, because the join is **commit-SHA-based by design**: an open bead
+that hasn't produced commits yet is invisible to all three, so
+`--robot-impact` said "low risk" on a file that 5 open beads were actively
+discussing (probe: `agents/scheduler/pulse-inject.sh`). A false "safe to
+proceed" is worse than no check. Use them for retrospective archaeology only,
+never to gate an edit; machinery (the marshal build) must not consume them.
+
 [reference/bv.md](reference/bv.md) has the full command surface, the
 `jq` recipes, the output schema, and the discovery commands
 (`bv --robot-help` / `bv --robot-docs commands`). One gotcha worth
