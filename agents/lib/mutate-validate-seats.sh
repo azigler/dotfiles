@@ -249,6 +249,24 @@ check "M5 strict-units-promotion-disarmed" \
   "UNIT UNIT-ORPHAN" \
   "REAL-ROSTER"
 
+# M6 -- the FAILOVER cross-type check disarmed (dotfiles-kf2i, spec d3ky).
+# d3ky's own rule is "same-TYPE failover is free; cross-type failover
+# FORBIDDEN v1" -- this is the ONE clause among FAILOVER's three that is
+# actually new policy (the empty/null and unknown-target checks are the same
+# shape as every other "name a real X" rule already guarded elsewhere). A
+# mutant that turns `target_type != ttype` into an always-false comparison
+# lets a seat's charter work silently fail over to a different vendor
+# mid-loop -- exactly the "silent-quality event" the rule's own error text
+# names. The empty/null and unknown-target cases are untouched by this
+# mutant and must keep passing -- that asymmetry is the signature.
+fresh_copy
+mutate "$SCRIPT_NAME" \
+  '            if target_type != ttype:' \
+  '            if target_type != ttype and False:'
+check "M6 failover-cross-type-disarmed" \
+  "FAILOVER" \
+  "REAL-ROSTER"
+
 echo
 if [ "$HARNESS_ERR" -ne 0 ]; then
   echo "=== RESULT: HARNESS ERROR -- at least one mutation never applied. ========"

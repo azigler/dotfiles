@@ -318,6 +318,65 @@ F="$BASE/unit-allowlist.yml"
 run "$F" --systemd-dir "$SD2" --strict-units
 if [ "$RC" -eq 0 ]; then ok; else bad "UNIT-ORPHAN (strict, allowlisted): must pass: $OUT"; fi
 
+# --- 16-19. FAILOVER (dotfiles-kf2i, spec dotfiles-d3ky): exist, be known,
+# be same-type. Cases 16-17 reuse GOOD's two same-type taps; 18-19 need a
+# THIRD tap of a different type, since GOOD's personal/work are both `claude`.
+
+# 16. FAILOVER: an empty/null entry must fail, tagged, without naming a
+# nonexistent tap as if it were real.
+F="$BASE/failover-null.yml"
+sed 's/failover: \[\]/failover: [null]/' "$GOOD" > "$F"
+run "$F"
+if [ "$RC" -ne 0 ]; then ok; else bad "FAILOVER (null entry): must fail"; fi
+case "$OUT" in
+  *"FAILOVER:"*"empty/null"*) ok ;;
+  *) bad "FAILOVER (null entry): expected the empty/null tag, got: $OUT" ;;
+esac
+
+# 17. FAILOVER: a target that names no declared tap must fail, tagged, and
+# name the offending target.
+F="$BASE/failover-unknown.yml"
+sed 's/failover: \[work\]/failover: [nosuchtap]/' "$GOOD" > "$F"
+run "$F"
+if [ "$RC" -ne 0 ]; then ok; else bad "FAILOVER (unknown target): must fail"; fi
+case "$OUT" in
+  *"FAILOVER:"*"nosuchtap"*) ok ;;
+  *) bad "FAILOVER (unknown target): expected that tag naming nosuchtap, got: $OUT" ;;
+esac
+
+# 18. FAILOVER: cross-type failover is FORBIDDEN v1 (d3ky) -- a THIRD tap of a
+# different `type:` is added, and `personal` (type claude) is pointed at it.
+F="$BASE/failover-crosstype.yml"
+python3 - "$GOOD" "$F" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+text = open(src).read()
+text = text.replace("failover: [work]", "failover: [codex-tap]")
+marker = "seats:\n"
+insert = (
+    "  codex-tap:\n"
+    "    type: codex\n"
+    "    config_dir: ~/.codex\n"
+    "    failover: []\n"
+)
+idx = text.index(marker)
+text = text[:idx] + insert + text[idx:]
+open(dst, "w").write(text)
+PY
+run "$F"
+if [ "$RC" -ne 0 ]; then ok; else bad "FAILOVER (cross-type): must fail"; fi
+case "$OUT" in
+  *"FAILOVER:"*"cross-type"*"FORBIDDEN"*) ok ;;
+  *) bad "FAILOVER (cross-type): expected the cross-type/FORBIDDEN tag, got: $OUT" ;;
+esac
+
+# 19. FAILOVER: the failing-then-passing pair -- SAME fixture, but codex-tap's
+# type is fixed to match `personal`'s (claude) -> must now pass.
+F2="$BASE/failover-crosstype-fixed.yml"
+sed 's/type: codex/type: claude/' "$F" > "$F2"
+run "$F2"
+if [ "$RC" -eq 0 ]; then ok; else bad "FAILOVER (cross-type, fixed to same-type): must pass: $OUT"; fi
+
 # --- Summary ---
 TOTAL=$((PASS + FAIL))
 if [ "$FAIL" -eq 0 ]; then

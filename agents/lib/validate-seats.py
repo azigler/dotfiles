@@ -21,6 +21,13 @@ Checks enforced (each has a dedicated fixture in test-validate-seats.sh):
         listed alias (dotfiles-bi2i) — an unlisted window has no
         resolvable seat and R5 would refuse it
   TAP  every tap declares a `type`, and it is one of the known types
+  FAILOVER (dotfiles-kf2i, spec dotfiles-d3ky) every tap's `failover:` list
+        entries must (1) be non-empty/non-null, (2) name a DECLARED tap, and
+        (3) share the source tap's `type:` — cross-type failover is FORBIDDEN
+        v1 ("a seat's charter work is tuned per vendor — silent vendor swap
+        mid-loop is a silent-quality event, not a convenience"). Unenforced
+        before this bead: only tap-type presence was checked, not the rule
+        d3ky actually specified.
   SEATTAP every seat declares a `tap`, and it names a declared tap
   MODEL every seat's `model` is one of the pinned aliases
   SIGIL every seat's `sigil` is EMOJI-PRESENTATION BY PROPERTY
@@ -673,6 +680,36 @@ def validate(doc: dict) -> list:
                 f"TAP: tap '{tap_name}' has unknown type {ttype!r}; "
                 f"allowed: {sorted(KNOWN_TAP_TYPES)}"
             )
+
+    # --- FAILOVER (dotfiles-kf2i, d3ky v1): exist, be known, be same-type --
+    # d3ky's own words: "same-TYPE failover is free; cross-type failover
+    # FORBIDDEN v1". This was previously unenforced — only tap-TYPE presence
+    # was checked, never the failover list's own contract.
+    for tap_name, tap in taps.items():
+        tap = tap or {}
+        ttype = tap.get("type")
+        for target in tap.get("failover") or []:
+            if not target:
+                errors.append(
+                    f"FAILOVER: tap '{tap_name}' has an empty/null failover "
+                    f"entry — every failover target must name a real tap"
+                )
+                continue
+            if target not in taps:
+                errors.append(
+                    f"FAILOVER: tap '{tap_name}' fails over to {target!r}, "
+                    f"which is not a declared tap; known: {sorted(taps)}"
+                )
+                continue
+            target_type = (taps[target] or {}).get("type")
+            if target_type != ttype:
+                errors.append(
+                    f"FAILOVER: tap '{tap_name}' (type {ttype!r}) fails over "
+                    f"to '{target}' (type {target_type!r}) — cross-type "
+                    f"failover is FORBIDDEN v1 (dotfiles-d3ky): a seat's "
+                    f"charter work is tuned per vendor, a silent vendor "
+                    f"swap mid-loop is a silent-quality event"
+                )
 
     seat_names = list(seats.keys())
     seat_name_set = set(seat_names)
