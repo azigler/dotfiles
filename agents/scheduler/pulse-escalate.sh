@@ -17,21 +17,54 @@
 #   0. GRACE   — for grace_minutes after the episode's FIRST bounce this script
 #                does nothing at all. Zig's rung 2 ("a supervising session
 #                nudges") is satisfied by standing still while someone else acts.
-#   1. TRUTH   — the jisc reconciler. PROVE the block before escalating it:
-#                capture-pane the seat window; a 🔔 NAME with no dialog chrome in
-#                the pane is the stale-🔔 divergence, not a block, so clear the
-#                glyph with a VERIFIED rename — and STOP there. Name-only trust is
-#                removed on this, the consumer, side (jisc AC). This rung does NOT
-#                re-fire the loop: see SINGLE OWNERSHIP below.
+#   1. TRUTH   — the jisc reconciler. PROVE the block before escalating it, and
+#                prove the ABSENCE of one before clearing a glyph: see TWO
+#                INDEPENDENT SIGNALS below. Name-only trust is removed on this,
+#                the consumer, side (jisc AC). This rung does NOT re-fire the
+#                loop: see SINGLE OWNERSHIP below.
 #   2. NUDGE   — modal chrome present => genuinely blocked => the front desk's
 #                business. A SPECIFIC nudge naming the blocked seat, injected into
 #                the seneschal window via pulse-inject --cmd (a real user turn).
 #   3. RAISE   — no seneschal window, or it is itself 🔔: `systemctl --user start
 #                <seneschal_unit>.service`, with the nudge carried in
 #                $STATE_DIR/pulse-escalate-nudge.md so the raised brief has the
-#                specifics rather than the daily default.
+#                specifics rather than the daily default. Deliberately minimal —
+#                see WINDOW SPAWNING IS NOT THIS SCRIPT'S JOB below.
 #   4. FLOOR   — still bouncing after the ladder + a cooldown: a P1 `human:` bead
 #                AND a push. Always reached; the ladder never dead-ends.
+#
+# TWO INDEPENDENT SIGNALS BEFORE ANY RENAME — and a JOINED capture.
+#
+# The first cut of rung 1 renamed on ONE signal: "the chrome ERE did not match".
+# Adversarial review broke it in the obvious way — a NARROW pane. tmux hard-wraps
+# a pane's lines at its width, so a real dialog renders as `Enter to sel` / `ect`
+# and `❯ 1` / `. Yes`, no ERE alternative matches, and a LIVE modal is classified
+# stale. The consequence chain is the worst one available: the glyph clears,
+# pulse-retry (which owns the re-fire) sees a cleared 🔔 and re-fires, and the
+# injection's trailing Enter answers Zig's open dialog with its default option.
+#
+# Both layers of the fix are load-bearing and each has its own mutant:
+#
+#   (a) CAPTURE JOINED — `tmux capture-pane -pJ`. -J joins soft-wrapped lines, so
+#       wrapping can no longer split a chrome fragment in half.
+#   (b) RENAME NEEDS POSITIVE EVIDENCE, not an absence. Clearing a glyph requires
+#       chrome ABSENT *and* an IDLE COMPOSER present — the composer footer that an
+#       open dialog does not render. Measured on this box 2026-08-09, joined
+#       captures of a live 🔔 pane and a live ✅ pane:
+#           chrome ERE   -> blocked 2 matches   idle 0 matches
+#           composer ERE -> blocked 0 matches   idle 1 match
+#       The composer ERE is pulse-inject's own READY_MARKER, reused rather than
+#       re-derived: it is the fingerprint that injector already trusts to mean
+#       "this pane can accept typed input", which is exactly the claim a rename
+#       is about to make.
+#
+# So the classification is three-valued — blocked-chrome | idle-composer |
+# AMBIGUOUS — and ONLY `idle-composer` renames. Every ambiguity (capture failed,
+# capture empty, marker disabled, chrome absent but no composer either) is
+# AMBIGUOUS and takes the escalation rungs. The reconciler can miss a stale 🔔; it
+# cannot clear a live dialog. The three-way split is also what the log records, so
+# "refused because chrome" and "refused because we could not tell" stay
+# distinguishable in the telemetry.
 #
 # SINGLE OWNERSHIP OF THE RE-FIRE DECISION (dotfiles-t5fj, measured 2026-08-09).
 # pulse-retry.sh already decides whether a bounced tick gets re-fired, and re-fires
@@ -42,6 +75,16 @@
 # lying glyph and stops, and the existing 2-minute watcher takes it from there under
 # its own dedup and next-fire rules. (Rung 3 starting the SENESCHAL's unit is not an
 # exception: that is a different loop's injection, not a re-fire of the blocked one.)
+#
+# WINDOW SPAWNING IS NOT THIS SCRIPT'S JOB (dotfiles-32mf, fleet rule: ONE spawn
+# implementation). Rung 3 is exactly `systemctl --user start <seneschal_unit>` plus
+# the nudge file, and it stays that way even when the seneschal WINDOW IS ABSENT and
+# that injection therefore cannot land — the episode falls through to the floor on
+# the next run, which is the same path a failed raise already takes. A generalized
+# seat-spawn helper (spawn the owning seat's window with a guaranteed
+# onboard/offboard) is being built under dotfiles-32mf; when it lands, this rung
+# UPGRADES to call it. Growing a second spawn here would be the second
+# implementation the fleet rule exists to prevent.
 #
 # AND THE LOG SAYS ONLY WHAT THIS SCRIPT DID. The same review caught pulse-retry
 # claiming credit for clearing a 🔔 it merely outlived. An outcome owned by another
@@ -70,20 +113,33 @@
 #     ARE read by seneschal-gather.py (it filters on exactly that prefix), so the
 #     FLOOR rung is guaranteed-surfaced; the raise rung's extra specificity is
 #     best-effort until /seneschal reads pulse-escalate-nudge.md.
-#   * The modal-chrome ERE is a UI fingerprint. A Claude Code that changed its
-#     dialog footer would make every 🔔 read as "chrome absent" — which is why an
-#     UNVERIFIABLE pane (empty capture, or an EMPTY marker) is treated as
-#     GENUINELY BLOCKED. The reconciler fails SAFE: it can miss a stale 🔔; it can
-#     never rename a live modal out from under Zig.
+#   * Both EREs are UI fingerprints. A Claude Code that changed its dialog footer
+#     makes chrome read as absent; one that changed its composer footer makes the
+#     idle signal read as absent. Either drift lands in AMBIGUOUS, which escalates
+#     — never renames. Drift costs a false escalation, never a mis-answered dialog.
 #
 # OUTCOME CONTRACT. The LAST line of stdout is always
 #
 #   PULSE_ESCALATE_RESULT=checked:<n>:grace:<n>:reconciled:<n>:nudged:<n>:raised:<n>:floored:<n>:skipped:<n>:errors:<n>
 #   PULSE_ESCALATE_RESULT=failed-config     (exit 78 — conf unreadable / not key=value)
+#   PULSE_ESCALATE_RESULT=checker-broken    (exit 1  — THIS script cannot run
+#                                            safely; ZERO actions were taken)
 #
 # Exit 0 on every other path: a best-effort watcher, where one loop's failure must
 # never abort the rest (`set -uo pipefail`, no -e — pulse-retry.sh's posture, for
 # pulse-retry.sh's reason).
+#
+# STATE IS A PRECONDITION, NOT A NICETY — the state directory is WRITE-PROBED
+# before anything is read or touched, and an unwritable one is `checker-broken`,
+# exit 1, nothing done. Adversarial review demonstrated the alternative: with the
+# state dir read-only, the first cut reported `raised:1 … errors:0` and exit 0 on
+# EVERY run, five minutes apart, because the rung it had "already fired" could
+# never be remembered — an invisible repeat of `systemctl --user start`. A ladder
+# that cannot persist which rung it is on has no ladder, only a first rung; the
+# posture (and the vocabulary) is api-stall-recover.sh's, deliberately.
+# `mkdir -p` alone is NOT that probe: it SUCCEEDS on an existing read-only
+# directory, which is precisely the failure shape. A real file is created and
+# removed.
 #
 # IDEMPOTENCY. State is per loop+EPISODE in $STATE_DIR/pulse-escalate-state.jsonl:
 # {"loop","episode","rung","acted_ts"}. An EPISODE is the contiguous run of
@@ -110,7 +166,22 @@ set -uo pipefail
 export LC_ALL=C
 
 STATE_DIR="${HARNESS_STATE_DIR:-$HOME/.local/state/harness}"
-mkdir -p "$STATE_DIR" || true
+
+# THE WRITE PROBE. Before a single window is read or a single unit started: this
+# ladder's whole idempotency is a file in here, so an unwritable state dir means
+# every run re-fires the same rung forever with a clean verdict and exit 0. That
+# is not a degraded mode, it is a broken checker — so it refuses, loudly, having
+# touched nothing. `mkdir -p` cannot answer this on its own (it succeeds on an
+# existing read-only directory); only writing a real file can.
+_probe="$STATE_DIR/.pulse-escalate-probe.$$"
+if ! mkdir -p "$STATE_DIR" || ! : > "$_probe"; then
+  printf 'pulse-escalate: state directory %s is not writable — refusing to act\n' "$STATE_DIR" >&2
+  printf '                without somewhere to remember which rung already fired.\n' >&2
+  echo "PULSE_ESCALATE_RESULT=checker-broken"
+  exit 1
+fi
+rm -f "$_probe"
+
 LOG="${PULSE_ESCALATE_LOG:-$STATE_DIR/pulse-escalate.log}"
 BOUNCES="$STATE_DIR/pulse-bounces.jsonl"
 ESC_STATE="$STATE_DIR/pulse-escalate-state.jsonl"
@@ -121,14 +192,19 @@ INJECT="${PULSE_ESCALATE_INJECT:-$_ME_DIR/pulse-inject.sh}"
 BR_BIN="${PULSE_ESCALATE_BR:-br}"
 CURL_BIN="${PULSE_ESCALATE_CURL:-curl}"
 
-# The AskUserQuestion / permission-prompt chrome, as pulse-inject's 3.5 guard
-# WISHES it knew it. Derived from a live capture of a blocked pane (zig-computer,
-# 2026-08-09): the dialog paints a numbered option list with a ❯ caret and closes
-# with "Enter to select · Tab/Arrow keys to navigate · Esc to cancel". The footer
-# wraps, so each phrase is matched independently. The idle composer footer
-# ("? for shortcuts", "shift+tab to cycle") matches NONE of these — that is the
-# whole discrimination.
+# SIGNAL 1 — dialog chrome, from a live capture of a blocked pane (zig-computer,
+# 2026-08-09): a numbered option list with a ❯ caret, closing on "Enter to select ·
+# Tab/Arrow keys to navigate · Esc to cancel". Each phrase is matched
+# independently because the footer wraps; -J on the capture is what stops a wrap
+# splitting a phrase in half.
 MODAL_MARKER="${PULSE_ESCALATE_MODAL_MARKER-Enter to select|Tab/Arrow keys to navigate|Esc to cancel|Do you want to (proceed|make this edit)|❯ [0-9]+\. }"
+
+# SIGNAL 2 — an IDLE COMPOSER, the positive evidence a rename requires. This is
+# pulse-inject.sh's READY_MARKER verbatim: the footer that injector already trusts
+# to mean "this pane accepts typed input", which is the claim clearing a 🔔 makes.
+# A pane showing a dialog renders NONE of it (measured: 0 matches on the live 🔔
+# capture, 1 on the live ✅ capture).
+IDLE_MARKER="${PULSE_ESCALATE_IDLE_MARKER-shift\+tab to cycle|\? for shortcuts|bypass permissions on|accept edits on|plan mode on}"
 
 TMUX_BIN=$(command -v tmux 2>>"$LOG")
 [ -x "${TMUX_BIN:-}" ] || TMUX_BIN=/usr/bin/tmux
@@ -209,17 +285,20 @@ win_lookup() {
   return 1
 }
 
-# pane_modal <session> <index> -> 0 present · 1 absent · 2 UNVERIFIABLE.
-# 2 is the fail-safe outcome (empty capture, or MODAL_MARKER disabled) and every
-# caller treats it exactly like "present": the reconciler may miss a stale 🔔, it
-# may never rename a live dialog away.
-pane_modal() {
+# pane_state <session> <index> -> 0 blocked-chrome · 1 idle-composer · 2 AMBIGUOUS.
+# THE ONLY VALUE THAT MAY RENAME IS 1, and it requires POSITIVE evidence, not the
+# absence of the other signal (see TWO INDEPENDENT SIGNALS in the header).
+# -J joins soft-wrapped lines, so a narrow pane cannot split a chrome phrase in
+# half and manufacture a `1`. Chrome wins ties: a pane showing both is a dialog.
+pane_state() {
   local session=$1 idx=$2 pane
-  [ -n "$MODAL_MARKER" ] || return 2
-  pane=$("$TMUX_BIN" capture-pane -p -t "=$session:$idx" 2>>"$LOG")
-  [ -n "$pane" ] || return 2
+  [ -n "$MODAL_MARKER" ] || return 2                  # marker disabled => cannot tell
+  pane=$("$TMUX_BIN" capture-pane -pJ -t "=$session:$idx" 2>>"$LOG")
+  [ -n "$pane" ] || return 2                          # no capture => cannot tell
   printf '%s\n' "$pane" | grep -Eq "$MODAL_MARKER" && return 0
-  return 1
+  [ -n "$IDLE_MARKER" ] || return 2
+  printf '%s\n' "$pane" | grep -Eq "$IDLE_MARKER" && return 1
+  return 2                                            # neither signal => cannot tell
 }
 
 # --- Read the bounce log (READ-ONLY to this script) ---------------------------
@@ -258,10 +337,16 @@ record() { S_EPISODE[$1]=$2; S_RUNG[$1]=$3; S_ACTED[$1]=$now_iso; changed=1; }
 IFS=, read -r -a LOOP_ROWS <<< "$(cfg loops)"
 for row in "${LOOP_ROWS[@]:-}"; do
   [ -n "$row" ] || continue
-  loop=${row%%:*}; rest=${row#*:}; window=${rest%%:*}; session=${rest#*:}
-  if [ -z "$loop" ] || [ -z "$window" ] || [ -z "$session" ]; then
-    note "skip malformed loops entry '$row'"; ERRORS=$((ERRORS + 1)); continue
+  # ARITY IS CHECKED ON THE ROW, NOT ON THE FIELDS AFTER SPLITTING. `${row#*:}`
+  # returns the WHOLE STRING when there is no colon, so a colonless row like
+  # `pulse-marshal` used to survive an emptiness check with loop=window=session=
+  # "pulse-marshal" and drive the ladder against a garbage window name. Adversarial
+  # review found it; a positive shape match is the only honest test.
+  if ! printf '%s' "$row" | grep -qE '^[^:]+:[^:]+:[^:]+$'; then
+    note "skip malformed loops entry '$row' — want exactly <unit>:<window>:<session>"
+    ERRORS=$((ERRORS + 1)); continue
   fi
+  loop=${row%%:*}; rest=${row#*:}; window=${rest%%:*}; session=${rest#*:}
 
   bl="${BTS[$loop]:-}"
   [ -n "$bl" ] || continue
@@ -322,10 +407,22 @@ for row in "${LOOP_ROWS[@]:-}"; do
 
   # RUNG 1 — TRUTH. The jisc reconciler: capture-pane before believing the glyph.
   # ⚠️ THE RENAME IS THE WHOLE RUNG — no re-fire (SINGLE OWNERSHIP, in the header).
+  # What the truth probe actually established, carried verbatim into the nudge —
+  # the front desk is told what was OBSERVED, never a confidence nobody earned.
+  pane_note="no '$window' window is present in $session"
   if wl=$(win_lookup "$session" "$window"); then
     widx=${wl%% *}; wname=${wl#* }
+    pane_note="window '$wname' does not carry 🔔"
     if [ "$wname" != "${wname#🔔}" ]; then
-      pane_modal "$session" "$widx"; pm=$?
+      pane_state "$session" "$widx"; pm=$?
+      case "$pm" in
+        0) pane_note="a joined capture-pane shows live dialog chrome — the block is real" ;;
+        *) pane_note="a joined capture-pane could not classify the pane (no dialog chrome, no idle composer) — treated as blocked" ;;
+      esac
+      # ONLY `1` (idle composer PROVEN present, chrome PROVEN absent, in a JOINED
+      # capture) may rename. 0 and 2 both escalate — and they are logged
+      # differently, so "refused because a dialog is up" stays distinguishable
+      # from "refused because we could not tell".
       if [ "$pm" = 1 ]; then
         stripped=$(strip_lexicon "$wname")
         "$TMUX_BIN" rename-window -t "=$session:$widx" "$stripped" 2>>"$LOG"
@@ -333,19 +430,23 @@ for row in "${LOOP_ROWS[@]:-}"; do
                 | sed -n -E "s/^$widx //p" | head -1)
         if [ -n "$after" ] && [ "$after" = "${after#🔔}" ]; then
           # States ONLY what this script did — see the header's log clause.
-          note "RENAMED $loop: window $widx '$wname' carried 🔔 with NO dialog chrome in the pane (stale-🔔, dotfiles-jisc); renamed to '$after' after verifying the rename took. No re-fire issued here — pulse-retry owns that decision."
+          note "RENAMED $loop: window $widx '$wname' carried 🔔 over an IDLE COMPOSER and no dialog chrome in the joined capture (stale-🔔, dotfiles-jisc); renamed to '$after' after verifying the rename took. No re-fire issued here — pulse-retry owns that decision."
           record "$loop" "$ep_start" reconciled
           RECONCILED=$((RECONCILED + 1)); continue
         fi
         note "WARN: $loop: rename of window $widx did not clear 🔔 (now '${after:-<gone>}')"
         ERRORS=$((ERRORS + 1)); continue
       fi
-      [ "$pm" = 2 ] && note "$loop: pane $widx UNVERIFIABLE (empty capture or marker disabled) — treating as genuinely blocked"
+      if [ "$pm" = 0 ]; then
+        note "$loop: pane $widx shows dialog CHROME PRESENT in the joined capture — genuinely blocked, escalating"
+      else
+        note "$loop: pane $widx is AMBIGUOUS (no chrome, no idle composer, or nothing captured) — escalating, never renaming on an absence"
+      fi
     fi
   fi
 
   # The nudge, carried by rungs 2 and 3 alike.
-  nudge="Escalation from pulse-escalate — the '$window' seat (loop $loop, session $session) has been blocked for ${age_min}m: its tick bounced $n time(s), newest reason '$reason', and a capture-pane confirms the block is real. You are the front desk: read that window, answer or reroute the question so the loop's next tick can land. If it genuinely needs Zig, file the P1 human: bead and say so."
+  nudge="Escalation from pulse-escalate — the '$window' seat (loop $loop, session $session) has not delivered a tick for ${age_min}m: it bounced $n time(s), newest reason '$reason', and $pane_note. You are the front desk: read that window, answer or reroute whatever is holding it so the loop's next tick can land. If it genuinely needs Zig, file the P1 human: bead and say so."
 
   # RUNG 2 — SENESCHAL DUTY. Never into a 🔔 window, and only a DELIVERED
   # injection counts (pulse-inject's own verdict is the evidence, not its exit code).

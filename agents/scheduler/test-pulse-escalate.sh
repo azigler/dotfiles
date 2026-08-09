@@ -11,7 +11,9 @@
 #   $PE_FAKE/windows/<session>   — "<index> <name>" per line; the fake tmux's window list,
 #                                  REWRITTEN in place by `rename-window` (so a case can
 #                                  assert the reconciler's verified rename actually took)
-#   $PE_FAKE/panes/<sess>-<idx>  — what `capture-pane -p` prints for that window
+#   $PE_FAKE/panes/<sess>-<idx>  — what `capture-pane -p` prints (the WRAPPED form)
+#   $PE_FAKE/panes/<sess>-<idx>.J — what `capture-pane -J` prints (soft wraps JOINED);
+#                                  absent => identical to the raw. Written by set_pane.
 #   $PE_FAKE/renames             — every rename-window, appended
 #   $PE_FAKE/started             — every `systemctl --user start`ed unit
 #   $PE_FAKE/isactive/<unit>     — what `systemctl --user is-active <unit>` prints
@@ -43,12 +45,20 @@ mkdir -p "$BIN"
 cat > "$BIN/tmux" <<'EOTM'
 #!/bin/bash
 # Fake tmux — list-windows / capture-pane / rename-window, backed by $PE_FAKE.
+#
+# -J IS MODELLED, NOT IGNORED. Real tmux's -J joins soft-wrapped lines, and that
+# flag is now load-bearing (a narrow pane splits dialog chrome mid-phrase). So a
+# pane has TWO fixture files: `panes/<sess>-<idx>` is what the terminal actually
+# holds (wrapped), and `panes/<sess>-<idx>.J` is what -J returns (joined). With
+# no .J file the two are identical, which is every ordinary case. A mutant that
+# drops -J therefore reads genuinely different bytes, exactly as in production.
 cmd="${1:-}"; shift || true
-tgt=""; new=""
+tgt=""; new=""; joined=0
 while [ $# -gt 0 ]; do
   case "$1" in
     -t) tgt="${2:-}"; shift 2 ;;
     -F) shift 2 ;;
+    -pJ|-Jp|-J) joined=1; shift ;;
     -p) shift ;;
     *)  new="$1"; shift ;;
   esac
@@ -63,6 +73,7 @@ case "$cmd" in
     ;;
   capture-pane)
     f="$PE_FAKE/panes/$sess-$idx"
+    [ "$joined" = 1 ] && [ -f "$f.J" ] && f="$f.J"
     [ -f "$f" ] && cat "$f"
     ;;
   rename-window)
@@ -153,13 +164,49 @@ date?
 Enter to select · Tab/Arrow keys to navigate · Esc to
 cancel'
 
-# IDLE: the composer of a session whose AskUserQuestion was CANCELLED with Esc —
-# dotfiles-jisc's stale 🔔. The window name still carries the glyph; the pane holds
-# no dialog at all. Note "shift+tab to cycle" / "? for shortcuts": the readiness
-# marker pulse-inject polls for, and NOT modal chrome.
-IDLE_PANE='> Try "edit <filepath> to ..."
+# IDLE: transcribed from a LIVE ✅ pane on the same box — the composer of a session
+# whose AskUserQuestion was CANCELLED with Esc (dotfiles-jisc's stale 🔔). The window
+# name still carries the glyph; the pane holds no dialog. Its footer is the POSITIVE
+# evidence a rename now requires, and it is pulse-inject's own READY_MARKER; measured
+# against the two real captures, the chrome ERE scores 2/0 and this one 0/1.
+IDLE_PANE='─────────────────────────────────────────────────────
+❯
+─────────────────────────────────────────────────────
+  ✅ [Fable 5] 📁 dotfiles | 📮 main
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ←'
 
-  ? for shortcuts                          shift+tab to cycle'
+# WRAPPED MODAL: the SAME live dialog in a NARROW pane. tmux hard-wraps at the pane
+# width, so every chrome phrase is split mid-word and the ERE matches nothing — this
+# is the raw capture that the first cut of rung 1 classified as stale and renamed,
+# with a live question still on the screen (adversarial review, 2026-08-09).
+WRAPPED_MODAL_RAW='Reminder 7 — creatine: the pl
+an was Sun 08-09.
+
+❯ 1
+. Today, 2026-08-09
+  2
+. Not yet
+
+Enter to sel
+ect · Tab/Arrow keys to na
+vigate · Esc to canc
+el'
+
+# ...and what `capture-pane -J` returns for that same pane: the soft wraps joined,
+# every phrase whole again, chrome matching. -J is layer (a) of the fix.
+WRAPPED_MODAL_JOINED='Reminder 7 — creatine: the plan was Sun 08-09.
+
+❯ 1. Today, 2026-08-09
+  2. Not yet
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel'
+
+# AMBIGUOUS: neither signal. A pane mid-repaint, a dead TUI, a dialog whose chrome
+# the ERE no longer fingerprints. Chrome is ABSENT here — which is exactly why an
+# absence may not authorise a rename.
+AMBIGUOUS_PANE='Loading…
+
+(nothing else on the screen)'
 
 # setup_case — a fresh state dir + control dir + conf. Every knob is defaulted to the
 # marshal-shaped happy path; a case overrides only what it is about.
@@ -202,6 +249,17 @@ EOCONF
   printf '%s\n' "$IDLE_PANE"  > "$PE_FAKE/panes/zig-computer-2"
 }
 
+# set_pane <index> <raw-capture> [joined-capture]
+#   Two files, because -J is load-bearing: the raw is what an unjoined capture sees,
+#   the joined is what `capture-pane -J` returns. Omit the third argument and they
+#   are identical, which is the ordinary unwrapped case.
+set_pane() {
+  printf '%s\n' "$2" > "$PE_FAKE/panes/zig-computer-$1"
+  if [ $# -ge 3 ]; then printf '%s\n' "$3" > "$PE_FAKE/panes/zig-computer-$1.J"
+  else rm -f "$PE_FAKE/panes/zig-computer-$1.J"; fi
+}
+logtxt() { cat "$HARNESS_STATE_DIR/pulse-escalate.log" 2>/dev/null; }
+
 bounce() { # bounce <minutes-ago> [reason] [loop]
   printf '{"ts":"%s","loop":"%s","reason":"%s"}\n' \
     "$(ago_iso "$1")" "${3:-pulse-marshal}" "${2:-blocked_on_andrew}" \
@@ -232,11 +290,12 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Case 2: THE RECONCILER (dotfiles-jisc). 🔔 NAME + NO dialog chrome in the pane =>
-#   a VERIFIED rename that clears the glyph, and the episode closes at rung
-#   `reconciled`. NOTHING is escalated to a human.
+# Case 2: THE RECONCILER (dotfiles-jisc). 🔔 NAME + no dialog chrome + a PROVEN idle
+#   composer => a VERIFIED rename that clears the glyph, and the episode closes at rung
+#   `reconciled`. NOTHING is escalated to a human. This is the case that keeps the
+#   two-signal rule from being a blanket refusal: the legitimate reconcile still happens.
 setup_case
-printf '%s\n' "$IDLE_PANE" > "$PE_FAKE/panes/zig-computer-1"
+set_pane 1 "$IDLE_PANE"
 bounce 25
 run
 if [ "$(count renames)" = 1 ] && [ "$(winname 1)" = "marshal" ] \
@@ -252,7 +311,7 @@ fi
 #   composer). The rename is the WHOLE rung. Asserted on every `systemctl` call, not just
 #   `start`s: the in-flight `is-active` probe is the only one this path may make.
 setup_case
-printf '%s\n' "$IDLE_PANE" > "$PE_FAKE/panes/zig-computer-1"
+set_pane 1 "$IDLE_PANE"
 bounce 25
 run
 if [ "$(count started)" = 0 ] && ! grep -q 'start' "$PE_FAKE/calls" \
@@ -268,7 +327,7 @@ fi
 #   taking credit for clearing a 🔔 it merely outlived, and a dishonest causation line
 #   poisons the telemetry every later escalation decision reads.
 setup_case
-printf '%s\n' "$IDLE_PANE" > "$PE_FAKE/panes/zig-computer-1"
+set_pane 1 "$IDLE_PANE"
 bounce 25
 run
 LOGTXT=$(cat "$HARNESS_STATE_DIR/pulse-escalate.log" 2>/dev/null)
@@ -491,7 +550,7 @@ fi
 #   match, every 🔔 reads as genuinely blocked rather than as stale.
 setup_case
 export PULSE_ESCALATE_MODAL_MARKER=""
-printf '%s\n' "$IDLE_PANE" > "$PE_FAKE/panes/zig-computer-1"
+set_pane 1 "$IDLE_PANE"
 bounce 25
 run
 unset PULSE_ESCALATE_MODAL_MARKER
@@ -507,7 +566,7 @@ fi
 #   really-blocked seat un-escalated) and the run reports an error.
 setup_case
 export PE_RENAME_NOOP=1
-printf '%s\n' "$IDLE_PANE" > "$PE_FAKE/panes/zig-computer-1"
+set_pane 1 "$IDLE_PANE"
 bounce 25
 run
 unset PE_RENAME_NOOP
@@ -529,6 +588,91 @@ if [ "$BEFORE" = "$(cat "$HARNESS_STATE_DIR/pulse-bounces.jsonl")" ]; then
   ok
 else
   bad "18 read-only: pulse-bounces.jsonl is never written by the escalator"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 19: THE WRAPPED-CHROME BLOCKER. A narrow pane hard-wraps the dialog mid-phrase
+#   ('Enter to sel'/'ect', '❯ 1'/'. Yes'), so the chrome ERE matches NOTHING in the raw
+#   capture — and the first cut renamed a LIVE modal on that absence, after which
+#   pulse-retry re-fires and the injection's Enter answers Zig's open dialog with its
+#   default. `capture-pane -J` joins the soft wraps, so the chrome is whole again.
+#
+#   The assertion is BOTH halves: no rename (the consequence), AND the log classifying
+#   the pane as CHROME PRESENT rather than ambiguous (the reason). The second half is
+#   what makes this case detect a dropped -J at all — with -J gone the refusal still
+#   happens, via the ambiguity fallback, and only the classification tells you the
+#   fingerprint stopped working.
+setup_case
+set_pane 1 "$WRAPPED_MODAL_RAW" "$WRAPPED_MODAL_JOINED"
+bounce 25
+run
+if [ "$(count renames)" = 0 ] && [ "$(winname 1)" = "🔔 marshal" ] && [ "$(rung_of)" = nudged ] \
+   && logtxt | grep -q 'CHROME PRESENT' && ! logtxt | grep -q 'AMBIGUOUS'; then
+  ok
+else
+  bad "19 wrapped-chrome: a soft-wrapped live dialog is joined by -J, classified CHROME PRESENT, and never renamed (renames=$(count renames) name='$(winname 1)' rung=$(rung_of))"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 20: AN ABSENCE IS NOT EVIDENCE. Chrome absent AND no idle composer — a pane
+#   mid-repaint, a dead TUI, or a dialog whose chrome the ERE no longer fingerprints.
+#   Renaming here is renaming on a guess, so the ladder escalates and says AMBIGUOUS.
+#   This is the case that makes signal 2 (positive idle-composer evidence) load-bearing:
+#   with only "chrome absent" the rename would fire.
+setup_case
+set_pane 1 "$AMBIGUOUS_PANE"
+bounce 25
+run
+if [ "$(count renames)" = 0 ] && [ "$(winname 1)" = "🔔 marshal" ] && [ "$(rung_of)" = nudged ] \
+   && logtxt | grep -q 'AMBIGUOUS'; then
+  ok
+else
+  bad "20 absence-is-not-evidence: chrome absent with no idle composer never renames (renames=$(count renames) name='$(winname 1)' rung=$(rung_of))"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 21: NO PERSISTABLE MEMORY => CHECKER BROKEN, ZERO ACTIONS. With the state dir
+#   read-only the first cut reported `raised:1 … errors:0` and exit 0 on EVERY run,
+#   five minutes apart — an invisible repeated `systemctl --user start`, because the
+#   rung it had "already fired" could never be written down. `mkdir -p` cannot detect
+#   this (it succeeds on an existing read-only dir); only a real write can.
+setup_case
+bounce 25
+chmod a-w "$HARNESS_STATE_DIR"
+run
+chmod u+w "$HARNESS_STATE_DIR"
+if [ "$RC" = 1 ] && [ "$VERDICT" = "PULSE_ESCALATE_RESULT=checker-broken" ] \
+   && [ "$(count started)" = 0 ] && [ "$(count inject-calls)" = 0 ] \
+   && [ "$(count renames)" = 0 ] && [ "$(count br-calls)" = 0 ] \
+   && [ ! -f "$PE_FAKE/calls" ]; then
+  ok
+else
+  bad "21 no-memory: an unwritable state dir is checker-broken with ZERO actions (rc=$RC verdict='$VERDICT' started=$(count started) injects=$(count inject-calls) renames=$(count renames))"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 22: A COLONLESS `loops` ROW IS REFUSED. `${row#*:}` returns the WHOLE STRING when
+#   there is no colon, so `loops=pulse-marshal` used to pass an emptiness check with
+#   loop == window == session == "pulse-marshal" and drive the ladder against a window
+#   name that is really a unit name. Wrong arity is the same defect with a comma in it.
+setup_case
+sed -i 's|^loops=.*|loops=pulse-marshal|' "$CASE/escalate.conf"
+bounce 25
+run
+if v_has "checked:0" && v_has "errors:1" && [ "$(count inject-calls)" = 0 ] \
+   && [ "$(count renames)" = 0 ] && [ "$(count started)" = 0 ]; then
+  ok
+else
+  bad "22 colonless-row: a loops row with no colons is skipped and counted as an error (verdict=$VERDICT)"
+fi
+setup_case
+sed -i 's|^loops=.*|loops=pulse-marshal:marshal|' "$CASE/escalate.conf"
+bounce 25
+run
+if v_has "checked:0" && v_has "errors:1" && [ "$(count inject-calls)" = 0 ]; then
+  ok
+else
+  bad "22b short-row: a two-field loops row is skipped and counted as an error (verdict=$VERDICT)"
 fi
 
 # --- Summary ---
