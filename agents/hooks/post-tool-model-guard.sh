@@ -93,10 +93,49 @@
 # state write. Measured, with the numbers, at THE SUBAGENT BAIL below; that
 # block is the authority, not this pointer.
 #
+# ── THE COLD-START SEAM (dotfiles-8x8l) ─────────────────────────────────────
+# MEASURED 2026-08-09: on the day the guard shipped, SIX of seven ledger rows
+# were `check-failed / no-served-model` with both expected and served empty —
+# the guard was blind 86% of the time while its ledger looked alive. All six
+# correlate to the SAME instant, to the second: the session's FIRST tool round.
+#
+#   session   blind row     first tool_result in that session's transcript
+#   c1a4bebd  11:38:41Z     11:38:41.685Z
+#   a491e4bf  11:41:08Z     11:41:08.406Z
+#   724edc28  15:05:27Z     15:05:27.309Z
+#   d38310f1  15:45:55Z     15:45:55.328Z
+#   81f50c07  16:59:48Z     16:59:48.618Z
+#   6038861a  18:08:26Z     18:08:26.623Z
+#
+# Reproduced live, in a fresh interactive session under a scratch state root,
+# with the transcript file snapshotted every 50ms (session 7e29e574, blind row
+# at 21:37:47Z). The snapshot ring shows why: the client writes the turn's
+# assistant rows as ONE BATCH, and that batch lands AFTER the tool has already
+# run — so the file the hook reads at the first PostToolUse holds only the
+# session preamble (mode / permission-mode / attachment / file-history-snapshot
+# / user / last-prompt / ai-title) and NOT ONE assistant row:
+#
+#   21:37:45.772  12 lines   <- what the hook read.  ZERO assistant rows.
+#   21:37:47.030             assistant tool_use row (timestamp, not write time)
+#   21:37:47      ***        the guard fires: SERVED empty -> no-served-model
+#   21:37:47.203  14 lines   <- the batch has landed: 2 assistant rows, model
+#                               claude-haiku-4-5-20251001
+#
+# Rounds 2..N are unaffected — the window then already holds EARLIER assistant
+# rows — which is exactly why each blind session produced ONE row and never a
+# second. `model-guard-coldstart.fixture.jsonl` is that 12-line read, verbatim.
+#
+# Two consequences, and the hook implements both:
+#   1. RE-READ. A read that finds no served model waits MODEL_GUARD_RETRY_SLEEP
+#      and looks again, up to MODEL_GUARD_RETRIES times. The batch lands within
+#      a few hundred ms, so the check usually recovers instead of being skipped.
+#   2. NAME THE SHAPE. A check that still cannot see says WHY in the ledger, per
+#      row, instead of a generic `no-served-model` (see the LEDGER block).
+#
 # ── FAIL-OPEN ───────────────────────────────────────────────────────────────
 # A broken guard must never block normal work. Missing/unreadable transcript, no
-# parseable assistant model, no jq: one rate-limited `check-failed` ledger row
-# and exit 0, no instruction. Only a CONFIRMED mismatch ever emits. Exit 2 is
+# parseable assistant model, no jq: one rate-limited ledger row and exit 0, no
+# instruction. Only a CONFIRMED mismatch ever emits. Exit 2 is
 # used for the instruction because a PostToolUse hook's stderr is only shown to
 # the agent on exit 2 — the tool has already run, so nothing is blocked or undone.
 #
@@ -106,7 +145,25 @@
 #   {"ts","epoch","row","session","expected","served","tries","event","action"}
 # `row` is the non-null row name ("model-guard") this repo's ledger convention
 # requires — a null row name produced 23 bad rows across 3 projects once
-# (dotfiles-mlti). Events: detected | recovered | check-failed.
+# (dotfiles-mlti). Events: detected | recovered | check-failed | check-skipped.
+#
+# `action` on a blind round NAMES THE SHAPE — the whole point of dotfiles-8x8l,
+# since a bare `check-failed` cannot distinguish "the guard is broken" from "the
+# session has not spoken yet". `expected` is filled in on these rows too, so an
+# auditor can see the guard knows the seat:
+#   check-skipped no-assistant-row-yet            the cold-start read above:
+#                                                 rows parsed, none of them an
+#                                                 assistant row. Benign.
+#   check-failed  no-transcript                   path missing or unreadable
+#   check-failed  transcript-empty                zero lines in the window
+#   check-failed  transcript-unparseable          lines present, jq parsed none
+#   check-failed  assistant-rows-carry-no-model   assistant rows with no
+#                                                 .message.model — a client
+#                                                 shape change, worth knowing
+#   check-failed  assistant-rows-all-synthetic    only <synthetic> placeholders
+#   check-failed  assistant-rows-all-sidechain    only subagent rows in the
+#                                                 window (the p89v shape, past
+#                                                 the structural bail)
 #
 # Environment seams (tests use them; production uses the defaults):
 #   MODEL_GUARD_EXPECTED         force the expected id, or `off` to disable
@@ -118,6 +175,21 @@
 #   MODEL_GUARD_TAIL             500   transcript lines scanned per round
 #   MODEL_GUARD_USE_SETTINGS     1     0 = never fall back to settings.json
 #   MODEL_GUARD_USE_PROC         1     0 = never read /proc for --model
+#   MODEL_GUARD_RETRIES          4     re-reads when no served model is visible
+#   MODEL_GUARD_RETRY_SLEEP      0.25  seconds between those re-reads — 4 x 0.25
+#                                      is a 1s ceiling, chosen against a MEASURED
+#                                      race window: the growth log of a live
+#                                      session shows the preamble at 21:53:08.157
+#                                      (12 lines, 0 assistant rows) and the
+#                                      assistant batch at 21:53:09.686 (14 lines,
+#                                      2 assistant rows) — the hook fires
+#                                      somewhere inside that ~1.5s gap, so it
+#                                      wins on some rounds and not others. The
+#                                      ceiling is paid at most once per cooldown
+#                                      per session and only when the read is
+#                                      blind; a mid-session round finds an
+#                                      earlier assistant row on the first look
+#                                      and never sleeps at all.
 #
 # OPEN QUESTION (for the orchestrator, recorded on dotfiles-p89v): whether an
 # AGENT can invoke `/model` on its own pane unaided. The slash command is the
@@ -202,13 +274,18 @@ ledger_row() {
     "$TRIES" "$event" "$action" >> "$LEDGER" || return 0
 }
 
-# check_failed <why> — the fail-open path. Rate-limited by the same cooldown so
-# a permanently broken read cannot spray one row per tool call.
+# check_failed <event> <why> — the fail-open path. Rate-limited by the same
+# cooldown so a permanently broken read cannot spray one row per tool call.
+# <event> is check-failed for a real read error and check-skipped for a round
+# the guard was never in a position to make (cold start); <why> NAMES the shape,
+# and EXPECTED rides along so a blind row still says which seat it was watching.
+# Every caller runs after EXPECTED has been resolved — that ordering is what
+# dotfiles-8x8l bought, and it is why `${EXPECTED:-}` is a guard, not a default.
 check_failed() {
   if [ $(( NOW - LAST_CFAIL )) -ge "$COOLDOWN" ]; then
     LAST_CFAIL=$NOW
     write_state
-    ledger_row "check-failed" "$1" "" ""
+    ledger_row "$1" "$2" "${EXPECTED:-}" ""
   fi
   exit 0
 }
@@ -263,12 +340,16 @@ if [ -n "$TRANSCRIPT" ]; then
   [ "$_TB" = "$SESSION_ID" ] || exit 0
 fi
 
-[ -n "$TRANSCRIPT" ] && [ -r "$TRANSCRIPT" ] || check_failed "no-transcript"
-
 # ONE jq pass over the tail, emitting two tagged facts. jq aborts on a partially
 # written trailing line but has already emitted everything before it — that is
 # the graceful degradation we want from a file being appended to live.
-FACTS=$(tail -n "$TAIL_LINES" "$TRANSCRIPT" 2>/dev/null | jq -r '
+read_facts() {
+  FACTS=""; SERVED=""; FALLBACK_ORIG=""; READ_FAIL=""
+  if [ -z "$TRANSCRIPT" ] || [ ! -r "$TRANSCRIPT" ]; then
+    READ_FAIL="no-transcript"
+    return 0
+  fi
+  FACTS=$(tail -n "$TAIL_LINES" "$TRANSCRIPT" 2>/dev/null | jq -r '
   if .type == "assistant" and (.isSidechain // false | not) then
     (.message.model // empty) | select(. != "<synthetic>") | "S" + .
   elif .type == "system" and .subtype == "model_refusal_fallback"
@@ -276,8 +357,57 @@ FACTS=$(tail -n "$TAIL_LINES" "$TRANSCRIPT" 2>/dev/null | jq -r '
     "O" + (.originalModel // "")
   else empty end' 2>/dev/null)
 
-SERVED=$(printf '%s\n' "$FACTS" | grep '^S' | tail -n 1 | cut -c2-)
-FALLBACK_ORIG=$(printf '%s\n' "$FACTS" | grep '^O' | tail -n 1 | cut -c2-)
+  SERVED=$(printf '%s\n' "$FACTS" | grep '^S' | tail -n 1 | cut -c2-)
+  FALLBACK_ORIG=$(printf '%s\n' "$FACTS" | grep '^O' | tail -n 1 | cut -c2-)
+  return 0
+}
+
+# THE COLD-START RE-READ (see the seam block in the header). The turn's assistant
+# rows are written as a batch that can land AFTER this hook runs, so a first read
+# with nothing in it is not evidence of anything yet — look again before giving up.
+MG_RETRIES="${MODEL_GUARD_RETRIES:-4}"
+case "$MG_RETRIES" in ''|*[!0-9]*) MG_RETRIES=0 ;; esac
+MG_ATTEMPT=0
+while : ; do
+  read_facts
+  { [ -z "$READ_FAIL" ] && [ -n "$SERVED" ]; } && break
+  [ "$MG_ATTEMPT" -ge "$MG_RETRIES" ] && break
+  MG_ATTEMPT=$((MG_ATTEMPT + 1))
+  sleep "${MODEL_GUARD_RETRY_SLEEP:-0.25}"
+done
+
+# diagnose_blind — WHY is there no served model? Runs only on the blind path, so
+# the extra jq pass costs nothing in the common case. Reasons are ordered from
+# "nothing was there" outward to "rows were there but none of them counts";
+# `no-assistant-row-yet` is the cold-start shape and the only benign one.
+diagnose_blind() {
+  local win lines tags rows n_side n_syn n_nomod
+  win=$(tail -n "$TAIL_LINES" "$TRANSCRIPT" 2>/dev/null)
+  lines=$(printf '%s\n' "$win" | grep -c . )
+  [ "$lines" -eq 0 ] && { printf 'transcript-empty'; return 0; }
+  tags=$(printf '%s\n' "$win" | jq -r '
+    if .type == "assistant" then
+      (if (.isSidechain // false) then "sidechain"
+       elif (.message.model // "") == "" then "nomodel"
+       elif .message.model == "<synthetic>" then "synthetic"
+       else "served" end)
+    else "other" end' 2>/dev/null)
+  rows=$(printf '%s\n' "$tags" | grep -c . )
+  [ "$rows" -eq 0 ] && { printf 'transcript-unparseable'; return 0; }
+  n_side=$(printf '%s\n' "$tags" | grep -c '^sidechain$')
+  n_syn=$(printf '%s\n' "$tags" | grep -c '^synthetic$')
+  n_nomod=$(printf '%s\n' "$tags" | grep -c '^nomodel$')
+  if [ $(( n_side + n_syn + n_nomod )) -eq 0 ]; then
+    printf 'no-assistant-row-yet'
+  elif [ "$n_nomod" -gt 0 ]; then
+    printf 'assistant-rows-carry-no-model'
+  elif [ "$n_syn" -gt 0 ]; then
+    printf 'assistant-rows-all-synthetic'
+  else
+    printf 'assistant-rows-all-sidechain'
+  fi
+  return 0
+}
 
 # The client's own record of the intended model outlives the tail window once
 # cached — scope is "session", so it never changes within one session.
@@ -286,8 +416,12 @@ if [ -n "$FALLBACK_ORIG" ] && [ -z "$DERIVED" ]; then
   write_state
 fi
 
-[ -n "$SERVED" ] || check_failed "no-served-model"
-
+# NOTE THE ORDER. The blind-round decision is deliberately made AFTER the
+# EXPECTED resolution below, not here (where it used to live), for two reasons:
+# a blind row can then carry the seat it was watching instead of two empty
+# fields, and a seat that is `off` or undeclared stops emitting blind rows it
+# was never going to act on. DERIVED is the reason the parse still comes first.
+#
 # --- resolve EXPECTED (precedence in the header) ----------------------------
 # _ancestor_model — the `--model <x>` an ancestor `claude` process was STARTED
 # with, read off /proc. Same seam and same LOWER-BOUND caveat as
@@ -335,6 +469,21 @@ case "$(norm "${EXPECTED:-}")" in off|none|any|disabled) exit 0 ;; esac
 
 # Undeclared session: not a degraded one. Silent, no ledger row.
 [ -n "$EXPECTED" ] || exit 0
+
+# --- the blind round, NAMED (dotfiles-8x8l) ---------------------------------
+# Reached only for a declared seat whose model we could not read. Say which of
+# the shapes it was; `no-assistant-row-yet` is the benign cold start, so it is
+# ledgered as check-SKIPPED, not check-failed — a guard that has not had its
+# turn yet is not a guard that broke, and conflating the two is what made six
+# of seven rows unreadable on 2026-08-09.
+[ -z "$READ_FAIL" ] || check_failed "check-failed" "$READ_FAIL"
+if [ -z "$SERVED" ]; then
+  BLIND_WHY=$(diagnose_blind)
+  case "$BLIND_WHY" in
+    no-assistant-row-yet) check_failed "check-skipped" "$BLIND_WHY" ;;
+    *)                    check_failed "check-failed"  "$BLIND_WHY" ;;
+  esac
+fi
 
 # --- the comparison ---------------------------------------------------------
 if same_model "$EXPECTED" "$SERVED"; then

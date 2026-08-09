@@ -24,12 +24,27 @@
 # The failure-before / absence-after demonstration is cases C1 vs C2: the tail
 # ending on claude-opus-4-8 MUST fire the guard, and the same file truncated to
 # its fable-only prefix MUST NOT.
+#
+# THE SECOND FIXTURE IS ALSO REAL BYTES (dotfiles-8x8l).
+# model-guard-coldstart.fixture.jsonl is the transcript AS THE HOOK READ IT
+# during a real blind firing — session 7e29e574, 2026-08-09T21:37:47Z, whose
+# ledger row was the exact `check-failed / no-served-model` shape this bead was
+# filed for. It was captured by snapshotting the live file every 50ms while a
+# fresh interactive session took its first tool round: at 21:37:45.772 the file
+# held these 12 lines and NOT ONE assistant row; at 21:37:47.203, 1.4s later and
+# after the guard had already fired, the client's batched assistant rows landed.
+# Only free-text payloads (attachment / snapshot / message.content) were elided
+# and identifying keys dropped. Nothing was added — the ABSENCE of an assistant
+# row is the fixture's whole content, and hand-typing it would have been the
+# guess this suite exists to avoid. C24 is its regression guard; C25 shows the
+# re-read recovering the round instead of skipping it.
 
 set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 HOOK="${MODEL_GUARD_HOOK:-$(cd "$HERE/.." && pwd)/post-tool-model-guard.sh}"
 FIXTURE="$HERE/model-guard-transcript.fixture.jsonl"
+COLDSTART="$HERE/model-guard-coldstart.fixture.jsonl"
 
 PASS=0
 FAIL=0
@@ -38,6 +53,7 @@ ok()  { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); FAILED_NAMES+=("$1"); printf '  FAIL %s\n     -> %s\n' "$1" "${2:-}"; }
 
 [ -r "$FIXTURE" ] || { echo "FATAL: fixture missing: $FIXTURE" >&2; exit 2; }
+[ -r "$COLDSTART" ] || { echo "FATAL: fixture missing: $COLDSTART" >&2; exit 2; }
 [ -x "$HOOK" ] || { echo "FATAL: hook not executable: $HOOK" >&2; exit 2; }
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/test-model-guard.XXXXXX")
@@ -85,6 +101,11 @@ printf '%s\n' '{"model":"claude-fable-5[1m]"}' > "$SETTINGS"
 # is the real shape of a main session's transcript and the hook's subagent bail
 # keys on it (basename-minus-.jsonl == session_id). A case that wants the
 # subagent shape builds its own path — see C22.
+#
+# MODEL_GUARD_RETRIES=0 by default: the production default re-reads a blind
+# transcript (the cold-start race, dotfiles-8x8l), which would add real sleeps to
+# every deliberately-blind case here and prove nothing. C25 turns it back on and
+# is the case that actually exercises it.
 STDERR=""; EXITC=0; STATE=""
 runh() {   # runh <transcript-source> <session> [extra env assignments...]
   local src=$1 sid=$2; shift 2
@@ -98,6 +119,7 @@ runh() {   # runh <transcript-source> <session> [extra env assignments...]
                MODEL_GUARD_USE_PROC=0 \
                MODEL_GUARD_USE_SETTINGS=0 \
                MODEL_GUARD_COOLDOWN_SECS=0 \
+               MODEL_GUARD_RETRIES=0 \
                "$@" \
            "$HOOK" 2>&1 >/dev/null <<EOF
 {"session_id":"$sid","transcript_path":"$tp","cwd":"$T"}
@@ -236,15 +258,22 @@ else
   bad "C11 missing transcript: exit 0, no instruction, check-failed row names it" "exit=$EXITC out=$STDERR ledger=$(ledger)"
 fi
 
-# --- C12: FAIL-OPEN when no serving model can be read -----------------------
+# --- C12: FAIL-OPEN when no serving model can be read, AND SAY WHICH --------
+# The two shapes are different failures and must not share one label: an empty
+# file is a session that has written nothing, a garbage file is a parse that
+# died. dotfiles-8x8l: the generic `no-served-model` made six real ledger rows
+# unattributable, so the reason string is part of the contract now.
 runh "$GARBAGE" c12 MODEL_GUARD_EXPECTED=claude-fable-5
 G1=$EXITC
+GLEDGER=$(ledger)
 runh "$EMPTY" c12b MODEL_GUARD_EXPECTED=claude-fable-5
 if [ "$G1" -eq 0 ] && [ "$EXITC" -eq 0 ] && [ -z "$STDERR" ] \
-   && ledger | grep -q '"action":"no-served-model"'; then
-  ok "C12 unparseable / empty transcript: exit 0, check-failed row, no instruction"
+   && printf '%s' "$GLEDGER" | grep -q '"event":"check-failed"' \
+   && printf '%s' "$GLEDGER" | grep -q '"action":"transcript-unparseable"' \
+   && ledger | grep -q '"action":"transcript-empty"'; then
+  ok "C12 unparseable / empty transcript: exit 0, no instruction, reason NAMED per row"
 else
-  bad "C12 unparseable / empty transcript: exit 0, check-failed row, no instruction" "garbage=$G1 empty=$EXITC out=$STDERR ledger=$(ledger)"
+  bad "C12 unparseable / empty transcript: exit 0, no instruction, reason NAMED per row" "garbage=$G1 empty=$EXITC out=$STDERR garbage-ledger=$GLEDGER empty-ledger=$(ledger)"
 fi
 
 # --- C13: a <synthetic> tail is not a serving model -------------------------
@@ -362,6 +391,65 @@ if [ "$EXITC" -eq 0 ] && [ -z "$STDERR" ]; then
   ok "C23 a SIDECHAIN model_refusal_fallback row does not become the expected model"
 else
   bad "C23 a SIDECHAIN model_refusal_fallback row does not become the expected model" "exit=$EXITC out=$STDERR"
+fi
+
+# --- C24: THE COLD-START SHAPE, from the real blind firing ------------------
+# dotfiles-8x8l's regression guard. Against the pre-fix hook this case fails
+# twice over: the row read `"action":"no-served-model"` with `"expected":""`,
+# which is why six such rows in one day said nothing about what went wrong or
+# which seat it happened on. Three things are asserted, all of them contract:
+#   * it is a check-SKIPPED, not a check-failed — the session had not spoken yet
+#   * the action NAMES the shape (no-assistant-row-yet)
+#   * the row carries the seat's expected model even though it saw no served one
+# C0-style integrity first: the fixture must contain ZERO assistant rows, since
+# their absence IS the bug it reproduces.
+if [ "$(grep -c '"type":"assistant"' "$COLDSTART")" -eq 0 ] \
+   && [ "$(grep -c . "$COLDSTART")" -gt 0 ] \
+   && grep -q '"type":"user"' "$COLDSTART"; then
+  ok "C24a cold-start fixture is a real session preamble with zero assistant rows"
+else
+  bad "C24a cold-start fixture is a real session preamble with zero assistant rows" \
+      "the fixture was regenerated from something that is not a cold-start transcript"
+fi
+
+runh "$COLDSTART" c24 MODEL_GUARD_EXPECTED=claude-fable-5
+ROW=$(ledger | tail -n 1)
+if [ "$EXITC" -eq 0 ] && [ -z "$STDERR" ] \
+   && printf '%s' "$ROW" | grep -q '"event":"check-skipped"' \
+   && printf '%s' "$ROW" | grep -q '"action":"no-assistant-row-yet"' \
+   && printf '%s' "$ROW" | grep -q '"expected":"claude-fable-5"' \
+   && printf '%s' "$ROW" | grep -q '"served":""'; then
+  ok "C24 cold start: check-skipped/no-assistant-row-yet, and the row names the seat"
+else
+  bad "C24 cold start: check-skipped/no-assistant-row-yet, and the row names the seat" "exit=$EXITC out=$STDERR row=$ROW"
+fi
+
+# --- C25: the re-read RECOVERS the round it would have skipped --------------
+# Same cold-start file, but the client's batched assistant rows land while the
+# hook is looking — which is what actually happens in a live session (measured:
+# the batch trailed the tool round by a few hundred ms). With the re-read the
+# guard makes a real verdict on the FIRST tool round instead of losing it; the
+# appended row is the real claude-opus-4-8 message from the other fixture, so a
+# pass here is a genuine detection, not just a non-empty read.
+STATE="$T/state-c25"
+mkdir -p "$T/tp"
+CTP="$T/tp/c25.jsonl"
+cp "$COLDSTART" "$CTP"
+( sleep 0.4; tail -n 1 "$FIXTURE" >> "$CTP" ) &
+APPENDER=$!
+STDERR=$(env HARNESS_STATE_DIR="$STATE" MODEL_GUARD_USE_PROC=0 MODEL_GUARD_USE_SETTINGS=0 \
+             MODEL_GUARD_COOLDOWN_SECS=0 MODEL_GUARD_EXPECTED=claude-fable-5 \
+             MODEL_GUARD_RETRIES=12 MODEL_GUARD_RETRY_SLEEP=0.2 \
+         "$HOOK" 2>&1 >/dev/null <<EOF
+{"session_id":"c25","transcript_path":"$CTP","cwd":"$T"}
+EOF
+); EXITC=$?
+wait "$APPENDER"
+if fires && printf '%s' "$STDERR" | grep -q 'claude-opus-4-8' \
+   && ledger | tail -n 1 | grep -q '"event":"detected"'; then
+  ok "C25 re-read wins the cold-start race: a real verdict on the first tool round"
+else
+  bad "C25 re-read wins the cold-start race: a real verdict on the first tool round" "exit=$EXITC out=$STDERR row=$(ledger | tail -n 1)"
 fi
 
 echo
