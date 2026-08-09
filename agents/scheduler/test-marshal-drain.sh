@@ -152,8 +152,8 @@ DB="$FIX/requests.db"
 sqlite3 "$DB" <<'SQL'
 CREATE TABLE request_logs (
   id TEXT PRIMARY KEY, started_at TEXT NOT NULL, total_tokens INTEGER,
-  agentgateway_user TEXT, agentgateway_group TEXT);
-INSERT INTO request_logs VALUES
+  agentgateway_user TEXT, agentgateway_group TEXT, attributes_json TEXT);
+INSERT INTO request_logs (id,started_at,total_tokens,agentgateway_user,agentgateway_group) VALUES
  ('a','2026-08-06T18:00:00.000000+00:00',300000,'zig-computer:dotfiles','personal'),
  ('b','2026-08-07T18:00:00.000000+00:00',400000,'zig-computer:marshal','zig-computer'),
  ('c','2026-08-08T09:00:00.000000+00:00',300000,'zig-computer:dotfiles','personal'),
@@ -179,6 +179,9 @@ zig_daytime_end_hour=22
 zig_reserve_trailing_days=7
 safety_margin_pct=20
 budget_floor_tokens=150000
+derive_freshness_hours=6
+derive_min_spend_tokens=1000000
+brake_5h_pct=85
 window_start_hour=1
 window_end_hour=6
 max_consecutive_failures=3
@@ -265,10 +268,11 @@ assert_verdict "T15.1 unreachable db degrades to the floor" "$OUT" "MARSHAL_BUDG
 eq "T15.2 degraded budget_tokens IS the floor, never a large number" \
    "$(jq_py "$(plan_json "$OUT")" 'd["budget_tokens"]')" "150000"
 
-# --- the cap is a fact only the vendor has: unset degrades honestly -------
+# --- unset cap tries DERIVED mode (dw3r); with no observation on record it
+# still degrades honestly -- a cap is never invented, only derived or refused.
 OUT=$(run budget)
-assert_verdict "T15b.1 unset weekly cap degrades (never an invented cap)" "$OUT" "MARSHAL_BUDGET=" \
-  '^MARSHAL_BUDGET=degraded fallback_tokens=150000 reason=weekly-cap-unset$'
+assert_verdict "T15b.1 unset cap + no observation degrades (never an invented cap)" "$OUT" "MARSHAL_BUDGET=" \
+  '^MARSHAL_BUDGET=degraded fallback_tokens=150000 reason=derive-no-observation$'
 eq "T15b.2 a degraded run still reports MEASURED spend" \
    "$(jq_py "$(plan_json "$OUT")" 'd["spent_this_window"]')" "1000000"
 
@@ -303,6 +307,99 @@ OUT=$(MARSHAL_CONF="$FIX/conf-evil" run_err budget --weekly-cap 10)
 assert_verdict "T18.1 a config line that is not key=value is refused" "$OUT" "MARSHAL_BUDGET=" \
   '^MARSHAL_BUDGET=degraded fallback_tokens=0 reason=bad-config$'
 if [ -e "$FIX/pwned" ]; then bad "T18.2 config is DATA" "the config executed"; else ok "T18.2 config is DATA, never executed"; fi
+
+echo "=== DERIVED CAP (dotfiles-dw3r) ==========================================="
+
+# mkdrvdb <path> <obs_started_at> <attrs_json> — a fixture db with a KNOWN
+# spend shape (3,000,000 in-window personal; a work row excluded) plus one
+# observation row carrying the given attributes_json (0 tokens, so the spend
+# arithmetic stays untouched). The attrs mirror the real capture byte-for-byte:
+# dotted keys, STRING values ("0.60").
+mkdrvdb() {
+  local db=$1 obs_ts=$2 attrs=$3
+  rm -f "$db"
+  sqlite3 "$db" <<SQL
+CREATE TABLE request_logs (
+  id TEXT PRIMARY KEY, started_at TEXT NOT NULL, total_tokens INTEGER,
+  agentgateway_user TEXT, agentgateway_group TEXT, attributes_json TEXT);
+INSERT INTO request_logs (id,started_at,total_tokens,agentgateway_user,agentgateway_group) VALUES
+ ('a','2026-08-06T18:00:00.000000+00:00',1500000,'zig-computer:dotfiles','personal'),
+ ('b','2026-08-07T18:00:00.000000+00:00',1500000,'zig-computer:dotfiles','personal'),
+ ('w','2026-08-06T18:00:00.000000+00:00',5000000,'zig-computer:linearb','work');
+INSERT INTO request_logs VALUES
+ ('o','$obs_ts',0,'zig-computer:marshal','personal','$attrs');
+SQL
+}
+
+# --- TD1 the derivation, with numbers a reader can re-derive by hand -------
+#   spend = 3,000,000; u7d = "0.60" -> cap_est = 5,000,000 (Fraction-exact:
+#   float 3000000/0.6 is 4999999.99..). remaining = 2,000,000; days = 4 ->
+#   share = 500,000. daytime trailing = 3,000,000 -> reserve = 428,571 ->
+#   raw = 71,429 -> 20% margin -> 57,143. obs 04:00Z vs now 06:00Z -> 2.0h.
+DRV="$FIX/requests-derive.db"
+mkdrvdb "$DRV" '2026-08-09T04:00:00.000000+00:00' '{"anthropic.ratelimit.5h":"0.57","anthropic.ratelimit.7d":"0.60"}'
+OUT=$(MARSHAL_SQL_CMD="sqlite3 $DRV" run budget)
+J=$(plan_json "$OUT")
+eq "TD1.1 derived: spend is the same window-bounded, tap-filtered sum" "$(jq_py "$J" 'd["spent_this_window"]')" "3000000"
+eq "TD1.2 derived: cap_est = spend / u7d, exact"                       "$(jq_py "$J" 'd["weekly_cap_tokens"]')" "5000000"
+eq "TD1.3 derived: the EXISTING pipeline runs on cap_est"              "$(jq_py "$J" 'd["weekly_remaining"]')" "2000000"
+eq "TD1.4 derived: nightly share"                                      "$(jq_py "$J" 'd["nightly_share"]')" "500000"
+eq "TD1.5 derived: the reserve still bites"                            "$(jq_py "$J" 'd["budget_before_margin"]')" "71429"
+eq "TD1.6 derived: budget_tokens"                                      "$(jq_py "$J" 'd["budget_tokens"]')" "57143"
+eq "TD1.7 derived: cap source is named"                                "$(jq_py "$J" 'd["weekly_cap_source"]')" "derived"
+eq "TD1.8 derived: both utilizations ride into the JSON verbatim" \
+   "$(jq_py "$J" 'd["utilization_7d"]+"/"+d["utilization_5h"]')" "0.60/0.57"
+assert_verdict "TD1.9 the derived verdict carries every input (re-derivable by hand)" "$OUT" "MARSHAL_BUDGET=" \
+  '^MARSHAL_BUDGET=57143 status=derived reason=derived-cap\(u7d=0\.60,u5h=0\.57,spend=3000000,cap_est=5000000,obs_age_h=2\.0\)$'
+
+# --- TD2 an EXPLICIT cap outranks derivation, on both routes ---------------
+OUT=$(MARSHAL_SQL_CMD="sqlite3 $DRV" run budget --weekly-cap 10000000)
+J=$(plan_json "$OUT")
+eq "TD2.1 --weekly-cap wins over a fresh observation" "$(jq_py "$J" 'd["status"]')" "computed"
+eq "TD2.2 and the source says flag"                   "$(jq_py "$J" 'd["weekly_cap_source"]')" "flag"
+mkconf "$FIX/conf-capset" weekly_cap_tokens=10000000
+OUT=$(MARSHAL_CONF="$FIX/conf-capset" MARSHAL_SQL_CMD="sqlite3 $DRV" run budget)
+eq "TD2.3 a config cap wins over a fresh observation" "$(jq_py "$(plan_json "$OUT")" 'd["weekly_cap_source"]')" "config"
+
+# --- TD3 staleness is the knob's call: the SAME 2.0h observation, refused --
+mkconf "$FIX/conf-fresh1" derive_freshness_hours=1
+OUT=$(MARSHAL_CONF="$FIX/conf-fresh1" MARSHAL_SQL_CMD="sqlite3 $DRV" run budget)
+assert_verdict "TD3 a stale observation floors, and says how stale" "$OUT" "MARSHAL_BUDGET=" \
+  '^MARSHAL_BUDGET=degraded fallback_tokens=150000 reason=derive-stale-observation\(obs_age_h=2\.0,limit_h=1\)$'
+
+# --- TD4 the 5h BRAKE floors the night whatever the week says --------------
+DRVB="$FIX/requests-derive-brake.db"
+mkdrvdb "$DRVB" '2026-08-09T04:00:00.000000+00:00' '{"anthropic.ratelimit.5h":"0.90","anthropic.ratelimit.7d":"0.60"}'
+OUT=$(MARSHAL_SQL_CMD="sqlite3 $DRVB" run budget)
+assert_verdict "TD4 5h brake -> the floor, regardless of the weekly math" "$OUT" "MARSHAL_BUDGET=" \
+  '^MARSHAL_BUDGET=degraded fallback_tokens=150000 reason=brake-5h\(u5h=0\.90,brake_pct=85\)$'
+
+# --- TD5 an implausible u7d (division-blowup territory) --------------------
+DRVI="$FIX/requests-derive-implausible.db"
+mkdrvdb "$DRVI" '2026-08-09T04:00:00.000000+00:00' '{"anthropic.ratelimit.5h":"0.10","anthropic.ratelimit.7d":"0.01"}'
+OUT=$(MARSHAL_SQL_CMD="sqlite3 $DRVI" run budget)
+assert_verdict "TD5 u7d <= 0.02 floors as implausible" "$OUT" "MARSHAL_BUDGET=" \
+  '^MARSHAL_BUDGET=degraded fallback_tokens=150000 reason=derive-implausible-utilization\(u7d=0\.01\)$'
+
+# --- TD6 an unparseable value floors, naming the bytes it refused ----------
+DRVG="$FIX/requests-derive-garbage.db"
+mkdrvdb "$DRVG" '2026-08-09T04:00:00.000000+00:00' '{"anthropic.ratelimit.5h":"0.57","anthropic.ratelimit.7d":"garbage"}'
+OUT=$(MARSHAL_SQL_CMD="sqlite3 $DRVG" run budget)
+assert_verdict "TD6 an unparseable observation floors" "$OUT" "MARSHAL_BUDGET=" \
+  '^MARSHAL_BUDGET=degraded fallback_tokens=150000 reason=derive-unparseable\(u7d=garbage\)$'
+
+# --- TD7 a tiny numerator makes cap_est noise: min-spend floors ------------
+mkconf "$FIX/conf-minspend" derive_min_spend_tokens=5000000
+OUT=$(MARSHAL_CONF="$FIX/conf-minspend" MARSHAL_SQL_CMD="sqlite3 $DRV" run budget)
+assert_verdict "TD7 spend below derive_min_spend_tokens floors" "$OUT" "MARSHAL_BUDGET=" \
+  '^MARSHAL_BUDGET=degraded fallback_tokens=150000 reason=derive-low-spend\(spend=3000000,min=5000000\)$'
+
+# --- TD8 a db the observation query cannot answer (schema without
+# attributes_json -- $DB2 predates the 7qi7 capture) floors as a db error,
+# never as "no data". sqlite3 exits 1 on the parse error (measured).
+OUT=$(MARSHAL_SQL_CMD="sqlite3 $DB2" run budget)
+assert_verdict "TD8 an unanswerable observation query floors as derive-db-error" "$OUT" "MARSHAL_BUDGET=" \
+  '^MARSHAL_BUDGET=degraded fallback_tokens=150000 reason=derive-db-error$'
 
 echo "=== SELECTION ============================================================="
 

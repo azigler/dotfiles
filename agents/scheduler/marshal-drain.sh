@@ -47,6 +47,7 @@
 # line, never parses prose):
 #
 #   MARSHAL_BUDGET=<tokens> status=computed
+#   MARSHAL_BUDGET=<tokens> status=derived reason=derived-cap(u7d=..,u5h=..,spend=..,cap_est=..,obs_age_h=..)
 #   MARSHAL_BUDGET=degraded fallback_tokens=<n> reason=<why>
 #   MARSHAL_PLAN_RESULT=planned:<n> | frozen | no-budget | empty-queue | failed-<why>
 #   MARSHAL_RECORD_RESULT=recorded streak=<n> | park-repeat-failure | three-strikes
@@ -328,12 +329,111 @@ SELECT COALESCE(SUM(total_tokens),0) FROM request_logs WHERE datetime(started_at
     return 0
   fi
 
+  # --- DERIVED mode (dotfiles-dw3r) ----------------------------------------
+  # An EXPLICIT cap (config or --weekly-cap) always wins. Only when it is
+  # empty does the budget derive one from the captured ratelimit headers
+  # (7qi7: anthropic.ratelimit.5h/.7d land per-request in attributes_json):
+  #
+  #   cap_est = spend_since_week_reset / utilization_7d
+  #
+  # CONSERVATIVE BY CONSTRUCTION: requests.db sees only gateway-relayed
+  # traffic and per-tap spend. If the account pool is broader (2026-08-09
+  # 16:23Z showed IDENTICAL utilization on personal + zig-computer groups —
+  # likely one shared subscription; ifk4 owns the reconciliation), spend
+  # underestimates, so cap_est underestimates and the budget errs LOW —
+  # never the other direction. Every unusable-data case degrades to the
+  # floor with its own reason, never silently.
+  local cap_source
+  if [ -n "$cap_override" ]; then cap_source=flag; else cap_source=config; fi
+  local u7d="" u5h="" obs_age=""
   if [ -z "$cap" ]; then
-    # The honest degrade. requests.db can say what was SPENT; only the vendor
-    # (4icj's header capture) can say what the CAP is. Without it there is no
-    # remaining-tokens number that is not invented.
-    budget_degrade "$floor" "weekly-cap-unset" "$window_start" "$spent" "$daytime"
-    return 0
+    local freshness minspend brake obs_sql obs_row
+    freshness=$(cfg derive_freshness_hours 6)
+    minspend=$(cfg derive_min_spend_tokens 1000000)
+    brake=$(cfg brake_5h_pct 85)
+    # The dotted key needs the $."..." path form; values are STRINGS
+    # ("0.72"). datetime() wrapping on started_at as everywhere else (the
+    # 2903-vs-18-rows trap in the header note). Fields are '|'-concatenated
+    # in SQL rather than trusting the client's column separator.
+    obs_sql="SELECT datetime(started_at) || '|' || COALESCE(json_extract(attributes_json, '\$.\"anthropic.ratelimit.7d\"'),'') || '|' || COALESCE(json_extract(attributes_json, '\$.\"anthropic.ratelimit.5h\"'),'') FROM request_logs WHERE $pred AND COALESCE(json_extract(attributes_json, '\$.\"anthropic.ratelimit.7d\"'),'') != '' ORDER BY datetime(started_at) DESC LIMIT 1;"
+    obs_row=$(printf '%s\n' "$obs_sql" | $sqlcmd)
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+      budget_degrade "$floor" "derive-db-error" "$window_start" "$spent" "$daytime"
+      return 0
+    fi
+    if [ -z "$obs_row" ]; then
+      budget_degrade "$floor" "derive-no-observation" "$window_start" "$spent" "$daytime"
+      return 0
+    fi
+
+    # The gate: parse -> freshness -> 5h brake -> plausibility -> min-spend.
+    # Fraction arithmetic on the RAW header strings, so "0.60" divides
+    # exactly (float 3000000/0.6 is 4999999.99..; Fraction gives 5000000).
+    local gate
+    gate=$(MD_OBS="$obs_row" MD_NOW_UTC="$now_utc" MD_FRESH_H="$freshness" \
+           MD_MIN_SPEND="$minspend" MD_BRAKE="$brake" MD_SPENT="$spent" \
+           python3 - <<'PY'
+import os, re, sys
+from datetime import datetime
+from fractions import Fraction
+
+def clean(raw):  # a corrupt header value must not break the one-verdict-line discipline
+    return re.sub(r"\s+", "_", raw)
+
+row = os.environ["MD_OBS"].strip().splitlines()[0]
+parts = row.split("|")
+if len(parts) != 3:
+    print("degrade derive-no-observation"); sys.exit(0)
+obs_ts, raw7, raw5 = (p.strip() for p in parts)
+try:
+    fresh = int(os.environ["MD_FRESH_H"]); minspend = int(os.environ["MD_MIN_SPEND"])
+    brake = int(os.environ["MD_BRAKE"]); spent = int(os.environ["MD_SPENT"])
+    now = datetime.strptime(os.environ["MD_NOW_UTC"], "%Y-%m-%d %H:%M:%S")
+except (KeyError, ValueError):
+    sys.exit(3)
+try:
+    obs = datetime.strptime(obs_ts, "%Y-%m-%d %H:%M:%S")
+except ValueError:
+    print("degrade derive-no-observation"); sys.exit(0)
+age_h = (now - obs).total_seconds() / 3600.0
+age_s = f"{age_h:.1f}"
+
+def parse_u(raw):  # a utilization is a fraction in [0, 1]; anything else is not one
+    try:
+        u = Fraction(raw)
+    except (ValueError, ZeroDivisionError):
+        return None
+    if u < 0 or u > 1:
+        return None
+    return u
+
+u7 = parse_u(raw7)
+if u7 is None:
+    print(f"degrade derive-unparseable(u7d={clean(raw7)})"); sys.exit(0)
+u5 = parse_u(raw5)
+if u5 is None:
+    print(f"degrade derive-unparseable(u5h={clean(raw5)})"); sys.exit(0)
+if age_h > fresh:
+    print(f"degrade derive-stale-observation(obs_age_h={age_s},limit_h={fresh})"); sys.exit(0)
+# The 5h BRAKE protects the live window whatever the week says (dw3r).
+if u5 * 100 >= brake:
+    print(f"degrade brake-5h(u5h={clean(raw5)},brake_pct={brake})"); sys.exit(0)
+# u7d <= 2%: division blowup territory AND implausible for a week with real spend.
+if u7 <= Fraction(2, 100):
+    print(f"degrade derive-implausible-utilization(u7d={clean(raw7)})"); sys.exit(0)
+if spent < minspend:
+    print(f"degrade derive-low-spend(spend={spent},min={minspend})"); sys.exit(0)
+cap_est = int(Fraction(spent) / u7)
+print(f"ok {cap_est} {clean(raw7)} {clean(raw5)} {age_s}")
+PY
+    ) || { budget_degrade "$floor" "bad-budget-inputs" "$window_start" "$spent" "$daytime"; return 0; }
+    if [ "${gate%% *}" = "degrade" ]; then
+      budget_degrade "$floor" "${gate#degrade }" "$window_start" "$spent" "$daytime"
+      return 0
+    fi
+    read -r _ cap u7d u5h obs_age <<< "$gate"
+    cap_source=derived
   fi
 
   local out
@@ -362,21 +462,29 @@ PY
   raw=$(printf '%s\n' "$out" | sed -n 4p)
   budget=$(printf '%s\n' "$out" | sed -n 5p)
 
-  BUDGET_STATUS=computed
+  if [ "$cap_source" = "derived" ]; then
+    BUDGET_STATUS=derived
+    # The reason carries every input VERBATIM (dw3r output contract): the
+    # ledger's night-start row must let a reader re-derive the number by hand.
+    BUDGET_REASON="derived-cap(u7d=$u7d,u5h=$u5h,spend=$spent,cap_est=$cap,obs_age_h=$obs_age)"
+  else
+    BUDGET_STATUS=computed
+    BUDGET_REASON=""
+  fi
   BUDGET_TOKENS=$budget
-  BUDGET_REASON=""
-  BUDGET_JSON=$(MD_J_STATUS=computed MD_J_TAP="$tap" MD_J_WS="$window_start" \
+  BUDGET_JSON=$(MD_J_STATUS="$BUDGET_STATUS" MD_J_TAP="$tap" MD_J_WS="$window_start" \
     MD_J_NOW="$now_utc" MD_J_DAYS="$days_to_reset" MD_J_CAP="$cap" \
     MD_J_SPENT="$spent" MD_J_REMAIN="$remaining" MD_J_SHARE="$share" \
     MD_J_DAYTIME="$daytime" MD_J_TRAIL="$(cfg zig_reserve_trailing_days 7)" \
     MD_J_RESERVE="$reserve" MD_J_MARGIN="$margin" MD_J_RAW="$raw" \
     MD_J_BUDGET="$budget" MD_J_FLOOR="$floor" \
     MD_J_DSTART="$dstart" MD_J_DEND="$dend" \
-    MD_J_CAPSRC="$([ -n "$cap_override" ] && echo flag || echo config)" \
+    MD_J_CAPSRC="$cap_source" \
+    MD_J_U7D="$u7d" MD_J_U5H="$u5h" MD_J_OBSAGE="$obs_age" \
     python3 - <<'PY'
 import json, os
 i = lambda k: int(os.environ[k])
-print(json.dumps({
+d = {
     "status": os.environ["MD_J_STATUS"],
     "tap": os.environ["MD_J_TAP"],
     "now_utc": os.environ["MD_J_NOW"],
@@ -396,7 +504,13 @@ print(json.dumps({
     "budget_tokens": i("MD_J_BUDGET"),
     "budget_floor_tokens": i("MD_J_FLOOR"),
     "formula": "((weekly_cap - spent_this_window) / days_to_reset - zig_daytime_reserve) * (1 - safety_margin_pct/100)",
-}, sort_keys=True))
+}
+if d["status"] == "derived":
+    d["utilization_7d"] = os.environ["MD_J_U7D"]
+    d["utilization_5h"] = os.environ["MD_J_U5H"]
+    d["observation_age_hours"] = float(os.environ["MD_J_OBSAGE"])
+    d["cap_formula"] = "spend_since_week_reset / utilization_7d (conservative: per-tap gateway spend underestimates pool spend, so cap_est errs LOW)"
+print(json.dumps(d, sort_keys=True))
 PY
 )
   return 0
@@ -447,6 +561,8 @@ cmd_budget() {
   info "$BUDGET_JSON"
   if [ "$BUDGET_STATUS" = "computed" ]; then
     verdict "MARSHAL_BUDGET=$BUDGET_TOKENS status=computed"
+  elif [ "$BUDGET_STATUS" = "derived" ]; then
+    verdict "MARSHAL_BUDGET=$BUDGET_TOKENS status=derived reason=$BUDGET_REASON"
   else
     verdict "MARSHAL_BUDGET=degraded fallback_tokens=$BUDGET_TOKENS reason=$BUDGET_REASON"
   fi
