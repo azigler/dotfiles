@@ -460,8 +460,10 @@ interactive() {
     IFS= read -r _seat || return 0
     [ -z "$_seat" ] && return 0
     case "$_seat" in home) _seat=seneschal ;; esac
-    if visit "$_seat"; then return 0; fi
-    # visit already printed near-matches on stderr; loop for one more try
+    # Subshell: visit exit-2s (die) on an unknown seat, which would close the
+    # popup mid-typo — the subshell absorbs the exit so the prompt survives.
+    if (visit "$_seat"); then return 0; fi
+    # visit already printed near-matches on stderr; loop for another try
   done
 }
 
