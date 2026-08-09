@@ -131,20 +131,37 @@ app's sole config path for one. **0600 as of 2026-08-09** (`dotfiles-3sc4`) — 
 the lone exception to pico's otherwise-consistent 600 discipline), fixed with no restart needed
 (permissions only); `:14829` verified 200 after.
 
-### Request attribution — `user` is the SESSION, `group` is the MACHINE
-Verified live 2026-08-03 (`dotfiles-ogkz`). `config.standardAttributes` maps two request
-headers into two columns of `~/.local/share/agentgateway/requests.db`:
+### Request attribution — `user` is the SEAT ADDRESS, `group` is the TAP
+`config.standardAttributes` maps two request headers into two columns of
+`~/.local/share/agentgateway/requests.db`. **The header names are stable; the VALUES
+changed on 2026-08-09** (`dotfiles-jbnp`, epoch 2). Full scheme, seam and query recipes:
+`refs/probes/gateway-attribution-epoch2.md` — this table is the pointer, not the copy.
 
-| header (sent by `claude-identity-wrapper.sh`) | CEL → column | value |
+| header (sent by `claude-identity-wrapper.sh`) | CEL → column | epoch-2 value |
 |---|---|---|
-| `X-Session-Identity` | `user` → `agentgateway_user` | `<tmux session>:<window>` |
-| `X-Machine-Origin` | `group` → `agentgateway_group` | `hostname -s` |
+| `X-Session-Identity` | `user` → `agentgateway_user` | `<host>:<seat>` |
+| `X-Machine-Origin` | `group` → `agentgateway_group` | `<tap>` — personal/work/tick |
+| `X-Seat-Address` / `X-Tap` | *(unread)* | the same two values under honest names, so the eventual CEL rename is config-only |
 
-⚠️ **`agentgateway_user` is NOT a machine name**, however much `zig-computer:hevyd` looks
-like one — the first field is the tmux SESSION. zig-computer and metis both run a session
-called `work` (marketing-vps did too, before it was decommissioned), so the namespace
-collides across machines. That is why `group` exists. `src.addr` cannot substitute:
-tunnelled traffic arrives as zig-computer's tailnet IP.
+⚠️ **The two columns EXCHANGED which fact they carry.** Epoch 1 (verified live
+2026-08-03, `dotfiles-ogkz`) was `user = <tmux session>:<window>`, `group = hostname -s`.
+The host moved into field 1 of `user`, freeing `group` for the billing tap. Nothing is
+rewritten — classify each row by VALUE, not by date (the cutover is rolling: a durable
+pane emits epoch-1 values until its days-old shell is replaced). Hostnames and tap names
+are disjoint namespaces, so `group IN ('personal','work','tick')` is an exact epoch-2
+test. The `work:*` half of the epoch-1 user split is `dotfiles-fo5l`.
+
+⚠️ **`agentgateway_user`'s first field is a HOST in epoch 2 and a tmux SESSION in
+epoch 1** — and post the one-session ruling (one session per server, named after the
+host) those two coincide for registered seats, which is exactly why the epoch cannot be
+read off the `user` column alone. Read it off `group`. `src.addr` substitutes for
+neither: tunnelled traffic arrives as zig-computer's tailnet IP.
+
+⚠️ **A `?` in either column means NOT DERIVED**, by construction — `?` cannot survive
+the sanitizer that builds a seat/host/tap token. `zig-computer:?zsh` is an unregistered
+window, `zig-computer:?` is a session with no resolvable window, `?nonsense` is a
+`CLAUDE_CONFIG_DIR` that does not follow the `~/.claude-<tap>` convention. So
+`agentgateway_user LIKE '%?%'` IS the unattributed bucket.
 
 ⚠️ **The `unknown` group bucket is NOT metis — it is the keep itself** (settled
 2026-08-09, `dotfiles-7zk1`). All 1216 `unknown`-group rows resolve by user to
@@ -153,7 +170,11 @@ own sessions that omitted the `X-Machine-Origin` header, most recent
 `zig-computer:harnessd` at 2026-08-08 21:59. metis contributes **zero** rows across
 all 112k logged requests. The hypothesis "metis on a stale wrapper corrupts
 attribution" is false at the traffic level (metis sends nothing) even though its
-wrapper *is* stale; the real gap was the keep's own header-less sessions.
+wrapper *is* stale; the real gap was the keep's own header-less sessions. **In epoch 2
+`unknown` means something narrower** — "a gateway client that is not a tap-attributed
+`claude`" (harnessd's Go client, romd) rather than "a wrapper predating the machine
+header" — since every wrapper-launched claude now emits a tap. That remainder is the
+rest of `dotfiles-jbnp`.
 
 ⚠️ **Querying that DB — two traps, both paid for on 2026-08-04 (`dotfiles-9o46`).** The
 table is **`request_logs`** (not `requests`) and the time column is **`started_at`** (not

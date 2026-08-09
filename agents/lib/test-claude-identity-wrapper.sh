@@ -14,6 +14,29 @@
 # all have a session named `work`. A second header `X-Machine-Origin:
 # <hostname -s>` carries the machine into standardAttributes.group.
 #
+# ⚠️ EPOCH 2, 2026-08-09 (dotfiles-jbnp). The header NAMES and the newline
+# separator are unchanged; the VALUES are not. `user` is now the derived SEAT
+# ADDRESS `<host>:<seat>` and `group` is the TAP, and two canonical-name copies
+# (`X-Seat-Address`, `X-Tap`) ride along so the gateway-side rename can be
+# config-only later. Every expectation below therefore moved, and that is the
+# point of the change rather than a regression — see the epoch-2 note at the top
+# of claude-identity-wrapper.sh and refs/probes/gateway-attribution-epoch2.md.
+# The epoch-1 VALUES are deliberately NOT preserved anywhere in this suite:
+# this file tests what the wrapper EMITS, and the wrapper cannot emit two
+# epochs at once. Epoch-1 rows live in requests.db, which nothing here writes
+# and nothing may rewrite.
+#
+# The epoch-2 regressions this guards, on top of R1–R5:
+#   R6  the address falling back to raw tmux `session:window` when the resolver
+#       is unavailable. Post the one-session ruling that string is byte-equal to
+#       `host:seat` for a REGISTERED window, so a source read and a live spot
+#       check both look right — and an UNREGISTERED or renamed window then emits
+#       a seat-shaped value that is not a seat. T17 (alias -> canonical) and T18
+#       (unregistered -> `?`) are the two cases where derived and raw differ.
+#   R7  the tap asserted from the roster instead of derived from the launch's
+#       own CLAUDE_CONFIG_DIR — which would make `group` say what a seat is
+#       SUPPOSED to bill to rather than what it is billing to.  (T15, T19)
+#
 # The regressions this guards, each of which passes a source read:
 #   R1  `_host` computed only inside `if [ -z "$_base" ]` -> the machine header
 #       vanishes in exactly the case where ANTHROPIC_BASE_URL was already
@@ -202,66 +225,104 @@ assert_launch() { # <label prefix>
 SH=${TEST_SHELL:-bash}
 echo "test-claude-identity-wrapper (shell=$SH)"
 
-BOTH=$(printf 'X-Session-Identity: work:pulse\nX-Machine-Origin: testbox')
+# `four <address> <tap>` — the full epoch-2 header block, in emission order:
+# the two LEGACY names pico's CEL reads today, then the two CANONICAL names
+# carrying the same bytes for the eventual config-only rename.
+four() { printf 'X-Session-Identity: %s\nX-Machine-Origin: %s\nX-Seat-Address: %s\nX-Tap: %s' "$1" "$2" "$1" "$2"; }
 
-# T1 [case 1] tmux + hostname: BOTH headers, newline-separated, session first.
+# $FAKEHOME has no agents tier, so agents_root() finds nothing, seat_resolve is
+# unreachable, and every run below lands on the EXPLICIT not-a-seat form. That
+# is deliberate: the degraded box must be visible in the data, never
+# seat-shaped. T16–T18 install a fixture tier and drive the resolved forms.
+BOTH=$(four 'testbox:?pulse' personal)
+
+# T1 [case 1] tmux + hostname: all four headers, newline-separated, legacy first.
 run "$SH" MOCK_HOST=testbox TMUX_PANE=%1 MOCK_SESS=work MOCK_WIN=pulse
-check 'T1 [case 1] both headers, newline-separated' "$BOTH" "$(got_hdrs)"
+check 'T1 [case 1] four headers, newline-separated' "$BOTH" "$(got_hdrs)"
 assert_launch 'T1 [case 1]'
+
+# T1a — the tmux SESSION is no longer an input. MOCK_SESS is deliberately `work`
+# in T1 (the epoch-1 first field) and the address does not contain it: epoch 2
+# reads the HOST, so the shared-session-name collision that made `group` exist
+# in the first place cannot reach `user` at all.
+case "$(got_hdrs)" in
+  *work:*) fail 'T1a the tmux session name is NOT in the address' 'no "work:"' "$(got_hdrs)" ;;
+  *)       pass 'T1a the tmux session name is NOT in the address' ;;
+esac
 
 # T1b — the separator is a REAL newline, byte-checked via `od -c` on the child's
 # own env. Counted, not merely present: `printenv` appends one newline of its
-# own, so a `grep -q '\n'` would pass against a comma-joined single line. Two
-# headers -> exactly two \n bytes in the dump. R3.
+# own, so a `grep -q '\n'` would pass against a comma-joined single line. Four
+# headers -> exactly four \n bytes in the dump. R3.
 odnl=$(grep -o '\\n' "$DUMPDIR/hdrs.od" 2>/dev/null | wc -l | tr -d ' ')
-check 'T1b exactly one \n separator, byte-counted in od -c of the child env' \
-  '2' "$odnl"
+check 'T1b exactly three \n separators, byte-counted in od -c of the child env' \
+  '4' "$odnl"
 case "$(got_hdrs)" in
   *,*|*';'*) fail 'T1c no comma/semicolon separator' 'no , or ;' "$(got_hdrs)" ;;
   *)         pass 'T1c no comma/semicolon separator' ;;
 esac
 
-# T2 [case 1] NO tmux: the machine header is still emitted. R2 — this case sent
-# no header at all before dotfiles-v93v.
+# T2 [case 1] NO tmux: still attributed. R2 — this case sent no header at all
+# before dotfiles-v93v. The window is unknowable, so the address is the shortest
+# explicit form, `<host>:?` — a host-only row, never a guessed seat.
 run "$SH" MOCK_HOST=testbox
-check 'T2 [case 1] no tmux -> machine header alone' 'X-Machine-Origin: testbox' "$(got_hdrs)"
+check 'T2 [case 1] no tmux -> host-only address, tap still known' \
+  "$(four 'testbox:?' personal)" "$(got_hdrs)"
 assert_launch 'T2 [case 1]'
 
-# T3 [case 2] hostname fails, tmux present: the session header survives untouched
-# and is BYTE-IDENTICAL to the pre-change format (pico's `user` column + its
-# 78,956 rows of history). This is the `elif [ -n "$_hdrs" ]` case — the one
-# marketing-vps will live on, and the one M5/M7 survived on.
+# T3 [case 2] hostname fails, tmux present: the HOST field degrades to `?` and
+# nothing else moves. This is the `elif [ -n "$_hdrs" ]` case — the one an
+# unattended tick on a hostname-less box lives on, and the one M5/M7 survived on.
 run "$SH" TMUX_PANE=%1 MOCK_SESS=work MOCK_WIN=pulse
-check 'T3 [case 2] hostname fails -> session header alone, unchanged format' \
-  'X-Session-Identity: work:pulse' "$(got_hdrs)"
+check 'T3 [case 2] hostname fails -> ? in the host field, not a dropped header' \
+  "$(four '?:?pulse' personal)" "$(got_hdrs)"
 check 'T3 [case 2] no base URL' '<UNSET>' "$(got_base)"
 assert_launch 'T3 [case 2]'
 
-# T3b [case 2] glyph/whitespace sanitization of the session token is unchanged.
+# T3b [case 2] glyph/whitespace sanitization of the window token is unchanged.
 # The leading '-' is the real, pre-existing behavior and is pinned deliberately:
 # the glyph becomes '-' via the whitespace squeeze, THEN tr -cd drops the glyph
-# itself, leaving the separator behind.
-# CAVEAT worth knowing: HOME is $FAKEHOME here, so the wrapper's load-time
-# `. $HOME/dotfiles/agents/lib/tmux-pane-resolve.sh` finds nothing and the window
-# comes from the FALLBACK `tmux display-message '#{window_name}'` path, not
-# production's tmux_resolve_window. So "byte-identical" is proven against the
-# fallback. tmux-pane-resolve.sh has its own suite (test-tmux-pane-resolve.sh)
-# and this diff does not touch it; noted rather than restructured for.
+# itself, leaving the separator behind. MOCK_SESS is still set and still absent
+# from the output — epoch 2 never reads it.
+# CAVEAT worth knowing: HOME is $FAKEHOME here, so agents_root() resolves
+# nothing and the window comes from the FALLBACK `tmux display-message
+# '#{window_name}'` path, not production's tmux_resolve_window.
+# tmux-pane-resolve.sh has its own suite (test-tmux-pane-resolve.sh) and this
+# diff does not touch it; noted rather than restructured for.
 run "$SH" TMUX_PANE=%1 MOCK_SESS='wo rk' MOCK_WIN='✅ my pane'
-check 'T3b [case 2] session token still sanitized' \
-  'X-Session-Identity: wo-rk:-my-pane' "$(got_hdrs)"
+check 'T3b [case 2] window token still sanitized' \
+  "$(four '?:?-my-pane' personal)" "$(got_hdrs)"
 assert_launch 'T3b [case 2]'
+
+# --- reaching launch cases 3 and 4 in epoch 2 --------------------------------
+# The tap is derivable from almost anything (unset CLAUDE_CONFIG_DIR means the
+# vendor default, i.e. `personal`), so "no headers at all" is no longer reached
+# by simply having no tmux and no hostname. `CLAUDE_CONFIG_DIR=/` is the one
+# genuinely degenerate value — it has no basename to name a tap with — and it is
+# what keeps cases 3, 4 and 4u driven. An untested launch branch is exactly how
+# M5/M7 survived once already (R4), so this is not a contrivance to preserve a
+# number; it is the branch staying covered.
+NOTAP=/
 
 # T4 [case 4] nothing resolvable at all: ANTHROPIC_CUSTOM_HEADERS is not set,
 # no base URL — the bare `else` case. FAIL-OPEN.
-run "$SH"
+run "$SH" CLAUDE_CONFIG_DIR="$NOTAP"
 check 'T4 [case 4] nothing resolvable -> no header var at all' '<UNSET>' "$(got_hdrs)"
 check 'T4 [case 4] no base URL' '<UNSET>' "$(got_base)"
 assert_launch 'T4 [case 4]'
 
+# T4a — the degenerate tap ALONE does not suppress the address: with a hostname
+# present there is still something true to say. This is what stops `NOTAP` from
+# becoming a blanket off-switch for attribution.
+run "$SH" CLAUDE_CONFIG_DIR="$NOTAP" MOCK_HOST=testbox
+check 'T4a [case 2] degenerate tap -> address headers only, no tap headers' \
+  "$(printf 'X-Session-Identity: testbox:?\nX-Seat-Address: testbox:?')" "$(got_hdrs)"
+assert_launch 'T4a [case 2]'
+
 # T4b [case 3] base URL but NO header at all — the fourth launch case, which
-# nothing else reaches. hostname fails AND no tmux AND an inherited base URL.
-run "$SH" ANTHROPIC_BASE_URL=http://inherited.example/v1
+# nothing else reaches. hostname fails AND no tmux AND no derivable tap AND an
+# inherited base URL.
+run "$SH" CLAUDE_CONFIG_DIR="$NOTAP" ANTHROPIC_BASE_URL=http://inherited.example/v1
 check 'T4b [case 3] base URL alone, no headers' '<UNSET>' "$(got_hdrs)"
 check 'T4b [case 3] inherited base URL passed through' \
   'http://inherited.example/v1' "$(got_base)"
@@ -272,7 +333,7 @@ assert_launch 'T4b [case 3]'
 run "$SH" MOCK_HOST=testbox TMUX_PANE=%1 MOCK_SESS=work MOCK_WIN=pulse \
     ANTHROPIC_BASE_URL=http://inherited.example/v1
 check 'T5 [case 1] inherited base URL wins' 'http://inherited.example/v1' "$(got_base)"
-check 'T5b [case 1] machine header present with inherited base URL (R1)' "$BOTH" "$(got_hdrs)"
+check 'T5b [case 1] host still in the address with an inherited base URL (R1)' "$BOTH" "$(got_hdrs)"
 assert_launch 'T5 [case 1]'
 
 # T6 [case 2] CC_NO_GATEWAY=1 bypasses the per-host file; headers unaffected.
@@ -357,10 +418,10 @@ check 'T11b [case 2u] headers still sent' "$BOTH" "$(got_hdrs)"
 assert_launch 'T11 [case 2u]'
 
 # T12 [case 4u] the headerless half of the strip path — hostname fails AND no
-# tmux AND an inherited base URL AND an armed hatch. Nothing else reaches the
-# bare `env -u ... claude` branch, and an untested launch branch is exactly how
-# M5/M7 survived once already (R4).
-run "$SH" CC_NO_GATEWAY=1 ANTHROPIC_BASE_URL=http://inherited.example/v1
+# tmux AND no derivable tap AND an inherited base URL AND an armed hatch.
+# Nothing else reaches the bare `env -u ... claude` branch, and an untested
+# launch branch is exactly how M5/M7 survived once already (R4).
+run "$SH" CLAUDE_CONFIG_DIR="$NOTAP" CC_NO_GATEWAY=1 ANTHROPIC_BASE_URL=http://inherited.example/v1
 check 'T12 [case 4u] armed hatch strips inherited base URL with no headers at all' \
   '<UNSET>' "$(got_base)"
 check 'T12b [case 4u] still no header var' '<UNSET>' "$(got_hdrs)"
@@ -397,6 +458,137 @@ if [ -z "$t14err" ]; then
 else
   fail 'T14 [dotfiles-tm0w] agents_root() resolves via $HOME/dotfiles fallback -> silent' \
     '<empty>' "$t14err"
+fi
+
+# --- T15 [dotfiles-jbnp]: the TAP is derived from CLAUDE_CONFIG_DIR ----------
+# R7. `group` must say what this launch is ACTUALLY billing to, so the only
+# input is the config dir in the launch's own environment — the same variable
+# pulse-inject exports into the pane and tick-jailed.sh sets through bwrap.
+# The unrecognised case gets a `?` for the same reason the address does: a dir
+# that does not follow the `~/.claude-<tap>` convention is not a known tap, and
+# silently naming it one would put fabricated rows in the billing rollup.
+tap_of() { printf '%s\n' "$1" | sed -n 's/^X-Tap: //p'; }
+
+run "$SH" MOCK_HOST=testbox                                  # CLAUDE_CONFIG_DIR unset
+check 'T15a unset CLAUDE_CONFIG_DIR -> personal (the vendor default ~/.claude)' \
+  'personal' "$(tap_of "$(got_hdrs)")"
+assert_launch 'T15a'
+
+for _cd_case in "/home/x/.claude:personal" "/home/x/.claude-work:work" \
+                "/home/x/.claude-tick:tick" "~/.claude-work:work" \
+                "/home/x/.claude-work/:work" "/home/x/nonsense:?nonsense"; do
+  _cd=${_cd_case%:*}; _want=${_cd_case##*:}
+  run "$SH" MOCK_HOST=testbox CLAUDE_CONFIG_DIR="$_cd"
+  check "T15 tap derivation: $_cd -> $_want" "$_want" "$(tap_of "$(got_hdrs)")"
+done
+
+# --- the fixture agents tier: seat resolution, without the live roster -------
+# agents_root() accepts $HOME/.agents when it holds AGENTS.md, so a home with
+# .agents/AGENTS.md + .agents/lib -> the REAL lib dir gives the wrapper a
+# working seat_resolve. $SEATS_YML (seat-resolve.sh's documented test seam)
+# points it at a fixture roster, so these cases never depend on who happens to
+# hold a seat in the live agents/seats.yml.
+#
+# $SEAT_WINDOW (also documented, and what the tick jail already exports) is used
+# instead of the mock tmux so that NO tmux call is involved at all: that is what
+# makes T17 a proof about the RESOLVER rather than about the mock.
+TIERHOME="$TMPROOT/tierhome"; mkdir -p "$TIERHOME/.agents"
+: > "$TIERHOME/.agents/AGENTS.md"
+ln -s "$DIR" "$TIERHOME/.agents/lib"
+FIXROSTER="$TMPROOT/seats-fixture.yml"
+cat > "$FIXROSTER" <<'EOF'
+schema: 1
+hosts: [testbox]
+charter: null
+taps:
+  personal:
+    type: claude
+    config_dir: ~/.claude
+    failover: []
+seats:
+  desk:
+    charter-line: "fixture seat"
+    office: "The Fixture"
+    sigil: "🪑"
+    home: ~/tmp
+    model: fable
+    effort: high
+    aliases:
+      - olddesk
+    history: refs/seats/desk.history.md
+    schedules: []
+EOF
+
+if command -v python3 >/dev/null 2>&1; then
+  RUN_HOME="$TIERHOME"
+
+  # T16 — a REGISTERED window resolves to <host>:<seat>. Post the one-session
+  # ruling this string is byte-equal to what raw tmux would have produced, which
+  # is exactly why T17 and T18 exist: this case alone cannot tell derived from
+  # coincidental.
+  run "$SH" MOCK_HOST=testbox SEATS_YML="$FIXROSTER" SEAT_WINDOW=desk
+  check 'T16 [jbnp] registered window -> <host>:<seat>' \
+    "$(four 'testbox:desk' personal)" "$(got_hdrs)"
+  assert_launch 'T16'
+
+  # T17 — THE PROOF THAT THE ADDRESS IS DERIVED (R6). The window is `olddesk`,
+  # an ALIAS. Raw tmux says `olddesk`; the resolver says `desk`. A wrapper that
+  # fell back to the raw name would pass T16 and fail only here — and in
+  # production that fallback is invisible, because the two agree for every
+  # window that happens to be named after its seat. Live analogue, same day:
+  # window `di-monday` -> `zig-computer:linearb`.
+  run "$SH" MOCK_HOST=testbox SEATS_YML="$FIXROSTER" SEAT_WINDOW=olddesk
+  check 'T17 [jbnp] ALIAS window resolves to the CANONICAL seat, not the raw name' \
+    "$(four 'testbox:desk' personal)" "$(got_hdrs)"
+  assert_launch 'T17'
+
+  # T18 — an UNREGISTERED window is marked, never seat-shaped. With a roster
+  # present and readable, `ghost` is simply not a seat; the `?` is what makes
+  # `agentgateway_user LIKE '%?%'` a usable unattributed-bucket query instead of
+  # a value indistinguishable from a real seat.
+  run "$SH" MOCK_HOST=testbox SEATS_YML="$FIXROSTER" SEAT_WINDOW=ghost
+  check 'T18 [jbnp] unregistered window -> explicit <host>:?<window>' \
+    "$(four 'testbox:?ghost' personal)" "$(got_hdrs)"
+  assert_launch 'T18'
+
+  RUN_HOME="$FAKEHOME"
+else
+  echo "  skip T16-T18 (no python3 — seat-resolve.sh cannot read a roster)"
+fi
+
+# --- T19 [dotfiles-jbnp]: derive, then ASSERT against the live roster --------
+# _ciw_tap() is deliberately syntactic so a claude launch never depends on the
+# roster parsing. The cost of that is a CONVENTION that could drift: a future
+# tap whose config_dir is not `~/.claude-<name>` would be derived under the
+# wrong name, silently, in the billing rollup. This closes it at test time —
+# every `taps:` row in the REAL agents/seats.yml is fed to the wrapper and must
+# come back as its own name.
+LIVEROSTER="$DIR/../seats.yml"
+if [ -f "$LIVEROSTER" ]; then
+  _n=0
+  # awk over the taps: block only. `intaps` rather than `in` — `in` is an awk
+  # keyword. Ends at the next column-0 key.
+  awk '
+    /^taps:/ { intaps=1; next }
+    intaps && /^[^ ]/ { intaps=0 }
+    intaps && /^  [a-z][a-z0-9_-]*:[[:space:]]*$/ { name=$1; sub(/:$/, "", name); next }
+    intaps && /^    config_dir:/ { print name "\t" $2 }
+  ' "$LIVEROSTER" > "$TMPROOT/taps"
+  while IFS='	' read -r _tapname _tapdir; do
+    [ -n "$_tapname" ] && [ -n "$_tapdir" ] || continue
+    _n=$((_n + 1))
+    run "$SH" MOCK_HOST=testbox CLAUDE_CONFIG_DIR="$_tapdir"
+    check "T19 roster tap '$_tapname' (config_dir $_tapdir) derives to itself" \
+      "$_tapname" "$(tap_of "$(got_hdrs)")"
+  done < "$TMPROOT/taps"
+  if [ "$_n" -eq 0 ]; then
+    fail 'T19 fixture: at least one taps: row was read from the live roster' \
+      '>=1 tap' "0 (the awk extraction matched nothing — the roster shape moved)"
+  else
+    pass "T19 fixture: $_n taps: row(s) read from $LIVEROSTER"
+  fi
+else
+  echo "  skip T19 (no live roster at $LIVEROSTER)"
 fi
 
 echo
