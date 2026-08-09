@@ -104,7 +104,7 @@ seats:
   seneschal:
     charter-line: "fixture front desk"
     office: "The Seneschal"
-    sigil: "🗝"
+    sigil: "🔑"
     home: __BASE__/deskhome
     model: fable
     effort: high
@@ -216,9 +216,11 @@ hasnt "the banned envelope U+2709"    "✉"  "$COURT"
 
 # --- THE GLYPH RULE, against the REAL output -------------------------------
 # Same mechanical check the roster's sigils get: every codepoint in the court
-# view goes through validate-seats.py's sigil_violation(). It also asserts the
-# output really does contain emoji, so an all-ASCII regression cannot pass by
-# having nothing to reject.
+# view goes through validate-seats.py's glyph_violation() — the rendered-output
+# form of the property rule (dotfiles-gl6z), which passes ASCII and · and
+# refuses anything that is CLAIMING to be a glyph and isn't 2 cells wide. It
+# also asserts the output really does contain emoji, so an all-ASCII regression
+# cannot pass by having nothing to reject.
 printf '%s' "$COURT" > "$OUTF"
 GLYPHCHECK=$(python3 - "$VALIDATOR" "$OUTF" <<'PY'
 import importlib.util, pathlib, sys
@@ -228,7 +230,7 @@ spec.loader.exec_module(vs)
 text = pathlib.Path(sys.argv[2]).read_text()
 bad = []
 for ch in text:
-    r = vs.sigil_violation(ch)
+    r = vs.glyph_violation(ch)
     if r:
         bad.append(f"U+{ord(ch):04X}: {r}")
 emoji = {ch for ch in text if ord(ch) >= 0x1F300}
@@ -242,21 +244,86 @@ PY
 )
 case "$GLYPHCHECK" in
   CLEAN*) ok ;;
-  *)      bad "every glyph in the court view must pass validate-seats.py's sigil rule ($GLYPHCHECK)" ;;
+  *)      bad "GLYPHRULE every glyph in the court view must pass validate-seats.py's glyph rule ($GLYPHCHECK)" ;;
+esac
+
+# --- ALIGNMENT: the sigil column is exactly 2 cells, on every row ------------
+# align_report <file> -> one line per table row whose leading glyph is not 2
+# cells wide, using validate-seats.py's display_width (the property, not
+# `ord(c) >= 0x1F300`, which is what said 🗝 was 2 cells while the terminal drew
+# 1). A table row is `<glyph><space><space><text>`; the legend lines use ONE
+# space and are not rows.
+align_report() {
+  python3 - "$VALIDATOR" "$1" <<'PY'
+import importlib.util, pathlib, re, sys
+spec = importlib.util.spec_from_file_location("_vs", sys.argv[1])
+vs = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(vs)
+rows = 0
+for line in pathlib.Path(sys.argv[2]).read_text().splitlines():
+    m = re.match(r"^(\S)  (\S)", line)
+    if not m:
+        continue
+    rows += 1
+    w = vs.display_width(m.group(1))
+    if w != 2:
+        print(f"STILTED U+{ord(m.group(1)):04X} width={w}: {line[:40]}")
+if rows == 0:
+    print("NO-ROWS the court rendered no table rows at all")
+PY
+}
+ALIGN=$(align_report "$OUTF")
+if [ -z "$ALIGN" ]; then ok; else bad "ALIGNMENT every court row must start with a 2-cell glyph ($ALIGN)"; fi
+
+# The header's own text column must start where the rows' does: 4 cells in
+# (one 2-cell glyph plus two spaces). Byte offset == cell offset here because
+# the header line is pure ASCII.
+HDR=$(printf '%s\n' "$COURT" | grep -n 'seat *office' | head -1 | cut -d: -f2-)
+case "$HDR" in
+  '    seat'*) ok ;;
+  *) bad "ALIGNHDR the header's seat column must start at cell 4, got: [$HDR]" ;;
 esac
 
 # --- width stability (this renders inside a display-popup) -------------------
-WIDE=$(python3 - "$OUTF" <<'PY'
-import pathlib, sys
-worst = 0
-for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
-    # emoji-presentation codepoints occupy two terminal cells
-    w = sum(2 if ord(c) >= 0x1F300 else 1 for c in line)
-    worst = max(worst, w)
-print(worst)
+WIDE=$(python3 - "$VALIDATOR" "$OUTF" <<'PY'
+import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location("_vs", sys.argv[1])
+vs = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(vs)
+print(max((vs.display_width(line) for line in
+           pathlib.Path(sys.argv[2]).read_text().splitlines()), default=0))
 PY
 )
-if [ "$WIDE" -le 78 ]; then ok; else bad "court view must stay <=78 cells wide for the popup (widest: $WIDE)"; fi
+if [ "$WIDE" -le 78 ]; then ok; else bad "WIDTH court view must stay <=78 cells wide for the popup (widest: $WIDE)"; fi
+
+# --- THE PLANTED TEXT-PRESENTATION GLYPH (dotfiles-gl6z) --------------------
+# The defect itself, reproduced: a roster carrying 🗝 U+1F5DD — emoji-RANGE,
+# Emoji_Presentation=No. This fixture is DELIBERATELY invalid (validate-seats.py
+# rejects it, which case 0 above asserts for the good roster), because the
+# question here is what the RENDERER does when a roster gets past the gate.
+# Two things must happen, and the first is the one that matters: the alignment
+# check must go RED. A detector that cannot fail is not a detector.
+PLANTED="$BASE/seats-planted.yml"
+sed 's/sigil: "🔑"/sigil: "🗝"/' "$ROSTER" > "$PLANTED"
+if python3 "$VALIDATOR" "$PLANTED" >/dev/null 2>&1; then
+  bad "PLANTEDGATE the planted roster must FAIL validate-seats.py (it is the defect)"
+else ok; fi
+PCOURT=$(env -u TMUX -u TMUX_TMPDIR -u HALL_SESSION -u HALL_ONLY_IF_ABSENT \
+           SEATS_YML="$PLANTED" HALL_TMUX_SOCKET="$SOCK" bash "$HALL" 2>"$ERR")
+printf '%s' "$PCOURT" > "$BASE/planted.out"
+PALIGN=$(align_report "$BASE/planted.out")
+case "$PALIGN" in
+  *STILTED*1F5DD*) ok ;;
+  *) bad "PLANTEDALIGN a text-presentation sigil must make the alignment check RED, got: [$PALIGN]" ;;
+esac
+# …and the hall says so itself, on stderr, naming the seat — the court still
+# renders (a cockpit that refuses to draw is worse than a crooked one).
+has "PLANTEDAUDIT hall names the glyph rule"  "GLYPH RULE" "$(cat "$ERR")"
+has "PLANTEDAUDIT hall names the seat"        "seneschal"  "$(cat "$ERR")"
+has "PLANTEDAUDIT the court still rendered"   "THE HALL"   "$PCOURT"
+# The good roster's audit is SILENT: a warning that always fires is noise.
+hasnt "PLANTEDQUIET a clean roster gets no glyph warning" "GLYPH RULE" "$(env -u TMUX -u TMUX_TMPDIR \
+        SEATS_YML="$ROSTER" HALL_TMUX_SOCKET="$SOCK" bash "$HALL" 2>&1 >/dev/null)"
 
 # ===========================================================================
 # VISIT — existing window

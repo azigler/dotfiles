@@ -66,6 +66,11 @@ taps:
 # `linearb` pins `fable` for ALL seven of its schedules — "high impact work",
 # no sonnet-default carve-out.
 #
+# `sigil:` must be Emoji_Presentation=Yes — the PROPERTY, enforced against
+# embedded Unicode data by validate-seats.py (dotfiles-gl6z). A text-default
+# glyph inside the emoji blocks (🗝 🛡 🕯 🕊 were all four) measures ONE cell
+# and stilts its row in the hall's court view. Do not pick a sigil by eye.
+#
 # `home:` is the default cwd — seats ROAM, home is not a jail. `history:` is
 # append-only, machine-level under refs/seats/ (OQ1 resolution on uikg,
 # 2026-08-08), distinct from the per-window handoff note that gets
@@ -81,16 +86,27 @@ seats:
   seneschal:
     charter-line: "ingress/brief — answers 'what needs Zig, everywhere'; no dispatch authority"
     office: "The Seneschal"
-    sigil: "🗝"
+    # 🗝 U+1F5DD -> 🔑 U+1F511 (dotfiles-gl6z): the old key is
+    # Emoji_Presentation=No, so the front desk's row rendered one cell short.
+    # Same object, same office; this one is a real emoji glyph.
+    sigil: "🔑"
     home: ~/dotfiles
     model: fable
     effort: high
     aliases: []
     history: refs/seats/seneschal.history.md
-    # v0 design (dotfiles-front-desk-faty) is a daily pulse-seneschal timer,
-    # not yet shipped — no unit exists in `systemctl --user list-unit-files`
-    # as of 2026-08-09. Reserved seat, interactive/no-schedule until then.
-    schedules: []
+    # SHIPPED (dotfiles-son4, 2026-08-09): pulse-seneschal.timer is installed
+    # and ENABLED — `systemctl --user list-timers pulse-seneschal*` shows a next
+    # fire. The row claimed "no unit exists" for as long as the unit did exist,
+    # which is the roster lying about the one fact it is the source of truth
+    # for. Fields transcribed from the unit's own ExecStart (--dir %h/dotfiles
+    # --session zig-computer --window seneschal --fresh --cmd "/seneschal
+    # brief"); no --config-dir there, so the tap is the default personal one.
+    schedules:
+      - unit: pulse-seneschal
+        tap: personal
+        window: seneschal
+        session: zig-computer
 
   marshal:
     charter-line: "fleet dispatch authority — the worker-facing half of Yegge's Wheelhouse"
@@ -122,7 +138,14 @@ seats:
   harnessd:
     charter-line: "watchtower — harness observability daemon, PWA + action API"
     office: "The Warden"
-    sigil: "🛡"
+    # 🛡 U+1F6E1 -> 🔭 U+1F52D (dotfiles-gl6z). The shield is
+    # Emoji_Presentation=No and every EPres=Yes shield-like glyph is either a
+    # person (💂) or an alarm (🚨). The charter-line is "watchtower — harness
+    # OBSERVABILITY daemon", so the instrument beats the armour: 🔭 is the
+    # watchtower's own tool, an object like every other sigil in this roster
+    # (💂 was the runner-up and is the fallback if Zig wants a guard, not a
+    # glass).
+    sigil: "🔭"
     home: ~/harnessd
     model: fable
     effort: high
@@ -171,7 +194,11 @@ seats:
   dream:
     charter-line: "consolidation — every session's sessions become ITS history"
     office: "The Remembrancer"
-    sigil: "🕯"
+    # 🕯 U+1F56F -> 🔮 U+1F52E (dotfiles-gl6z). The candle is
+    # Emoji_Presentation=No. 🔮 keeps the seat's night-work reading (the
+    # Remembrancer consolidates while the estate sleeps) and 💤 was
+    # unavailable — it is the court's own "no window" status glyph.
+    sigil: "🔮"
     home: ~/explore
     model: fable
     effort: high
@@ -185,15 +212,23 @@ seats:
 
   # --- Herald / mechanical charters -----------------------------------------
 
-  digest:
+  # RENAMED digest -> digestd (Zig, 2026-08-09): every daemon seat carries the
+  # marker its repo does — hevyd, picod, autonoveld, harnessd — and this one's
+  # home has always been ~/digestd. The old name is an ALIAS, not history: the
+  # live `digest` tmux window and the pulse-digest unit's `--window digest`
+  # both still resolve through it, which is exactly what the aliases mechanism
+  # is for (it is what makes a rename survivable — bd-msi5, the di-> pulse
+  # failure). The window and the unit are NOT renamed tonight: seat first, the
+  # cache follows later through the hall.
+  digestd:
     charter-line: "daily news — the morning digest crawl"
     office: "The Herald"
     sigil: "📯"
     home: ~/digestd
     model: sonnet
     effort: high
-    aliases: []
-    history: refs/seats/digest.history.md
+    aliases: [digest]
+    history: refs/seats/digestd.history.md
     schedules:
       - unit: pulse-digest
         tap: tick
@@ -203,7 +238,10 @@ seats:
   aaif:
     charter-line: "ambassador — aaif's outward-facing radar loop"
     office: "The Envoy"
-    sigil: "🕊"
+    # 🕊 U+1F54A -> 🪶 U+1FAB6 (dotfiles-gl6z). The dove is
+    # Emoji_Presentation=No; the feather is the same bird's, and an envoy's
+    # quill besides.
+    sigil: "🪶"
     home: ~/aaif
     model: fable
     effort: high

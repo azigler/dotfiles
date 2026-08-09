@@ -11,11 +11,16 @@ tier that propagates; per-slug memory doesn't.
 - Zig works over **SSH + tmux**: clickable links, inline images, and file-send (SendUserFile)
   blocks do NOT render for him. Deliver content **inline or as file paths**, and paste **plain
   full URLs** — never a markdown link as the only reference.
-- **Glyphs: emoji-presentation codepoints only.** Zig's client font hands classic-symbol
-  codepoints (U+2000–U+2BFF: ⚔ ⚒ ○ ⏸ …) and a few others to a nerdfont, not the emoji font —
-  they render as thin monochrome glyphs. Use U+1F300+ emoji (plus proven U+2xxx exceptions
-  like ✅ 🔔). Never rely on VS16. Empirical denylist so far: U+1F3A4 (🎤). Check before
-  rendering a table/sigil: any char in U+2000–U+2BFF outside the proven set is a fallback risk.
+- **Glyphs: `Emoji_Presentation=Yes` only — the Unicode PROPERTY is the rule.** A codepoint
+  with `Emoji_Presentation=No` is TEXT-default: the terminal draws it 1 cell wide, a table
+  that pads 2 goes crooked, and the font falls back to a thin monochrome glyph. Being in an
+  emoji block is not enough — 🗝 🛡 🕯 🕊 are all emoji-range and all `=No` (they shipped as
+  seat sigils and Zig saw the stilt: `dotfiles-gl6z`). Never rely on VS16 to force
+  presentation. Mechanical check, and the data:
+  `python3 agents/lib/validate-seats.py` (`sigil_violation` / `display_width`).
+  *Footnote, the old heuristic:* "avoid U+2000–U+2BFF outside ✅ ❓ ❔ ❌ ⭐" was an
+  approximation of this property and is retained on top of it — ⚡ U+26A1 is `=Yes` and still
+  hits Zig's nerdfont. Empirical denylist so far: U+1F3A4 (🎤).
 - **Commit AND push as you go**, in every project — never infer hold-back from unpushed state.
   Only an explicit "don't push yet" holds back.
 
