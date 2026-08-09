@@ -168,6 +168,11 @@
             "type": "command",
             "command": "~/.claude/hooks/pre-tmux-kill-guard.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/pre-worktree-remove-guard.sh",
+            "timeout": 15
           }
         ]
       },

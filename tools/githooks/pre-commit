@@ -542,6 +542,42 @@ if printf '%s\n' "$STAGED" | grep -qE '^agents/bin/(orphan-reaper\.sh|test-orpha
   fi
 fi
 
+# ==========================================================================
+# ==  LAST MUTATION ARM — APPEND NEW ONES DIRECTLY BELOW THIS BANNER,     ==
+# ==  ABOVE the doc-lint / seats.yml data arms that follow it.            ==
+# ==  (Three merges collided on this anchor on 2026-08-09; the banner is  ==
+# ==  here so the next append has an unambiguous, distinctive landmark.)  ==
+# ==========================================================================
+#
+# --- the WORKTREE-REMOVE guard's refusal -> prove IT still bites -----------
+# Same argument as every block above, on a hook whose decision is WHETHER A
+# DIRECTORY HOLDING UNCOMMITTED, UNRECOVERABLE WORK GETS DELETED
+# (dotfiles-3135). On 2026-08-09 a 3-task batch agent's worktree was
+# force-removed mid-task-2 and its verified, mutation-tested, uncommitted diff
+# was destroyed; the removal exited 0 and printed nothing. Every way this guard
+# can silently stop working has that same shape — a refusal that no longer
+# refuses, a debris rule that swallows live work, an override that is always on
+# — and none of them turn anything red. Suite-green is therefore not evidence.
+# Measured on this box:
+#
+#     test-pre-worktree-remove-guard.sh (19 cases, real /proc fixtures)   5s
+#     mutate-worktree-remove-guard.sh (4 mutants + baseline)             26s
+#
+# The convention arm above already runs the 5s suite for these files; this adds
+# ~21s, to commits touching THREE files. The test file is a trigger on purpose:
+# case 12 is the SOLE detector for the path-component boundary (M4) and case 8b
+# is what keeps case 8 from being vacuous, so deleting one case loses the bite
+# while the suite stays green.
+if printf '%s\n' "$STAGED" | grep -qE '^agents/hooks/(pre-worktree-remove-guard\.sh|test/test-pre-worktree-remove-guard\.sh|test/mutate-worktree-remove-guard\.sh)$'; then
+  echo "pre-commit: staged changes touch the worktree-remove guard -> running mutation harness (~30s)"
+  if [ -f "$ROOT/agents/hooks/test/mutate-worktree-remove-guard.sh" ]; then
+    bash "$ROOT/agents/hooks/test/mutate-worktree-remove-guard.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/hooks/test/mutate-worktree-remove-guard.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
 # --- the banned git verbs, in EXECUTABLE examples (dotfiles-mjln) ----------
 # AGENTS.md is always-loaded and its "Two writers, one working tree" table is
 # measured; /commit's SKILL.md nonetheless shipped `git pull --rebase origin
