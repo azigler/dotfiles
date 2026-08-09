@@ -104,8 +104,19 @@ mapped_suites_for() { # <staged path> -> newline-separated suite paths
         agents/hooks/test/test-session-start-merge-driver.sh \
         agents/hooks/test/test-session-start-settings-symlink.sh \
         agents/hooks/test/test-session-start-symlink-triple.sh \
+        agents/hooks/test/test-session-start-window.sh \
+        agents/hooks/test/test-session-start-seat-identity.sh \
         agents/hooks/test/test-secret-alert.sh \
         agents/hooks/test/test-always-loaded-staleness.sh ;;
+    # The WAKE-TIME IDENTITY composer (dotfiles-z10i) lives under agents/lib but
+    # its only consumer is the session-start hook, and the properties that
+    # matter — an unregistered window costs nothing and prints nothing — are
+    # only observable through that hook. So it maps to the HOOK's suite rather
+    # than asking for an agents/lib/test-seat-identity.sh that would test the
+    # composer in isolation and miss the gate entirely. Same
+    # name-the-consumer-with-the-producer argument as lib/portable.sh below.
+    agents/lib/seat-identity.sh|agents/hooks/test/mutate-seat-identity.sh)
+      printf '%s\n' agents/hooks/test/test-session-start-seat-identity.sh ;;
     agents/hooks/session-end.sh)
       printf '%s\n' agents/hooks/test/test-secret-alert.sh ;;
     agents/hooks/lib/always-loaded.sh|agents/hooks/stop-always-loaded-check.sh)
@@ -185,8 +196,14 @@ mapped_suites_for() { # <staged path> -> newline-separated suite paths
     # parser or a second glyph regex. So a change to either internal breaks the
     # court view, and only the hall's own suite can see it — the same
     # producer/consumer argument as lib/portable.sh above.
+    # A FOURTH consumer since dotfiles-z10i: seat-identity.sh composes the wake
+    # header out of _seat_dump + seat_self_name, and leans on the opt-in
+    # $_SEAT_DUMP_CACHE memo added there. A memo that silently stops memoizing
+    # triples the header's cost with every suite still green, and only the
+    # hook's own suite exercises that path.
     agents/lib/seat-resolve.sh)
-      printf '%s\n' agents/lib/test-handoff-path.sh agents/bin/test-hall.sh ;;
+      printf '%s\n' agents/lib/test-handoff-path.sh agents/bin/test-hall.sh \
+        agents/hooks/test/test-session-start-seat-identity.sh ;;
     # tmux.conf is not a script and matches no convention arm, but it holds the
     # HALL block — the popup binding and the attach-default hook — and
     # test-hall.sh EXECUTES those bytes as committed on a fixture server (this
@@ -613,6 +630,33 @@ if printf '%s\n' "$STAGED" | grep -qE '^agents/hooks/(pre-worktree-remove-guard\
     bash "$ROOT/agents/hooks/test/mutate-worktree-remove-guard.sh" || FAILED=1
   else
     echo "pre-commit: FAIL — agents/hooks/test/mutate-worktree-remove-guard.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
+# --- the WAKE-TIME IDENTITY injection -> prove IT still bites --------------
+# Same argument as every block above, on a hook whose decision is WHAT EVERY
+# SESSION ON THE MACHINE SEES AT WAKE (dotfiles-z10i). Both of its properties
+# fail silently: `--quiet` dropped puts seat_resolve's operator-facing 🚫
+# refusal into the context of every scratch window, and a one-word fallback
+# prints an office the roster never granted. Neither turns anything red, and
+# the suite is green against both in isolation. Measured on this box:
+#
+#     test-session-start-seat-identity.sh (29 cases, real hook runs)   ~5s
+#     mutate-seat-identity.sh (6 mutants + baseline)                  ~40s
+#
+# The convention/map arms above already run the 5s suite for these files; this
+# adds ~35s, to commits touching FOUR files. The test file is a trigger on
+# purpose: P3 (byte-identical output vs a tree with no composer at all) is the
+# SOLE detector for M4's stray blank line, G1 the sole detector for the cost
+# gate, and X2b/X3 the sole detectors for the two directions the header cache
+# can rot in — so deleting one case loses the bite while the suite stays green.
+if printf '%s\n' "$STAGED" | grep -qE '^(agents/hooks/(session-start\.sh|test/test-session-start-seat-identity\.sh|test/mutate-seat-identity\.sh)|agents/lib/seat-identity\.sh)$'; then
+  echo "pre-commit: staged changes touch the wake-time identity injection -> running mutation harness (~40s)"
+  if [ -f "$ROOT/agents/hooks/test/mutate-seat-identity.sh" ]; then
+    bash "$ROOT/agents/hooks/test/mutate-seat-identity.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/hooks/test/mutate-seat-identity.sh is missing" >&2
     FAILED=1
   fi
 fi

@@ -96,6 +96,105 @@ if [ -f ".git" ] || echo "$GIT_TOPLEVEL" | grep -q '/.claude/worktrees/'; then
   IN_WORKTREE=true
 fi
 
+# --- WAKE WITH IDENTITY: consume SESSION_WINDOW (dotfiles-z10i) --------------
+# k50m resolved the window and deliberately left the seam UNCONSUMED. This is
+# the consumer: a seat-resolved session gets its office, its charter line, its
+# last laurels and a pointer to the constitution — the "who am I" a fresh
+# context otherwise has to be told by hand every time.
+#
+# THREE RULES, in the order they matter:
+#
+# 1. UNREGISTERED WINDOWS AND NON-TMUX SESSIONS GET ZERO NEW OUTPUT. Silence is
+#    the normal case (a scratch window is not a defect), so nothing here is
+#    loud: empty output is skipped, and the composer resolves --quiet so
+#    seat_resolve's (correct, operator-facing) 🚫 refusal never reaches a
+#    session start. That property is mutation-tested — see
+#    test/mutate-seat-identity.sh, mutants `loud-refusal` and `guess-the-seat`.
+#
+# 2. THE COST IS GATED, NOT ASSUMED — twice. Sourcing the seat stack into THIS
+#    shell is what deferred this bead; the composer therefore runs as a
+#    SUBPROCESS (no roster parser, no tmux resolver, no ~40 functions in the
+#    hook's env), and it is spawned only after (a) a fixed-string grep says the
+#    window name appears in the roster at all, and (b) the CACHED header for
+#    this window is missing or stale. Measured on this box, whole-hook, 10 runs
+#    each, same fixture:
+#
+#      pre-z10i baseline                   121ms
+#      + this block, unregistered window   121ms   (grep only, never spawns)
+#      + this block, COLD resolved seat    355ms   (bash + python3 roster parse)
+#      + this block, WARM resolved seat    126ms   (a `cat`, no shell, no python)
+#
+#    A cold composition is ~230ms and happens once per roster/history/lib
+#    change, not once per session; the steady state is ~5ms. Without the memo
+#    in seat-resolve.sh the cold path would be ~300ms (three python3 parses).
+#    The cache's paths are named HERE and its contents written THERE: the
+#    composer declares what its answer depended on (<window>.deps) and this
+#    hook re-serves the bytes while nothing in that list is newer. So no
+#    knowledge of the roster's layout, the history dir or the constitution is
+#    duplicated here — only the location, which is this hook's to choose.
+#
+# 3. EVERY FAILURE PATH IS SILENT-SKIP. A hook that breaks session start breaks
+#    every session on the machine, including the one that would fix it. Missing
+#    lib, missing roster, unparseable roster, no python3, a hung parse, an
+#    unwritable cache: all yield empty output and the hook continues. `timeout`
+#    bounds the hang case when present. Diagnostics go to stderr (the
+#    composer's own), never to stdout — stdout here IS the agent's context.
+if ! $IN_WORKTREE && [ -n "$SESSION_WINDOW" ]; then
+  # Pure-bash suffix strip off the already-resolved $HOOK_LIB_DIR
+  # (<agents>/hooks/lib), so the gated path spawns NOTHING before the grep.
+  # If the shape ever changes the strip is a no-op and we fall back to the
+  # readlink form; a wrong path only ever means "silently skip".
+  _SI_AGENTS="${HOOK_LIB_DIR%/hooks/lib}"
+  [ "$_SI_AGENTS" = "$HOOK_LIB_DIR" ] \
+    && _SI_AGENTS="$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")"
+  _SI_LIB="$_SI_AGENTS/lib/seat-identity.sh"
+  _SI_ROSTER="${SEATS_YML:-$_SI_AGENTS/seats.yml}"
+  # The cheap pre-check. -F so a window name is never read as a regex; a
+  # false POSITIVE (the name appears in a comment) merely spends the
+  # subprocess, which then resolves nothing and prints nothing.
+  if [ -r "$_SI_LIB" ] && [ -r "$_SI_ROSTER" ] \
+     && grep -qF -- "$SESSION_WINDOW" "$_SI_ROSTER"; then
+    # Cache paths. Under $HOME, not /tmp, and deliberately: part of the header
+    # (the constitution pointer) is resolved RELATIVE TO $HOME, so a cache
+    # shared across homes can serve one home's answer to another. A fake-$HOME
+    # hook test is exactly that shape, and it would have silently poisoned the
+    # real session's header. The window is sanitized to a filename with a
+    # pure-bash substitution, so the whole warm path spawns exactly one
+    # process (`cat`).
+    _SI_CDIR="${SEAT_IDENTITY_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/seat-identity}"
+    _SI_SLUG="${SESSION_WINDOW//[^A-Za-z0-9._-]/_}"
+    _SI_HDR="$_SI_CDIR/$_SI_SLUG.header"
+    _SI_DEPS="$_SI_CDIR/$_SI_SLUG.deps"
+    _SI_OUT=""
+    _SI_WARM=0
+    # A cached header is served only if it names THIS roster (a different
+    # --seats-yml is a different answer, not a stale one) and nothing it
+    # depended on is newer than it.
+    if [ -s "$_SI_HDR" ] && [ -s "$_SI_DEPS" ] \
+       && grep -qxF -- "$_SI_ROSTER" "$_SI_DEPS"; then
+      _SI_WARM=1
+      while IFS= read -r _SI_DEP; do
+        [ -n "$_SI_DEP" ] || continue
+        if [ "$_SI_DEP" -nt "$_SI_HDR" ]; then _SI_WARM=0; break; fi
+      done < "$_SI_DEPS"
+      [ "$_SI_WARM" -eq 1 ] && _SI_OUT=$(cat "$_SI_HDR")
+    fi
+    if [ "$_SI_WARM" -ne 1 ]; then
+      _SI_TIMEOUT=""
+      command -v timeout >/dev/null 2>&1 && _SI_TIMEOUT="timeout 10"
+      _SI_OUT=$(SEAT_WINDOW="$SESSION_WINDOW" $_SI_TIMEOUT bash "$_SI_LIB" \
+                  --laurels 3 --cache-header "$_SI_HDR" --cache-deps "$_SI_DEPS") \
+        || _SI_OUT=""
+    fi
+    if [ -n "$_SI_OUT" ]; then
+      echo ""
+      printf '%s\n' "$_SI_OUT"
+    fi
+  fi
+  unset _SI_AGENTS _SI_LIB _SI_ROSTER _SI_CDIR _SI_SLUG _SI_HDR _SI_DEPS \
+        _SI_DEP _SI_WARM _SI_TIMEOUT _SI_OUT
+fi
+
 # --- always-loaded staleness: capture the snapshot fingerprint (explore-6wwu)
 # The always-loaded tier (global CLAUDE.md, the project CLAUDE.md chain,
 # MEMORY.md, skill descriptions) is read from disk ONCE — right about now — and
