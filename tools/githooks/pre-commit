@@ -165,8 +165,20 @@ mapped_suites_for() { # <staged path> -> newline-separated suite paths
       printf '%s\n' agents/hooks/test/test-stop-context-guard.sh ;;
     agents/lib/handoff-path.sh)
       printf '%s\n' agents/lib/test-seat-resolve.sh ;;
+    # seat-resolve.sh has a THIRD consumer since dotfiles-sb6s: agents/bin/hall
+    # reuses its roster dump and its lexicon-strip rather than growing a second
+    # parser or a second glyph regex. So a change to either internal breaks the
+    # court view, and only the hall's own suite can see it — the same
+    # producer/consumer argument as lib/portable.sh above.
     agents/lib/seat-resolve.sh)
-      printf '%s\n' agents/lib/test-handoff-path.sh ;;
+      printf '%s\n' agents/lib/test-handoff-path.sh agents/bin/test-hall.sh ;;
+    # tmux.conf is not a script and matches no convention arm, but it holds the
+    # HALL block — the popup binding and the attach-default hook — and
+    # test-hall.sh EXECUTES those bytes as committed on a fixture server (this
+    # repo's rule 2). Editing the block without running the suite is exactly the
+    # dotfiles-dijt shape: gated on nothing, silently.
+    tmux/tmux.conf)
+      printf '%s\n' agents/bin/test-hall.sh ;;
     # Not under agents/, so no convention arm below reaches it — and its bug was
     # an ORDERING bug (dotfiles-v26x), the kind an unrun suite is written for.
     mac.upgrade.sh)
@@ -229,6 +241,14 @@ while IFS= read -r f; do
     agents/scheduler/mutate-*.sh)     ;;
     agents/scheduler/*.sh|agents/scheduler/*.py)
                                       add_suite "agents/scheduler/test-$base.sh" ;;
+    # agents/bin/ holds operator scripts, and hall (dotfiles-sb6s) is the first
+    # one with a suite. Named rather than globbed: a blanket agents/bin/*.sh arm
+    # would put every other operator script into the UNCOVERED banner on every
+    # commit that touches one, which is a coverage question for those scripts,
+    # not a gate this change gets to answer. The suite is a trigger for itself —
+    # weakening a guard is usually an edit to its test.
+    agents/bin/test-*.sh)             add_suite "$f" ;;
+    agents/bin/hall)                  add_suite "agents/bin/test-hall.sh" ;;
     agents/lib/test-*.sh)             add_suite "$f" ;;
     agents/lib/*.sh)                  add_suite "agents/lib/test-$base.sh" ;;
     agents/lib/*.py)                  add_suite "agents/lib/test-$base.sh" ;;
