@@ -628,7 +628,7 @@ fi
 # gate, and X2b/X3 the sole detectors for the two directions the header cache
 # can rot in — so deleting one case loses the bite while the suite stays green.
 if printf '%s\n' "$STAGED" | grep -qE '^(agents/hooks/(session-start\.sh|test/test-session-start-seat-identity\.sh|test/mutate-seat-identity\.sh)|agents/lib/seat-identity\.sh)$'; then
-  echo "pre-commit: staged changes touch the wake-time identity injection -> running mutation harness (~25s)"
+  echo "pre-commit: staged changes touch the wake-time identity injection -> running mutation harness (~40s)"
   if [ -f "$ROOT/agents/hooks/test/mutate-seat-identity.sh" ]; then
     bash "$ROOT/agents/hooks/test/mutate-seat-identity.sh" || FAILED=1
   else
