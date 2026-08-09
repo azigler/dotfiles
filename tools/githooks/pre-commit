@@ -170,6 +170,14 @@ mapped_suites_for() { # <staged path> -> newline-separated suite paths
     # bottom of this file. Case 20 of the suite lints the real manifest.
     agents/scheduler/pico-ports.manifest)
       printf '%s\n' agents/scheduler/test-pico-health.sh ;;
+    # demesne-sync.exclude is DATA in the same sense as pico-ports.manifest, and
+    # it is the more dangerous of the two: every line is a hole in the cutover's
+    # identity gate. Add a pattern that matches real brain content and the gate
+    # reads IDENTICAL over content it never compared — a PASS, not a failure.
+    # The convention loop maps scripts only, so without this arm a hand-edit to
+    # the list would be gated on nothing. Case 15 lints the real file.
+    agents/scheduler/demesne-sync.exclude)
+      printf '%s\n' agents/scheduler/test-demesne-sync.sh ;;
     agents/lib/handoff-path.sh)
       printf '%s\n' agents/lib/test-seat-resolve.sh ;;
     # seat-resolve.sh has a THIRD consumer since dotfiles-sb6s: agents/bin/hall
@@ -617,6 +625,35 @@ if printf '%s\n' "$STAGED" | grep -qE '^agents/(lib/(validate-seats\.py|test-val
     bash "$ROOT/agents/lib/mutate-validate-seats.sh" || FAILED=1
   else
     echo "pre-commit: FAIL — agents/lib/mutate-validate-seats.sh is missing" >&2
+    FAILED=1
+  fi
+fi
+
+# --- the DEMESNE-SYNC exclusion set + --delete scope -> prove they still bite
+# Same argument as every block above, on a script with two silent decisions:
+# WHAT THE CUTOVER'S IDENTITY GATE IS ALLOWED NOT TO SEE, and WHAT rsync
+# --delete IS ALLOWED TO REACH. Both fail as a green run. An exclusion honoured
+# by the sync but not the gate makes the gate unpassable (dotfiles-lg1z's
+# founding condition — 96 entries, most of them bytecode); one honoured by
+# neither makes it blind. And collapsing the per-directory loop into a single
+# whole-tree rsync exits 0, prints OK and passes the gate, having deleted
+# demesne's docs/, audits/, CLAUDE.md and host-service dirs, which exist in one
+# place only. Measured on this box:
+#
+#     test-demesne-sync.sh (25 cases, hermetic fixture trees)   5s
+#     mutate-demesne-sync.sh (2 mutants + baseline)            15s
+#
+# The convention arm above already runs the 5s suite for these files; this adds
+# ~10s, to commits touching FOUR files. The test file is a trigger on purpose:
+# case 5 is the SOLE detector for the exclusion set being honoured on BOTH
+# halves and case 6 the sole detector for the delete scope, so deleting one case
+# loses the bite while the suite stays green.
+if printf '%s\n' "$STAGED" | grep -qE '^agents/scheduler/(demesne-sync\.sh|demesne-sync\.exclude|test-demesne-sync\.sh|mutate-demesne-sync\.sh)$'; then
+  echo "pre-commit: staged changes touch the demesne-sync exclusion set / delete scope -> running mutation harness (~30s)"
+  if [ -f "$ROOT/agents/scheduler/mutate-demesne-sync.sh" ]; then
+    bash "$ROOT/agents/scheduler/mutate-demesne-sync.sh" || FAILED=1
+  else
+    echo "pre-commit: FAIL — agents/scheduler/mutate-demesne-sync.sh is missing" >&2
     FAILED=1
   fi
 fi
