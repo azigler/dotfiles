@@ -1,39 +1,55 @@
-# Session handoff — 2026-08-09 1c899e2f (marshal, night run 5)
+# Session handoff — 2026-08-09 75c87999 (marshal window, night tick)
 
 ## State at offboard
-- Current branch: main (dotfiles); harnessd main at 87271df, pushed
-- Last commit (dotfiles): 7066d65 at session start; this session's dotfiles writes are beads-jsonl only (gn64/lkb6, committed below)
-- Open beads: run `br ready` (never a list here)
-- In-flight subagents: none — g7qd builder completed, scrutiny was synchronous, worktree reaped
-- Dirty files: .beads/issues.jsonl (committed in the offboard commit)
+- Current branch: main (dotfiles clean; last commit `31595ca`)
+- harnessd: main at `302e345`, pushed
+- In-flight subagents: none (wave-1 builder completed, landed, worktrees reaped)
+- Dirty files: none
 - Markers: `.offboard-pending` cleared
 
 ## What happened this session (bullets)
-- **Marshal night 2026-08-09, run 5 (kjjf serial supervised floor-run campaign): harnessd-g7qd LANDED and CLOSED** — seat-aware roster joining fleet[] to seats.yml. Merge 3d4cd5f on harnessd main, MARSHAL_VERIFY_RESULT=ok, go test + make test (335/335 UI) green ON MAIN, fable scrutiny ACCEPT (model-diverse from the opus builder), pushed 87271df. First clean landing since run 1; ledger failure streak reset 3→0.
-- Wave-1 pick harnessd-9gvd was NOT dispatched — parked earlier tonight (park-repeat-failure, yyv9 holds Zig's option-2 ruling). The planner still offered it; the ledger read caught it → filed dotfiles-gn64.
-- Budget was degraded (150k floor, weekly-cap-unset) and exhausted by the single wave (builder 243.4k + scrutiny). Waves 3–12 of the plan remain queued for a funded night. Night-start/dispatched/merged/night-end/molt rows all in the drain ledger.
-- Builder findings routed: harnessd-edwu comment (pulse-escalate/marshal/seneschal are enabled timers with no manifest row — make audit exits 1 on main today), harnessd-m2lt (specs/state-bus.md §4 drifted four sections behind the bus), harnessd-l1zj (parity goOnlyKeys is name-global, wants panel scoping).
-- **harnessd is NOT deployed** — the live daemon predates even b1v6; nothing from b1v6 or g7qd is user-visible until `make deploy` (deploy_drift audit finding). Deliberately left to Zig/a funded session.
-- Main moved under the campaign mid-build (6cd1fd5→9706edf, bead-state commits incl. Zig rulings); the guarded merge absorbed it cleanly — the two-writers idiom held.
+- **Marshal night 2026-08-09 ran and closed: 1 merged, 0 parked, 0 failed, ended on budget.**
+- Plan verdict `planned:12` (all `serial:harnessd`), budget **degraded at the 150k floor**
+  (`brake-5h`, u5h 0.88 → 0.90 by night end). Night ran at the floor per the rule.
+- Wave 1 `harnessd-wfyx` (PWA → "Demesne") built by sonnet subagent, commit `846b3a4`,
+  guarded-merged as `311d1a2` (verify=ok), suites green on main (`go test ./...` all,
+  render suite 335/335), bead closed with evidence, pushed.
+- Scrutiny **skipped** on wfyx: mechanical string-rename per /scrutinize's own exemption +
+  floor budget could not fund it — recorded in close reason and marshal ledger.
+- Follow-ups filed from builder's out-of-scope findings: `harnessd-oped` (geometry-harness
+  fixture still says "Harness"), `harnessd-jkeq` (default push title — Zig's call). Unmarked;
+  fleet certification stays Zig's.
+- Ledger rows: night-start / merged / night-end all recorded; molt row + seat-molt follow
+  this offboard.
 
 ## Friction
-- marshal-drain plan re-offered the parked 9gvd as wave-1 → filed dotfiles-gn64 (friction)
-- Harness resets shell cwd to the project root after EVERY Bash call, voiding AGENTS.md's mandatory standalone-cd step 0; worked around with `cd <root> && …` per call → filed dotfiles-lkb6 (friction)
-- `br comment` vs `br comments add` CLI shape; pre-bead-create gate rejected a description missing `## Acceptance Criteria` (gate working as designed) → one-off
+- The wave-1 builder alone consumed ~123k of the 150k floor budget — a degraded night
+  funds exactly one sonnet builder on a task this size, so 11 planned picks went untouched.
+  Not a defect (the floor is deliberately conservative) but worth knowing when reading
+  "1 merged" nights. → one-off (budget-model tuning is Zig's knob, `marshal.conf`)
+- Shell cwd resets to /home/ubuntu/dotfiles after every Bash call, so the mandated
+  standalone `cd` before the guarded merge cannot persist; worked around with
+  `cd <repo> && …` compounds per call. Recurs every cross-repo landing. → filed dotfiles-780x
 
 ## Decisions made this session (autonomous decide-and-proceed calls)
-- Per the marshal charter ("writes no specs and no decisions"), this seat filed no `-t decision` beads; its three non-trivial calls are durably recorded in the g7qd close reason + drain-ledger rows instead: (1) skip parked 9gvd, no third attempt; (2) ACCEPT the builder's parity goOnlyKeys deviation (4-precedent mechanism, comparator logic unchanged; hardening → harnessd-l1zj); (3) do NOT deploy at night.
-- `dotfiles-t06l` — decision needed: Bead-trailer exemption for routine unattended-daemon output commits (filed since session start by a CONCURRENT writer, not this seat; left open)
+- No decision beads filed by this tick. The scrutiny-skip call on `harnessd-wfyx` is
+  recorded in the bead close reason + marshal ledger (the marshal's review surface).
+- Harvest over the wider since-last-offboard window surfaced two from the prior consul
+  session, listed for continuity: `dotfiles-7ibz` (seat topology: THE CONSUL),
+  `dotfiles-1aw8` (model-canon: aliases kept; canonicalisation at launch/restore boundary).
 
 ## Proposed practices — where each one landed (Step 2.6)
 - none this session
 
 ## What's next
-- Next marshal tick: re-run `marshal-drain.sh plan`; waves 3–12 queued (next up: harnessd-wfyx, pwa rename to 'Demesne'). Skip anything the tonight-ledger parks until dotfiles-gn64 lands.
-- `make deploy` in harnessd needs a decision — live daemon is now two landed waves behind main.
-- harnessd-yyv9 carries Zig's option-2 ruling on 9gvd; whoever owns that lane should action it.
+- Next marshal tick: 11 certified picks remain queued (waves 2–12 of tonight's plan);
+  re-plan fresh — do NOT reuse tonight's wave numbers.
+- If budget is still degraded at floor, expect another 1-bead night; the brief should say so.
+- `harnessd-jkeq` needs Zig's taste call before anyone builds it (seneschal surface, not drain).
 
 ## Warnings / watch-outs
-- Budget stays degraded (weekly-cap-unset) — every run tonight blew past the 150k floor on builder+scrutiny; the floor bounds dispatch count, not landing cost. Knobs are Zig's, in marshal.conf.
-- Failure streak is 0 now, but three-strikes counts distinct beads across the NIGHT (2026-08-09) — a same-night restart inherits ledger history, which is correct; read the ledger before trusting the plan.
-- A boundary molt was initiated detached (seat-molt --mode auto) and fires when this pane idles; verdict in /tmp/seat-molt.log, not claimed in the ledger (betl).
+- harnessd SW cache is now `demesne-shell-v11` — installed clients update on next load;
+  any hardcoded old cache-name reference elsewhere would be stale (builder grepped served
+  assets clean; repo-internal identifiers deliberately kept).
+- The 5h brake was tightening (0.88 → 0.90) during the night — daytime spend is high;
+  early-morning ticks may see `no-budget`.
