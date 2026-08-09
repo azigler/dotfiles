@@ -447,12 +447,62 @@ old spelling only once no open bead carries it.
 as accepted yourself. The bead IS the proposal; the human's promote/reject IS the
 gate.
 
+### d2. LAURELS — place 0–3, from evidence you can cite (`dotfiles-qnfk` R2)
+
+**This is the one thing this loop writes directly, and the exception is
+principled.** The trust-ladder invariant guards the always-loaded memory tier:
+an auto-writer there changes how every future session behaves. A laurel changes
+no behaviour — it is an additive, evidence-cited line in a seat's career record
+that nothing loads as instruction. Propose-gating recognition for a week is a
+different thing than recognition. Do not read this as a crack in the invariant:
+`MEMORY.md` and skill bodies are still propose-only, always.
+
+**Why the Remembrancer.** A seat cannot award itself (that is farmable); only
+this loop reads *every* seat's week (that is fair); weekly with a hard cap is
+what keeps a laurel scarce. And this office is **excluded from receiving one**
+— the lib refuses it by office, not by seat name. Zig may award it by hand.
+
+After consolidation, look across the week's work for at most **three**
+fleet-wide moments worth the record. What qualifies:
+
+- a closed bead whose **Guard** section shows exceptional rigor;
+- an **incident met well** — caught early, named honestly, fixed at the seam;
+- a **recurrence fix VERIFIED HELD** — the ledger signature that went to zero
+  and stayed there. That is the virtuous cycle's own currency and the highest
+  grade of proof this harness produces.
+
+**A laurel CITES; it never counts.** Every placement needs a bead id AND a
+commit, and an uncited one is refused (not warned). Title ≤ 8 words; `why` is
+one sentence. Zero is the right answer most weeks.
+
+```bash
+cat > "$SCRATCH/laurels.json" <<'EOF'
+{"placements":[
+  {"seat":"desk","title":"recurrence signature held at zero","bead":"explore-ab1",
+   "commit":"9f21c04","why":"The fix it shipped in June has produced no repeat in eight weekly sweeps."}
+]}
+EOF
+python3 "$SKILL_DIR/dream.py" laurels --place "$SCRATCH/laurels.json"
+```
+
+It appends the seat's history **and** one row in
+`~/.local/share/fleet-health/laurels.jsonl` — all of it or none of it — and the
+next seneschal brief renders a LAURELS section Zig reads. `--dry-run` validates
+every placement and writes nothing. Exit `4` means something was **refused**;
+read the reason, do not retry it into place. Over-cap placements are dropped
+and logged. Carry `laurels` (the count placed) into the ledger row.
+
+`agents/lib/seat-history.sh` is the **only** writer of a seat history. Never
+open a `refs/seats/*.history.md` yourself — the file carries an integrity
+checksum the commit gate re-derives, so a hand-edit blocks the commit rather
+than landing quietly.
+
 ### e. Ledger + dedupe (the phantom-backlog guard)
 
 Append **one line per run** to `refs/dream-ledger.jsonl`:
 
 ```json
-{"ts":"2026-07-08T09:00:00Z","row":"dream","since":"2026-07-01T00:00:00Z","slug":"(fleet)","n_slugs":12,"denied":30,"scanned_sessions":12,"window_sessions":3,"seams_searched":5,"seams_requested":5,"candidates":4,"cross_slug":1,"observations":3,"proposals":2,"proposal_beads":["explore-ab1","explore-ab2"],"note":"2 memory proposals filed"}
+{"ts":"2026-07-08T09:00:00Z","row":"dream","since":"2026-07-01T00:00:00Z","slug":"(fleet)","n_slugs":12,"denied":30,"scanned_sessions":12,"window_sessions":3,"seams_searched":5,"seams_requested":5,"candidates":4,"cross_slug":1,"observations":3,"proposals":2,"proposal_beads":["explore-ab1","explore-ab2"],"laurels":1,"note":"2 memory proposals filed, 1 laurel placed"}
 ```
 
 **Carry `seams_searched` / `seams_requested` from the `collect` output.** A run
@@ -540,6 +590,18 @@ python3 "$SKILL_DIR/dream.py" collect --no-fleet --seams=findings-corrections --
 read-only status must not pay for a fleet sweep. The digest is read from
 `--memory` regardless of which seams ran.)
 
+Add the last laurel placements — the recognition state, which no `br` query
+knows about (`dotfiles-qnfk` R4):
+
+```bash
+LAURELS=~/.local/share/fleet-health/laurels.jsonl
+if [ -s "$LAURELS" ]; then
+  tail -5 "$LAURELS" | jq -r '"\(.ts[:10])  \(.seat)  \(.title)  [\(.bead)]"'
+else
+  echo "laurels: none placed yet (the ledger appears with the first placement)"
+fi
+```
+
 Add the fleet's shape too — one cheap call, no seams at all:
 
 ```bash
@@ -573,7 +635,14 @@ saying "no" before comprehension rot (the cognitive-surrender guard).
 
 ## Anti-patterns
 
-- ❌ **Writing MEMORY.md from the tick.** The invariant. Propose only.
+- ❌ **Writing MEMORY.md from the tick.** The invariant. Propose only. (The
+  laurel placement in step d2 is NOT an exception to this — it writes a career
+  record, never the memory tier or a skill body.)
+- ❌ **Placing a laurel you cannot cite**, or reaching for one because the week
+  was quiet. Zero is the common, correct answer; an uncited laurel is refused
+  by the lib, and arguing past that refusal is farming the record.
+- ❌ **Editing a `refs/seats/*.history.md` by hand** — `seat-history.sh` is the
+  only writer, and the integrity checksum makes a hand-edit a blocked commit.
 - ❌ **Auto-promoting a proposal** (closing it as accepted + editing memory
   yourself). The human is the gate; the bead waits.
 - ❌ **AskUserQuestion in a tick** — freezes the window. File the proposal bead

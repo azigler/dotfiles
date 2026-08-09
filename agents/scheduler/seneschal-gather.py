@@ -71,6 +71,15 @@ FLEET_HEALTH = Path(
         "SENESCHAL_FLEET_HEALTH", "~/.local/share/fleet-health/pico.jsonl"
     )
 ).expanduser()
+# The laurels ledger `dream.py laurels` appends to (dotfiles-qnfk R2/R4). The
+# brief is where Zig sees EVERY placement — that visibility is what lets the
+# placement be direct rather than propose-gated.
+LAURELS = Path(
+    os.environ.get(
+        "SENESCHAL_LAURELS", "~/.local/share/fleet-health/laurels.jsonl"
+    )
+).expanduser()
+LAUREL_WINDOW_DAYS = 7  # one dream cycle: the brief shows the week's placements
 
 # Prefix match, not equality: `linearb-notes` and `cfp2026` are the same secret.
 CONFIDENTIAL_PREFIXES = ("linearb", "cfp")
@@ -126,9 +135,9 @@ def parse_roster(path: Path) -> tuple[dict[str, dict[str, str]], list[str]]:
             continue
         if cur is None:
             continue
-        m = re.match(r"^    (home|model):\s*(\S+)\s*$", line)
+        m = re.match(r"^    (home|model|office|sigil):\s*(.+?)\s*$", line)
         if m:
-            seats[cur][m.group(1)] = m.group(2)
+            seats[cur][m.group(1)] = m.group(2).strip("\"'")
     if not seats:
         errs.append("roster parsed to 0 seats")
     return seats, errs
@@ -324,6 +333,75 @@ def works_lines(path: Path, limit: int = 3) -> list[str]:
 
 
 # --------------------------------------------------------------------------
+# (c2) LAURELS — placement weeks ONLY (dotfiles-qnfk R4/T10)
+# --------------------------------------------------------------------------
+def laurel_lines(
+    path: Path,
+    now: datetime,
+    seats: dict[str, dict[str, str]],
+    window_days: int = LAUREL_WINDOW_DAYS,
+) -> tuple[list[str], str]:
+    """Rendered laurel lines for the window, plus a degraded-read reason.
+
+    NO CEREMONY WITHOUT SUBSTANCE. An absent ledger, or a ledger with nothing
+    in the window, returns ``([], "")`` and the caller emits NO SECTION AT ALL
+    — a standing "## LAURELS — none this week" would train the reader to skip
+    the heading, and the heading is the whole point on the weeks it fires.
+
+    A ledger that EXISTS but cannot be read is different, and says so: that is
+    a degraded read, and this file's rule is fail-loud-never-short.
+    """
+    if not path.exists():
+        return [], ""
+    try:
+        raw = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        return [], f"laurels ledger unreadable: {type(exc).__name__}"
+    cutoff = now - timedelta(days=window_days)
+    rows: list[tuple[datetime, str]] = []
+    bad = 0
+    for ln in raw:
+        if not ln.strip():
+            continue
+        try:
+            d = json.loads(ln)
+        except ValueError:
+            bad += 1
+            continue
+        when = parse_ts(d.get("ts"))
+        if when is None or when < cutoff:
+            continue
+        seat = str(d.get("seat", "?"))
+        row = seats.get(seat, {})
+        office = row.get("office", "")
+        home = row.get("home", "")
+        head = f"🏅 {seat}" + (f" ({office})" if office else "")
+        # Same denylist posture as every other section: a laurel earned in a
+        # confidential repo is COUNTED, never quoted.
+        if home and is_confidential(Path(home)):
+            rows.append(
+                (when, f"{head} — details withheld (confidential repo)")
+            )
+            continue
+        cite = " · ".join(
+            x for x in (str(d.get("bead", "")), str(d.get("commit", ""))) if x
+        )
+        body = clip(str(d.get("title", "")), 48)
+        why = clip(str(d.get("why", "")), 70)
+        rows.append(
+            (
+                when,
+                f"{head} · {body}"
+                + (f" — {why}" if why else "")
+                + (f"  [{cite}]" if cite else ""),
+            )
+        )
+    rows.sort()
+    err = f"{bad} unparseable ledger line(s)" if bad else ""
+    return [r[1] for r in rows], err
+
+
+# --------------------------------------------------------------------------
 # (d) TODAY
 # --------------------------------------------------------------------------
 def timers_next(now: datetime, horizon: datetime, tz) -> tuple[list[str], str]:
@@ -465,6 +543,22 @@ def build(args) -> str:
     if not ship_lines:
         L.append("- no commits and no bead closures in the window")
     L.append("")
+
+    # (c2) LAURELS — rendered ONLY on a week something was placed (T10) ----
+    laurels, laurel_err = laurel_lines(LAURELS, now, seats)
+    if laurels or laurel_err:
+        L.append(
+            f"## 🏅 LAURELS — {len(laurels)} placed in the last {LAUREL_WINDOW_DAYS}d"
+        )
+        L.append(
+            "_placed by the Remembrancer from cited evidence; the seat cannot "
+            "award itself (dotfiles-qnfk R2/R6)_"
+        )
+        if laurel_err:
+            L.append(f"_UNREADABLE: {laurel_err}_")
+        for row in laurels:
+            L.append(f"- {row}")
+        L.append("")
 
     # (c) THE WORKS -------------------------------------------------------
     L.append("## 🏭 THE WORKS — pico")

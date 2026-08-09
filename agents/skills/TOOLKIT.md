@@ -99,7 +99,8 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 **Job:** The harness's weekly SLEEP-TIME CONSOLIDATION loop and the WRITE half of the claude-vault arc (spec explore-76oc §4.4): mines the sessions since its last run via `/recall`, judges conservatively, and drafts HUMAN-GATED proposal beads (`propose-memory:` / `propose-harden:`, label `dream-proposal`). (Renamed from `/recall-distill` 2026-07-27, explore-w1mn; unrelated to `mud-distill.*`.)
 **Fire when:** `pulse-dream.timer` fires `/dream tick` (Sun 04:13 PT, the `dream` tmux window); or `/dream status` for a read-only ledger + open-proposal view. NEVER inline in an interactive session.
 **Prereqs/side-effects:** stdlib-only `dream.py` shells out to `recall.py`; CURRENT SLUG ONLY (a pushed proposal bead must never carry `linearb*`/`cfp*` content); appends one row per run to `~/explore/refs/dream-ledger.jsonl` with a mandatory non-null `row: "dream"`; files beads, pushes nothing else.
-**Anti-pattern:** Writing `MEMORY.md` or auto-promoting a proposal — the trust-ladder invariant; the bead IS the proposal and a human IS the gate. Also: opening an AskUserQuestion from a tick (freezes the window), over-proposing low-signal candidates (trains Zig to ignore the channel — under-proposing is cheap), re-proposing an already-shipped learning without the MEMORY.md + open-`propose-*` dedupe check, and a bare relative ledger path (anchor to `$PULSE_DIR`).
+Since `dotfiles-qnfk` it also PLACES LAURELS — 0-3 a week, fleet-wide, each citing a bead AND a commit — appending the seat's `refs/seats/<seat>.history.md` (via `agents/lib/seat-history.sh`, the only writer) plus a row in `~/.local/share/fleet-health/laurels.jsonl`, which the next seneschal brief renders.
+**Anti-pattern:** Writing `MEMORY.md` or auto-promoting a proposal — the trust-ladder invariant; the bead IS the proposal and a human IS the gate. (Laurels are NOT an exception: they change no behaviour, and an uncited one is refused by the lib.) Also: opening an AskUserQuestion from a tick (freezes the window), over-proposing low-signal candidates (trains Zig to ignore the channel — under-proposing is cheap), re-proposing an already-shipped learning without the MEMORY.md + open-`propose-*` dedupe check, and a bare relative ledger path (anchor to `$PULSE_DIR`).
 
 ### /elevate
 **Job:** Max-effort, fresh-eyes re-examination of **ONE** finished thing — the generative twin of /scrutinize (hunts MISSED opportunity, not what's WRONG). **Targeted only**; the old weekly compendium sweep (Mode B) is now /desk.
@@ -176,7 +177,7 @@ accumulates. Generated 2026-06-09 from full-body extraction.
 ### /onboard
 **Job:** Session entry — honor pending offboard, read foundation + TOOLKIT digest, discover live state, classify, route.
 **Fire when:** Start of every session; retroactively honors .offboard-pending.
-**Prereqs/side-effects:** Reads CLAUDE.md, MEMORY.md, refs/session-handoff.md, skills/TOOLKIT.md in the MAIN session; full skill bodies only for skills today's work leans on.
+**Prereqs/side-effects:** Reads CLAUDE.md, MEMORY.md, refs/session-handoff.md, skills/TOOLKIT.md in the MAIN session; full skill bodies only for skills today's work leans on. Step 1.5 also reads the SEAT's office + last 3 laurels (`seat-history.sh head`) — silent when this window is not a registered seat.
 **Anti-pattern:** Delegating the foundation/TOOLKIT reads to a subagent (its context is discarded); skipping Step 0's pending-offboard check.
 
 ### /openrouter
