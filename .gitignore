@@ -39,20 +39,10 @@ ts4
 # secrets — machine-local, never committed (template: bash/.secrets.example)
 .secrets
 
-# node deps — skills carry their own manifest + lockfile (committed), but the
-# installed tree is provisioned with `npm install`, never committed.
-# (dotfiles-1ag: the /gdoc renderer resolves googleapis from its OWN
-# agents/skills/gdoc/node_modules — not a global store, not a $HOME install.)
+# node deps — installed trees are provisioned, never committed
 node_modules/
 
-# the seneschal's daily brief — a live-state artifact, overwritten every tick
-# (dotfiles-front-desk-faty). Never committed: refs/ is pushed, and the brief
-# aggregates the whole fleet, so a committed copy would be both instantly stale
-# and a standing exfiltration path for anything the confidentiality denylist in
-# seneschal-gather.py has not yet been taught about.
-refs/seneschal-brief.md
-
-# session state — created by harness hooks, never committed
+# session state — created by agent-tier hooks, never committed
 .offboard-pending
 .claude/scheduled_tasks.lock
 # /offboard Step 4 writes this; the skill states both markers are gitignored,
@@ -62,8 +52,6 @@ refs/seneschal-brief.md
 # bv (beads viewer) local config and caches
 .bv/
 
-archived/sandbox
-
 # python bytecode from skill test runs
 __pycache__/
 *.pyc
@@ -71,7 +59,3 @@ __pycache__/
 # transient agent worktrees
 .claude/worktrees/
 
-# Ad-hoc gdoc scratch scripts — may hardcode doc IDs / SA key paths. Never commit.
-# (render_styled_blocks.mjs IS tracked and load-bearing; it is re-added below.)
-agents/skills/gdoc/*.mjs
-!agents/skills/gdoc/render_styled_blocks.mjs

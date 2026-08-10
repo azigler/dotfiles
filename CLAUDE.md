@@ -1,128 +1,82 @@
-# dotfiles — the repo that owns the harness
+# dotfiles — program configuration for this machine
 
-This repo IS the global instruction tier. Editing it changes how **every**
-Claude Code session on this machine behaves, in every project.
+This repo is the **public tier**: shell, tmux, editors, language toolchains,
+and the scripts that install them (`sync.sh` links, `download.sh` vendors, the
+per-machine `*.setup.sh` / `*.upgrade.sh` provision and upgrade). See
+`README.md` for the user-facing version of all of that.
 
-## ⚠️ Read this before editing anything under `agents/`
+## The agent tier is NOT here
 
-**Running sessions will NOT see your edits.** The always-loaded tier
-(`agents/AGENTS.md` → symlinked as `~/.claude/CLAUDE.md`, plus the skill
-frontmatter) is injected by the harness at **process start** and is a
-**snapshot with no invalidation** (bug `explore-6wwu`, P1).
+The always-loaded instruction file, the skills, the hooks, the schedulers and
+the machine reference material live in a **separate repository**, installed by
+`./bootstrap-agents.sh` and resolved through one symlink, `~/.agents`. Two
+consequences for anyone editing this repo:
 
-Consequences that bite:
-- `/offboard` + `/onboard` do **not** refresh it. Only a `/clear` (or a new
-  process) does.
-- The durable pulse windows (`dive`, `digest`, `desk`, `dream`) hold sessions
-  for **days**. They act on rules that may no longer exist on disk.
-  Stale-snapshot is the *normal* operating state, not an edge case.
-- So: after changing a rule that a live loop depends on, either `/clear` the
-  affected window or accept a lag of up to that window's lifetime.
+- **Editing anything here does not change agent behaviour.** If you came to
+  change a rule, a skill, or a hook, you are in the wrong repository.
+- **Every agent-tier reference goes through `~/.agents`**, never through a path
+  inside this repo. `sync.sh` (`sync_agent_source`), `zsh/.zshenv`
+  (`AGENTS_ROOT`), `bash/.bash_aliases` (the `claude` wrapper),
+  `tmux/tmux.conf` (the `prefix W` binding) and `ubuntu.setup.sh` (the journald
+  drop-in) are the five places that do it. Each one is a **silent no-op or a
+  single warning** when no tier is installed — keep it that way. A machine with
+  only these dotfiles must sync cleanly and have no harness, not a wall of
+  errors about missing files it was never going to have.
 
-## What lives here
+## The commit gate
 
-| Path | What it is |
-|---|---|
-| `agents/AGENTS.md` | the global tier — symlinked to `~/.claude/CLAUDE.md`, loaded in EVERY session |
-| `agents/skills/` | the global paragon skill set — symlinked as `~/.claude/skills` (one dir symlink, not per-skill) |
-| `agents/skills/TOOLKIT.md` | the per-skill digest `/onboard` reads instead of all bodies |
-| `agents/hooks/` | every hook — these run on **every tool call fleet-wide** |
-| `agents/lib/` | shared shell libs the hooks source |
-| `agents/scheduler/` | `pulse-inject.sh`, unit templates, `pulse-ledger-lint.py` |
-| `agents/bin/` | standalone operator scripts — `hall` (THE HALL: the court view of the roster, `prefix W` in tmux — verified against the live binding, `dotfiles-ws16`; the `prefix H` this line once claimed never existed), `claude-seat-link.sh` (wire a second Claude seat into the harness), `restart-loop-check.sh` |
-| ~~`agents/infra.md`~~ | machine + mesh baseline — **no longer here.** It lives in the private demesne repo at `~/.agents/infra.md`; **re-verify before depending on a fact** |
-| `mac.setup.sh` / `ubuntu.setup.sh` | first-run machine provisioning |
-| `mac.upgrade.sh` / `ubuntu.upgrade.sh` / `pico.upgrade.sh` | per-machine binary upgrades — one per OS/role |
-| `sync.sh` / `download.sh` | symlink dotfiles into `$HOME` / vendor supporting resources |
+`tools/githooks/` holds a `pre-commit`. **Activate it per clone:**
+
+```bash
+git config core.hooksPath tools/githooks
+```
+
+It is a per-clone local setting, so a fresh clone starts ungated until that
+line runs. It checks that every staged `*.sh` parses — these scripts run on a
+machine being provisioned, sometimes piped straight to `bash`, where a syntax
+error lands halfway through. The hook's own header records what it used to be
+and why it is small now; read it before adding to it.
 
 ## Rules specific to this repo
 
-1. **A hook bug breaks every session on the machine, including yours.** Run the
-   hook test suite before AND after any hook change, and demonstrate each fix's
-   failure-before / absence-after with real output. A fix you cannot demonstrate
-   is a fix you should not claim.
+1. **A documented EXAMPLE is executable.** Agents and humans copy examples
+   verbatim, so a wrong example is a defect that replicates itself — invisible
+   to code review, invisible to tests, and it *scales with adoption*. Four
+   confirmed instances as of 2026-07-25 (`dotfiles-mlti`), including a mandated
+   markdown link form that didn't resolve and a commit template hardcoding a
+   stale model name. **Before committing an example, run it** — and run it **as
+   committed**, extracting the block from the file by regex or line range
+   (`git show HEAD:<path> | awk …`) and executing *those bytes*, never a
+   retyped copy, because the detail that breaks an example is usually a quoting
+   or substitution one that retyping silently repairs.
 
-   Since 2026-08-01 that is a **mechanism**, not an intention: `tools/githooks/`
-   holds a `pre-commit` that runs the suite matching each staged
-   `agents/{hooks,scheduler,lib,doclint}` script — keyed on the **test file**
-   too, since weakening a guard is often an edit to the test alone — plus
-   `pre-bead-close.sh --selftest` and, for the scrutiny-verdict guards,
-   `agents/hooks/test/mutate-scrutiny-guards.sh`. **Activate it per clone:**
+2. **Don't blanket-suppress stderr** (`2>/dev/null`) on anything state-changing
+   or output-bearing: the error then reads as an empty result ("no data")
+   instead of the error it was. Filter the specific noise line instead. Pure
+   existence checks may append `# allow-suppress`.
 
-   ```bash
-   git config core.hooksPath tools/githooks
-   ```
+3. **`git add <specific-files>` only** — never `git add -A` / `git add .`, and
+   never a bare directory (that stages deletions you did not choose).
 
-   It is a per-clone local setting, so a fresh clone (or a new machine) starts
-   ungated until that line runs. Why it exists: before it, 32 suites and a
-   `--selftest` had no caller, and a 13-mutant sweep found three survivors
-   against green suites — one a live false-accept in the pulse `done` gate
-   (`dotfiles-8aj5`, `dotfiles-jm1c`). **A green suite is not evidence that a
-   guard bites**; only a mutant that dies is.
+4. **Upgrade ≠ vendor ≠ provision — keep the scripts separate.** `download.sh`
+   once did upgrades too, in a branch reachable only with NO argument, so you
+   got binary upgrades and destructive repo regeneration together or neither
+   (`dotfiles-7bij`). Binary upgrades live only in `mac.upgrade.sh` /
+   `ubuntu.upgrade.sh` / `pico.upgrade.sh`; `download.sh` only vendors. When
+   adding a tool, add it to **every** upgrade script it applies to — and
+   remember the asset names differ (`darwin_arm64`, not `linux_x64`), BSD grep
+   has no `-oP`, and macOS has no `sha256sum`. `mac.upgrade.sh --dry-run`
+   exercises every section without touching the machine; use it before
+   committing a change there.
 
-   Two clauses on what counts as *dies*, both burned in during the
-   `dotfiles-ogkz` arc. **Assert the mutation actually applied** before the
-   suite's exit code is allowed to mean anything — in `dotfiles-47nf` an
-   over-escaped sed pattern matched nothing, the suite went red anyway, and by
-   exit code alone that is indistinguishable from a proper kill; an unapplied
-   mutation is a HARNESS ERROR, not a kill. And **a killed mutant must fail the
-   case(s) it NAMES** — red-somewhere says nothing about the guard under test and
-   is frequently evidence the mutant broke something else, as when
-   `dotfiles-77s4`'s first ownership mutant broke the script globally and
-   unrelated preflights failed with verdict `<none>`. Both are implemented
-   mechanically in `agents/scheduler/mutate-tunnel-ownership.sh`; model a new
-   mutation harness on it rather than re-deriving the checks here.
-
-2. **A documented EXAMPLE is executable in a prompt-driven harness.** Agents copy
-   examples verbatim, so a wrong example is a defect that replicates itself —
-   invisible to code review, invisible to tests, and it *scales with adoption*.
-   Four confirmed instances as of 2026-07-25 (bead `dotfiles-mlti`): a `"row":null`
-   ledger example that produced 23 bad rows across 3 projects; an `AGENTS.md`
-   cleanup snippet that violates this repo's own rule and is blocked by its own
-   hook; a mandated markdown link form that doesn't resolve; a commit template
-   hardcoding a stale model name. **Before committing an example, run it** — and run it
-   **as committed**, extracting the block from the file by regex or line range
-   (`git show HEAD:<path> | awk …`) and executing *those bytes*, never a retyped copy,
-   because the detail that breaks an example is usually a quoting or substitution one
-   that retyping silently repairs (rule 7 is exactly that failure); done twice on
-   2026-08-03 — `dotfiles-xugk`, `dotfiles-3afr` — and neither found a divergence, which
-   is what a guard looks like when it holds, not evidence it is unnecessary.
-
-3. **Don't blanket-suppress stderr** (`2>/dev/null`) on anything state-changing
-   or output-bearing — `pre-bash-stderr-guard.sh` enforces it, and the hooks
-   themselves have violated it. Pure existence checks may append `# allow-suppress`.
-
-4. **`git add <specific-files>` only** — `git add -A`/`.` is hook-blocked.
-
-5. **Effort stays `high`.** It is the Opus-5 vendor default. Escalate a single
-   dispatch via a Workflow `agent(…, {effort})`, never the session. Note that
-   `effortLevel` is currently **absent** from every settings file — the `high` you
-   get is the default, not a pin, and nothing warns if that changes.
-
-6. **Upgrade ≠ vendor ≠ provision — keep the three scripts separate.** `download.sh`
-   once did upgrades too, in a branch reachable only with NO argument, so you got
-   binary upgrades and destructive repo regeneration together or neither
-   (`dotfiles-7bij`). Binary upgrades now live only in `mac.upgrade.sh` /
-   `ubuntu.upgrade.sh` / `pico.upgrade.sh`; `download.sh` only vendors. When adding
-   a tool, add it to **every** upgrade script it applies to — and remember the
-   asset names differ (`darwin_arm64`, not `linux_x64`), BSD grep has no `-oP`,
-   and macOS has no `sha256sum`. `mac.upgrade.sh --dry-run` exercises every
-   section without touching the machine; use it before committing a change there.
-
-7. **`$0`/`$1`/`$N` in a `SKILL.md` are rewritten before the agent ever sees them.**
-   Skill-argument substitution replaces `/\$(\d+)(?!\w)/` in the **rendered** body with
-   the invocation's argument words — **0-indexed, so `$0` is the FIRST argument**
-   (verified against `claude` 2.1.220). An awk `$0` becomes a path and dies `division by
-   zero`; prose is hit too (`$0.05` → `<arg>.05`). The file on disk stays correct, so
-   this is invisible to grep and to review. Only `SKILL.md` is substituted —
-   `reference/*.md` is read verbatim, and a skill invoked with no argument is untouched.
-   **Prefer an idiom with no field reference** (pattern-match + `next` over `($0 ~ /re/)`);
-   `${1}` / `${1:-.}` are safe (braces don't match); otherwise escape as `\$0`. Live
-   instance: `explore-wcmj` — `/desk`'s corpus load silently returned 0.1% of the corpus.
+5. **This is a PUBLIC repository.** No hostnames, no tailnet addresses, no
+   ports, no service topology, no machine inventory — that material is exactly
+   what the agent tier was split out to hold. A config that needs a real
+   address reads it from the environment or from a machine-local file
+   (`.secrets`, `~/.gitconfig.local`, `.servers.bash_aliases` — all
+   gitignored), never from a committed line.
 
 ## Beads
 
-Prefix `dotfiles`. Orchestrator owns the lifecycle. For what is live, run the
-query — `br list --type epic` / `br ready` — never a citation here (the
-two-copies rule; this line once pointed at an epic that stayed "live" in prose
-for nine days after its era ended).
+Prefix `dotfiles`. The orchestrator owns the lifecycle. For what is live, run
+the query — `br list --type epic` / `br ready` — never a citation here.
