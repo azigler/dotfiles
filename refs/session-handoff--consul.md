@@ -1,51 +1,117 @@
-# Session handoff — 2026-08-09 724edc28 (hardening seat, window "hardening")
+# Session handoff — 2026-08-10 724edc28 (THE CONSUL 🦅, window "consul")
 
-> ⚠️ SCOPED NOTE, MANUALLY NAMED (seneschal precedent; per-window opt-in still
-> deferred — `dotfiles-ie5a`, now CLAIMED by this lane). Plain
-> `refs/session-handoff.md` belongs to the dotfiles/Works seat — never
-> overwrite it from this window. If you are the hardening seat onboarding and
-> the plain note talks about marshal campaigns: THIS file is yours.
+> SCOPED NOTE (per-window). Plain `refs/session-handoff.md` belongs to the
+> Works seat — never overwrite it from this window. This seat was "hardening"
+> until 2026-08-09 ~21:5xZ; it is now the registered seat **consul**
+> (decision `dotfiles-7ibz`; seats.yml row; sigil 🦅). You are its next
+> context: this window pairs with the Master of Works as co-equal consuls.
 
 ## State at offboard
-- Branch main, clean except `refs/seats/dive.history.md` (another lane's, untouched all session); everything pushed through `fcd025f`+.
-- **IN-FLIGHT (compaction-molt, handle preserved — do NOT /clear):**
-  1. t5fj fix-round builder (worktree agent-a91b8db0dbe87b2ab): branch-1 TTL + loud write-failure + reason-literal confirmation. On return: focused re-verify by the scrutinizer, then guarded merge of its branch; carry ONLY in a Works run gap (live injector).
-- Escalate-ext: LANDED COMPLETE before molt — SHIP verdict, merged 9363baa, harness green on main, carried to demesne 63710ef; the armed timer re-reads the script per tick, no re-arm needed. Soft spot for the o3qj wave: blanking `PULSE_ESCALATE_BUSY_MARKER` removes a refusal — documented (:227-231), not mechanically guarded.
-- Markers: `.offboard-pending` cleared; last-offboard-session set (shared single slot — ie5a caveat).
+- Branch main, pushed through `21ad7b8`+. No dirty files of mine.
+- **This offboard precedes a PROCESS RESTART, not a /clear** — deliberate, to
+  shed `CC_NO_GATEWAY=1` from the process env (it poisoned child launches;
+  the pane shell is clean, so a fresh `claude` launch comes up clean and
+  attributes as `zig-computer:consul` / epoch-3). Expect no in-flight
+  subagent handles to survive; everything durable is below.
+- In-flight at write time: the COMBINED demesne carry gate (hall v1 + o3qj +
+  Works' 5gob budget fix + model-guard coldstart) — if demesne HEAD lacks the
+  ":twisted_rightwards_arrows: sync: hall v1 tap cell + o3qj…" commit or the
+  tree is dirty, that carry needs verifying/retrying (kuog flake class; all
+  files staged; message in reflog). Works has the same self-service check.
+- Works is executing the MARSHAL PROCESS RESTART (their seat, my go-signal
+  sent ~00:40Z) → then the drain, gated on the carry check, hard-stop 00:45 PT.
 
-## What happened this session (compressed — details on the beads)
-- **Gateway outage 12:36–15:08Z**: diagnosed (Tahoe left ALL com.zig.* LaunchAgents unspawned; exit-0 drain + SuccessfulExit=false), fixed, all sessions/ticks re-cut. `kviw` closed.
-- **Guards built, scrutinized, ARMED**: gateway-health (even :11) + api-stall-recover (odd :11), AccuracySec pinned; harnessd conn-error classifier deployed (`r856`); rung-0 AskUserQuestion seat-guard live (`9i39`); pulse-escalate ladder armed 16:54Z (`9z3o`, `jisc` closed via real-pane drill). Mutation harnesses committed + gate-armed (`w4z9`); demesne gate caught up from seed copy.
-- **t5fj arc**: staleness-verified re-fires built; scrutiny found the lying-🧠 24h-refusal class → two fix rounds in flight (above). Escalate-ext adds already_running + lying-🧠/🌀 reconciliation + builder's own BUSY_MARKER third signal.
-- **Model/[1m] root cause (Zig's find, confirmed)**: live settings had drifted to the bare `fable` alias → 200k window → the compaction-thrash multiplier. Live settings RESTORED to `claude-fable-5[1m]` (working tree == HEAD, no gate drift; settings-guard is symlink-only, won't revert). Remaining: `lstn` (canonicalization at tick-launch `--model` + guard restore instruction — **queued behind t5fj merge, same file pulse-inject.sh**).
-- **Thrash measured**: ldpn (digest 62%-onboard/7-compactions; 6 beads cut across digestd/hevyd), or6a (seneschal onboard 72–108k vs 100k guard budget — option (b) adaptive threshold chosen, implement queued), qtug closed (quality NOT degraded; throughput cost real; fed to digestd-c2f).
-- **Zig's evening asks beaded**: `yrsg` (ceiling-stall recover, build after t5fj+lstn), `rbci` (tap failover spec, OQs DECIDED: two pools gmail{personal,tick}/linearb, ceiling-only, both windows, + fable-allotment dimension), `glfx` (2nd Max 20x reserve tap BEFORE Fable weekly exhausts — Zig at 70%, reset Thu 11pm PT; his half = purchase+OAuth), `ws16` closed (hall does NOT swallow keys — refuted; binding is prefix W not H, CLAUDE.md doc fix pending), `o3qj`+`inqj`+`betl` (molt-lifecycle wave), `t9m7`+`w4ac`+`ie5a` (overhead wave). All claimed out of the marshal pool with comments.
+## What happened this session (post-compaction half; prior half in git history of this note)
+- **t5fj CLOSED**: staleness-verified re-fires + loud write-failure live in
+  both repos, SHIP on focused re-verify, 14/14 mutants, injector hot.
+- **The tap arc, end to end in one evening**: `~/.claude-secondary`
+  provisioned (zig@zigler.ai, seat-link staged, attribution verified);
+  `kecb` failover core built (Opus) + scrutinized SHIP (Fable) — taps.conf
+  (pools/order/seat_home), tap-headroom.sh (5h/7d + the DISCOVERED Fable
+  dimension via GET /api/oauth/usage), wrapper consult with loud triple
+  attribution; **rotation LIVE and production-tested via forced ceiling**
+  (ledger row + stderr + gateway row group=secondary, 21:13Z); marshal
+  re-homed to secondary (Zig ruling, supersedes OQ5 — recorded in taps.conf);
+  epoch-3 naming (primary/secondary/linearb) live incl. infra.md carry (sn2t
+  applied, demesne f0a5e86). `glfx` + `rbci` + `kecb` all CLOSED.
+- **THE CONSUL registered** (`7ibz`): peer consuls, no hierarchy, seneschal
+  untouched; window renamed; seat row validated; history file initialized.
+- **lstn built + SHIP + carried** (demesne 8fe1ff8 on retry): model-canon.sh
+  single table (fable/opus/sonnet → [1m]; haiku has NONE — API 400 proof),
+  guard restore instructs canonical, injector splices canonical
+  (injection-grammar independently attacked), settings-drift alarm, SONNET
+  env pin added (dbebf6b). **Bead still OPEN** — AC5 evidence = fresh marshal
+  onboard at 1M scale (~12% not 73%); close it once the restart shows that.
+- **hall v1 tap cell** merged (oq4n closed by builder? NO — check): marshal
+  renders `primary→secondary`, conf-derived, 229/229 + 5/5 mutants.
+- **o3qj molt-refusal consumer** merged `21ad7b8` after FIX-FIRST→fix→SHIP
+  (tab-collapse field shift fixed via row_fields(); E9 mutant). Second
+  refused/failed molt within 90m now pages Zig (P1 human: bead + push).
+  **Bead still OPEN** — close after the combined carry lands (needs the
+  ## Guard line: suites test-seat-molt 69 + test-pulse-escalate 45 +
+  mutate-o3qj 11/11; verdict trail on the bead).
+- **Statusline docket** fleet-marked for the drain: 5j0k (W1, ready) → kcto
+  (W2) → 2710 (W4); wq1z (W3) unblocked by kecb close. Zig's taste calls
+  baked in (→ separator, clock dies, seat name shown).
+- **Filed en route**: gu0o (P1 false-green harness gate), kuog (P2 fleet,
+  inject-suite shared-server flake), b1cd (P1 index-race, pathspec idiom),
+  hzvi (P3 window_note wording), 3dyx (P1 dispatch-alias 200k gap — SONNET
+  pin is the half-fix), hdm3 (P2 fleet, 7d filter hole), h1oa (consul docket
+  pulse spec — Zig-gated OQs).
+- Works coordination throughout: index-race disclosure, drain hold, budget
+  seam (their 5gob), carry gaps, restart sequence — all via SendMessage,
+  zero collisions.
 
 ## Friction
-- SendMessage to a reaped-worktree agent cannot resume ("isolation fences") — re-dispatch fresh with cold-start context; cost one full prompt rewrite. → one-off (known shape now)
-- Offboard marker held a PEER session's id at onboard (seneschal's dead session) — the ixyi family again. → dotfiles-ixyi
-- demesne-sync refuses on ANY dirt including own-sync leftovers; two round-trips lost. → one-off (behavior is correct, cost is small)
-- `br dep add` direction is easy to invert (created 3 edges backwards, fixed same session). → one-off (close-gate caught it)
+- Demesne commit gate flaked twice on test-pulse-inject legacy cases
+  (shared default-tmux-server fixtures racing concurrent gates) → filed
+  `dotfiles-kuog` (fleet-marked).
+- Background `git add X && git commit` swept another writer's staged files →
+  filed `dotfiles-b1cd`; pathspec commits adopted for the rest of the session.
+- `diff | head && echo IDENTICAL` pipe ate diff's exit code (the /commit
+  anti-pattern, self-inflicted) → one-off; per-file `cmp` loop used since.
+- tmux-kill-guard + stderr-guard + bead-body hooks each blocked one command →
+  one-off each (guards working as designed; commands reshaped).
+- `br comments add` syntax discovery cost two failed calls → one-off.
 
-## Decisions made this session
-- `dotfiles-40ej` — gateway-outage hardening charters (no auto-flip, targeted kickstart, nudge-only recovery)
-- Sequencing decisions recorded on beads rather than separate decision beads: o3qj sequenced-not-absorbed; lstn behind t5fj (file collision); glfx front-runs rbci build. Shared-store note: `kjjf`, `t06l`, `b01h` in the harvest window are OTHER seats' decisions (Works/marshal lane).
+## Decisions made this session (harvest: 8 since 15:05Z, 44 scanned)
+- `dotfiles-7ibz` — THE CONSUL topology (mine; the governing record)
+- `dotfiles-40ej` — gateway-outage hardening charters (mine, pre-compaction)
+- `dotfiles-1aw8` — roster keeps aliases; canonicalise at the boundary (my lane's builder)
+- `dotfiles-kjjf`, `dotfiles-bg71`, `dotfiles-b01h`, `dotfiles-zfgu` — Works-lane decisions (theirs; listed for the window, not harvested into my lane)
+- `dotfiles-t06l` — OPEN, genuinely Zig's (bead-trailer exemption)
 
 ## Proposed practices — where each landed
-- "One re-fire owner / staleness verification" → lives in pulse-escalate.sh SINGLE OWNERSHIP header + t5fj build (mechanical)
-- "Alias→canonical model table at every launch/restore seam" → filed `dotfiles-lstn`
-- "CLAUDE.md hall binding says prefix H, actually prefix W" → fold into next /housekeeping (small doc fix, no bead)
+- "Pathspec commits in shared trees" → `dotfiles-b1cd` AC 1 (AGENTS.md edit rides its fix)
+- "Suites must not fixture the default tmux server" → `dotfiles-kuog`
+- "NOT-RUN mutant ≠ killed" → `dotfiles-gu0o`
 - none homeless.
 
-## What's next (priority order for this seat)
-1. Land the two in-flight rounds: t5fj fix round → scrutinizer re-verify → guarded merge (t5fj branch THEN escalate-ext branch — no file overlap); commit staged `mutate-t5fj-staleness.sh` + its pre-commit arm alongside; demesne carry = PING WORKS FIRST (live injector; run gap protocol), then escalate-ext carry is unglued (script re-read per tick, no re-arm needed).
-2. Real-window verify per t5fj AC (repo rule 1) at carry time; close `t5fj`.
-3. Dispatch `lstn` (now unblocked); then `yrsg` → `rbci`+`glfx` harness half (deadline: Fable exhaustion, BEFORE Thu).
-4. `o3qj`+`inqj`+`betl` molt-lifecycle wave (external-offboard design round); `or6a` implement (adaptive guard threshold) + `t9m7`/`w4ac`/`ie5a` overhead wave.
-5. Zig's open decisions: `digestd-c2f` (digest model — qtug verdict attached), `t06l` (bead-trailer exemption).
+## What's next (priority order)
+1. Verify the combined carry landed (demesne HEAD + clean tree); byte-verify
+   (per-file cmp, never diff|head); then close `o3qj` (Guard line above) and
+   confirm carry to Works if they haven't self-served.
+2. Marshal restart evidence → close `lstn` (AC5: fresh onboard ~1M scale;
+   capture pane or ask Works). Then watch the first REAL rollover (Fable at
+   ~81% — likely this week) as kecb's production observation.
+3. `yrsg` build (ceiling recovery: detect/wait/restart — consumes
+   tap-headroom, reuses pulse-retry/api-stall; zero new re-fire owners).
+4. Remaining waves: inqj + betl (molt-lifecycle), or6a implement + t9m7/w4ac/
+   ie5a (overhead); drain handles the fleet-marked set (statusline W1/W2/W4,
+   wq1z, hdm3, kuog).
+5. Zig decisions parked: t06l, digestd-c2f, h1oa's three OQs; his linearb
+   re-login (l42h) when convenient.
 
 ## Warnings / watch-outs
-- Marshal campaign runs serial supervised floor runs all evening (Works session, `kjjf`); failure counter was 2/3 at last sync. NEVER touch marshal window/units/drain-ledger without pinging Works; pulse-inject/pulse-retry demesne carry ONLY in a run gap.
-- pulse-escalate is ARMED and live: escalate.conf watches pulse-marshal only; extension changes semantics on merge+carry (no re-arm needed — but the result-line contract changed: `reconciled-unlisted` inserted).
-- The seneschal window is CLOSED (Zig, 70% loop) — its next scheduled tick 13:44Z re-creates it; with settings fixed it should launch 1M, but the roster `--model fable` pin may still force 200k until `lstn` lands. If tomorrow's brief thrashes again, that's why.
-- Fable weekly allotment: Zig at 70%, reset Thu 11pm PT — `glfx` (reserve tap) is deadline-bound by BURN, not by Thursday.
+- **Every marshal launch now emits the rollover triple** (home=primary from
+  its config dir, used=secondary) — correct-and-visible, NOT an error. 687p
+  normalizes the roster naming later.
+- **Escalate pages Zig on a second refused/failed molt within 90m** — before
+  molting any seat twice deliberately inside that window, expect a NOTE at
+  minimum; the 30m rate limit makes healthy double-molts safe (reviewed).
+- Demesne gates: expect the kuog flake until it's fixed; retry once from a
+  quiet moment, never bypass.
+- The dotfiles→demesne sync REVERTS live-settings drift (theme incident) —
+  absorb client-persisted settings into dotfiles FIRST, then sync.
+- gu0o (false-green mutation gate) is P1 and unfixed — treat demesne-side
+  "all mutants killed" lines with suspicion until it lands.
