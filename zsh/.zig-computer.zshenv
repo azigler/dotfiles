@@ -54,3 +54,19 @@ lb-claude() {
   fi
   ( export CLAUDE_CONFIG_DIR="$seat"; claude "$@" )
 }
+
+# --- the even trio (Zig, 2026-08-10): claude / claude-secondary / claude-linearb.
+# Same subshell idiom as lb-claude above, same three wrong implementations, same
+# refusal to fall back silently. `claude` alone stays the primary tap (wrapper
+# default). Verify with `type claude-secondary`, not by reading this comment.
+claude-secondary() {
+  local seat="${CLAUDE_SECONDARY_SEAT:-$HOME/.claude-secondary}"
+  if [ ! -s "$seat/.credentials.json" ]; then
+    print -u2 "claude-secondary: no credential at $seat"
+    print -u2 "  mint it once:  CLAUDE_CONFIG_DIR=$seat claude   # then /login as zig@zigler.ai"
+    print -u2 "  refusing to fall back to the primary seat — that failure would be invisible."
+    return 78
+  fi
+  ( export CLAUDE_CONFIG_DIR="$seat"; claude "$@" )
+}
+claude-linearb() { lb-claude "$@" }
