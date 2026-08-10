@@ -88,9 +88,21 @@
 - none homeless.
 
 ## What's next (priority order)
+0. **`dotfiles-qwq9` (P1, THIS LANE): seat_home is DEAD CODE on the launch
+   path** — Works found it executing the marshal restart: th_pick_pool
+   returns the config-dir pool unless AT CEILING; seat_home only orders the
+   fallback walk. Every existing test (G14/T22, the 21:13Z live changeover)
+   exercises the ceiling leg; the home-SELECTION leg was never asserted and
+   is broken. taps.conf's comment describes the INTENDED semantics ("moves
+   the seat's FIRST choice") — fix code to doc. Full analysis + fix shape +
+   required mutants in my comment on the bead. The marshal runs safely on
+   Works' env-pin interim (billing=budget=headers=secondary, verified);
+   after the fix + one verified launch, remove the pane export.
 1. Verify the combined carry landed (demesne HEAD + clean tree); byte-verify
    (per-file cmp, never diff|head); then close `o3qj` (Guard line above) and
-   confirm carry to Works if they haven't self-served.
+   confirm carry to Works if they haven't self-served. Note: my carry was cut
+   AFTER Works' 8x8l merge (dad9f86 ∈ my 21ad7b8), so their top-up diff
+   should come back empty.
 2. Marshal restart evidence → close `lstn` (AC5: fresh onboard ~1M scale;
    capture pane or ask Works). Then watch the first REAL rollover (Fable at
    ~81% — likely this week) as kecb's production observation.
@@ -103,9 +115,11 @@
    re-login (l42h) when convenient.
 
 ## Warnings / watch-outs
-- **Every marshal launch now emits the rollover triple** (home=primary from
-  its config dir, used=secondary) — correct-and-visible, NOT an error. 687p
-  normalizes the roster naming later.
+- **CORRECTED (qwq9): the rollover triple does NOT fire on marshal launches
+  yet** — seat_home never moves home on current code, and under Works'
+  env-pin interim the launch IS home (config dir = secondary), so no triple
+  is expected. The triple on every seat_home launch arrives with the qwq9
+  fix. 687p normalizes the roster naming later.
 - **Escalate pages Zig on a second refused/failed molt within 90m** — before
   molting any seat twice deliberately inside that window, expect a NOTE at
   minimum; the 30m rate limit makes healthy double-molts safe (reviewed).
