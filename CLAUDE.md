@@ -29,7 +29,7 @@ Consequences that bite:
 | `agents/hooks/` | every hook — these run on **every tool call fleet-wide** |
 | `agents/lib/` | shared shell libs the hooks source |
 | `agents/scheduler/` | `pulse-inject.sh`, unit templates, `pulse-ledger-lint.py` |
-| `agents/bin/` | standalone operator scripts — `hall` (THE HALL: the court view of the roster, `prefix H` in tmux), `claude-seat-link.sh` (wire a second Claude seat into the harness), `restart-loop-check.sh` |
+| `agents/bin/` | standalone operator scripts — `hall` (THE HALL: the court view of the roster, `prefix W` in tmux — verified against the live binding, `dotfiles-ws16`; the `prefix H` this line once claimed never existed), `claude-seat-link.sh` (wire a second Claude seat into the harness), `restart-loop-check.sh` |
 | ~~`agents/infra.md`~~ | machine + mesh baseline — **no longer here.** It lives in the private demesne repo at `~/.agents/infra.md`; **re-verify before depending on a fact** |
 | `mac.setup.sh` / `ubuntu.setup.sh` | first-run machine provisioning |
 | `mac.upgrade.sh` / `ubuntu.upgrade.sh` / `pico.upgrade.sh` | per-machine binary upgrades — one per OS/role |
@@ -122,5 +122,7 @@ Consequences that bite:
 
 ## Beads
 
-Prefix `dotfiles`. Orchestrator owns the lifecycle. Live epic for the Opus-5
-harness refactor: `dotfiles-b9ii`.
+Prefix `dotfiles`. Orchestrator owns the lifecycle. For what is live, run the
+query — `br list --type epic` / `br ready` — never a citation here (the
+two-copies rule; this line once pointed at an epic that stayed "live" in prose
+for nine days after its era ended).
