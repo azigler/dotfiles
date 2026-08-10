@@ -116,7 +116,14 @@ DEST="${DEMESNE_SYNC_DEST:-$HOME/demesne}"
 EXCLUDE_FILE="${DEMESNE_SYNC_EXCLUDE_FILE:-$SCRIPT_DIR/demesne-sync.exclude}"
 
 # The brain, per dotfiles-agent-brain-split-ezeu's Context. See the header.
-SYNCED_DIRS=(agents refs claude)
+# zsh + tmux joined 2026-08-10 (dotfiles-gu0o's structural half): the agent
+# tier's own suites and harnesses assert against them — mutate-tap-failover's
+# M8 mutates zsh/.zshenv, test-hall asserts tmux/ bindings — so a demesne
+# without them cannot self-verify its gate, which blocked two real carries
+# in one night (M8 NOT-RUN false-green 21:3xZ; hall suite HARNESS ERROR
+# 01:0xZ). The alternative (declared per-repo skips) was rejected: a skip
+# list is a standing hole in the flip's destination repo.
+SYNCED_DIRS=(agents refs claude zsh tmux)
 
 info() { printf '%s\n' "$*"; }
 warn() { printf '%s\n' "$*" >&2; }

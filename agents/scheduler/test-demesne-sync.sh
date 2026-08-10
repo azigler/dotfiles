@@ -61,11 +61,14 @@ trap 'rm -rf "$WORK"' EXIT
 mkpair() {
   local n=$1 root="$WORK/$1" side
   for side in src dest; do
-    mkdir -p "$root/$side/agents/sub" "$root/$side/refs" "$root/$side/claude"
+    mkdir -p "$root/$side/agents/sub" "$root/$side/refs" "$root/$side/claude" \
+             "$root/$side/zsh" "$root/$side/tmux"
     printf 'agent tier\n' > "$root/$side/agents/a.sh"
     printf 'nested\n'      > "$root/$side/agents/sub/b.md"
     printf 'reference\n'   > "$root/$side/refs/r.md"
     printf '{"k":1}\n'     > "$root/$side/claude/settings.json"
+    printf 'env tier\n'    > "$root/$side/zsh/.zshenv"
+    printf 'mux tier\n'    > "$root/$side/tmux/.tmux.conf"
   done
   printf '%s' "$root"
 }
@@ -108,7 +111,7 @@ fi
 # --- 2 -- the gate over identical trees ------------------------------------
 R=$(mkpair identical)
 run "$R/src" "$R/dest" --gate
-if [ "$RC" -eq 0 ] && [ "$LAST" = "DEMESNE_GATE_RESULT=IDENTICAL dirs=3 entries=0" ]; then
+if [ "$RC" -eq 0 ] && [ "$LAST" = "DEMESNE_GATE_RESULT=IDENTICAL dirs=5 entries=0" ]; then
   ok "2 identical trees: gate exits 0 with IDENTICAL entries=0"
 else
   bad "2 identical trees: gate exits 0 with IDENTICAL entries=0" "rc=$RC last=$LAST"
@@ -123,7 +126,7 @@ printf 'brand new hook\n' > "$R/src/agents/new-hook.sh"
 printf 'changed\n' > "$R/src/refs/r.md"
 run "$R/src" "$R/dest" --gate
 if [ "$RC" -eq 10 ] &&
-   [ "$LAST" = "DEMESNE_GATE_RESULT=DRIFT dirs=3 entries=2" ] &&
+   [ "$LAST" = "DEMESNE_GATE_RESULT=DRIFT dirs=5 entries=2" ] &&
    printf '%s' "$OUT" | grep -q 'new-hook.sh' &&
    printf '%s' "$OUT" | grep -q 'r.md'; then
   ok "3 drift: gate exits 10, entries=2, and NAMES both entries"
@@ -135,8 +138,8 @@ fi
 run "$R/src" "$R/dest"
 SYNC_LAST=$LAST; SYNC_RC=$RC
 run "$R/src" "$R/dest" --gate
-if [ "$SYNC_RC" -eq 0 ] && printf '%s' "$SYNC_LAST" | grep -q '^DEMESNE_SYNC_RESULT=OK dirs=3 changed=' &&
-   [ "$RC" -eq 0 ] && [ "$LAST" = "DEMESNE_GATE_RESULT=IDENTICAL dirs=3 entries=0" ] &&
+if [ "$SYNC_RC" -eq 0 ] && printf '%s' "$SYNC_LAST" | grep -q '^DEMESNE_SYNC_RESULT=OK dirs=5 changed=' &&
+   [ "$RC" -eq 0 ] && [ "$LAST" = "DEMESNE_GATE_RESULT=IDENTICAL dirs=5 entries=0" ] &&
    [ "$(cat "$R/dest/refs/r.md")" = "changed" ] &&
    [ -f "$R/dest/agents/new-hook.sh" ]; then
   ok "4 sync closes the drift: gate goes 10 -> 0 and the content really landed"
@@ -159,7 +162,7 @@ printf 'x\n' > "$R/src/claude/.pytest_cache/lastfailed"
 printf 'x\n' > "$R/dest/agents/sub/node_modules/dep/index.js"
 printf 'x\n' > "$R/src/agents/loose.pyc"
 run "$R/src" "$R/dest" --gate
-if [ "$RC" -eq 0 ] && [ "$LAST" = "DEMESNE_GATE_RESULT=IDENTICAL dirs=3 entries=0" ]; then
+if [ "$RC" -eq 0 ] && [ "$LAST" = "DEMESNE_GATE_RESULT=IDENTICAL dirs=5 entries=0" ]; then
   ok "5 cache-only drift is invisible to the gate (6 excluded paths, both sides)"
 else
   bad "5 cache-only drift is invisible to the gate" "rc=$RC last=$LAST out=$(printf '%s' "$OUT" | head -20)"
@@ -279,9 +282,9 @@ printf 'incoming\n' > "$R/src/agents/incoming.sh"
 run "$R/src" "$R/dest" --dry-run
 D1_RC=$RC; D1_LAST=$LAST
 run "$R/src" "$R/dest" --gate --dry-run
-if [ "$D1_RC" -eq 0 ] && printf '%s' "$D1_LAST" | grep -q '^DEMESNE_SYNC_RESULT=DRYRUN dirs=3 changed=' &&
+if [ "$D1_RC" -eq 0 ] && printf '%s' "$D1_LAST" | grep -q '^DEMESNE_SYNC_RESULT=DRYRUN dirs=5 changed=' &&
    [ ! -e "$R/dest/agents/incoming.sh" ] &&
-   [ "$RC" -eq 0 ] && [ "$LAST" = "DEMESNE_GATE_RESULT=DRYRUN dirs=3" ] &&
+   [ "$RC" -eq 0 ] && [ "$LAST" = "DEMESNE_GATE_RESULT=DRYRUN dirs=5" ] &&
    printf '%s' "$OUT" | grep -q 'would run: diff -rq'; then
   ok "12 --dry-run in both modes exits 0, writes nothing, and reports DRYRUN"
 else
@@ -384,7 +387,7 @@ git -C "$R/src" add -A -- . >/dev/null
 git -C "$R/src" add -f -- agents/tests/__pycache__/t.cpython-313.pyc >/dev/null
 git -C "$R/src" -c user.email=t@t -c user.name=t commit -q --no-verify -m fixture >/dev/null
 run "$R/src" "$R/dest" --gate
-if [ "$RC" -eq 0 ] && [ "$LAST" = "DEMESNE_GATE_RESULT=IDENTICAL dirs=3 entries=0" ] &&
+if [ "$RC" -eq 0 ] && [ "$LAST" = "DEMESNE_GATE_RESULT=IDENTICAL dirs=5 entries=0" ] &&
    printf '%s' "$OUT" | grep -q 'TRACKED-BUT-GITIGNORED'; then
   ok "17 tracked-but-gitignored debris warns loudly and does NOT block the gate"
 else
@@ -417,14 +420,18 @@ else
 fi
 
 # --- 19 -- the synced set is the brain, and only the brain ----------------
-# Derived from dotfiles-agent-brain-split-ezeu's own count. Widening it widens
-# what --delete may touch; narrowing it takes a directory out of the gate the
+# Derived from dotfiles-agent-brain-split-ezeu's own count, WIDENED 2026-08-10
+# by zsh + tmux (dotfiles-gu0o's structural half: the agent tier's suites and
+# harnesses assert against both — mutate-tap-failover M8 mutates zsh/.zshenv,
+# test-hall asserts tmux/ bindings — and a demesne that cannot self-verify its
+# gate blocked two real carries in one night). Widening it widens what
+# --delete may touch; narrowing it takes a directory out of the gate the
 # cutover depends on. Either way it is a decision, not an edit.
 DECL=$(grep -n '^SYNCED_DIRS=' "$SCRIPT")
-if [ "$DECL" = "$(printf '%s' "$DECL" | grep -F 'SYNCED_DIRS=(agents refs claude)')" ] && [ -n "$DECL" ]; then
-  ok "19 the synced set is exactly (agents refs claude)"
+if [ "$DECL" = "$(printf '%s' "$DECL" | grep -F 'SYNCED_DIRS=(agents refs claude zsh tmux)')" ] && [ -n "$DECL" ]; then
+  ok "19 the synced set is exactly (agents refs claude zsh tmux)"
 else
-  bad "19 the synced set is exactly (agents refs claude)" "$DECL"
+  bad "19 the synced set is exactly (agents refs claude zsh tmux)" "$DECL"
 fi
 
 # --- 20 -- a second sync is a no-op ---------------------------------------
@@ -434,7 +441,7 @@ R=$(mkpair converge)
 printf 'x\n' > "$R/src/agents/n.sh"
 run "$R/src" "$R/dest"
 run "$R/src" "$R/dest"
-if [ "$RC" -eq 0 ] && [ "$LAST" = "DEMESNE_SYNC_RESULT=OK dirs=3 changed=0" ]; then
+if [ "$RC" -eq 0 ] && [ "$LAST" = "DEMESNE_SYNC_RESULT=OK dirs=5 changed=0" ]; then
   ok "20 an immediate second sync reports changed=0"
 else
   bad "20 an immediate second sync reports changed=0" "rc=$RC last=$LAST"
