@@ -44,10 +44,10 @@ esac
 # ./bootstrap-agents.sh); ~/.agents is the one indirection, and a CONTENT
 # marker rather than bare existence is what proves it holds a tier.
 #
-# The pre-split fallback that used to live here ($HOME/dotfiles/agents) is
-# gone with the tier itself: it could only ever resolve to a path that no
-# longer exists, and an AGENTS_ROOT pointing at nothing is worse than an
-# unset one — consumers can test the latter. Cheap: one stat, one readlink.
+# The pre-split fallback that used to live here — a path inside this repo — is
+# gone with the tier itself: it could only ever resolve to something that no
+# longer exists, and an AGENTS_ROOT pointing at nothing is worse than an unset
+# one, because consumers can test the latter. Cheap: one stat, one readlink.
 if [ -e "$HOME/.agents/agents/AGENTS.md" ]; then
   export AGENTS_ROOT="$(readlink -f "$HOME/.agents" 2>/dev/null)/agents"
 fi
