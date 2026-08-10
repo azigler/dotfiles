@@ -59,3 +59,9 @@ __pycache__/
 # transient agent worktrees
 .claude/worktrees/
 
+
+# Seat working notes (Zig, 2026-08-10: the Works seat's offboard lands in this
+# repo — its working home — but a handoff note carries operational detail the
+# public tier must not track, per rule 5. Local file, never committed; the
+# note's own header says where its history went.)
+refs/
