@@ -287,11 +287,17 @@ check "M6 cooldown-removed" "11"
 
 # M7 — THE PUSH HALF OF THE FLOOR INVERTED. The bead is filed, the phone never buzzes:
 # the floor degrades to exactly the surface Zig is not watching.
+#
+# Since dotfiles-o3qj this line lives in `push_now`, the ONE push implementation
+# both floors share — the bounce ladder's rung 4 and the molt-refusal watcher's
+# SUMMON — so the mutant names cases from both. That breadth is the point of
+# factoring it: a single inversion here silences every escalation path on the box
+# at once, and the must-fail list is what makes that visible rather than a surprise.
 fresh_copy
 mutate "$PE" \
   '  if [ -n "$PUSH_URL" ]; then' \
   '  if [ -z "$PUSH_URL" ]; then'
-check "M7 floor-never-pushes" "7"
+check "M7 floor-never-pushes (both floors — push_now is shared)" "7 28 30b 33b"
 
 # M8 — not_ready FILTERED OUT: pulse-retry.sh's hole, restored. A composer that never
 # comes up stalls the loop and escalates to nobody.

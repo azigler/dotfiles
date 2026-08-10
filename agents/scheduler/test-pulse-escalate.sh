@@ -305,6 +305,16 @@ EOIN
   export PULSE_ESCALATE_BR="$BIN/br"
   export PULSE_ESCALATE_CURL="$BIN/curl"
   unset PULSE_ESCALATE_MODAL_MARKER
+  # The epochs molt_row hands back, per case. NOT resetting this is a real trap:
+  # molt_prior keys an episode by ${MOLT_EPOCHS[0]}, and a leftover epoch from an
+  # earlier case makes the idempotency fixture point at an episode that no longer
+  # exists — the summon then fires and the case reads as a code bug (it did, once).
+  MOLT_EPOCHS=()
+  # $MOLT_LEDGER is seat-molt.sh's env seam and pulse-escalate reuses the NAME, so
+  # a shell that happens to export it (test-seat-molt.sh does) would point this
+  # suite's molt-refusal watcher at a foreign file. HARNESS_STATE_DIR above is the
+  # only seam this suite wants.
+  unset MOLT_LEDGER
   cat > "$CASE/escalate.conf" <<EOCONF
 loops=pulse-marshal:marshal:zig-computer
 grace_minutes=10
@@ -344,6 +354,25 @@ prior_state() { # prior_state <episode-ts> <rung> <acted-minutes-ago>
   printf '{"loop":"pulse-marshal","episode":"%s","rung":"%s","acted_ts":"%s"}\n' \
     "$1" "$2" "$(ago_iso "$3")" > "$HARNESS_STATE_DIR/pulse-escalate-state.jsonl"
 }
+
+# --- the molt-refusal watcher's fixtures (dotfiles-o3qj) ----------------------
+# seat-molt.sh's ledger row, verbatim shape (see its THE REFUSAL RECORD block):
+# ts/epoch/session/window/mode/pct/result/reason, `reason` last and always present.
+MOLT_EPOCHS=()
+molt_row() { # molt_row <minutes-ago> <result> [pct] [reason] [window] [session]
+  local ep; ep=$(( $(date +%s) - $1 * 60 ))
+  MOLT_EPOCHS+=("$ep")
+  printf '{"ts":"%s","epoch":%s,"session":"%s","window":"%s","mode":"molt","pct":%s,"result":"%s","reason":"%s"}\n' \
+    "$(date -u -d "@$ep" +%FT%TZ)" "$ep" "${6:-zig-computer}" "${5:-marshal}" "${3:-73}" "$2" \
+    "${4:-window marshal already molted within the last 30 minutes — molt-loop protection refused a second cycle}" \
+    >> "$HARNESS_STATE_DIR/molt-ledger.jsonl"
+}
+molt_prior() { # molt_prior <seat> <episode-epoch> <stage>
+  printf '{"seat":"%s","episode":"%s","stage":"%s","acted_ts":"%s"}\n' \
+    "$1" "$2" "$3" "$(ago_iso 1)" > "$HARNESS_STATE_DIR/molt-refusal-state.jsonl"
+}
+molt_stage() { sed -n -E 's/.*"stage":"([^"]*)".*/\1/p' "$HARNESS_STATE_DIR/molt-refusal-state.jsonl" 2>/dev/null | head -1; }
+molt_conf() { printf '%s\n' "$1" >> "$CASE/escalate.conf"; }
 run() { OUT=$("$ESC" 2>&1); RC=$?; VERDICT=$(printf '%s\n' "$OUT" | tail -1); }
 count() { [ -f "$PE_FAKE/$1" ] && wc -l < "$PE_FAKE/$1" | tr -d ' ' || echo 0; }
 rung_of() { sed -n -E 's/.*"rung":"([^"]*)".*/\1/p' "$HARNESS_STATE_DIR/pulse-escalate-state.jsonl" 2>/dev/null | head -1; }
@@ -591,7 +620,7 @@ fi
 #   no-op that reads exactly like "nothing to do".
 setup_case
 run
-if [ "$RC" = 0 ] && [ "$VERDICT" = "PULSE_ESCALATE_RESULT=checked:0:grace:0:reconciled:0:reconciled-unlisted:0:nudged:0:raised:0:floored:0:skipped:0:errors:0" ]; then
+if [ "$RC" = 0 ] && [ "$VERDICT" = "PULSE_ESCALATE_RESULT=checked:0:grace:0:reconciled:0:reconciled-unlisted:0:nudged:0:raised:0:floored:0:skipped:0:errors:0:molt-refusals:0:molt-noted:0:molt-summoned:0" ]; then
   ok
 else
   bad "14 verdict: the empty run emits the full documented result line last (rc=$RC verdict='$VERDICT')"
@@ -870,6 +899,262 @@ if [ "$(count renames)" = 0 ] && [ "$(winname 1)" = "🔔 dive" ] \
   ok
 else
   bad "26b unlisted-no-ladder: an unlisted loop that cannot be reconciled escalates to nobody (injects=$(count inject-calls) started=$(count started) br=$(count br-calls) verdict=$VERDICT)"
+fi
+
+# ===========================================================================
+# THE MOLT-REFUSAL WATCHER (dotfiles-o3qj) — cases 27-35
+# ===========================================================================
+# THE LIVE INSTANCES these are built from, both 2026-08-09: the dream seat sat at
+# 100% context for 3+ hours after `refused-not-offboarded` (found only because Zig
+# asked), and the marshal refused at 21:22:12Z with `refused-rate-limited` at 73%.
+# In both, seat-molt's decision was RIGHT and the silence was the bug — the refusal
+# went to a log with no reader. AGENTS.md it06 ("a failed/refused molt TWICE is the
+# only context event that summons Zig") had no mechanical arm; these cases are it.
+#
+# Every case here asserts the NEGATIVES too. This watcher's floor is a P1 bead and
+# a buzz on Zig's phone, so "did not fire" is as load-bearing as "fired".
+
+# ---------------------------------------------------------------------------
+# Case 27: ONE REFUSAL IS A NOTE, NOT AN ESCALATION. it06 says TWICE; a watcher that
+#   summoned on the first refusal would page Zig for every ordinary rate-limit
+#   bounce. The rung still writes the refusal down — a note file and a log line —
+#   because the alternative to escalating is recording, not forgetting.
+setup_case
+molt_row 5 refused-rate-limited
+run
+if [ "$(count br-calls)" = 0 ] && [ "$(count curl-calls)" = 0 ] \
+   && [ "$(count inject-calls)" = 0 ] && [ "$(count started)" = 0 ] && [ "$(count renames)" = 0 ] \
+   && v_has "molt-refusals:1" && v_has "molt-noted:1" && v_has "molt-summoned:0" \
+   && [ "$(molt_stage)" = noted ] \
+   && grep -q 'zig-computer:marshal' "$HARNESS_STATE_DIR/molt-refusal-note.md" \
+   && logtxt | grep -q 'MOLT-NOTE zig-computer:marshal'; then
+  ok
+else
+  bad "27 first-refusal-notes: one refusal is recorded and escalates to nobody (br=$(count br-calls) curl=$(count curl-calls) stage=$(molt_stage) verdict=$VERDICT)"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 28: THE SUMMON — it06's rule, mechanically. A SECOND refusal for the same
+#   seat inside the window is the wedge that has no other watcher, so it files a P1
+#   `human:` bead (the prefix seneschal-gather.py filters on) AND pushes. Both, never
+#   one: the bead is the durable surface and the push is the one that reaches him
+#   tonight. The bead must carry the EVIDENCE — both verdicts and the context pct —
+#   because "the marshal refused twice" is not actionable and "refused-not-offboarded
+#   at 73%, then rate-limited" is.
+setup_case
+molt_row 40 refused-not-offboarded 61 "not offboarded: that session kept working past its offboard"
+molt_row 5  refused-rate-limited   73
+run
+if [ "$(count br-calls)" = 1 ] && grep -q 'human:' "$PE_FAKE/br-calls" \
+   && grep -q -- '-p 1' "$PE_FAKE/br-calls" && grep -q 'marshal' "$PE_FAKE/br-calls" \
+   && grep -q 'refused-not-offboarded' "$PE_FAKE/br-calls" \
+   && grep -q 'refused-rate-limited' "$PE_FAKE/br-calls" \
+   && grep -q '73%' "$PE_FAKE/br-calls" \
+   && [ "$(count curl-calls)" = 1 ] && grep -q 'marshal seat is wedged' "$PE_FAKE/curl-body" \
+   && v_has "molt-summoned:1" && [ "$(molt_stage)" = summoned ] \
+   && [ "$(count inject-calls)" = 0 ] && [ "$(count started)" = 0 ] && [ "$(count renames)" = 0 ]; then
+  ok
+else
+  bad "28 second-refusal-summons: two refusals in the window file a P1 human: bead AND push, carrying both verdicts and the pct (br=$(count br-calls) curl=$(count curl-calls) stage=$(molt_stage) verdict=$VERDICT)"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 29: THE SUMMON IS IDEMPOTENT PER EPISODE. This script ticks every 5 minutes
+#   and the ledger is APPEND-ONLY — the two rows that justified the summon are still
+#   there on the next tick, and the one after, forever. Without the episode memory a
+#   single wedge becomes a bead every five minutes and a phone that buzzes all night,
+#   which is how a summon turns into noise Zig learns to ignore.
+setup_case
+molt_row 40 refused-not-offboarded 61
+molt_row 5  refused-rate-limited   73
+molt_prior "zig-computer:marshal" "${MOLT_EPOCHS[0]}" summoned
+run
+if [ "$(count br-calls)" = 0 ] && [ "$(count curl-calls)" = 0 ] \
+   && v_has "molt-summoned:0" && v_has "molt-noted:0" && v_has "molt-refusals:1"; then
+  ok
+else
+  bad "29 summon-idempotent: an already-summoned episode never files a second bead or push (br=$(count br-calls) curl=$(count curl-calls) verdict=$VERDICT)"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 30: THE ROLLING WINDOW IS REAL. Two refusals 200 minutes apart are two
+#   separate incidents, not one escalating one — a seat that refuses once a morning
+#   is not wedged, and summoning on that pair would make the P1 bead meaningless.
+#   Only the newest is in the current episode, so this is a NOTE.
+setup_case
+molt_row 200 refused-not-offboarded 61
+molt_row 5   refused-rate-limited   73
+run
+if [ "$(count br-calls)" = 0 ] && [ "$(count curl-calls)" = 0 ] \
+   && v_has "molt-noted:1" && v_has "molt-summoned:0"; then
+  ok
+else
+  bad "30 rolling-window: refusals further apart than the window are separate episodes (br=$(count br-calls) verdict=$VERDICT)"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 30b: ...and the window is CONF, not a constant. The same two rows, with
+#   molt_refusal_window_minutes widened past their spacing, ARE one episode and DO
+#   summon. This is what makes case 30 a test of the clock rather than of the fixture.
+setup_case
+molt_conf "molt_refusal_window_minutes=300"
+molt_row 200 refused-not-offboarded 61
+molt_row 5   refused-rate-limited   73
+run
+if [ "$(count br-calls)" = 1 ] && [ "$(count curl-calls)" = 1 ] && v_has "molt-summoned:1"; then
+  ok
+else
+  bad "30b conf-window: widening molt_refusal_window_minutes makes the same pair one episode (br=$(count br-calls) verdict=$VERDICT)"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 31: AN EPISODE THAT IS OVER SUMMONS NOBODY. Nothing has refused inside the
+#   window — the seat molted, or stopped trying, hours ago. The ledger keeps those
+#   rows forever, so without this check every seat on the box eventually accumulates
+#   two refusals and the summon degrades into a daily alarm about nothing.
+setup_case
+molt_row 400 refused-not-offboarded 61
+molt_row 300 refused-rate-limited   73
+run
+if [ "$(count br-calls)" = 0 ] && [ "$(count curl-calls)" = 0 ] \
+   && v_has "molt-refusals:0" && v_has "molt-noted:0" && v_has "molt-summoned:0"; then
+  ok
+else
+  bad "31 stale-episode: refusals older than the window escalate nothing (br=$(count br-calls) verdict=$VERDICT)"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 32: A SUCCESSFUL MOLT ENDS THE EPISODE OUTRIGHT. Refuse, then molt, then
+#   refuse again is ONE current refusal — the seat demonstrably shed its context in
+#   between. This is exactly tonight's marshal trail (refused-not-offboarded 19:22,
+#   molted 21:15, refused-rate-limited 21:22): a watcher without this reset would
+#   have paged Zig about a seat that had just successfully molted seven minutes
+#   earlier, which is the false positive that would discredit the whole mechanism.
+setup_case
+molt_row 40 refused-not-offboarded 61
+molt_row 20 molted                 61 ""
+molt_row 5  refused-rate-limited   73
+run
+if [ "$(count br-calls)" = 0 ] && [ "$(count curl-calls)" = 0 ] \
+   && v_has "molt-noted:1" && v_has "molt-summoned:0"; then
+  ok
+else
+  bad "32 molt-resets-episode: a successful molt between two refusals prevents the summon (br=$(count br-calls) verdict=$VERDICT)"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 33: aborted-modal IS NOT IN THE REFUSAL SET, deliberately. That pane is
+#   showing Zig an open dialog — it is ALREADY summoning him, by the only mechanism
+#   that matters — so a P1 bead about it is noise. Two of them still fire nothing.
+#   (seat-molt records them anyway; the exclusion is the consumer's call to make,
+#   and it can only make it from a record.)
+setup_case
+molt_row 40 aborted-modal 61 "the pane is blocked on Andrew"
+molt_row 5  aborted-modal 73 "the pane is blocked on Andrew"
+run
+if [ "$(count br-calls)" = 0 ] && [ "$(count curl-calls)" = 0 ] \
+   && v_has "molt-refusals:0" && v_has "molt-noted:0" && v_has "molt-summoned:0"; then
+  ok
+else
+  bad "33 modal-excluded: aborted-modal never summons (that pane already has Zig's attention) (br=$(count br-calls) verdict=$VERDICT)"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 33b: aborted-not-idle IS in the set. The molt did not happen and the context
+#   was not freed — the seat is wedged in exactly the way it06 is about — so two of
+#   them summon like any other pair.
+setup_case
+molt_row 40 aborted-not-idle 61 "the pane never went idle within 900s"
+molt_row 5  aborted-not-idle 73 "the pane never went idle within 900s"
+run
+if [ "$(count br-calls)" = 1 ] && [ "$(count curl-calls)" = 1 ] && v_has "molt-summoned:1"; then
+  ok
+else
+  bad "33b not-idle-included: two aborted-not-idle refusals summon (the molt did not happen) (br=$(count br-calls) verdict=$VERDICT)"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 34: THE KILL SWITCH. molt_refusal_watch=off restores the pre-o3qj silence.
+#   It exists so the fleet-wide-by-default judgement is reversible without an edit;
+#   it is deliberately NOT a per-seat allowlist, because the seats nobody would list
+#   are the ones that wedge unnoticed.
+setup_case
+molt_conf "molt_refusal_watch=off"
+molt_row 40 refused-not-offboarded 61
+molt_row 5  refused-rate-limited   73
+run
+if [ "$(count br-calls)" = 0 ] && [ "$(count curl-calls)" = 0 ] \
+   && v_has "molt-refusals:0" && v_has "molt-summoned:0" \
+   && [ ! -f "$HARNESS_STATE_DIR/molt-refusal-state.jsonl" ]; then
+  ok
+else
+  bad "34 kill-switch: molt_refusal_watch=off does nothing at all (br=$(count br-calls) verdict=$VERDICT)"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 35: THE MOLT LEDGER IS READ-ONLY HERE, and the watcher touches no pane. Same
+#   rule as case 18 for the bounce log: a consumer that wrote to its own input would
+#   be manufacturing the signal it reads. And a refused molt leaves an IDLE-LOOKING
+#   pane — there is nothing to rename and nobody to inject — so a watcher that
+#   started typing would be acting on a window whose glyph is telling the truth.
+setup_case
+molt_row 40 refused-not-offboarded 61
+molt_row 5  refused-rate-limited   73
+BEFORE=$(cat "$HARNESS_STATE_DIR/molt-ledger.jsonl")
+run
+if [ "$BEFORE" = "$(cat "$HARNESS_STATE_DIR/molt-ledger.jsonl")" ] \
+   && [ "$(count renames)" = 0 ] && [ "$(count inject-calls)" = 0 ] && [ "$(count started)" = 0 ]; then
+  ok
+else
+  bad "35 read-only: the watcher never writes the molt ledger and never touches a pane (renames=$(count renames) injects=$(count inject-calls) started=$(count started))"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 36: A NULL pct MUST NOT SHIFT THE FIELDS (adversarial review, 2026-08-09).
+#   `pct` is null on every refusal recorded without a statusline reading — most of
+#   them, including every pre-o3qj row — so the packed row carries TWO ADJACENT
+#   TABS. Tab is IFS whitespace, so `IFS=$'\t' read` collapses that run into one
+#   delimiter and the REASON lands in the PCT slot: the first cut's note read
+#   "(context not offboarded: there is no offboard marker at /x/…session%)" and
+#   reported the reason as <none>. Both halves of that are disqualifying — a
+#   fabricated context percentage, and the loss of the only evidence the note
+#   carries. The assertions are therefore positive AND negative: the reason renders
+#   whole, the pct renders as UNKNOWN, and the mangled form is provably absent.
+NULLPCT_REASON='not offboarded: there is no offboard marker at /x/.claude/last-offboard-session'
+setup_case
+molt_row 5 refused-not-offboarded null "$NULLPCT_REASON"
+run
+NOTEF="$HARNESS_STATE_DIR/molt-refusal-note.md"
+if v_has "molt-noted:1" \
+   && logtxt | grep -qF "$NULLPCT_REASON" && logtxt | grep -q 'context unknown' \
+   && ! logtxt | grep -q 'session%' && ! logtxt | grep -q 'no reason recorded' \
+   && grep -qF "$NULLPCT_REASON" "$NOTEF" && grep -q 'context unknown' "$NOTEF"; then
+  ok
+else
+  bad "36 null-pct-note: a pct-less refusal notes the reason whole and the pct as unknown (verdict=$VERDICT log=$(logtxt | grep MOLT-NOTE | head -1))"
+fi
+
+# ---------------------------------------------------------------------------
+# Case 36b: ...and the SUMMON, which is the one that reaches Zig. The bead's trail
+#   and the push TITLE both render through the same parse, so the field shift
+#   corrupted the page itself: "the seat is wedged (context already molted within
+#   the last 30 minutes%)". A summon whose headline reports a percentage that is
+#   really a sentence is worse than no summon — it teaches the reader to distrust
+#   the mechanism.
+setup_case
+molt_row 40 refused-not-offboarded null "$NULLPCT_REASON"
+molt_row 5  refused-rate-limited   null "already molted within the last 30 minutes"
+run
+if [ "$(count br-calls)" = 1 ] && [ "$(count curl-calls)" = 1 ] && v_has "molt-summoned:1" \
+   && grep -qF "$NULLPCT_REASON" "$PE_FAKE/br-calls" \
+   && grep -q 'context unknown' "$PE_FAKE/br-calls" \
+   && grep -q 'context unknown' "$PE_FAKE/curl-body" \
+   && ! grep -q 'session%' "$PE_FAKE/br-calls" \
+   && ! grep -q 'minutes%' "$PE_FAKE/curl-body" \
+   && ! grep -q 'no reason recorded' "$PE_FAKE/br-calls"; then
+  ok
+else
+  bad "36b null-pct-summon: the bead trail and the push title carry the reasons whole and 'context unknown' (br=$(count br-calls) curl=$(count curl-calls) verdict=$VERDICT)"
 fi
 
 # --- Summary ---

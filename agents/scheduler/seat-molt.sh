@@ -150,11 +150,44 @@
 #
 # LEDGER — one row per run (refusals included; that is the audit value) at
 # ~/.local/state/harness/molt-ledger.jsonl:
-#   {"ts","epoch","session","window","mode","pct","result"}
+#   {"ts","epoch","session","window","mode","pct","result","reason"}
 # `epoch` is additive to the spec'd fields on purpose: the rate limit reads this
 # file, and re-parsing an ISO timestamp in portable shell is exactly the kind of
 # thing that fails open. Only rows whose result is a REAL molt count against the
 # rate limit — a refusal must never lock the window out of a later legitimate one.
+#
+# ---------------------------------------------------------------------------
+# THE REFUSAL RECORD, AND WHY IT IS THIS FILE (dotfiles-o3qj)
+# ---------------------------------------------------------------------------
+# A refusal here is a CORRECT decision with a SILENT consequence: the seat is not
+# molted, the invoker's turn is already over so nothing in the pane sees the
+# verdict, and the seat sits wedged at whatever context it was at. Measured twice
+# on 2026-08-09 — the dream seat at 100% for 3+ hours after
+# `refused-not-offboarded`, and the marshal at 21:22:12Z at 73% after
+# `refused-rate-limited`. AGENTS.md's it06 doctrine ("a failed/refused molt TWICE
+# is the only context event that summons Zig") had no mechanical arm because
+# NOTHING READ THESE ROWS.
+#
+# It does now: pulse-escalate.sh's MOLT-REFUSAL WATCHER reads this ledger every
+# tick. Two consequences for anyone editing below.
+#
+#   1. THE LEDGER IS THE RECORD — there is no second refusals file. A separate
+#      molt-refusals.jsonl would be the `two-copies` defect with the rate limit
+#      already reading THIS file: two writers, one fact, and a refusal recorded in
+#      one place but not the other is exactly the silence o3qj is closing. So the
+#      row grew a `reason` field instead, and EVERY refused/failed terminal path
+#      writes one.
+#   2. WHAT CANNOT BE RECORDED, said out loud rather than hidden: `failed-usage`
+#      and `failed-no-tmux` both precede any resolvable seat identity (they fire
+#      during argument parsing / the binary probe, with SESSION and WINDOW still
+#      empty), and a row keyed to no seat is a row no consumer can act on. Those
+#      two stay stderr-and-verdict only. Everything from `failed-no-socket`
+#      onward — where a `--target` invocation already knows its seat — records.
+#
+# `reason` is the human-readable sentence the refusal already printed to stderr,
+# flattened to one line and JSON-escaped. The consumer quotes it verbatim into the
+# summon: a P1 bead saying "the marshal refused twice" is worth much less than one
+# saying WHY each time.
 #
 # Environment seams (all optional; tests use them, production uses defaults):
 #   MOLT_LEDGER, HARNESS_STATE_DIR   ledger path / its dir
@@ -213,6 +246,14 @@ emit_result() {
 # shellcheck disable=SC2317  # invoked indirectly via `trap _on_exit EXIT`
 _on_exit() {
   local rc=$?
+  # A non-zero exit that never reached finish() is the `failed` verdict, and it is
+  # a REFUSAL as far as the seat is concerned — the molt did not happen. Record it
+  # too (dotfiles-o3qj), guarded three ways because this trap can fire before
+  # ledger_row or $LEDGER exist: no double-write when finish() already recorded,
+  # no call before the function is defined.
+  if [ "$MOLT_RESULT_SENT" -eq 0 ] && [ "$rc" -ne 0 ] && command -v ledger_row >/dev/null; then
+    ledger_row failed "seat-molt exited rc=$rc without reaching a terminal path — no molt was attempted"
+  fi
   if [ "$rc" -ne 0 ]; then emit_result failed; else emit_result exited-unlogged; fi
   exit "$rc"
 }
@@ -322,24 +363,35 @@ fi
 
 _json_esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
 
-# ledger_row <verdict> — best-effort, never fails the caller. A molt that cannot
-# be recorded is still a molt; losing the cycle on top of it would be worse.
+# ledger_row <verdict> [reason] — best-effort, never fails the caller. A molt that
+# cannot be recorded is still a molt; losing the cycle on top of it would be worse.
+#
+# `reason` is FLATTENED to one line before escaping: this is JSONL, and a refusal
+# sentence that wrapped would split one row into two unparseable ones — a record
+# that destroys the file it lands in is worse than no record (dotfiles-o3qj).
+# `reason` is written LAST and always present (empty on the success paths), so the
+# consumer's field extraction never has to care which verdict it is reading.
 ledger_row() {
-  local verdict=$1 dir pct
+  local verdict=$1 reason=${2:-} dir pct
   [ -n "$SESSION" ] && [ -n "$WINDOW" ] || return 0
+  [ -n "${LEDGER:-}" ] || return 0
   dir=$(dirname "$LEDGER")
   mkdir -p "$dir" || { note "ledger: cannot create $dir (row dropped: $verdict)"; return 0; }
   case "$PCT" in ''|*[!0-9]*) pct=null ;; *) pct="$PCT" ;; esac
-  printf '{"ts":"%s","epoch":%s,"session":"%s","window":"%s","mode":"%s","pct":%s,"result":"%s"}\n' \
+  reason=$(printf '%s' "$reason" | tr '\n\r\t' '   ')
+  printf '{"ts":"%s","epoch":%s,"session":"%s","window":"%s","mode":"%s","pct":%s,"result":"%s","reason":"%s"}\n' \
     "$(date -u +%FT%TZ)" "$(date +%s)" \
     "$(_json_esc "$SESSION")" "$(_json_esc "$WINDOW")" "$MODE" "$pct" "$verdict" \
+    "$(_json_esc "$reason")" \
     >> "$LEDGER" || note "ledger: append to $LEDGER failed (row dropped: $verdict)"
 }
 
-# finish <verdict> <exit-code> — the ONLY terminal path: ledger, verdict, exit.
+# finish <verdict> <exit-code> [reason] — the ONLY terminal path: ledger, verdict,
+# exit. The reason rides into the ledger row AND the log line, so the two records
+# of one refusal can never disagree about why it happened.
 finish() {
-  ledger_row "$1"
-  note "verdict=$1 session='$SESSION' window='$WINDOW' mode=$MODE"
+  ledger_row "$1" "${3:-}"
+  note "verdict=$1 session='$SESSION' window='$WINDOW' mode=$MODE${3:+ reason=$3}"
   emit_result "$1"
   exit "$2"
 }
@@ -371,7 +423,7 @@ resolve_socket() {
 
 SOCKET=$(resolve_socket) || {
   echo "seat-molt: no tmux socket could be resolved. Pass --socket <absolute path>; this script never falls back to an ambient-default tmux call (see THE SOCKET RULE)." >&2
-  emit_result failed-no-socket; exit 69
+  finish failed-no-socket 69 "no tmux socket could be resolved and this script never guesses one — the seat was not molted"
 }
 
 # TM — every tmux call in this file. Explicit socket, hostile to ambient env.
@@ -405,7 +457,10 @@ if [ "$SELF" -eq 1 ]; then
   fi
   if [ -z "$WINDOW" ] || [ -z "$SESSION" ]; then
     echo "seat-molt: --self could not resolve this pane's tmux session/window (session='$SESSION' window='$WINDOW'). Pass --target <session> <window> explicitly, or set \$SEAT_SESSION/\$SEAT_WINDOW." >&2
-    emit_result failed-no-window; exit 70
+    # No ledger row is possible here BY CONSTRUCTION — the seat identity is the
+    # thing that could not be resolved, and ledger_row keys on it (see THE REFUSAL
+    # RECORD). finish() still runs so the log and the verdict agree.
+    finish failed-no-window 70 "--self could not resolve this pane's session/window — no seat identity to molt or to record"
   fi
   [ -n "$SESSION_ID" ] || SESSION_ID="${CLAUDE_CODE_SESSION_ID:-}"
   # Best-effort pct for the ledger row — the same per-session file statusline.sh
@@ -497,7 +552,7 @@ if [ -z "$PANE" ]; then
   if [ -z "$WIN_ID" ]; then
     echo "seat-molt: no window '$WINDOW' in session '$SESSION' on socket $SOCKET" >&2
     note "FAIL: no window '$WINDOW' in session '$SESSION' on $SOCKET"
-    emit_result failed-no-window; exit 70
+    finish failed-no-window 70 "no window '$WINDOW' in session '$SESSION' on socket $SOCKET — the seat's window is gone or renamed"
   fi
   PANE="$WIN_ID.0"
 fi
@@ -525,7 +580,7 @@ if [ -f "$LEDGER" ]; then
      | awk -v cut="$_cutoff" '$1 > cut { hit = 1 } END { exit !hit }'; then
     echo "seat-molt: window '$WINDOW' (session '$SESSION') already molted within the last ${RATE_LIMIT_MIN} minutes — refusing. Molt-loop protection; raise MOLT_RATE_LIMIT_MIN only if you know why the last cycle did not take." >&2
     note "REFUSED: rate limit (${RATE_LIMIT_MIN}m) for session='$SESSION' window='$WINDOW'"
-    finish refused-rate-limited 3
+    finish refused-rate-limited 3 "window '$WINDOW' already molted within the last ${RATE_LIMIT_MIN} minutes — molt-loop protection refused a second cycle"
   fi
 fi
 
@@ -610,14 +665,14 @@ if [ "$WAIT_IDLE_FIRST" -eq 1 ]; then
   if [ -z "$SESSION_ID" ] || [ -z "$T0" ]; then
     echo "seat-molt: --self's idle-wait needs both --session-id and --t0 (got session-id='$SESSION_ID' t0='$T0') to read the turn-end signal — ABORTING, typed nothing. This should never happen outside a hand-built --wait-idle-first invocation." >&2
     note "ABORTED: --wait-idle-first without session-id/t0 (session-id='$SESSION_ID' t0='$T0')"
-    finish aborted-not-idle 3
+    finish aborted-not-idle 3 "--self's idle-wait was invoked without --session-id/--t0, so the turn-end signal could not be read — typed nothing"
   fi
   wait_for_turn_end "$IDLE_TIMEOUT" "$T0" "$SESSION_ID"
   case $? in
     1)
       echo "seat-molt: pane $PANE never showed a turn-end stamp newer than $T0 within ${IDLE_TIMEOUT}s — ABORTING, typed nothing." >&2
       note "ABORTED: turn-end wait timed out after ${IDLE_TIMEOUT}s on session='$SESSION' window='$WINDOW' (t0=$T0)"
-      finish aborted-not-idle 3 ;;
+      finish aborted-not-idle 3 "the seat's turn never ended within ${IDLE_TIMEOUT}s (no turn-end stamp newer than t0=$T0) — typed nothing, the seat is still at its old context" ;;
   esac
 else
   wait_for_idle "$IDLE_TIMEOUT" 0
@@ -625,11 +680,11 @@ else
     2)
       echo "seat-molt: pane $PANE is blocked on Andrew (🔔 / open dialog) — ABORTING, typed nothing. send-keys there would answer his open question with the default (pulse-inject.sh:692)." >&2
       note "ABORTED: modal on session='$SESSION' window='$WINDOW'"
-      finish aborted-modal 3 ;;
+      finish aborted-modal 3 "the pane is blocked on Andrew (🔔 / open dialog) — typed nothing" ;;
     1)
       echo "seat-molt: pane $PANE never went idle within ${IDLE_TIMEOUT}s — ABORTING, typed nothing." >&2
       note "ABORTED: idle-wait timed out after ${IDLE_TIMEOUT}s on session='$SESSION' window='$WINDOW'"
-      finish aborted-not-idle 3 ;;
+      finish aborted-not-idle 3 "the pane never went idle within ${IDLE_TIMEOUT}s — typed nothing, the seat is still at its old context" ;;
   esac
 fi
 
@@ -639,7 +694,7 @@ _name=$(win_name); _text=$(pane_text)
 if is_modal "$_name" "$_text"; then
   echo "seat-molt: a dialog opened while we were settling — ABORTING, typed nothing." >&2
   note "ABORTED: modal appeared post-idle on session='$SESSION' window='$WINDOW'"
-  finish aborted-modal 3
+  finish aborted-modal 3 "a dialog opened between the idle-wait and the keystroke — typed nothing"
 fi
 
 # --- rail 3: offboard freshness (LAST, nearest the act) ---------------------
@@ -683,7 +738,7 @@ if [ -n "$REFUSE" ]; then
   echo "seat-molt: REFUSING to $MODE session '$SESSION' window '$WINDOW' — $REFUSE." >&2
   echo "           Run /offboard in that pane first (handoff note + commit + push). Un-offboarded context is not recoverable from a /clear, and /compact eats the detail the note exists to hold." >&2
   note "REFUSED: not offboarded ($REFUSE)"
-  finish refused-not-offboarded 3
+  finish refused-not-offboarded 3 "not offboarded: $REFUSE"
 fi
 
 # --- the cycle --------------------------------------------------------------
@@ -723,9 +778,9 @@ case $? in
   2)
     echo "seat-molt: a dialog opened during compaction — /compact was sent, /onboard was NOT. The session is compacted and un-onboarded." >&2
     note "compact: modal during compaction; /onboard NOT sent"
-    finish compacted-onboard-skipped 0 ;;
+    finish compacted-onboard-skipped 0 "a dialog opened during compaction — /compact landed, /onboard was NOT sent" ;;
   *)
     echo "seat-molt: compaction did not report done within ${COMPACT_TIMEOUT}s — /compact was sent, /onboard was NOT. The session is compacted and un-onboarded; onboard it by hand." >&2
     note "compact: never reported done within ${COMPACT_TIMEOUT}s; /onboard NOT sent"
-    finish compacted-onboard-skipped 0 ;;
+    finish compacted-onboard-skipped 0 "compaction never reported done within ${COMPACT_TIMEOUT}s — /compact landed, /onboard was NOT sent" ;;
 esac

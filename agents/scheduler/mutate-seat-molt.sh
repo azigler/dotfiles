@@ -203,8 +203,12 @@ fresh_copy
 mutate "$SM" \
   'if [ -n "$REFUSE" ]; then' \
   'if [ -n "" ]; then'
+# 26c/26d are named too (dotfiles-o3qj): with the rail gone the pane is CLEARED
+# instead of refused, so no refusal row is written at all — and the row is what
+# pulse-escalate's molt-refusal watcher reads. A rail that stops biting also stops
+# leaving evidence, which is why the record cases belong in this mutant's list.
 check "M1 offboard-freshness-rail-removed (clears un-offboarded context)" \
-      "12 12n 13 13n 14 16 16n 24 24n 24m" "6 15"
+      "12 12n 13 13n 14 16 16n 24 24n 24m 26c 26d" "6 15"
 
 # M2 — THE MODAL ABORT REMOVED. is_modal() always says no, so a 🔔 window gets
 # send-keys: the text feeds the DIALOG and the trailing Enter answers Zig's open
@@ -219,7 +223,7 @@ mutate "$SM" \
   return 1
   case "$1" in 🔔*) return 0 ;; esac'
 check "M2 modal-abort-removed (types into an open dialog)" \
-      "10 10n 11" "6 9"
+      "10 10n 11 26g 26h" "6 9"
 
 # M3 — THE RATE LIMIT REMOVED. The ledger is never consulted, so a window that
 # molted a minute ago molts again: the molt loop, which costs a subscription and
@@ -229,7 +233,7 @@ mutate "$SM" \
   'if [ -f "$LEDGER" ]; then' \
   'if false; then'
 check "M3 rate-limit-removed (the molt loop)" \
-      "19 19n" "6 20 21"
+      "19 19n 26 26a 26b" "6 20 21"
 
 # M4 — THE IDLE-WAIT SKIPPED. wait_for_idle returns success immediately, so the
 # cycle types into a pane that is mid-turn. Cases 10/11 must keep PASSING: the
@@ -246,8 +250,13 @@ mutate "$SM" \
   'wait_for_idle() {
   return 0
   local timeout=$1 grace=${2:-0} t0 deadline eligible stable=0 name text'
+# 26e/26f are the record half of 9/9n. 26h ALSO goes red and is deliberately NOT
+# named: with the idle-wait skipped, the 🔔 pane is caught by the SEPARATE post-idle
+# modal re-check, which records a different (and correct) reason sentence — the same
+# "which rail caught it" distinction the case-11 note above draws, showing up in the
+# record instead of in the verdict.
 check "M4 idle-wait-skipped (types into a pane mid-turn)" \
-      "9 9n" "6 10 11 23 23n"
+      "9 9n 26e 26f" "6 10 11 23 23n"
 
 # M6 — --self REVERTS TO PANE-STABILITY (dotfiles-ygf8, undoing THE fix). The
 # --self branch calls wait_for_idle instead of wait_for_turn_end, exactly the

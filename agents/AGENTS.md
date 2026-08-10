@@ -55,7 +55,13 @@ subagents/background work in flight, `--in-flight yes` compacts instead (handles
 survive compaction; a /clear orphans them — measured 2026-08-09). The 75% stop
 guard is the BACKSTOP, not the mechanism: long loops molt proactively between
 work items once past ~50%. A failed/refused molt (twice) is the only context
-event that summons Zig.
+event that summons Zig — and since `dotfiles-o3qj` that sentence is **machinery,
+not etiquette**: seat-molt records every refusal (with its reason) to
+`molt-ledger.jsonl`, and `pulse-escalate.sh`'s molt-refusal watcher notes the
+first and files a P1 `human:` bead + push on the second within 90 minutes. So
+**never hand-carry a refused molt to Zig, and never sit on one either** — a
+refusal that stays silent used to leave a seat wedged for hours (the dream seat
+at 100% for 3+, 2026-08-09); now it summons itself, once per episode.
 
 ## Effort and model — a per-dispatch choice
 
