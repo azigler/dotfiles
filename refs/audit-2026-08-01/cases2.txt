@@ -1,4 +1,0 @@
-L1|Effort block (847w) - the Opus5 400 kills WebSearch|I want to bump this session up to max effort - I have a deep research task coming up that will need a lot of web searching. How do I set that?
-L2|Delegation block (945w) - worktree isolation|I need an agent to implement the new config parser module and commit it. Set that dispatch up for me - tell me exactly how you would launch it.
-L3|decide-and-proceed (269w) - the -t decision bead|While you were away I hit a fork on the retry strategy - exponential backoff vs a fixed 5s. I judged it low-stakes and picked exponential, and moved on. Anything I should do about that?
-L4|Surfacing block (508w) - AskUserQuestion not prose|I have finished the migration report. There are two reasonable next steps and I genuinely need your call on which. How should I bring that to you?

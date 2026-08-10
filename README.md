@@ -7,6 +7,7 @@
 ## Table of Contents
 
 - [Background](#background)
+- [Two tiers](#two-tiers)
 - [Usage](#usage)
   - [Three jobs, three scripts](#three-jobs-three-scripts)
   - [Extension lists are additive](#extension-lists-are-additive)
@@ -18,6 +19,41 @@
 ## Background
 
 This repository contains dotfiles[^1] for [azigler](https://github.com/azigler). By managing dotfiles in a centralized repository, it becomes easier to synchronize and share these configurations across different machines. This repository serves as a reference for [azigler](https://github.com/azigler)'s preferred settings and can be used as a starting point for others to customize their own dotfiles.
+
+## Two tiers
+
+These dotfiles are the **public tier**: program configuration only — shell,
+tmux, editors, language toolchains, and the scripts that install them. Nothing
+here needs an agent, and a machine that clones only this repository gets a
+complete, working environment.
+
+The **agent tier** — the always-loaded instruction file, the skills, the hooks,
+the schedulers, and the machine-specific reference material they read — lives in
+a **separate repository**, because it describes real hosts and real services. It
+is resolved at runtime through exactly one indirection, the `~/.agents` symlink,
+and every line in `sync.sh` that touches it goes through that symlink.
+
+The split is what makes the absence harmless:
+
+| | with an agent tier installed | without one |
+|---|---|---|
+| `./sync.sh` | links configs **and** wires `~/.claude`, `~/.codex`, `~/.cursor`, `~/.gemini` | links configs; agent-tier lines are silent no-ops |
+| shell startup | `AGENTS_ROOT` is exported; `claude` gets the session-identity wrapper | `AGENTS_ROOT` unset; plain `claude`, with one warning line |
+| `prefix W` in tmux | opens the agent roster | the binding is there, the target is not |
+
+To install an agent tier, point `bootstrap-agents.sh` at its repository — it is
+required input, never hardcoded here:
+
+```bash
+AGENTS_REPO=owner/repo            ./bootstrap-agents.sh   # short form: cloned with `gh`, so a private repo works
+AGENTS_REPO=git@host:owner/repo   ./bootstrap-agents.sh   # any git URL: cloned with `git`
+AGENTS_REPO=/path/to/local/clone  ./bootstrap-agents.sh   # a local checkout works too
+```
+
+It clones the repository (default `~/<repo>`, override with `AGENTS_DIR`),
+refuses anything that does not actually contain a tier, creates `~/.agents`, and
+re-runs `./sync.sh claude`. It is idempotent, and it never pulls a clone you
+already have.
 
 ## Usage
 
@@ -47,6 +83,7 @@ Both scripts are idempotent[^2]. You should [fork this repository](https://githu
 | `mac.upgrade.sh` | upgrade every off-the-shelf binary on a macOS workstation |
 | `ubuntu.upgrade.sh` | the same, for Linux |
 | `pico.upgrade.sh` | the same, for a headless macOS server |
+| `bootstrap-agents.sh` | install the separate agent tier and wire `~/.agents` (see [Two tiers](#two-tiers)) |
 
 `mac.upgrade.sh` runs sections you can list and select, and supports a dry run:
 
@@ -85,6 +122,13 @@ git clone https://github.com/azigler/dotfiles
 cd dotfiles
 ./sync.sh
 ./download.sh
+```
+
+That is the whole install — no agent tier required. To add one afterwards, see
+[Two tiers](#two-tiers):
+
+```bash
+AGENTS_REPO=owner/repo ./bootstrap-agents.sh
 ```
 
 ### Add or remove dotfiles

@@ -14,12 +14,21 @@ fi
 
 # --- journald retention cap (dotfiles-9h8n) ---
 # Idempotent, re-run on every provision/upgrade so config drift self-heals.
-# See agents/scheduler/99-zig-caps.journald.conf for why these values.
-sudo mkdir -p /etc/systemd/journald.conf.d
-sudo install -m 644 -o root -g root \
-    /home/ubuntu/dotfiles/agents/scheduler/99-zig-caps.journald.conf \
-    /etc/systemd/journald.conf.d/99-zig-caps.conf
-sudo systemctl restart systemd-journald
+# The drop-in ships with the AGENT TIER (it caps the logs the schedulers
+# generate), which is not in this repo — it resolves through ~/.agents, so this
+# step is a no-op on a machine that has only these dotfiles. Provision the tier
+# first (./bootstrap-agents.sh) if you want the cap.
+_journald_conf="$HOME/.agents/agents/scheduler/99-zig-caps.journald.conf"
+if [ -f "$_journald_conf" ]; then
+    sudo mkdir -p /etc/systemd/journald.conf.d
+    sudo install -m 644 -o root -g root \
+        "$_journald_conf" \
+        /etc/systemd/journald.conf.d/99-zig-caps.conf
+    sudo systemctl restart systemd-journald
+else
+    echo " ↳ no agent tier under ~/.agents — skipping the journald retention cap"
+fi
+unset _journald_conf
 
 if [ "$(hostname -s)" != "zig-computer" ]; then
     sudo hostnamectl set-hostname zig-computer

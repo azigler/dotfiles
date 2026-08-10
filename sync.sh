@@ -4,16 +4,21 @@ SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || re
 BACKUP_DIR="$SCRIPT_DIR/.backup/$(date +%Y%m%d%H%M%S)"
 cd $SCRIPT_DIR
 
-# 860z/n3b6 (2026-08-09): the agent brain resolves through ~/.agents
-# (-> ~/demesne) when it holds real tier content (same content-marker test as
-# agents/lib/agents-root.sh — bare existence is NOT enough, ~/.agents once
-# held an unrelated aaif skill-lock); pre-split boxes fall back to the
-# in-repo paths. ALL agent-tier sync_source lines go through this, so a
-# ./sync.sh can never silently revert the cutover.
-if [ -e "$HOME/.agents/claude/settings.json" ] && [ -e "$HOME/.agents/agents/AGENTS.md" ]; then
-    AGENT_BRAIN="$HOME/.agents"
+# THE AGENT TIER IS NOT IN THIS REPO. This is the public tier — program
+# configuration. The agent tier (instruction file, skills, hooks, schedulers)
+# lives in a separate repository and is resolved through ONE symlink,
+# `~/.agents`, installed by ./bootstrap-agents.sh.
+#
+# Bare existence of the symlink is NOT enough (~/.agents once held an unrelated
+# skill-lock), so this is a CONTENT-marker test. Every agent-tier line below
+# goes through sync_agent_source, which is a silent no-op when no tier is
+# installed: a machine with only these dotfiles syncs its configs cleanly and
+# simply has no harness.
+AGENT_BRAIN="$HOME/.agents"
+if [ -e "$AGENT_BRAIN/claude/settings.json" ] && [ -e "$AGENT_BRAIN/agents/AGENTS.md" ]; then
+    HAS_AGENT_TIER=1
 else
-    AGENT_BRAIN="$SCRIPT_DIR"
+    HAS_AGENT_TIER=0
 fi
 
 # Back up and remove a file or directory.
@@ -52,6 +57,15 @@ sync_source() {
         exit 1
     fi
 
+}
+
+# Sync an AGENT-TIER source. Identical to sync_source when a tier is installed;
+# a silent no-op when none is. Without this, a fresh clone of the public tier
+# printed a wall of "does not exist" errors for sources that are deliberately
+# absent — indistinguishable from a real failure.
+sync_agent_source() {
+    [ "$HAS_AGENT_TIER" -eq 1 ] || return 0
+    sync_source "$1" "$2"
 }
 
 sync() {
@@ -99,17 +113,17 @@ sync() {
             sync_source "$SCRIPT_DIR/cargo/config.toml" "$HOME/.cargo/config.toml"
             ;;
         "claude")
-            sync_source "$AGENT_BRAIN/claude/settings.json" "$HOME/.claude/settings.json"
-            sync_source "$AGENT_BRAIN/claude/agents" "$HOME/.claude/agents"
-            sync_source "$AGENT_BRAIN/agents/hooks" "$HOME/.claude/hooks"
-            sync_source "$AGENT_BRAIN/agents/skills" "$HOME/.claude/skills"
-            sync_source "$AGENT_BRAIN/agents/AGENTS.md" "$HOME/.claude/CLAUDE.md"
-            sync_source "$AGENT_BRAIN/claude/statusline.sh" "$HOME/.claude/statusline.sh"
+            sync_agent_source "$AGENT_BRAIN/claude/settings.json" "$HOME/.claude/settings.json"
+            sync_agent_source "$AGENT_BRAIN/claude/agents" "$HOME/.claude/agents"
+            sync_agent_source "$AGENT_BRAIN/agents/hooks" "$HOME/.claude/hooks"
+            sync_agent_source "$AGENT_BRAIN/agents/skills" "$HOME/.claude/skills"
+            sync_agent_source "$AGENT_BRAIN/agents/AGENTS.md" "$HOME/.claude/CLAUDE.md"
+            sync_agent_source "$AGENT_BRAIN/claude/statusline.sh" "$HOME/.claude/statusline.sh"
             ;;
         "codex")
             sync_source "$SCRIPT_DIR/codex/config.toml" "$HOME/.codex/config.toml"
-            sync_source "$AGENT_BRAIN/agents/skills" "$HOME/.codex/skills"
-            sync_source "$AGENT_BRAIN/agents/AGENTS.md" "$HOME/.codex/AGENTS.md"
+            sync_agent_source "$AGENT_BRAIN/agents/skills" "$HOME/.codex/skills"
+            sync_agent_source "$AGENT_BRAIN/agents/AGENTS.md" "$HOME/.codex/AGENTS.md"
             ;;
         "copilot")
             sync_source "$SCRIPT_DIR/copilot/config.json" "$HOME/.copilot/config.json"
@@ -123,8 +137,8 @@ sync() {
             fi
             sync_source "$SCRIPT_DIR/cursor/cli-config.json" "$HOME/.cursor/cli-config.json"
             sync_source "$SCRIPT_DIR/cursor/hooks.json" "$HOME/.cursor/hooks.json"
-            sync_source "$AGENT_BRAIN/agents/hooks" "$HOME/.cursor/hooks"
-            sync_source "$AGENT_BRAIN/agents/skills" "$HOME/.cursor/skills"
+            sync_agent_source "$AGENT_BRAIN/agents/hooks" "$HOME/.cursor/hooks"
+            sync_agent_source "$AGENT_BRAIN/agents/skills" "$HOME/.cursor/skills"
             ;;
         "direnv")
             sync_source "$SCRIPT_DIR/direnv" "$HOME/.config/direnv"
@@ -145,9 +159,9 @@ sync() {
             ;;
         "gemini")
             sync_source "$SCRIPT_DIR/gemini/settings.json" "$HOME/.gemini/settings.json"
-            sync_source "$AGENT_BRAIN/agents/hooks" "$HOME/.gemini/hooks"
-            sync_source "$AGENT_BRAIN/agents/skills" "$HOME/.gemini/skills"
-            sync_source "$AGENT_BRAIN/agents/AGENTS.md" "$HOME/.gemini/GEMINI.md"
+            sync_agent_source "$AGENT_BRAIN/agents/hooks" "$HOME/.gemini/hooks"
+            sync_agent_source "$AGENT_BRAIN/agents/skills" "$HOME/.gemini/skills"
+            sync_agent_source "$AGENT_BRAIN/agents/AGENTS.md" "$HOME/.gemini/GEMINI.md"
             ;;
         "ghidra")
             # Ghidra's DEFAULT user script dir. -scriptPath resolves scripts by
@@ -281,4 +295,11 @@ else
     for dir in */ .*/; do
         sync "${dir%/}"
     done
+    # The loop above iterates over DIRECTORIES IN THIS REPO, and the `claude`
+    # arm no longer has one — the agent tier is external. Without this line a
+    # plain `./sync.sh` on a machine that HAS a tier would silently skip the
+    # whole ~/.claude wiring while every other agent-aware arm (codex, cursor,
+    # gemini — all of which still have a directory here) kept working.
+    # No-op when no tier is installed; sync_agent_source sees to that.
+    sync claude
 fi

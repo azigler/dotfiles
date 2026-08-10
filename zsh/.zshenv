@@ -39,12 +39,15 @@ case "${ANTHROPIC_CUSTOM_HEADERS-}" in
   *"X-Tap: "*) unset ANTHROPIC_CUSTOM_HEADERS ;;
 esac
 
-# n3b6 (2026-08-09): AGENTS_ROOT — where the live agent tier resolves, derived
-# from the ~/.agents indirection when it holds real tier content (the 860z
-# cutover), else the pre-split repo path. Cheap: two stats, no forks on the
-# happy path except the readlink.
+# AGENTS_ROOT — where the live agent tier resolves. The tier is NOT in this
+# dotfiles repo (it is a separate repository, installed by
+# ./bootstrap-agents.sh); ~/.agents is the one indirection, and a CONTENT
+# marker rather than bare existence is what proves it holds a tier.
+#
+# The pre-split fallback that used to live here — a path inside this repo — is
+# gone with the tier itself: it could only ever resolve to something that no
+# longer exists, and an AGENTS_ROOT pointing at nothing is worse than an unset
+# one, because consumers can test the latter. Cheap: one stat, one readlink.
 if [ -e "$HOME/.agents/agents/AGENTS.md" ]; then
   export AGENTS_ROOT="$(readlink -f "$HOME/.agents" 2>/dev/null)/agents"
-else
-  export AGENTS_ROOT="$HOME/dotfiles/agents"
 fi
