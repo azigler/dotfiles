@@ -100,6 +100,16 @@ if [ "$DO_EXIT" -eq 1 ]; then
   sleep 3                                            # let the shell prompt paint
 fi
 
+# RE-SOURCE THE WRAPPER FIRST — failure #4 of this class (2026-08-10 02:14Z,
+# measured on the dotfiles cycle): the wrapper is a shell FUNCTION captured at
+# shell start, and durable pane shells are DAYS old. A relaunch through a
+# stale function gets stale attribution epochs and NO tap consult — the
+# 02:14:31Z row attributed epoch-1 (group=zig-computer) with no rollover.
+# pulse-inject.sh:896 is the precedent idiom; ~/.agents first, dotfiles
+# fallback, matching agents-root resolution.
+"$TMUX_BIN" send-keys -t "$PANE" \
+  '[ -f "$HOME/.agents/agents/lib/claude-identity-wrapper.sh" ] && . "$HOME/.agents/agents/lib/claude-identity-wrapper.sh" || . "$HOME/dotfiles/agents/lib/claude-identity-wrapper.sh"' Enter
+sleep 1
 "$TMUX_BIN" send-keys -t "$PANE" "$RELAUNCH" Enter
 
 # Readiness gate: the composer footer is the "TUI accepts input" signal.
