@@ -134,7 +134,12 @@ seats:
     # Emoji_Presentation=No, so the front desk's row rendered one cell short.
     # Same object, same office; this one is a real emoji glyph.
     sigil: "🔑"
-    home: ~/dotfiles
+    # ~/demesne (Zig, 2026-08-10 ~03:3xZ): household seats onboard/offboard
+    # out of the demesne, not the public repo — only the dotfiles seat keeps
+    # ~/dotfiles as home. Beads still live in the dotfiles store (demesne
+    # CLAUDE.md rule); the timer unit's --dir is a SEPARATE seam, sequenced
+    # by the flip epic — do not conflate.
+    home: ~/demesne
     model: fable
     effort: high
     tap: personal
@@ -157,7 +162,11 @@ seats:
     charter-line: "fleet dispatch authority — the worker-facing half of Yegge's Wheelhouse"
     office: "The Marshal"
     sigil: "🪖"
-    home: ~/dotfiles
+    # ~/demesne (Zig, 2026-08-10 — same ruling as the seneschal's row above).
+    # Tonight's 08:07Z drain tick is UNAFFECTED: the injection lands in the
+    # existing pane and the unit carries its own --dir; the unit-seam change
+    # follows the flip epic's sequencing, after the drain.
+    home: ~/demesne
     model: fable
     effort: high
     tap: personal
@@ -230,7 +239,8 @@ seats:
     # eagle (decision bead dotfiles-7ibz; 🏛 and ⚖ are both EPres=No and were
     # never candidates under the gl6z rule).
     sigil: "🦅"
-    home: ~/dotfiles
+    # ~/demesne (Zig, 2026-08-10): the consul moved in to drive the flip.
+    home: ~/demesne
     model: fable
     effort: high
     tap: personal
