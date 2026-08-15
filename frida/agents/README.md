@@ -46,7 +46,9 @@ script.load()
 
 A `.js` agent in this directory is the payload; a small Python driver loads it,
 collects `message` events, and writes JSON the caller reads back — the same
-script-writes-JSON pattern the Ghidra scripts use, for the same reason.
+script-writes-JSON pattern the (since-dropped) Ghidra scripts used, for the
+same reason (`dotfiles-vpae` removed that dir; the pattern rationale lives on
+in `re/README.md`).
 
 ⚠️ `ptrace_scope=1` here: attaching to a process that is not a descendant needs
 sudo (passwordless on this box). Spawning with `-f` does not.
