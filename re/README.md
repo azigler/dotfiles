@@ -46,7 +46,6 @@ venv).
 ```bash
 ./sync.sh gdb
 ./sync.sh radare2
-./sync.sh ghidra
 ./sync.sh frida
 ```
 
@@ -57,8 +56,11 @@ there rather than trusting a table in this file.
 |---|---|
 | `gdb/` | `.gdbinit` — commented stub; the one live gotcha is that stock gdb here is **x86-64 only** |
 | `radare2/` | `radare2rc` — commented stub; it is read by scripted `r2 -q -c` runs too |
-| `ghidra/scripts/` | headless scripts; `-scriptPath` resolves **by name, not path** |
 | `frida/agents/` | instrumentation agents; the `__handlers__` staleness trap |
+
+Ghidra has no config dir here (dropped 2026-08-16, `dotfiles-vpae`): on an
+actual install, `mkdir ~/ghidra_scripts` — the full headless guidance lives
+in the agent tier's cleanroom tool-shelf, reached through `~/.agents`.
 
 ## Why every config here is an inert stub
 

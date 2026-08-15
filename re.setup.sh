@@ -179,7 +179,7 @@ python3 -c 'import unicorn; print("    unicorn", unicorn.__version__, "m68k arch
     note "unicorn m68k NOT confirmed — do not plan a 68000 oracle on it"
 
 section "Next"
-note "./sync.sh gdb radare2 ghidra frida   # link the config dirs into \$HOME"
+note "./sync.sh gdb radare2 frida   # link the config dirs into \$HOME"
 note "frida lives in the venv: $VENV/bin/frida (not on PATH by design)"
 
 if [ "$APT_OK" -eq "${#APT_PKGS[@]}" ] && [ "$VENV_STATE" = ok ]; then

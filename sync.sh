@@ -163,11 +163,6 @@ sync() {
             sync_agent_source "$AGENT_BRAIN/agents/skills" "$HOME/.gemini/skills"
             sync_agent_source "$AGENT_BRAIN/agents/AGENTS.md" "$HOME/.gemini/GEMINI.md"
             ;;
-        "ghidra")
-            # Ghidra's DEFAULT user script dir. -scriptPath resolves scripts by
-            # NAME, not path, so being on the default path is what matters.
-            sync_source "$SCRIPT_DIR/ghidra/scripts" "$HOME/ghidra_scripts"
-            ;;
         "golangci-lint")
             sync_source "$SCRIPT_DIR/golangci-lint/.golangci.yml" "$HOME/.config/golangci-lint/.golangci.yml"
             ;;
