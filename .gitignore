@@ -52,6 +52,12 @@ node_modules/
 # bv (beads viewer) local config and caches
 .bv/
 
+# bead store — migrated off the public tier (dotfiles-3mlp). What remains here
+# is a machine-local symlink into the agent tier so `br` keeps working from
+# this checkout; the store itself is private. Never track either form.
+.beads
+.beads.pre-3mlp-backup
+
 # python bytecode from skill test runs
 __pycache__/
 *.pyc

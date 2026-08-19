@@ -80,3 +80,9 @@ and why it is small now; read it before adding to it.
 
 Prefix `dotfiles`. The orchestrator owns the lifecycle. For what is live, run
 the query — `br list --type epic` / `br ready` — never a citation here.
+
+The store itself does NOT live in this repository (it did until 2026-08-19;
+`dotfiles-3mlp` moved it — a public repo must not carry the harness's task
+graph, per rule 5). It lives in the agent tier, and a machine-local,
+gitignored `.beads` symlink keeps `br` working unchanged from this checkout.
+A clone without the agent tier has no store, and that is correct.
