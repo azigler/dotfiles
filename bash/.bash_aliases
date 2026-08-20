@@ -139,6 +139,19 @@ else
   alias claude='claude --dangerously-skip-permissions'
 fi
 unset _CIW
+
+# seat/ctap launchers — Zig-invokable seat-on-tap launches (dotfiles-4k0wf,
+# 2026-08-20). Sourced AFTER the wrapper: seat-launch drives the claude()
+# FUNCTION and refuses the bare binary (the bmbr invisible-launch hazard).
+# Same missing-tier posture as the wrapper block above: warn, don't silently
+# degrade.
+_SL="$HOME/.agents/agents/lib/seat-launch.sh"
+if [ -f "$_SL" ]; then
+  . "$_SL"
+else
+  echo "⚠ seat-launch.sh missing (no agent tier under ~/.agents) — seat/ctap launchers unavailable in this shell." >&2
+fi
+unset _SL
 #alias copilot='bun run copilot'
 #alias codex='bun run codex'
 #alias gemini='bun run gemini'
