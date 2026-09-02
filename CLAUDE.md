@@ -39,6 +39,14 @@ and why it is small now; read it before adding to it.
 
 ## Rules specific to this repo
 
+0. **This repository has ONE merging seat** (Zig's repo-ownership ruling,
+   2026-09-01). The orchestrator seat that owns this repo merges into `main`;
+   every other agent or session — scheduled ticks, the desk, cross-repo
+   builders — routes merge requests through it rather than merging directly.
+   Build freely on a `worktree-agent-*` branch; the landing goes through the
+   owner. (The agent tier's own repo has its own owning seat under the same
+   ruling; this file only speaks for this one.)
+
 1. **A documented EXAMPLE is executable.** Agents and humans copy examples
    verbatim, so a wrong example is a defect that replicates itself — invisible
    to code review, invisible to tests, and it *scales with adoption*. Four
