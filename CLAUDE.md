@@ -45,7 +45,10 @@ and why it is small now; read it before adding to it.
    builders — routes merge requests through it rather than merging directly.
    Build freely on a `worktree-agent-*` branch; the landing goes through the
    owner. (The agent tier's own repo has its own owning seat under the same
-   ruling; this file only speaks for this one.)
+   ruling; this file only speaks for this one.) The full mechanism — land
+   windows, evidence packages, the close seam — is the "Landing discipline"
+   section of the agent tier's always-loaded instruction file; a clone
+   without the tier has no landing machinery to follow, which is correct.
 
 1. **A documented EXAMPLE is executable.** Agents and humans copy examples
    verbatim, so a wrong example is a defect that replicates itself — invisible
