@@ -87,3 +87,8 @@ fi
 # ensure ~/.local/bin is on PATH (user tools: mlx, br, bv, claude, etc. — no
 # longer the hermes CLI, retired 2026-08-08, `dotfiles-j4ps`)
 export PATH="$HOME/.local/bin:$PATH"
+
+# Machine-local additions (installer-appended PATHs, completions, tool envs) live in
+# ~/.zshrc.local — never in this tracked file, so a clone stays fast-forwardable on
+# every box (dotfiles-ph1m: pico carried 8 staged local mods for 3 months).
+[[ -f "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"

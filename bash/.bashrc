@@ -7,6 +7,9 @@ source "$HOME/.local/share/tmux/start.sh"
 [[ ! -f "$HOME/.bash_aliases" ]] || source "$HOME/.bash_aliases"
 
 [[ ! -f "$HOME/.profile" ]] || source "$HOME/.profile"
-. "$HOME/.cargo/env"
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"  # guarded: absent on boxes without rust (pico)
 
 . "$HOME/.local/bin/env"
+
+# Machine-local additions live in ~/.bashrc.local (see zsh/.zshrc; dotfiles-ph1m).
+[ -f "$HOME/.bashrc.local" ] && . "$HOME/.bashrc.local"
