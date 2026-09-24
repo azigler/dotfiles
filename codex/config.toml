@@ -1,0 +1,15 @@
+# Codex CLI config — symlinked from ~/.codex/config.toml (dotfiles-1ctd2 W0).
+# Codex writes project trust and model choices back into this file, so keep it
+# seeded and tracked. Codex-only guidance goes in developer_instructions here,
+# never in the shared AGENTS.md that every Claude seat reads.
+
+# The shared doctrine (~/.agents/agents/AGENTS.md) is ~55 KB; Codex's 32 KiB
+# default silently truncates it.
+project_doc_max_bytes = 131072
+
+cli_auth_credentials_store = "file"
+check_for_update_on_startup = false
+sandbox_mode = "read-only"
+
+[projects."/home/ubuntu/demesne"]
+trust_level = "trusted"
