@@ -9,7 +9,13 @@ project_doc_max_bytes = 131072
 
 cli_auth_credentials_store = "file"
 check_for_update_on_startup = false
-sandbox_mode = "read-only"
+
+# Codex seats run INSIDE the existing bwrap jail, which is the containment; they
+# bypass Codex's own sandbox and never prompt (Zig at the desk 2026-09-24,
+# dotfiles-zi6x7 / dotfiles-xhedj). This also gives them the same spool-append
+# power as a Claude seat.
+sandbox_mode = "danger-full-access"
+approval_policy = "never"
 
 [projects."/home/ubuntu/demesne"]
 trust_level = "trusted"
