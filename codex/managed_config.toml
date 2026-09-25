@@ -3,13 +3,26 @@
 # dotfiles-1ctd2 W0). Codex 0.156.1 layers config as System (/etc/codex/
 # config.toml) < Project < User (~/.codex/config.toml) < Session flags, and
 # only ever WRITES to the User layer (project trust_level entries, [tui]
-# state) — probed via `strings` on the vendored binary and verified live:
-# with an empty ~/.codex/config.toml, `codex doctor` still reports the
-# sandbox/approval values below as effective, and a `codex exec` run wrote
-# its project-trust entry into ~/.codex/config.toml while this file stayed
-# byte-identical. So this file is safe to track: Codex reads it but never
-# rewrites it. Codex-only guidance goes in developer_instructions here, never
-# in the shared AGENTS.md that every Claude seat reads.
+# state) — probed via `strings` on the vendored binary and verified live in
+# two steps:
+#   1. Effective-when-absent: with an EMPTY ~/.codex/config.toml, `codex
+#      doctor` still reported the sandbox/approval values below as
+#      effective, and a `codex exec` run wrote its project-trust entry into
+#      ~/.codex/config.toml while this file stayed byte-identical.
+#   2. Precedence with DIFFERING values (the one that matters): a scratch
+#      User config setting approval_policy="on-request" against a scratch
+#      System config setting approval_policy="never" — `codex doctor`
+#      reported "approval OnRequest". USER WINS OVER SYSTEM. So "<" above
+#      means "lower precedence than", not "written earlier": System is a
+#      DEFAULT the User layer can override, not a lock. That is exactly why
+#      codex/migrate-user-config.py drops every tracked policy key when it
+#      migrates the old User file — a policy key left there would silently
+#      override this file forever, not the other way around.
+# So this file is safe to track only because Codex never writes a policy key
+# into the User layer itself (only [projects.*] and [tui]); the migration
+# script is what keeps it that way across the one-time conversion.
+# Codex-only guidance goes in developer_instructions here, never in the
+# shared AGENTS.md that every Claude seat reads.
 
 # The shared doctrine (~/.agents/agents/AGENTS.md) is ~55 KB; Codex's 32 KiB
 # default silently truncates it.

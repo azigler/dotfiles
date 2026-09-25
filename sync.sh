@@ -74,6 +74,12 @@ sync_agent_source() {
 # own content afterward — the whole point is a layer Codex reads but never
 # writes, so plain `ln -sfn` under sudo is enough; there is no live state at
 # that path to back up.
+#
+# Privilege is probed, never assumed: a host with no passwordless sudo (or a
+# non-interactive run) must not hang on a password prompt, and a failure here
+# must not abort the rest of `sync` — the codex target has other, unrelated
+# steps after this call, and so does every target after "codex" in the case
+# statement. So this WARNS and returns (not exits) on any failure.
 sync_privileged_source() {
     local sync_from=$1
     local sync_to=$2
@@ -81,12 +87,18 @@ sync_privileged_source() {
         echo "❌ Error: $sync_from does not exist"
         return
     fi
+    if ! sudo -n true 2>/dev/null; then
+        echo "⚠️  No passwordless sudo — skipping $sync_to. Run by hand: sudo ln -sfn $sync_from $sync_to"
+        return
+    fi
     echo "🔒 Synchronizing $sync_from to $sync_to (sudo)..."
-    sudo mkdir -p "$(dirname "$sync_to")"
-    sudo ln -sfn "$sync_from" "$sync_to"
-    if [ $? -ne 0 ]; then
-        echo "❌ Error: Failed to create symlink to $sync_to"
-        exit 1
+    if ! sudo mkdir -p "$(dirname "$sync_to")"; then
+        echo "⚠️  Error: sudo mkdir -p $(dirname "$sync_to") failed — skipping $sync_to"
+        return
+    fi
+    if ! sudo ln -sfn "$sync_from" "$sync_to"; then
+        echo "⚠️  Error: failed to create symlink to $sync_to — skipping"
+        return
     fi
 }
 
@@ -145,18 +157,51 @@ sync() {
         "codex")
             # Tracked policy lives in the managed/admin layer, which Codex
             # reads but never writes to (dotfiles-tihhn) — see
-            # codex/managed_config.toml for the probe + verification.
+            # codex/managed_config.toml for the probe + verification,
+            # including a live precedence proof (System beats User).
             sync_privileged_source "$SCRIPT_DIR/codex/managed_config.toml" "/etc/codex/config.toml"
             # $HOME/.codex/config.toml is Codex's own writable layer (project
             # trust_level entries, [tui] state) and sync.sh must not manage
-            # it — a symlink there just relocates the drift onto the tracked
-            # repo file again. One-time migration: if a prior run of this
-            # script (pre-dotfiles-tihhn) left the old tracked symlink in
-            # place, replace it with a plain file carrying its last resolved
-            # content, so Codex can write to it directly from here on.
+            # its content — copying tracked POLICY keys into it would win
+            # forever, since User outranks System. One-time migration: if a
+            # prior run of this script (pre-dotfiles-tihhn) left the old
+            # tracked symlink in place, extract ONLY the Codex-written keys
+            # ([projects.*], [tui]) into a plain file via
+            # codex/migrate-user-config.py, dropping every policy key and
+            # every [projects.*] entry that is scratch junk (/tmp, or a path
+            # that no longer exists).
+            #
+            # The symlink may be DANGLING by the time this runs: merging
+            # dotfiles-tihhn deletes codex/config.toml (renamed to
+            # managed_config.toml), so `readlink -f` no longer resolves.
+            # Fall back to git history for the pre-deletion content, and
+            # fail loud — never silently skip — if neither source exists.
             if [ -L "$HOME/.codex/config.toml" ]; then
-                echo "🔓 Converting $HOME/.codex/config.toml from tracked symlink to a plain Codex-owned file..."
-                cp --remove-destination "$(readlink -f "$HOME/.codex/config.toml")" "$HOME/.codex/config.toml"
+                OLD_CODEX_CONFIG=""
+                CODEX_MIGRATE_TMP=""
+                RESOLVED="$(readlink -f "$HOME/.codex/config.toml" 2>/dev/null)"
+                if [ -n "$RESOLVED" ] && [ -e "$RESOLVED" ]; then
+                    OLD_CODEX_CONFIG="$RESOLVED"
+                else
+                    DELETE_SHA="$(git -C "$SCRIPT_DIR" log -1 --format=%H -- codex/config.toml 2>/dev/null)"
+                    CODEX_MIGRATE_TMP="$(mktemp)"
+                    if [ -n "$DELETE_SHA" ] && git -C "$SCRIPT_DIR" show "${DELETE_SHA}^:codex/config.toml" >"$CODEX_MIGRATE_TMP" 2>/dev/null && [ -s "$CODEX_MIGRATE_TMP" ]; then
+                        OLD_CODEX_CONFIG="$CODEX_MIGRATE_TMP"
+                    else
+                        rm -f "$CODEX_MIGRATE_TMP"
+                    fi
+                fi
+                if [ -z "$OLD_CODEX_CONFIG" ]; then
+                    echo "❌ Error: $HOME/.codex/config.toml is a dangling symlink and its pre-deletion content can't be found (target gone, no git history for codex/config.toml either). Recover it by hand — see MIGRATION.md — before re-running sync.sh codex."
+                    exit 1
+                fi
+                echo "🔓 Converting $HOME/.codex/config.toml from tracked symlink to a plain Codex-owned file (policy keys + scratch [projects.*] junk dropped)..."
+                rm -f "$HOME/.codex/config.toml"
+                if ! python3 "$SCRIPT_DIR/codex/migrate-user-config.py" "$OLD_CODEX_CONFIG" "$HOME/.codex/config.toml"; then
+                    echo "❌ Error: migration of $HOME/.codex/config.toml failed"
+                    exit 1
+                fi
+                [ -n "$CODEX_MIGRATE_TMP" ] && rm -f "$CODEX_MIGRATE_TMP"
             fi
             sync_agent_source "$AGENT_BRAIN/agents/skills" "$HOME/.codex/skills"
             sync_agent_source "$AGENT_BRAIN/agents/AGENTS.md" "$HOME/.codex/AGENTS.md"
