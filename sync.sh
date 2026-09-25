@@ -158,7 +158,8 @@ sync() {
             # Tracked policy lives in the managed/admin layer, which Codex
             # reads but never writes to (dotfiles-tihhn) — see
             # codex/managed_config.toml for the probe + verification,
-            # including a live precedence proof (System beats User).
+            # including a live precedence proof (User beats System, which is
+            # exactly why the migration below drops every policy key).
             sync_privileged_source "$SCRIPT_DIR/codex/managed_config.toml" "/etc/codex/config.toml"
             # $HOME/.codex/config.toml is Codex's own writable layer (project
             # trust_level entries, [tui] state) and sync.sh must not manage
@@ -196,9 +197,17 @@ sync() {
                     exit 1
                 fi
                 echo "🔓 Converting $HOME/.codex/config.toml from tracked symlink to a plain Codex-owned file (policy keys + scratch [projects.*] junk dropped)..."
-                rm -f "$HOME/.codex/config.toml"
+                # Do NOT rm the symlink here: migrate-user-config.py only
+                # touches $HOME/.codex/config.toml after it has rendered the
+                # filtered TOML, round-tripped it back through tomllib, and
+                # confirmed it parses to exactly the filtered data — then it
+                # replaces the symlink atomically. A crash or a caught
+                # failure before that point must leave the existing symlink
+                # (still resolving to Codex's last-known state, or at worst
+                # already-dangling) exactly as it was; deleting it first
+                # would turn any failure here into "Codex has no user file".
                 if ! python3 "$SCRIPT_DIR/codex/migrate-user-config.py" "$OLD_CODEX_CONFIG" "$HOME/.codex/config.toml"; then
-                    echo "❌ Error: migration of $HOME/.codex/config.toml failed"
+                    echo "❌ Error: migration of $HOME/.codex/config.toml failed — the prior symlink/file was left untouched (see the error above)."
                     exit 1
                 fi
                 [ -n "$CODEX_MIGRATE_TMP" ] && rm -f "$CODEX_MIGRATE_TMP"
