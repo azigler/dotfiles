@@ -1,0 +1,29 @@
+# Codex CLI managed/admin config layer — symlinked from /etc/codex/config.toml
+# (dotfiles-tihhn, superseding the ~/.codex/config.toml symlink from
+# dotfiles-1ctd2 W0). Codex 0.156.1 layers config as System (/etc/codex/
+# config.toml) < Project < User (~/.codex/config.toml) < Session flags, and
+# only ever WRITES to the User layer (project trust_level entries, [tui]
+# state) — probed via `strings` on the vendored binary and verified live:
+# with an empty ~/.codex/config.toml, `codex doctor` still reports the
+# sandbox/approval values below as effective, and a `codex exec` run wrote
+# its project-trust entry into ~/.codex/config.toml while this file stayed
+# byte-identical. So this file is safe to track: Codex reads it but never
+# rewrites it. Codex-only guidance goes in developer_instructions here, never
+# in the shared AGENTS.md that every Claude seat reads.
+
+# The shared doctrine (~/.agents/agents/AGENTS.md) is ~55 KB; Codex's 32 KiB
+# default silently truncates it.
+project_doc_max_bytes = 131072
+
+cli_auth_credentials_store = "file"
+check_for_update_on_startup = false
+
+# Codex seats run INSIDE the existing bwrap jail, which is the containment; they
+# bypass Codex's own sandbox and never prompt (Zig at the desk 2026-09-24,
+# dotfiles-zi6x7 / dotfiles-xhedj). This also gives them the same spool-append
+# power as a Claude seat.
+sandbox_mode = "danger-full-access"
+approval_policy = "never"
+
+[projects."/home/ubuntu/demesne"]
+trust_level = "trusted"

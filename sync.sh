@@ -68,6 +68,28 @@ sync_agent_source() {
     sync_source "$1" "$2"
 }
 
+# Sync a source file into a root-owned destination outside $HOME (currently
+# only Codex's managed/admin config layer at /etc/codex/config.toml,
+# dotfiles-tihhn). Unlike sync_source, this never touches the destination's
+# own content afterward — the whole point is a layer Codex reads but never
+# writes, so plain `ln -sfn` under sudo is enough; there is no live state at
+# that path to back up.
+sync_privileged_source() {
+    local sync_from=$1
+    local sync_to=$2
+    if [ ! -e "$sync_from" ]; then
+        echo "❌ Error: $sync_from does not exist"
+        return
+    fi
+    echo "🔒 Synchronizing $sync_from to $sync_to (sudo)..."
+    sudo mkdir -p "$(dirname "$sync_to")"
+    sudo ln -sfn "$sync_from" "$sync_to"
+    if [ $? -ne 0 ]; then
+        echo "❌ Error: Failed to create symlink to $sync_to"
+        exit 1
+    fi
+}
+
 sync() {
     local dir=$1
     case ${dir} in
@@ -121,7 +143,21 @@ sync() {
             sync_agent_source "$AGENT_BRAIN/claude/statusline.sh" "$HOME/.claude/statusline.sh"
             ;;
         "codex")
-            sync_source "$SCRIPT_DIR/codex/config.toml" "$HOME/.codex/config.toml"
+            # Tracked policy lives in the managed/admin layer, which Codex
+            # reads but never writes to (dotfiles-tihhn) — see
+            # codex/managed_config.toml for the probe + verification.
+            sync_privileged_source "$SCRIPT_DIR/codex/managed_config.toml" "/etc/codex/config.toml"
+            # $HOME/.codex/config.toml is Codex's own writable layer (project
+            # trust_level entries, [tui] state) and sync.sh must not manage
+            # it — a symlink there just relocates the drift onto the tracked
+            # repo file again. One-time migration: if a prior run of this
+            # script (pre-dotfiles-tihhn) left the old tracked symlink in
+            # place, replace it with a plain file carrying its last resolved
+            # content, so Codex can write to it directly from here on.
+            if [ -L "$HOME/.codex/config.toml" ]; then
+                echo "🔓 Converting $HOME/.codex/config.toml from tracked symlink to a plain Codex-owned file..."
+                cp --remove-destination "$(readlink -f "$HOME/.codex/config.toml")" "$HOME/.codex/config.toml"
+            fi
             sync_agent_source "$AGENT_BRAIN/agents/skills" "$HOME/.codex/skills"
             sync_agent_source "$AGENT_BRAIN/agents/AGENTS.md" "$HOME/.codex/AGENTS.md"
             ;;
