@@ -30,6 +30,30 @@ else
 fi
 unset _journald_conf
 
+# --- user-manager revive (dotfiles-b6c8r) ---
+# Idempotent, re-run on every provision/upgrade. A SYSTEM timer that restarts a
+# lingering user's systemd manager if it ever exits on its own — every user-level
+# watchdog dies with that manager, so the revive has to live under pid 1. Like
+# the journald cap it ships with the AGENT TIER and resolves through ~/.agents,
+# so this step is a no-op on a machine that has only these dotfiles. The script
+# is COPIED root-owned into /usr/local/libexec: a root unit must never exec a
+# file its user can edit, so an edit to the tier reaches the box on re-run.
+_umr_dir="$HOME/.agents/agents/scheduler"
+if [ -f "$_umr_dir/user-manager-revive.sh" ]; then
+    sudo install -D -m 755 -o root -g root \
+        "$_umr_dir/user-manager-revive.sh" \
+        /usr/local/libexec/user-manager-revive
+    sudo install -m 644 -o root -g root \
+        "$_umr_dir/user-manager-revive.service" \
+        "$_umr_dir/user-manager-revive.timer" \
+        /etc/systemd/system/
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now user-manager-revive.timer
+else
+    echo " ↳ no agent tier under ~/.agents — skipping the user-manager revive"
+fi
+unset _umr_dir
+
 if [ "$(hostname -s)" != "zig-computer" ]; then
     sudo hostnamectl set-hostname zig-computer
 
