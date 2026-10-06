@@ -51,3 +51,13 @@ esac
 if [ -e "$HOME/.agents/agents/AGENTS.md" ]; then
   export AGENTS_ROOT="$(readlink -f "$HOME/.agents" 2>/dev/null)/agents"
 fi
+
+# MULTIOS OFF IN AGENT SHELLS (harnessd-2n838, 2026-10-05). Claude Code's Bash
+# tool runs `zsh -c`, which sources this file and nothing else of ours. With
+# MULTIOS on (zsh's default), a glob in a redirect expands and EVERY match is
+# opened for writing: a subagent's `echo ---- display of details > *` in
+# ~/harnessd truncated CLAUDE.md, Makefile and README.md to 0 bytes (it stopped
+# only at the first directory). bash refuses that line ("ambiguous redirect").
+# With NO_MULTIOS the files survive. Scoped to agent shells by CLAUDECODE, so an
+# interactive shell keeps MULTIOS. Cheap: one test, no forks.
+[[ -n "${CLAUDECODE-}" ]] && setopt NO_MULTIOS
