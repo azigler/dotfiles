@@ -23,7 +23,7 @@ The script installs a deliberately low-cost apt set and installs `frida-tools` i
 
 The script **does not** install Ghidra, angr, Qiling, qemu, AFL++, or any emulator. Choose those tools for a tier when a target needs them. This separate installation avoids a speculative 400 MB dependency.
 
-Run `re.setup.sh` again to upgrade this tier. There is no `re.upgrade.sh`. Repository rule 6 separates upgrades, downloaded resources, and setup. This script sets up one apt set and one venv. It also upgrades them in place.
+Run `re.setup.sh` again to upgrade this tier. There is no `re.upgrade.sh`. Repository rule 6 says upgrade ≠ vendor ≠ provision. This script provisions the tier. It upgrades in place because the tier is one apt set and one venv.
 
 ## Link the configs
 
@@ -33,16 +33,18 @@ Run `re.setup.sh` again to upgrade this tier. There is no `re.upgrade.sh`. Repos
 ./sync.sh frida
 ```
 
-Read the destinations in the `sync()` case statement in `sync.sh`. That statement is the source for this information.
+Read the destinations in the `sync()` case statement in `sync.sh` rather than trusting a table in this file.
 
 | Directory | What it is |
 |---|---|
 | `gdb/` | `.gdbinit` is a commented stub. The stock gdb here supports **x86-64 only**. |
 | `radare2/` | `radare2rc` is a commented stub. Scripted `r2 -q -c` runs read it too. |
-| `frida/agents/` | Contains scripts that instrument programs. Existing `__handlers__` files can become stale. |
+| `frida/agents/` | Frida agents instrument programs. Existing `__handlers__` files can become stale. |
 
 Ghidra has no settings directory here. `dotfiles-vpae` removed it on 2026-08-16. When you install Ghidra, run `mkdir ~/ghidra_scripts`. Find the full headless guidance in the agent tier's cleanroom tool-shelf through `~/.agents`.
 
 ## Why every config here is an inert stub
 
-No one has used these tools on this box. Most are not installed. The tools read their settings files every time they run, including unattended runs. An untested setting can change the output that a script reads. The script can still report success. Therefore, each file contains only comments about its intended settings and one important limit. Uncomment a line only after you see it work on this box.
+No one has used these tools on this box. Most are not installed. A config file full of untested settings is worse than an empty one. The tools read their config files every time they run, including unattended runs.
+
+An untested setting can change the output format that a script reads. The script can still report success. Therefore, each file contains only comments about its intended settings and the one gotcha that matters. Uncomment a line only after you see it work on this box.
