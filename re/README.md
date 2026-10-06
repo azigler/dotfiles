@@ -1,45 +1,29 @@
 # re/ — the opt-in reverse-engineering tier
 
-Scaffolding for `/cleanroom` (oracle-driven clean-room reverse engineering).
-This directory holds no config of its own; it is the index for a tier that is
-spread across several tool directories, and the note explaining why the tier is
-opt-in.
+This directory supports `/cleanroom` (oracle-driven clean-room reverse engineering). It has no settings files of its own. It indexes a tier that spans several tool directories. It also explains why you must choose to install this tier.
 
 ## ⛔ The inventory is NOT here
 
-Which tools exist, at which versions, with which gotchas, and which are
-**absent** — all of that lives in exactly one file:
+Find the installed tools, their versions, their limits, and the **absent** tools in one file:
 
     agents/skills/cleanroom/reference/tool-shelf.md
 
-It is empirically verified (zig-computer, 2026-08-07) and it is a snapshot, so
-re-verify before depending on a fact. **Do not copy any of it into this repo.**
-A second copy of a fast-moving fact is a copy that rots, and the rotted one is
-indistinguishable from the fresh one at the point of use.
+The file records checks on zig-computer from 2026-08-07. It is a snapshot. Check a fact again before you rely on it. **Do not copy its contents into this repository.** Tool facts can change quickly. An old copy can look current when you use it.
 
 ## Install
 
-Opt-in, never part of baseline provisioning:
+Choose to install this tier separately. The baseline setup does not install it:
 
 ```bash
 bash re.setup.sh --dry-run     # print the plan, touch nothing
 bash re.setup.sh               # install; idempotent, safe to re-run
 ```
 
-It installs a deliberately cheap apt set plus `frida-tools` into `~/.venvs/re`
-(PEP 668 blocks a bare `pip install` on this box). It prints
-`RE_SETUP_RESULT=<verdict>` on every terminal path — a caller must treat exit 0
-without that marker as failure.
+The script installs a deliberately low-cost apt set and installs `frida-tools` into `~/.venvs/re`. PEP 668 blocks a bare `pip install` on this box. The script prints `RE_SETUP_RESULT=<verdict>` on every terminal path. A caller must treat exit `0` without that marker as failure.
 
-It **does not** install Ghidra, angr, Qiling, qemu, AFL++, or any emulator.
-Those are per-tier decisions, made when a target actually demands one. The
-whole point of the opt-in split is that we never carry a 400 MB dependency we
-adopted speculatively.
+The script **does not** install Ghidra, angr, Qiling, qemu, AFL++, or any emulator. Choose those tools for a tier when a target needs them. This separate installation avoids a speculative 400 MB dependency.
 
-Re-running `re.setup.sh` is also this tier's upgrade path; there is no
-`re.upgrade.sh` (repo rule 6: upgrade ≠ vendor ≠ provision — this script is
-provision, and it upgrades in place because the tier is one apt set and one
-venv).
+Run `re.setup.sh` again to upgrade this tier. There is no `re.upgrade.sh`. Repository rule 6 separates upgrades, downloaded resources, and setup. This script sets up one apt set and one venv. It also upgrades them in place.
 
 ## Link the configs
 
@@ -49,25 +33,16 @@ venv).
 ./sync.sh frida
 ```
 
-Destinations are declared in `sync.sh`'s `sync()` case statement — read them
-there rather than trusting a table in this file.
+Read the destinations in the `sync()` case statement in `sync.sh`. That statement is the source for this information.
 
 | Directory | What it is |
 |---|---|
-| `gdb/` | `.gdbinit` — commented stub; the one live gotcha is that stock gdb here is **x86-64 only** |
-| `radare2/` | `radare2rc` — commented stub; it is read by scripted `r2 -q -c` runs too |
-| `frida/agents/` | instrumentation agents; the `__handlers__` staleness trap |
+| `gdb/` | `.gdbinit` is a commented stub. The stock gdb here supports **x86-64 only**. |
+| `radare2/` | `radare2rc` is a commented stub. Scripted `r2 -q -c` runs read it too. |
+| `frida/agents/` | Contains scripts that instrument programs. Existing `__handlers__` files can become stale. |
 
-Ghidra has no config dir here (dropped 2026-08-16, `dotfiles-vpae`): on an
-actual install, `mkdir ~/ghidra_scripts` — the full headless guidance lives
-in the agent tier's cleanroom tool-shelf, reached through `~/.agents`.
+Ghidra has no settings directory here. `dotfiles-vpae` removed it on 2026-08-16. When you install Ghidra, run `mkdir ~/ghidra_scripts`. Find the full headless guidance in the agent tier's cleanroom tool-shelf through `~/.agents`.
 
 ## Why every config here is an inert stub
 
-None of these tools has been exercised on this box — most are not installed.
-A config file full of untested settings is worse than an empty one: it runs on
-every invocation, including the unattended ones, and a setting that changes
-output format changes what a scripted parse reads **without changing whether it
-succeeds**. So each file ships commented-out, saying what belongs there and
-carrying the one gotcha that matters. Uncomment a line after you have watched
-it work here, not before.
+No one has used these tools on this box. Most are not installed. The tools read their settings files every time they run, including unattended runs. An untested setting can change the output that a script reads. The script can still report success. Therefore, each file contains only comments about its intended settings and one important limit. Uncomment a line only after you see it work on this box.

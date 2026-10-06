@@ -1,41 +1,24 @@
 # frida/agents/
 
-Frida instrumentation scripts. `./sync.sh frida` symlinks `dotfiles/frida/` to
-`$HOME/.config/frida`, so these land at `$HOME/.config/frida/agents/`.
+This directory contains Frida scripts for instrumenting programs. `./sync.sh frida` links `dotfiles/frida/` to `$HOME/.config/frida`. The scripts then appear at `$HOME/.config/frida/agents/`.
 
-**Empty on purpose.** Frida is **not installed** on this box — not the CLI, not
-the Python module, and there is **no `python3-frida` in apt**. PEP 668 blocks a
-bare `pip install` (`/usr/lib/python3.13/EXTERNALLY-MANAGED`), so it lives in
-its own venv: `bash re.setup.sh` creates `~/.venvs/re` and installs
-`frida-tools` there. Nothing is put on `PATH`; invoke `~/.venvs/re/bin/frida`.
+**This directory is empty on purpose.** This box does **not have Frida installed**. It has neither the CLI nor the Python module. Apt has **no `python3-frida`**. PEP 668 blocks a bare `pip install` (`/usr/lib/python3.13/EXTERNALLY-MANAGED`). Therefore, Frida uses its own venv. `bash re.setup.sh` creates `~/.venvs/re` and installs `frida-tools` there. The script adds nothing to `PATH`. Run `~/.venvs/re/bin/frida` directly.
 
-Full inventory — versions, flags, what else is absent — in one place only:
+Find the full inventory, including versions, flags, and absent tools, in one place:
 
     agents/skills/cleanroom/reference/tool-shelf.md
 
 ## The two things to know before you write a script here
 
-**1. `__handlers__` is stale by default — this is the trap.** `frida-trace`
-generates one editable JavaScript handler stub per matched function into
-`__handlers__/<module>/<function>.js` (e.g. `__handlers__/libc.so.6/statx.js`),
-each exporting `onEnter(log, args, state)` / `onLeave(log, retval, state)`, and
-auto-reloads each file as you save it.
+**1. `__handlers__` is stale by default.** `frida-trace` creates one editable JavaScript handler stub for each matched function. It writes each stub to `__handlers__/<module>/<function>.js`, such as `__handlers__/libc.so.6/statx.js`. Each stub exports `onEnter(log, args, state)` and `onLeave(log, retval, state)`. `frida-trace` reloads a file automatically when you save it.
 
-⚠️ **It REUSES an existing handler file rather than regenerating it.** Change
-your template, re-run, and you silently keep running the old handlers — the run
-succeeds, the trace is wrong, and nothing says so. **Delete `__handlers__`**
-after any template change.
+⚠️ **`frida-trace` reuses an existing handler file instead of regenerating it.** If you change the template and run the tool again, it still uses the old handlers. The run succeeds, but the trace is wrong. The tool gives no warning. **Delete `__handlers__`** after each template change.
 
-The agent-friendly lever that avoids the whole problem: `-P '{"json":true}'`
-passes parameters into handlers without editing them at all. (`-S` seeds
-`state`.) Note that `-i` / `-I` / `-a` include-exclude flags are **procedural —
-order counts.**
+Use `-P '{"json":true}'` to pass parameters to handlers without editing them. This avoids stale handler files. The `-S` flag seeds `state`. The `-i`, `-I`, and `-a` include-exclude flags act in order. **Their order matters.**
 
-Generated `__handlers__/` trees are scratch. Never commit one here.
+Treat generated `__handlers__/` trees as temporary files. Never commit one here.
 
-**2. The Python bindings, not the REPL, are the agent-drivable form.** The
-`frida` REPL and `frida-trace` are interactive/streaming by nature. Unattended
-work uses the bindings:
+**2. Use the Python bindings for agent-driven work.** The `frida` REPL and `frida-trace` are interactive and stream output. Use the bindings for unattended work:
 
 ```python
 session = frida.attach("target")
@@ -44,11 +27,6 @@ script.on('message', handler)
 script.load()
 ```
 
-A `.js` agent in this directory is the payload; a small Python driver loads it,
-collects `message` events, and writes JSON the caller reads back — the same
-script-writes-JSON pattern the (since-dropped) Ghidra scripts used, for the
-same reason (`dotfiles-vpae` removed that dir; the pattern rationale lives on
-in `re/README.md`).
+A `.js` agent in this directory is the payload. A small Python driver loads it and collects `message` events. The driver writes JSON for the caller to read. The former Ghidra scripts used the same pattern for the same reason. `dotfiles-vpae` removed that directory. `re/README.md` still explains the pattern.
 
-⚠️ `ptrace_scope=1` here: attaching to a process that is not a descendant needs
-sudo (passwordless on this box). Spawning with `-f` does not.
+⚠️ This box has `ptrace_scope=1`. Use sudo to attach to a process that is not a descendant. Sudo requires no password on this box. Spawning with `-f` does not need sudo.
