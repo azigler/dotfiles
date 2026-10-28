@@ -11,7 +11,7 @@
 # empty; tmux then marks the client utf8=0 and draws every emoji as '__'. A
 # client that sends its own locale keeps it: this only fills a blank. Cheap:
 # one test, no forks.
-[[ -z $LANG ]] && export LANG=C.UTF-8
+[[ -z ${LANG-} ]] && export LANG=C.UTF-8
 
 # Per-host NON-interactive env — the .zshenv-tier twin of the
 # `.$(hostname -s).zsh` hook that .zshrc uses for interactive shells.
