@@ -6,6 +6,13 @@
 # without rustup.
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
 
+# An EMPTY LANG becomes C.UTF-8 (dotfiles-2y8lw, helium-5sm9; Zig approved
+# 2026-10-28). Tailscale SSH starts the shell without PAM, so LANG arrives
+# empty; tmux then marks the client utf8=0 and draws every emoji as '__'. A
+# client that sends its own locale keeps it: this only fills a blank. Cheap:
+# one test, no forks.
+[[ -z $LANG ]] && export LANG=C.UTF-8
+
 # Per-host NON-interactive env — the .zshenv-tier twin of the
 # `.$(hostname -s).zsh` hook that .zshrc uses for interactive shells.
 # ${HOST%%.*} rather than $(hostname -s): this file runs on every single zsh
