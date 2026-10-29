@@ -1,0 +1,7 @@
+# zig-computer — per-host NON-interactive env for BASH, sourced by bash/.bash_profile.
+# The bash twin of zsh/.zig-computer.zshenv (dotfiles-69tnl, Zig 2026-10-28: "Yes,
+# bash too"). Without it, a Claude launched from a bash login shell (bash -lc, a
+# systemd unit's bash, an agent's bash) silently loses ANTHROPIC_BASE_URL and talks
+# to the API directly, outside the gateway's request log. Keep the value identical
+# to the zsh file: bash/test-bashenv.sh asserts they match.
+export ANTHROPIC_BASE_URL="http://127.0.0.1:17017/claude"
