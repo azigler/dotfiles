@@ -44,12 +44,6 @@ antigen bundle zsh-users/zsh-syntax-highlighting
 
 antigen apply
 
-# Load the user aliases LAST among the alias sources, after `antigen apply`, so an
-# oh-my-zsh or antigen plugin alias (ls, ll, la, grep, mkdir, ...) cannot shadow
-# them (dotfiles-bqz4). Sourced earlier, the plugins won and every ls-family alias
-# in .bash_aliases was dead in zsh.
-[[ ! -f "$HOME/.bash_aliases" ]] || source "$HOME/.bash_aliases"
-
 # Reclaim `tmux` for the real binary. The oh-my-zsh `tmux` bundle aliases
 # `tmux` -> _zsh_tmux_plugin_run, which names a session after the $PWD
 # basename and auto-attaches/creates it (ZSH_TMUX_AUTOCONNECT=true). A bare
@@ -62,6 +56,12 @@ antigen apply
 # .bash_aliases defines no `tmux` alias, so load order alone does not clear it.
 unalias tmux 2>/dev/null
 alias tmuxa='_zsh_tmux_plugin_run'
+
+# Load the user aliases LAST among the alias sources, after `antigen apply`, so an
+# oh-my-zsh or antigen plugin alias (ls, ll, la, grep, mkdir, ...) cannot shadow
+# them (dotfiles-bqz4). Sourced earlier, the plugins won and every ls-family alias
+# in .bash_aliases was dead in zsh.
+[[ ! -f "$HOME/.bash_aliases" ]] || source "$HOME/.bash_aliases"
 
 # p10k (and its gitstatus daemon) only when stdout is a tty: a script's `zsh -ic`
 # otherwise prints a red gitstatus ERROR and extra lines to stderr (dotfiles-oivj).

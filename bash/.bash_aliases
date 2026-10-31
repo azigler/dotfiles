@@ -47,7 +47,9 @@ up ()
 }
 
 # ls command aliases
-alias ls="ls -aFh --color=always"
+# Interactive tty only (dotfiles-bqz4 review): an agent shell snapshot copies
+# every alias, and colour codes or -i prompts break piped output and no-tty copies.
+[[ $- == *i* && -t 0 ]] && alias ls="ls -aFh --color=always"
 alias la='ls -Alh' # show hidden files
 alias lx='ls -lXBh' # sort by extension
 alias lk='ls -lSrh' # sort by size
@@ -88,8 +90,8 @@ ftext ()
 alias dir="ls -C --escape"
 alias vdir="ls -l --escape"
 alias grep="grep --color=auto"
-alias cp='cp -i'
-alias mv='mv -i'
+[[ $- == *i* && -t 0 ]] && alias cp='cp -i'
+[[ $- == *i* && -t 0 ]] && alias mv='mv -i'
 [[ -o interactive && -t 0 ]] && alias rm='rm -Iv'
 alias mkdir='mkdir -p'
 alias psf='ps auxf'
