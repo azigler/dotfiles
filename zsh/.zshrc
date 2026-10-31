@@ -100,3 +100,7 @@ export PATH="$HOME/.local/bin:$PATH"
 # ~/.zshrc.local — never in this tracked file, so a clone stays fast-forwardable on
 # every box (dotfiles-ph1m: pico carried 8 staged local mods for 3 months).
 [[ -f "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"
+
+# Added by flyctl installer
+export FLYCTL_INSTALL="/home/ubuntu/.fly"
+export PATH="$FLYCTL_INSTALL/bin:$PATH"
