@@ -5,7 +5,8 @@ fi
 
 source "$HOME/.local/share/tmux/start.sh"
 
-[[ ! -f "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]] || source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
+# Instant prompt is a tty feature: skip it when stdout is not a tty (dotfiles-oivj).
+[[ ! -t 1 || ! -f "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]] || source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
 
 [[ ! -f "$HOME/.$(hostname -s).zsh" ]] || source "$HOME/.$(hostname -s).zsh"
 
@@ -62,7 +63,9 @@ antigen apply
 unalias tmux 2>/dev/null
 alias tmuxa='_zsh_tmux_plugin_run'
 
-[[ ! -f "$HOME/.p10k.zsh" ]] || source "$HOME/.p10k.zsh"
+# p10k (and its gitstatus daemon) only when stdout is a tty: a script's `zsh -ic`
+# otherwise prints a red gitstatus ERROR and extra lines to stderr (dotfiles-oivj).
+[[ ! -t 1 || ! -f "$HOME/.p10k.zsh" ]] || source "$HOME/.p10k.zsh"
 
 unsetopt correct_all
 unsetopt correct
