@@ -9,8 +9,6 @@ source "$HOME/.local/share/tmux/start.sh"
 
 [[ ! -f "$HOME/.$(hostname -s).zsh" ]] || source "$HOME/.$(hostname -s).zsh"
 
-[[ ! -f "$HOME/.bash_aliases" ]] || source "$HOME/.bash_aliases"
-
 [[ ! -f "$HOME/.bun/_bun" ]] || source "$HOME/.bun/_bun"
 fpath+="$HOME/.bun"
 
@@ -45,6 +43,12 @@ antigen bundle zsh-users/zsh-syntax-highlighting
 
 antigen apply
 
+# Load the user aliases LAST among the alias sources, after `antigen apply`, so an
+# oh-my-zsh or antigen plugin alias (ls, ll, la, grep, mkdir, ...) cannot shadow
+# them (dotfiles-bqz4). Sourced earlier, the plugins won and every ls-family alias
+# in .bash_aliases was dead in zsh.
+[[ ! -f "$HOME/.bash_aliases" ]] || source "$HOME/.bash_aliases"
+
 # Reclaim `tmux` for the real binary. The oh-my-zsh `tmux` bundle aliases
 # `tmux` -> _zsh_tmux_plugin_run, which names a session after the $PWD
 # basename and auto-attaches/creates it (ZSH_TMUX_AUTOCONNECT=true). A bare
@@ -53,7 +57,8 @@ antigen apply
 # -> runaway session/RAM leak — Hermes itself is retired, 2026-08-08,
 # `dotfiles-j4ps`, but the tmux-hijack risk this guards against is generic
 # to any broker that shells out bare `tmux`). Anything wanting the wrapper
-# calls `tmuxa`.
+# calls `tmuxa`. Still needed after the .bash_aliases move (dotfiles-bqz4):
+# .bash_aliases defines no `tmux` alias, so load order alone does not clear it.
 unalias tmux 2>/dev/null
 alias tmuxa='_zsh_tmux_plugin_run'
 
