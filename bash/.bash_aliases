@@ -262,9 +262,19 @@ unset -f _harness_alias
 # until the cc-gw/cc-direct/cc-route toggle was retired on 2026-07-28. Its
 # successor is gateway-switch's read-only status verb, so the muscle memory
 # keeps working and reads the real switch. ccr is the short form.
+# READ-ONLY by construction: gateway-switch lets a later verb override an
+# earlier one, so only its two read flags pass through, and anything else
+# (an `off`/`on`, a typo) is refused rather than forwarded.
 cc-route() {
-  local gs="$HOME/.agents/agents/scheduler/gateway-switch.sh"
-  if [ -x "$gs" ] || [ -f "$gs" ]; then bash "$gs" status "$@"
+  local gs="$HOME/.agents/agents/scheduler/gateway-switch.sh" a prev=""
+  for a in "$@"; do
+    case "$a" in
+      status|--check-request|--host|--host=*) ;;
+      *) [ "$prev" = --host ] || { echo "cc-route: read-only; '$a' is not passed to gateway-switch (use gateway-switch.sh itself to change routing)" >&2; return 2; } ;;
+    esac
+    prev=$a
+  done
+  if [ -f "$gs" ]; then bash "$gs" status "$@"
   else echo "cc-route: gateway-switch.sh is not on this host ($gs)" >&2; return 1; fi
 }
 alias ccr='cc-route'
