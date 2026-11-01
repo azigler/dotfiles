@@ -247,3 +247,24 @@ alias ssh-pico='ssh pico@$(tailscale ip -4 pico 2>/dev/null || echo pico)'
 # "goose"; the omni MCP header (~/.config/goose/config.yaml) carries the same key for
 # tool scoping. Usage: goose-gw run -t "..."
 alias goose-gw='OPENAI_API_KEY="$GATEWAY_GOOSE_KEY" OPENAI_HOST=http://pico:15003 goose'
+
+# --- harness verbs (dotfiles-xl91, Zig 2026-11-01 "Ship as proposed") ---
+# Short forms for the heaviest verbs in shell history (bv 171, lazygit 64, br 24).
+# An existing alias or command of the same name WINS: each is defined only when
+# the name is free, so a host's own alias is never clobbered by this file.
+_harness_alias() { alias "$1" >/dev/null 2>&1 || command -v "$1" >/dev/null 2>&1 || alias "$1=$2"; }
+_harness_alias lg  'lazygit'
+_harness_alias bvt 'bv --robot-triage'
+_harness_alias brd 'br ready'
+_harness_alias brv 'br show'
+unset -f _harness_alias
+# cc-route showed the Claude routing (gateway vs direct) without changing it,
+# until the cc-gw/cc-direct/cc-route toggle was retired on 2026-07-28. Its
+# successor is gateway-switch's read-only status verb, so the muscle memory
+# keeps working and reads the real switch. ccr is the short form.
+cc-route() {
+  local gs="$HOME/.agents/agents/scheduler/gateway-switch.sh"
+  if [ -x "$gs" ] || [ -f "$gs" ]; then bash "$gs" status "$@"
+  else echo "cc-route: gateway-switch.sh is not on this host ($gs)" >&2; return 1; fi
+}
+alias ccr='cc-route'
