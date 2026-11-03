@@ -173,12 +173,12 @@ fi
 # ssh to the box). Guarded, so this is a no-op on any machine without the
 # file — which is why it costs upstream nothing to keep.
 #
-# Contract: $HOME/.servers.bash_aliases is NOT synced or created by sync.sh —
-# there is no "servers" case for it. It is a plain, manually-created file (or
-# a manually-made symlink to a gitignored `bash/.servers.bash_aliases` in this
-# repo, matched by the bare `.servers.bash_aliases` entry in .gitignore, if you
-# want it repo-adjacent). Create it by hand on any box that wants server
-# aliases; a box without one just skips this block (dotfiles-np0b removed a
+# Contract: `bash/.servers.bash_aliases` is TRACKED in this repo since 2026-11-03
+# (dotfiles-glhe, Zig: track it, read the address from ~/.secrets). It holds no
+# address: it expands $ZIG_COMPUTER_IP, which ~/.secrets exports, so ~/.secrets
+# must be sourced first (the block above). sync.sh still does not link it: on a
+# box that wants server aliases, symlink $HOME/.servers.bash_aliases to it by
+# hand. A box without the link just skips this block (dotfiles-np0b removed a
 # dangling leftover symlink here that pointed at a target which had never
 # actually been created on this machine).
 #
