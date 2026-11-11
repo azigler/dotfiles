@@ -2,7 +2,8 @@
 #
 # re.setup.sh — the OPT-IN reverse-engineering / instrumentation tier.
 #
-#   bash re.setup.sh --dry-run    # print the plan, touch nothing
+#   bash re.setup.sh --check      # print live package state, touch nothing
+#   bash re.setup.sh --dry-run    # print the install plan, touch nothing
 #   bash re.setup.sh              # install (idempotent; safe to re-run)
 #
 # WHY THIS IS A SEPARATE SCRIPT AND NOT A LINE IN ubuntu.setup.sh
@@ -33,6 +34,7 @@
 # without that marker as FAILURE.
 #
 #   RE_SETUP_RESULT=ok:apt=<n>/<t>:venv=ok          everything verified present
+#   RE_SETUP_RESULT=check:apt=<n>/<t>:venv=<s>     --check; live state only
 #   RE_SETUP_RESULT=dry-run                         --dry-run; nothing touched
 #   RE_SETUP_RESULT=partial:apt=<n>/<t>:venv=<s>    something did not verify
 #   RE_SETUP_RESULT=failed-unsupported:<why>        wrong OS / no apt / no uv
@@ -47,15 +49,23 @@ VENV="${RE_VENV:-$HOME/.venvs/re}"
 
 # From tool-shelf.md's "Installing for a real run". Cheapest-first, and
 # deliberately excluding anything heavyweight.
-APT_PKGS=(
-    binwalk            # tier 0 — carve unknown blobs/firmware
-    radare2            # tier 1 — the cheapest way to close the static tier
-    python3-capstone   # tier 1 — disassembly from Python
-    python3-unicorn    # tier 3 — isolated CPU execution
-    gdb-multiarch      # tier 2 — stock gdb here is x86-64 ONLY
-    ltrace             # tier 2 — library-call trace (upstream is stale)
-    python3-hypothesis # tier 4 — cheapest property-testing win
+APT_ITEMS=(
+    '0:binwalk'            # carve unknown blobs/firmware
+    '1:radare2'            # cheapest static structure tool
+    '1:python3-capstone'   # disassembly from Python
+    '3:python3-unicorn'    # isolated CPU execution
+    '2:gdb-multiarch'      # stock gdb here is x86-64 ONLY
+    '2:ltrace'             # library-call trace (upstream is stale)
+    '4:python3-hypothesis' # property testing
 )
+APT_PKGS=()
+APT_TIERS=()
+for item in "${APT_ITEMS[@]}"; do
+    APT_TIERS+=("${item%%:*}")
+    APT_PKGS+=("${item#*:}")
+done
+VENV_PKG=frida-tools
+VENV_TIER=2
 
 VERDICT_EMITTED=0
 verdict() {
@@ -81,13 +91,68 @@ pkg_installed() { dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q 'ok in
 
 # --- args ------------------------------------------------------------------
 DRY_RUN=0
+CHECK=0
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=1 ;;
+        --check) CHECK=1 ;;
         -h|--help) sed -n '2,30p' "$0"; finish dry-run 0 ;;
         *) printf 'unknown argument: %s\n' "$arg" >&2; finish failed-usage 64 ;;
     esac
 done
+[ "$DRY_RUN" -eq 1 ] && [ "$CHECK" -eq 1 ] && finish failed-usage 64
+
+# --- live inventory (read only) -------------------------------------------
+if [ "$CHECK" -eq 1 ]; then
+    command -v dpkg-query >/dev/null || finish failed-unexpected:rc=1 1
+    printf 'Tier | Name | State\n'
+    printf '%s\n' '---|---|---'
+    APT_OK=0
+    for i in "${!APT_PKGS[@]}"; do
+        p=${APT_PKGS[$i]}
+        if record=$(LC_ALL=C dpkg-query -W -f='${Status}\t${Version}' "$p" 2>&1); then
+            :
+        else
+            rc=$?
+            if [ "$rc" -ne 1 ] || [ "$record" != "dpkg-query: no packages found matching $p" ]; then
+                printf '%s\n' "$record" >&2
+                finish "failed-unexpected:rc=$rc" "$rc"
+            fi
+            record=''
+        fi
+        if [[ "$record" == "install ok installed"$'\t'* ]]; then
+            version=${record#*$'\t'}
+            printf '%s | %s | installed %s\n' "${APT_TIERS[$i]}" "$p" "$version"
+            APT_OK=$((APT_OK + 1))
+        else
+            printf '%s | %s | missing (install: sudo apt-get install %s)\n' "${APT_TIERS[$i]}" "$p" "$p"
+        fi
+    done
+    VENV_STATE=missing
+    if [ -x "$VENV/bin/python" ]; then
+        version=$("$VENV/bin/python" -B -c '
+import importlib.metadata as metadata
+import sys
+
+try:
+    print(metadata.version(sys.argv[1]))
+except metadata.PackageNotFoundError:
+    sys.exit(1)
+' "$VENV_PKG")
+        rc=$?
+        if [ "$rc" -eq 0 ]; then
+            printf '%s | %s | installed %s\n' "$VENV_TIER" "$VENV_PKG" "$version"
+            VENV_STATE=ok
+        elif [ "$rc" -eq 1 ]; then
+            printf '%s | %s | missing (install: uv pip install --python %s/bin/python %s)\n' "$VENV_TIER" "$VENV_PKG" "$VENV" "$VENV_PKG"
+        else
+            finish "failed-unexpected:rc=$rc" "$rc"
+        fi
+    else
+        printf '%s | %s | missing (install: uv venv %s; uv pip install --python %s/bin/python %s)\n' "$VENV_TIER" "$VENV_PKG" "$VENV" "$VENV" "$VENV_PKG"
+    fi
+    finish "check:apt=$APT_OK/${#APT_PKGS[@]}:venv=$VENV_STATE" 0
+fi
 
 # --- preflight -------------------------------------------------------------
 section "Preflight"
@@ -115,7 +180,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
     section "Dry run — nothing was installed"
     note "would apt-get install: ${MISSING[*]:-<none, all present>}"
     note "would create venv:     $VENV"
-    note "would install into it: frida-tools (upgrade if present)"
+    note "would install into it: $VENV_PKG (upgrade if present)"
     finish dry-run 0
 fi
 
@@ -145,7 +210,7 @@ note "verified $APT_OK/${#APT_PKGS[@]} packages installed"
 # NOTE: `uv venv` does NOT put a `uv` binary inside the venv (verified,
 # uv 0.11.32) — so `$VENV/bin/uv pip install ...` cannot work. Drive the venv
 # from the OUTER uv with `--python`.
-section "frida-tools venv"
+section "$VENV_PKG venv"
 VENV_STATE=failed
 if [ ! -x "$VENV/bin/python" ]; then
     "$UV" venv "$VENV" || finish "partial:apt=$APT_OK/${#APT_PKGS[@]}:venv=failed-create" 1
@@ -153,7 +218,7 @@ else
     note "venv already exists"
 fi
 
-if "$UV" pip install --python "$VENV/bin/python" --upgrade frida-tools; then
+if "$UV" pip install --python "$VENV/bin/python" --upgrade "$VENV_PKG"; then
     # Verify by importing + running, not by pip's exit code.
     if "$VENV/bin/python" -c 'import frida; print("frida", frida.__version__)'; then
         VENV_STATE=ok
