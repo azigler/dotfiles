@@ -40,7 +40,10 @@ The split makes the agent tier's absence harmless:
 ### Agent config mirror contract
 
 `sync.sh` mirrors the **instruction tier** through `~/.agents`: shared skills
-go to Claude, Codex, Cursor, and Gemini; `agents/AGENTS.md` goes to Claude as
+go to Claude, Codex, Cursor, and Gemini. Codex owns `~/.codex/skills` as a real
+directory; its `shared` link points to the agent tier, and Codex writes its
+bundled skills into `.system/` there (`dotfiles-4qaos`). `agents/AGENTS.md`
+goes to Claude as
 `~/.claude/CLAUDE.md`, to Codex as `~/.codex/AGENTS.md`, and to Gemini as
 `~/.gemini/GEMINI.md`. Cursor receives skills but no shared instruction-file
 link. The Codex probe (`dotfiles-fkxf`) confirmed that Codex reads its
@@ -58,11 +61,8 @@ There is no shared MCP config mirror: each tool needs its own MCP schema and
 configuration. The `~/.cursor/hooks` and `~/.gemini/hooks` links point to the
 same `~/.agents/agents/hooks` directory as Claude's link. Those scripts are
 written for the Claude runtime; the filesystem links do not register or make
-them compatible with Cursor or Gemini hooks. The read-only demesne checker
-`~/.agents/agents/bin/vendor-link-check.sh` checks that each link created for
-these vendor directories resolves. Demesne's `agents/hooks/session-start.sh`
-runs it at SessionStart, after the qvee guard; it skips a vendor directory
-that is absent on the box.
+them compatible with Cursor or Gemini hooks. An installed agent tier may check
+that these links resolve.
 
 To install an agent tier, give its repository to `bootstrap-agents.sh`. You must provide this input. This repository does not hardcode it:
 

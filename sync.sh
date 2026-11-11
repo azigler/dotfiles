@@ -2,6 +2,7 @@
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "$(pwd)/${BASH_SOURCE[0]}")")" && pwd)"
 BACKUP_DIR="$SCRIPT_DIR/.backup/$(date +%Y%m%d%H%M%S)"
+SYNC_FAILURES=0
 cd $SCRIPT_DIR
 
 # THE AGENT TIER IS NOT IN THIS REPO. This is the public tier — program
@@ -46,7 +47,13 @@ sync_source() {
     local sync_to=$2
     if [ ! -e "$sync_from" ]; then
         echo "❌ Error: $sync_from does not exist"
-        return
+        SYNC_FAILURES=$((SYNC_FAILURES + 1))
+        return 1
+    fi
+    # A link already pointing at this source needs no backup or replacement.
+    if [ -L "$sync_to" ] && [ -e "$sync_to" ] &&
+       [ "$(realpath "$sync_to")" = "$(realpath "$sync_from")" ]; then
+        return 0
     fi
     echo "🗄️ Synchronizing $sync_from to $sync_to..."
     back_up_and_remove "$sync_to"
@@ -218,7 +225,15 @@ sync() {
                 fi
                 [ -n "$CODEX_MIGRATE_TMP" ] && rm -f "$CODEX_MIGRATE_TMP"
             fi
-            sync_agent_source "$AGENT_BRAIN/agents/skills" "$HOME/.codex/skills"
+            # Codex owns this directory and writes .system/ into it
+            # (dotfiles-4qaos). Remove only the old directory symlink.
+            if [ "$HAS_AGENT_TIER" -eq 1 ]; then
+                if [ -L "$HOME/.codex/skills" ]; then
+                    rm -- "$HOME/.codex/skills" || exit 1
+                fi
+                mkdir -p -- "$HOME/.codex/skills" || exit 1
+            fi
+            sync_agent_source "$AGENT_BRAIN/agents/skills" "$HOME/.codex/skills/shared"
             sync_agent_source "$AGENT_BRAIN/agents/AGENTS.md" "$HOME/.codex/AGENTS.md"
             ;;
         "copilot")
@@ -393,4 +408,8 @@ else
     # gemini — all of which still have a directory here) kept working.
     # No-op when no tier is installed; sync_agent_source sees to that.
     sync claude
+fi
+if [ "$SYNC_FAILURES" -gt 0 ]; then
+    echo "❌ Error: $SYNC_FAILURES link source(s) missing"
+    exit 1
 fi
