@@ -8,6 +8,7 @@
 
 - [Background](#background)
 - [Two tiers](#two-tiers)
+  - [Agent config mirror contract](#agent-config-mirror-contract)
 - [Usage](#usage)
   - [Three jobs, three scripts](#three-jobs-three-scripts)
   - [Extension lists are additive](#extension-lists-are-additive)
@@ -35,6 +36,33 @@ The split makes the agent tier's absence harmless:
 | `./sync.sh` | links settings **and** connects `~/.claude`, `~/.codex`, `~/.cursor`, `~/.gemini` | links settings; agent-tier lines do nothing and print nothing |
 | shell startup | exports `AGENTS_ROOT`; gives `claude` the session-identity wrapper | leaves `AGENTS_ROOT` unset; runs plain `claude` with one warning line |
 | `prefix W` in tmux | opens the agent roster | keeps the binding, but has no target |
+
+### Agent config mirror contract
+
+`sync.sh` mirrors the **instruction tier** through `~/.agents`: shared skills
+go to Claude, Codex, Cursor, and Gemini; `agents/AGENTS.md` goes to Claude as
+`~/.claude/CLAUDE.md`, to Codex as `~/.codex/AGENTS.md`, and to Gemini as
+`~/.gemini/GEMINI.md`. Cursor receives skills but no shared instruction-file
+link. The Codex probe (`dotfiles-fkxf`) confirmed that Codex reads its
+`AGENTS.md` and skills natively. It found Codex gateway identity can be set
+with `base_url` and `env_http_headers`; that does not make the other tools
+consume Codex configuration.
+
+| Tool | Config linked by `sync.sh` | Boundary |
+|---|---|---|
+| Codex | `codex/managed_config.toml` to `/etc/codex/config.toml` (when passwordless sudo is available) | This is a system default. `~/.codex/config.toml` is Codex's writable user file; user values override system values. A one-time migration removes old tracked policy keys from that user file. |
+| Cursor | `cursor/cli-config.json` and `cursor/hooks.json` to `~/.cursor/` | CLI settings are Cursor-specific. The tracked `hooks.json` has an empty `hooks` map. |
+| Gemini | `gemini/settings.json` to `~/.gemini/settings.json` | It enables hook configuration but defines no hook commands. |
+
+There is no shared MCP config mirror: each tool needs its own MCP schema and
+configuration. The `~/.cursor/hooks` and `~/.gemini/hooks` links point to the
+same `~/.agents/agents/hooks` directory as Claude's link. Those scripts are
+written for the Claude runtime; the filesystem links do not register or make
+them compatible with Cursor or Gemini hooks. The read-only demesne checker
+`~/.agents/agents/bin/vendor-link-check.sh` checks that each link created for
+these vendor directories resolves. Demesne's `agents/hooks/session-start.sh`
+runs it at SessionStart, after the qvee guard; it skips a vendor directory
+that is absent on the box.
 
 To install an agent tier, give its repository to `bootstrap-agents.sh`. You must provide this input. This repository does not hardcode it:
 

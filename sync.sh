@@ -50,6 +50,11 @@ sync_source() {
     fi
     echo "🗄️ Synchronizing $sync_from to $sync_to..."
     back_up_and_remove "$sync_to"
+    # A dangling symlink is not -e, so the backup step leaves it in place.
+    # Remove only that stale link before creating the new one.
+    if [ -L "$sync_to" ] && [ ! -e "$sync_to" ]; then
+        rm "$sync_to" || exit 1
+    fi
     mkdir -p "$(dirname "$sync_to")"
     ln -s "$sync_from" "$sync_to"
     if [ $? -ne 0 ]; then
